@@ -1,0 +1,1 @@
+// HLSL shader sources and compilation helper — implemented in Task 2.
