@@ -8,6 +8,11 @@ mod present;
 
 use logging::log_to_file;
 
+/// DLL entry point. Called by Windows when the DLL is loaded/unloaded.
+///
+/// # Safety
+/// This is called by the Windows loader. We spawn a thread for initialization
+/// because the loader lock prevents complex operations in DllMain.
 #[no_mangle]
 pub unsafe extern "system" fn DllMain(
     _hinst: HINSTANCE,
@@ -16,7 +21,12 @@ pub unsafe extern "system" fn DllMain(
 ) -> BOOL {
     match reason {
         x if x == DLL_PROCESS_ATTACH => {
-            log_to_file("omni overlay DLL attached to process");
+            log_to_file("omni overlay DLL attached — spawning init thread");
+            std::thread::spawn(|| {
+                if let Err(e) = unsafe { hook::install_hooks() } {
+                    log_to_file(&format!("FATAL: hook installation failed: {e}"));
+                }
+            });
         }
         x if x == DLL_PROCESS_DETACH => {
             log_to_file("omni overlay DLL detached from process");
