@@ -7,11 +7,18 @@ use windows::core::HRESULT;
 /// Signature for IDXGISwapChain::Present
 pub type PresentFn = unsafe extern "system" fn(*mut c_void, u32, u32) -> HRESULT;
 
+/// Signature for IDXGISwapChain1::Present1
+/// (this: *mut c_void, sync_interval: u32, flags: u32, params: *const c_void) -> HRESULT
+pub type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const c_void) -> HRESULT;
+
 /// Signature for IDXGISwapChain::ResizeBuffers
 pub type ResizeBuffersFn = unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> HRESULT;
 
 /// Original Present function pointer, set by hook.rs during hook installation.
 pub static mut ORIGINAL_PRESENT: Option<PresentFn> = None;
+
+/// Original Present1 function pointer, set by hook.rs during hook installation.
+pub static mut ORIGINAL_PRESENT1: Option<Present1Fn> = None;
 
 /// Original ResizeBuffers function pointer, set by hook.rs during hook installation.
 pub static mut ORIGINAL_RESIZE_BUFFERS: Option<ResizeBuffersFn> = None;
@@ -28,7 +35,7 @@ pub unsafe extern "system" fn hooked_present(
     sync_interval: u32,
     flags: u32,
 ) -> HRESULT {
-    let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
 
     if count % 300 == 0 {
         crate::logging::log_to_file(&format!(
@@ -40,6 +47,32 @@ pub unsafe extern "system" fn hooked_present(
         original(swap_chain, sync_interval, flags)
     } else {
         HRESULT(0) // S_OK fallback
+    }
+}
+
+/// Detour for IDXGISwapChain1::Present1.
+/// Many modern games (especially SDL-based) call Present1 instead of Present.
+///
+/// # Safety
+/// Called by the game's render thread via the minhook trampoline.
+pub unsafe extern "system" fn hooked_present1(
+    swap_chain: *mut c_void,
+    sync_interval: u32,
+    present_flags: u32,
+    present_params: *const c_void,
+) -> HRESULT {
+    let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+
+    if count % 300 == 0 {
+        crate::logging::log_to_file(&format!(
+            "[present1] frame {count}, sync_interval={sync_interval}, flags={present_flags:#010x}"
+        ));
+    }
+
+    if let Some(original) = ORIGINAL_PRESENT1 {
+        original(swap_chain, sync_interval, present_flags, present_params)
+    } else {
+        HRESULT(0)
     }
 }
 
