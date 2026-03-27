@@ -33,6 +33,8 @@ pub struct Scanner {
     dll_path: String,
     /// Application configuration (exclude list, poll interval, etc.).
     config: Config,
+    /// Whether the first poll has run (used to snapshot pre-existing processes).
+    first_poll_done: bool,
 }
 
 impl Scanner {
@@ -41,11 +43,17 @@ impl Scanner {
             injected: HashSet::new(),
             dll_path,
             config,
+            first_poll_done: false,
         }
     }
 
     /// Run one poll cycle: enumerate processes, clean up dead PIDs, and
     /// inject into any new eligible process.
+    ///
+    /// On the **first** poll, all currently-running PIDs are marked as
+    /// pre-existing and skipped.  Only processes that appear in subsequent
+    /// polls are considered for injection.  This prevents injecting into
+    /// system processes, browsers, and other apps that were already running.
     pub fn poll(&mut self) {
         let processes = match enumerate_processes() {
             Ok(p) => p,
@@ -60,6 +68,17 @@ impl Scanner {
 
         // Remove PIDs that are no longer running.
         self.injected.retain(|pid| alive.contains(pid));
+
+        // First poll: snapshot all existing PIDs so we never inject into them.
+        if !self.first_poll_done {
+            let count = alive.len();
+            for &pid in &alive {
+                self.injected.insert(pid);
+            }
+            self.first_poll_done = true;
+            info!(count, "First poll — marked all existing processes as pre-existing");
+            return;
+        }
 
         for entry in &processes {
             let pid = entry.th32ProcessID;
@@ -85,6 +104,13 @@ impl Scanner {
             if excluded {
                 debug!(pid, exe_name, "Skipping excluded process");
                 // Still mark as handled so we don't re-check every cycle.
+                self.injected.insert(pid);
+                continue;
+            }
+
+            // Skip processes running from system directories.
+            if is_system_process(pid) {
+                debug!(pid, exe_name, "Skipping system directory process");
                 self.injected.insert(pid);
                 continue;
             }
@@ -207,6 +233,34 @@ pub fn has_graphics_dll(pid: u32) -> Result<bool, Box<dyn std::error::Error>> {
 
     unsafe { let _ = CloseHandle(snapshot); }
     Ok(false)
+}
+
+/// Returns `true` if the process executable lives in a Windows system directory
+/// (e.g. `C:\Windows\`). These are never games.
+pub fn is_system_process(pid: u32) -> bool {
+    let snapshot = match unsafe {
+        CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+    } {
+        Ok(s) => s,
+        Err(_) => return false, // Can't check — don't assume system
+    };
+
+    let mut entry = MODULEENTRY32W {
+        dwSize: size_of::<MODULEENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    // The first module is always the exe itself.
+    let result = if unsafe { Module32FirstW(snapshot, &mut entry) }.is_ok() {
+        let exe_path = wchar_to_string(&entry.szExePath).to_lowercase();
+        exe_path.starts_with(r"c:\windows\")
+            || exe_path.starts_with(r"c:\program files\windowsapps\")
+    } else {
+        false
+    };
+
+    unsafe { let _ = CloseHandle(snapshot); }
+    result
 }
 
 /// Returns `true` if the given process owns at least one visible top-level window.

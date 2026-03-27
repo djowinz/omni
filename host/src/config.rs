@@ -63,6 +63,45 @@ impl Default for Config {
                 "thunderbird.exe".to_string(),
                 "spotify.exe".to_string(),
                 "zoom.exe".to_string(),
+                // NVIDIA / GPU tools
+                "nvcontainer.exe".to_string(),
+                "nvdisplay.container.exe".to_string(),
+                "nvidia overlay.exe".to_string(),
+                "nvidia share.exe".to_string(),
+                "nvoawrappercache.exe".to_string(),
+                "nvsphelper64.exe".to_string(),
+                "nvspcaps64.exe".to_string(),
+                // AMD
+                "amdow.exe".to_string(),
+                "amddvr.exe".to_string(),
+                "radeonoverlay.exe".to_string(),
+                // Windows shell / UWP
+                "applicationframehost.exe".to_string(),
+                "textinputhost.exe".to_string(),
+                "shellexperiencehost.exe".to_string(),
+                "startmenuexperiencehost.exe".to_string(),
+                "systemsettings.exe".to_string(),
+                "widgets.exe".to_string(),
+                "windowsterminal.exe".to_string(),
+                "lockapp.exe".to_string(),
+                "gamebar.exe".to_string(),
+                "gamebarpresencewriter.exe".to_string(),
+                "gamebarftserver.exe".to_string(),
+                // Game launchers / storefronts
+                "epicgameslauncher.exe".to_string(),
+                "eadesktop.exe".to_string(),
+                "origin.exe".to_string(),
+                "galaxyclient.exe".to_string(),
+                "gogalaxy.exe".to_string(),
+                "upc.exe".to_string(),
+                "battlenet.exe".to_string(),
+                // Overlay / monitoring tools
+                "msiafterburner.exe".to_string(),
+                "rtss.exe".to_string(),
+                "hwinfo64.exe".to_string(),
+                "hwinfo32.exe".to_string(),
+                // Self
+                "omni-host.exe".to_string(),
             ],
         }
     }
