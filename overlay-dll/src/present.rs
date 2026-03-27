@@ -1,60 +1,70 @@
-// Hooked Present/ResizeBuffers — Task 4.
-
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+
 use windows::core::HRESULT;
 
-/// Signature for IDXGISwapChain::Present
+use crate::logging::log_to_file;
+use crate::renderer::OverlayRenderer;
+
 pub type PresentFn = unsafe extern "system" fn(*mut c_void, u32, u32) -> HRESULT;
-
-/// Signature for IDXGISwapChain1::Present1
-/// (this: *mut c_void, sync_interval: u32, flags: u32, params: *const c_void) -> HRESULT
 pub type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const c_void) -> HRESULT;
-
-/// Signature for IDXGISwapChain::ResizeBuffers
 pub type ResizeBuffersFn = unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> HRESULT;
 
-/// Original Present function pointer, set by hook.rs during hook installation.
 pub static mut ORIGINAL_PRESENT: Option<PresentFn> = None;
-
-/// Original Present1 function pointer, set by hook.rs during hook installation.
 pub static mut ORIGINAL_PRESENT1: Option<Present1Fn> = None;
-
-/// Original ResizeBuffers function pointer, set by hook.rs during hook installation.
 pub static mut ORIGINAL_RESIZE_BUFFERS: Option<ResizeBuffersFn> = None;
 
-/// Total number of frames presented since hook installation.
-pub static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// Detour for IDXGISwapChain::Present.
-///
-/// # Safety
-/// Called by the GPU driver — must match the "system" calling convention exactly.
+/// Global renderer, initialized on first Present call.
+static RENDERER_INIT: OnceLock<()> = OnceLock::new();
+static mut RENDERER: Option<OverlayRenderer> = None;
+
+/// Initialize the renderer on the first Present call.
+unsafe fn ensure_renderer(swap_chain: *mut c_void) {
+    RENDERER_INIT.get_or_init(|| {
+        match OverlayRenderer::init(swap_chain) {
+            Ok(r) => {
+                RENDERER = Some(r);
+                log_to_file("[present] renderer initialized on first frame");
+            }
+            Err(e) => {
+                log_to_file(&format!("[present] FATAL: renderer init failed: {e}"));
+            }
+        }
+    });
+}
+
+/// Common rendering logic shared by hooked_present and hooked_present1.
+unsafe fn render_overlay(swap_chain: *mut c_void) {
+    ensure_renderer(swap_chain);
+    if let Some(renderer) = &RENDERER {
+        renderer.render(swap_chain);
+    }
+}
+
 pub unsafe extern "system" fn hooked_present(
     swap_chain: *mut c_void,
     sync_interval: u32,
     flags: u32,
 ) -> HRESULT {
     let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-
     if count % 300 == 0 {
-        crate::logging::log_to_file(&format!(
+        log_to_file(&format!(
             "[present] frame {count}, sync_interval={sync_interval}, flags={flags:#010x}"
         ));
     }
 
+    render_overlay(swap_chain);
+
     if let Some(original) = ORIGINAL_PRESENT {
         original(swap_chain, sync_interval, flags)
     } else {
-        HRESULT(0) // S_OK fallback
+        HRESULT(0)
     }
 }
 
-/// Detour for IDXGISwapChain1::Present1.
-/// Many modern games (especially SDL-based) call Present1 instead of Present.
-///
-/// # Safety
-/// Called by the game's render thread via the minhook trampoline.
 pub unsafe extern "system" fn hooked_present1(
     swap_chain: *mut c_void,
     sync_interval: u32,
@@ -62,12 +72,13 @@ pub unsafe extern "system" fn hooked_present1(
     present_params: *const c_void,
 ) -> HRESULT {
     let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-
     if count % 300 == 0 {
-        crate::logging::log_to_file(&format!(
+        log_to_file(&format!(
             "[present1] frame {count}, sync_interval={sync_interval}, flags={present_flags:#010x}"
         ));
     }
+
+    render_overlay(swap_chain);
 
     if let Some(original) = ORIGINAL_PRESENT1 {
         original(swap_chain, sync_interval, present_flags, present_params)
@@ -76,10 +87,6 @@ pub unsafe extern "system" fn hooked_present1(
     }
 }
 
-/// Detour for IDXGISwapChain::ResizeBuffers.
-///
-/// # Safety
-/// Called by the GPU driver — must match the "system" calling convention exactly.
 pub unsafe extern "system" fn hooked_resize_buffers(
     swap_chain: *mut c_void,
     buffer_count: u32,
@@ -88,14 +95,30 @@ pub unsafe extern "system" fn hooked_resize_buffers(
     new_format: u32,
     swap_chain_flags: u32,
 ) -> HRESULT {
-    crate::logging::log_to_file(&format!(
-        "[resize_buffers] buffer_count={buffer_count}, width={width}, height={height}, \
-         format={new_format}, flags={swap_chain_flags:#010x}"
+    log_to_file(&format!(
+        "[resize_buffers] {width}x{height}, buffers={buffer_count}"
     ));
 
-    if let Some(original) = ORIGINAL_RESIZE_BUFFERS {
+    // Release RTV before resize (holding a reference blocks resize)
+    if let Some(renderer) = &mut RENDERER {
+        renderer.release_rtv();
+    }
+
+    // Call original ResizeBuffers
+    let result = if let Some(original) = ORIGINAL_RESIZE_BUFFERS {
         original(swap_chain, buffer_count, width, height, new_format, swap_chain_flags)
     } else {
-        HRESULT(0) // S_OK fallback
+        HRESULT(0)
+    };
+
+    // Recreate RTV after resize
+    if result.is_ok() {
+        if let Some(renderer) = &mut RENDERER {
+            if let Err(e) = renderer.recreate_rtv(swap_chain) {
+                log_to_file(&format!("[resize_buffers] failed to recreate RTV: {e}"));
+            }
+        }
     }
+
+    result
 }
