@@ -643,7 +643,31 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - Hook `ResizeBuffers` for resize safety
 - **Success**: Text visible on top of the game, no crashes
 
-### Phase 4: Shared Memory IPC + First Sensor
+### Phase 4: Process Lifecycle + Graceful Shutdown
+
+- Process scanner with configurable poll interval
+- Two-tier injection strategy:
+  - **New processes** (appear after host starts): visible window + graphics DLL + not excluded
+  - **Pre-existing processes** (already running): additionally require a known game installation directory match, explicit include list entry, or overlay DLL already loaded
+- Default game directory detection (Steam library folders via `libraryfolders.vdf`, Epic, GOG, Battle.net, Riot, EA, Ubisoft, Xbox)
+- Configurable exclude list (browsers, system processes, GPU tools, launchers, etc.)
+- Configurable include list (user allowlist for games in non-standard directories)
+- `Ctrl+C` handler (`ctrlc` crate + `AtomicBool`) for clean poll loop exit
+- Graceful DLL ejection via exported `omni_shutdown`:
+  - Disables minhook trampolines (restores original vtable)
+  - Drains in-flight hook calls (200ms sleep)
+  - Releases D3D resources (renderer drop)
+  - Atomically unloads DLL via `FreeLibraryAndExitThread`
+- `--stop` command: ejects overlay DLL from all processes, then terminates running host instances
+- Host restart resilience:
+  - After `Ctrl+C` (clean eject): re-injects and re-hooks without crashing the game
+  - After crash/Task Manager kill (DLL still loaded): detects existing DLL via `has_module` and reconnects without double-injection
+- `inject_dll` hard gate: refuses injection if DLL already loaded in target
+- DLL-side `HOOKS_INSTALLED` guard: prevents double-hooking regardless of host behavior
+- Config persistence at `%APPDATA%\Omni\config.json` (exclude, include, game_directories, poll_interval_ms)
+- **Success**: Host can start, stop, crash, and restart without crashing games; overlay persists or reconnects correctly
+
+### Phase 5: Shared Memory IPC + First Sensor
 
 - Named shared memory with double-buffer
 - Named pipe control channel
@@ -652,13 +676,13 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - `tracing` setup with sensor binding ledger
 - **Success**: Real CPU usage displayed in the overlay
 
-### Phase 5: DX12 Hook + D3D11On12 Renderer
+### Phase 6: DX12 Hook + D3D11On12 Renderer
 
 - Hook `Present` for DX12 swap chains
 - D3D11On12 compatibility layer, reuse D2D rendering
 - **Success**: Overlay works on DX11 and DX12 games
 
-### Phase 6: Full Sensor Suite
+### Phase 7: Full Sensor Suite
 
 - `sysinfo` — CPU per-core, frequencies, RAM
 - WMI/LHM — temperatures, fan speeds, voltages
@@ -666,14 +690,14 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - N/A display for unavailable sensors
 - **Success**: Full hardware dashboard in the overlay
 
-### Phase 7: ETW Frame Timing
+### Phase 8: ETW Frame Timing
 
 - ETW consumer session for DXGI present events
 - Filter by target game PID
 - FPS, frame time, rolling average, 1%/0.1% lows
 - **Success**: Accurate frame timing data in the overlay
 
-### Phase 8a: Widget File Format + CSS Styling
+### Phase 9a: Widget File Format + CSS Styling
 
 - `.widget` file parser (`quick-xml` + `cssparser`)
 - Theme file loading with CSS variables
@@ -685,7 +709,7 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - Error reporting with locations and suggestions
 - **Success**: Changing `.widget` file changes the overlay appearance
 
-### Phase 8b: Animations + Adaptive Color
+### Phase 9b: Animations + Adaptive Color
 
 - CSS transitions (property interpolation on state change)
 - Keyframe animations (pulse, fade, slide-in)
@@ -694,7 +718,7 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - Adaptive background tint
 - **Success**: Smooth transitions on threshold changes, readable text on any scene
 
-### Phase 9: Hot-Reload + Preview
+### Phase 10: Hot-Reload + Preview
 
 - `notify` crate file watching with 200ms debounce
 - Live re-parse → re-layout → push to shared memory
@@ -702,10 +726,9 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - Preview aware of animations and adaptive color
 - **Success**: Edit, save, see changes instantly
 
-### Phase 10: Polish
+### Phase 11: Polish
 
 - Tray icon / minimal host UI with process picker
-- Graceful DLL unload (unhook → release resources → unmap)
 - Error recovery (host detects game exit, cleans up)
 - Anti-cheat detection with borderless window fallback
 - 2-3 built-in themes (dark minimal, cyberpunk, retro)

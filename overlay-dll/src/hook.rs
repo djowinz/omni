@@ -265,9 +265,23 @@ unsafe fn log_loaded_graphics_modules() {
     ));
 }
 
+// ─── Hook state ──────────────────────────────────────────────────────────────
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Guard flag — true once hooks have been installed. Prevents double-hooking
+/// if the DLL is loaded/initialized more than once in the same process.
+pub static HOOKS_INSTALLED: AtomicBool = AtomicBool::new(false);
+
 // ─── Hook installation ────────────────────────────────────────────────────────
 
 pub unsafe fn install_hooks() -> Result<(), String> {
+    // Prevent double-initialization.
+    if HOOKS_INSTALLED.swap(true, Ordering::SeqCst) {
+        crate::logging::log_to_file("[hook] hooks already installed — skipping");
+        return Ok(());
+    }
+
     // Diagnostic: check which graphics DLLs the game has loaded
     log_loaded_graphics_modules();
 

@@ -13,6 +13,12 @@ pub fn config_path() -> PathBuf {
 pub struct Config {
     /// Process names that should never be injected.
     pub exclude: Vec<String>,
+    /// Process names that should always be injected (overrides heuristics).
+    pub include: Vec<String>,
+    /// Directory path prefixes recognised as game installation roots.
+    /// Processes running from these directories are eligible for injection
+    /// even if they were already running when the host started.
+    pub game_directories: Vec<String>,
     /// How often (in milliseconds) to poll for new game processes.
     pub poll_interval_ms: u64,
 }
@@ -21,6 +27,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             poll_interval_ms: 2000,
+            include: Vec::new(),
+            game_directories: default_game_directories(),
             exclude: vec![
                 "dwm.exe".to_string(),
                 "chrome.exe".to_string(),
@@ -105,6 +113,59 @@ impl Default for Config {
             ],
         }
     }
+}
+
+/// Returns the default list of directories where games are commonly installed.
+/// Paths are lowercased for case-insensitive comparison.
+fn default_game_directories() -> Vec<String> {
+    let mut dirs = vec![
+        // Steam
+        r"steamapps\common\".to_string(),
+        // Epic Games
+        r"epic games\".to_string(),
+        // GOG
+        r"gog galaxy\games\".to_string(),
+        r"gog games\".to_string(),
+        // EA / Origin
+        r"ea games\".to_string(),
+        r"origin games\".to_string(),
+        // Ubisoft
+        r"ubisoft game launcher\games\".to_string(),
+        r"ubisoft\".to_string(),
+        // Riot
+        r"riot games\".to_string(),
+        // Battle.net
+        r"battle.net\".to_string(),
+        // Xbox / Microsoft
+        r"xboxgames\".to_string(),
+        // General
+        r"program files\games\".to_string(),
+        r"program files (x86)\games\".to_string(),
+    ];
+
+    // Detect Steam library folders from the default Steam install.
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        let libraryfolders = PathBuf::from(&program_files_x86)
+            .join(r"Steam\steamapps\libraryfolders.vdf");
+        if let Ok(text) = std::fs::read_to_string(&libraryfolders) {
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if let Some(path) = trimmed.strip_prefix("\"path\"") {
+                    let path = path.trim().trim_matches('"').trim();
+                    if !path.is_empty() {
+                        let mut steam_lib = path.replace("\\\\", "\\").to_lowercase();
+                        if !steam_lib.ends_with('\\') {
+                            steam_lib.push('\\');
+                        }
+                        steam_lib.push_str(r"steamapps\common\");
+                        dirs.push(steam_lib);
+                    }
+                }
+            }
+        }
+    }
+
+    dirs
 }
 
 /// Loads config from `path`, returning the default if the file does not exist.

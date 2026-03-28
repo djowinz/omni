@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use windows::Win32::Foundation::{BOOL, HINSTANCE, TRUE};
+use windows::Win32::System::LibraryLoader::GetModuleHandleA;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 
 mod logging;
@@ -11,6 +12,9 @@ mod renderer;
 
 use logging::log_to_file;
 
+/// Module handle for this DLL, saved on attach for use during shutdown.
+static mut DLL_MODULE: Option<HINSTANCE> = None;
+
 /// DLL entry point. Called by Windows when the DLL is loaded/unloaded.
 ///
 /// # Safety
@@ -18,12 +22,13 @@ use logging::log_to_file;
 /// because the loader lock prevents complex operations in DllMain.
 #[no_mangle]
 pub unsafe extern "system" fn DllMain(
-    _hinst: HINSTANCE,
+    hinst: HINSTANCE,
     reason: u32,
     _reserved: *mut c_void,
 ) -> BOOL {
     match reason {
         x if x == DLL_PROCESS_ATTACH => {
+            DLL_MODULE = Some(hinst);
             log_to_file("omni overlay DLL attached — spawning init thread");
             std::thread::spawn(|| {
                 if let Err(e) = unsafe { hook::install_hooks() } {
@@ -37,4 +42,43 @@ pub unsafe extern "system" fn DllMain(
         _ => {}
     }
     TRUE
+}
+
+/// Exported shutdown function. The host calls this via CreateRemoteThread.
+///
+/// This runs on its own thread (not under loader lock), so it can safely:
+/// 1. Disable all minhook trampolines (restores original vtable pointers)
+/// 2. Sleep to let any in-flight hook calls on the render thread complete
+/// 3. Call FreeLibraryAndExitThread to atomically unload and exit
+///
+/// # Safety
+/// Must be called via CreateRemoteThread with the parameter ignored.
+#[no_mangle]
+pub unsafe extern "system" fn omni_shutdown(_param: *mut c_void) -> u32 {
+    log_to_file("[shutdown] disabling all hooks");
+
+    if let Err(e) = minhook::MinHook::disable_all_hooks() {
+        log_to_file(&format!("[shutdown] WARNING: disable_all_hooks failed: {e:?}"));
+    }
+
+    // Give the render thread time to finish any in-flight hook call.
+    // After this, no more hook calls will enter our code since hooks are disabled.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Release all D3D resources (shaders, buffers, RTV, device/context refs).
+    // Must happen AFTER hooks are disabled and drained so no render call races.
+    present::destroy_renderer();
+
+    // Clear the initialization guard so a fresh injection can re-initialize.
+    hook::HOOKS_INSTALLED.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    log_to_file("[shutdown] hooks disabled, resources released, unloading DLL");
+
+    // Get our own module handle to pass to FreeLibraryAndExitThread.
+    if let Ok(hmod) = GetModuleHandleA(windows::core::s!("omni_overlay_dll.dll")) {
+        windows::Win32::System::LibraryLoader::FreeLibraryAndExitThread(hmod, 0);
+    }
+
+    // FreeLibraryAndExitThread never returns, but just in case:
+    0
 }

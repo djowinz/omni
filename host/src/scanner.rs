@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 use std::mem::size_of;
+use std::path::Path;
 
 use tracing::{debug, error, info, warn};
 use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, ERROR_NO_MORE_FILES};
@@ -28,32 +29,49 @@ const GRAPHICS_DLLS: &[&str] = &["d3d11.dll", "d3d12.dll", "vulkan-1.dll"];
 
 pub struct Scanner {
     /// PIDs that have already been processed (injected or skipped).
+    seen: HashSet<u32>,
+    /// PIDs where the DLL was actually successfully injected.
     injected: HashSet<u32>,
+    /// PIDs that were already running on the first poll (pre-existing).
+    pre_existing: HashSet<u32>,
     /// Absolute path to the overlay DLL on disk.
     dll_path: String,
+    /// Filename of the overlay DLL (derived from dll_path).
+    dll_filename: String,
     /// Application configuration (exclude list, poll interval, etc.).
     config: Config,
-    /// Whether the first poll has run (used to snapshot pre-existing processes).
+    /// Whether the first poll has run.
     first_poll_done: bool,
 }
 
 impl Scanner {
     pub fn new(dll_path: String, config: Config) -> Self {
+        let dll_filename = Path::new(&dll_path)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("omni_overlay_dll.dll")
+            .to_string();
+
         Self {
+            seen: HashSet::new(),
             injected: HashSet::new(),
+            pre_existing: HashSet::new(),
             dll_path,
+            dll_filename,
             config,
             first_poll_done: false,
         }
     }
 
     /// Run one poll cycle: enumerate processes, clean up dead PIDs, and
-    /// inject into any new eligible process.
+    /// inject into any eligible process.
     ///
-    /// On the **first** poll, all currently-running PIDs are marked as
-    /// pre-existing and skipped.  Only processes that appear in subsequent
-    /// polls are considered for injection.  This prevents injecting into
-    /// system processes, browsers, and other apps that were already running.
+    /// Two-tier injection strategy:
+    /// - **New processes** (appeared after host started): Injected if they have
+    ///   a visible window, a graphics DLL, and aren't excluded.
+    /// - **Pre-existing processes** (already running on first poll): Only injected
+    ///   if they also match a known game installation directory, are in the
+    ///   include list, or already have the overlay DLL loaded.
     pub fn poll(&mut self) {
         let processes = match enumerate_processes() {
             Ok(p) => p,
@@ -63,33 +81,33 @@ impl Scanner {
             }
         };
 
-        // Build set of currently-alive PIDs so we can prune our injected set.
+        // Build set of currently-alive PIDs so we can prune our sets.
         let alive: HashSet<u32> = processes.iter().map(|e| e.th32ProcessID).collect();
 
         // Remove PIDs that are no longer running.
+        self.seen.retain(|pid| alive.contains(pid));
         self.injected.retain(|pid| alive.contains(pid));
+        self.pre_existing.retain(|pid| alive.contains(pid));
 
-        // First poll: snapshot all existing PIDs so we never inject into them.
+        // First poll: record all currently-running PIDs as pre-existing.
         if !self.first_poll_done {
-            let count = alive.len();
             for &pid in &alive {
-                self.injected.insert(pid);
+                self.pre_existing.insert(pid);
             }
             self.first_poll_done = true;
-            info!(count, "First poll — marked all existing processes as pre-existing");
-            return;
+            info!(count = alive.len(), "First poll — recorded pre-existing processes");
+            // Don't return — fall through to evaluate pre-existing processes
+            // against the game-directory heuristic.
         }
 
         for entry in &processes {
             let pid = entry.th32ProcessID;
 
-            // Skip System Idle Process (0), System (4), and other kernel PIDs.
             if pid <= 4 {
                 continue;
             }
 
-            // Skip already-handled PIDs.
-            if self.injected.contains(&pid) {
+            if self.seen.contains(&pid) {
                 continue;
             }
 
@@ -103,15 +121,14 @@ impl Scanner {
                 .any(|ex| ex.eq_ignore_ascii_case(&exe_name));
             if excluded {
                 debug!(pid, exe_name, "Skipping excluded process");
-                // Still mark as handled so we don't re-check every cycle.
-                self.injected.insert(pid);
+                self.seen.insert(pid);
                 continue;
             }
 
             // Skip processes running from system directories.
             if is_system_process(pid) {
                 debug!(pid, exe_name, "Skipping system directory process");
-                self.injected.insert(pid);
+                self.seen.insert(pid);
                 continue;
             }
 
@@ -125,9 +142,6 @@ impl Scanner {
                 Ok(v) => v,
                 Err(e) => {
                     debug!(pid, exe_name, error = %e, "Could not check modules (access denied?)");
-                    // Do NOT mark as handled — the process might become
-                    // accessible later, but to avoid a busy-loop we skip until
-                    // the next visible-window check naturally gates us.
                     continue;
                 }
             };
@@ -136,21 +150,74 @@ impl Scanner {
                 continue;
             }
 
+            // Check if our DLL is already loaded (e.g. from a previous host session).
+            match has_module(pid, &self.dll_filename) {
+                Ok(true) => {
+                    info!(pid, exe_name, "Overlay DLL already loaded — reconnecting");
+                    self.injected.insert(pid);
+                    self.seen.insert(pid);
+                    continue;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    debug!(pid, exe_name, error = %e, "Could not check for overlay DLL");
+                    continue;
+                }
+            }
+
+            // For pre-existing processes, apply stricter filtering:
+            // only inject if the process is in a known game directory or
+            // explicitly in the include list.
+            if self.pre_existing.contains(&pid) {
+                let in_include_list = self
+                    .config
+                    .include
+                    .iter()
+                    .any(|inc| inc.eq_ignore_ascii_case(&exe_name));
+
+                if !in_include_list {
+                    let exe_path = get_process_exe_path(pid).unwrap_or_default().to_lowercase();
+                    let in_game_dir = self
+                        .config
+                        .game_directories
+                        .iter()
+                        .any(|dir| exe_path.contains(&dir.to_lowercase()));
+
+                    if !in_game_dir {
+                        debug!(pid, exe_name, "Pre-existing process not in game directory — skipping");
+                        self.seen.insert(pid);
+                        continue;
+                    }
+                }
+            }
+
             info!(pid, exe_name, "Injecting overlay DLL into process");
 
             match crate::injector::inject_dll(pid, &self.dll_path) {
-                Ok(()) => info!(pid, exe_name, "Injection successful"),
+                Ok(()) => {
+                    info!(pid, exe_name, "Injection successful");
+                    self.injected.insert(pid);
+                }
                 Err(e) => warn!(pid, exe_name, error = %e, "Injection failed"),
             }
 
-            // Mark as handled regardless of success to avoid retry loops.
-            self.injected.insert(pid);
+            self.seen.insert(pid);
         }
     }
 
-    /// Number of PIDs currently tracked (injected or skipped).
-    pub fn injected_count(&self) -> usize {
-        self.injected.len()
+    /// Eject the overlay DLL from all processes that were successfully injected.
+    pub fn eject_all(&mut self) {
+        let pids: Vec<u32> = self.injected.iter().copied().collect();
+        for pid in pids {
+            info!(pid, dll_filename = %self.dll_filename, "Ejecting overlay DLL");
+            match crate::injector::eject_dll(pid, &self.dll_filename) {
+                Ok(()) => {
+                    info!(pid, "Ejection successful");
+                    self.injected.remove(&pid);
+                }
+                Err(e) => warn!(pid, error = %e, "Ejection failed"),
+            }
+        }
     }
 }
 
@@ -194,6 +261,44 @@ pub fn enumerate_processes() -> Result<Vec<PROCESSENTRY32W>, Box<dyn std::error:
     Ok(processes)
 }
 
+/// Returns `true` if the given process has a module with the specified name loaded.
+pub fn has_module(pid: u32, dll_name: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    let snapshot = unsafe {
+        CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)?
+    };
+
+    let mut entry = MODULEENTRY32W {
+        dwSize: size_of::<MODULEENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    if unsafe { Module32FirstW(snapshot, &mut entry) }.is_err() {
+        unsafe { let _ = CloseHandle(snapshot); }
+        return Err("Failed to enumerate modules".into());
+    }
+
+    loop {
+        let name = wchar_to_string(&entry.szModule);
+        if name.eq_ignore_ascii_case(dll_name) {
+            unsafe { let _ = CloseHandle(snapshot); }
+            return Ok(true);
+        }
+
+        entry.dwSize = size_of::<MODULEENTRY32W>() as u32;
+        match unsafe { Module32NextW(snapshot, &mut entry) } {
+            Ok(()) => {}
+            Err(e) if e.code() == ERROR_NO_MORE_FILES.to_hresult() => break,
+            Err(e) => {
+                unsafe { let _ = CloseHandle(snapshot); }
+                return Err(e.into());
+            }
+        }
+    }
+
+    unsafe { let _ = CloseHandle(snapshot); }
+    Ok(false)
+}
+
 /// Returns `true` if the given process has loaded at least one of the
 /// recognised graphics DLLs (D3D11, D3D12, Vulkan-1).
 pub fn has_graphics_dll(pid: u32) -> Result<bool, Box<dyn std::error::Error>> {
@@ -233,6 +338,28 @@ pub fn has_graphics_dll(pid: u32) -> Result<bool, Box<dyn std::error::Error>> {
 
     unsafe { let _ = CloseHandle(snapshot); }
     Ok(false)
+}
+
+/// Returns the full executable path for a process, or None if inaccessible.
+pub fn get_process_exe_path(pid: u32) -> Option<String> {
+    let snapshot = unsafe {
+        CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid).ok()?
+    };
+
+    let mut entry = MODULEENTRY32W {
+        dwSize: size_of::<MODULEENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    // The first module is always the exe itself.
+    let path = if unsafe { Module32FirstW(snapshot, &mut entry) }.is_ok() {
+        Some(wchar_to_string(&entry.szExePath))
+    } else {
+        None
+    };
+
+    unsafe { let _ = CloseHandle(snapshot); }
+    path
 }
 
 /// Returns `true` if the process executable lives in a Windows system directory
@@ -338,6 +465,8 @@ mod tests {
     #[test]
     fn scanner_new_starts_empty() {
         let scanner = Scanner::new("dummy.dll".to_string(), Config::default());
-        assert_eq!(scanner.injected_count(), 0);
+        assert!(scanner.injected.is_empty());
+        assert!(scanner.seen.is_empty());
+        assert!(!scanner.first_poll_done);
     }
 }

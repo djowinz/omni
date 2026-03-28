@@ -1,6 +1,5 @@
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use windows::core::HRESULT;
 
@@ -18,22 +17,37 @@ pub static mut ORIGINAL_RESIZE_BUFFERS: Option<ResizeBuffersFn> = None;
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Global renderer, initialized on first Present call.
-static RENDERER_INIT: OnceLock<()> = OnceLock::new();
+static RENDERER_INIT_DONE: AtomicBool = AtomicBool::new(false);
 static mut RENDERER: Option<OverlayRenderer> = None;
 
 /// Initialize the renderer on the first Present call.
 unsafe fn ensure_renderer(swap_chain: *mut c_void) {
-    RENDERER_INIT.get_or_init(|| {
-        match OverlayRenderer::init(swap_chain) {
-            Ok(r) => {
-                RENDERER = Some(r);
-                log_to_file("[present] renderer initialized on first frame");
-            }
-            Err(e) => {
-                log_to_file(&format!("[present] FATAL: renderer init failed: {e}"));
-            }
+    if RENDERER_INIT_DONE.load(Ordering::Acquire) {
+        return;
+    }
+
+    match OverlayRenderer::init(swap_chain) {
+        Ok(r) => {
+            RENDERER = Some(r);
+            RENDERER_INIT_DONE.store(true, Ordering::Release);
+            log_to_file("[present] renderer initialized on first frame");
         }
-    });
+        Err(e) => {
+            log_to_file(&format!("[present] FATAL: renderer init failed: {e}"));
+            // Prevent retry spam — mark as done even on failure.
+            RENDERER_INIT_DONE.store(true, Ordering::Release);
+        }
+    }
+}
+
+/// Drop the renderer and release all D3D resources. Called during shutdown
+/// before the DLL is unloaded.
+pub unsafe fn destroy_renderer() {
+    RENDERER_INIT_DONE.store(false, Ordering::SeqCst);
+    if let Some(renderer) = RENDERER.take() {
+        drop(renderer);
+        log_to_file("[present] renderer destroyed — D3D resources released");
+    }
 }
 
 /// Common rendering logic shared by hooked_present and hooked_present1.
