@@ -6,8 +6,6 @@ use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DET
 mod logging;
 mod hook;
 mod present;
-mod shaders;
-mod state_backup;
 mod renderer;
 mod ipc;
 
