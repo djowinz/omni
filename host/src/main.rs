@@ -8,6 +8,7 @@ mod injector;
 mod config;
 mod scanner;
 mod sensors;
+mod ipc;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
