@@ -9,6 +9,7 @@ mod present;
 mod shaders;
 mod state_backup;
 mod renderer;
+mod ipc;
 
 use logging::log_to_file;
 

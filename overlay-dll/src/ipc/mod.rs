@@ -1,0 +1,96 @@
+use omni_shared::{SharedOverlayState, OverlaySlot, SHARED_MEM_NAME};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::System::Memory::{
+    OpenFileMappingW, MapViewOfFile, UnmapViewOfFile,
+    FILE_MAP_READ,
+};
+
+use crate::logging::log_to_file;
+
+pub struct SharedMemoryReader {
+    handle: HANDLE,
+    ptr: *const SharedOverlayState,
+    last_sequence: u64,
+}
+
+// SAFETY: Only one thread (render thread) reads from this.
+unsafe impl Send for SharedMemoryReader {}
+unsafe impl Sync for SharedMemoryReader {}
+
+impl SharedMemoryReader {
+    /// Try to open the existing named shared memory created by the host.
+    /// Returns None if the shared memory doesn't exist yet (host not running).
+    pub fn open() -> Option<Self> {
+        let name_wide: Vec<u16> = SHARED_MEM_NAME.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let handle = unsafe {
+            OpenFileMappingW(
+                FILE_MAP_READ.0,
+                false,
+                windows::core::PCWSTR(name_wide.as_ptr()),
+            )
+        };
+
+        let handle = match handle {
+            Ok(h) => h,
+            Err(_) => return None, // Host hasn't created shared memory yet
+        };
+
+        let ptr = unsafe {
+            MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0)
+        };
+
+        if ptr.Value.is_null() {
+            unsafe { let _ = CloseHandle(handle); }
+            return None;
+        }
+
+        log_to_file("[ipc] shared memory opened successfully");
+
+        Some(Self {
+            handle,
+            ptr: ptr.Value as *const SharedOverlayState,
+            last_sequence: 0,
+        })
+    }
+
+    /// Read the active slot. Returns None if data hasn't changed since last read.
+    pub fn read(&mut self) -> Option<&OverlaySlot> {
+        let state = unsafe { &*self.ptr };
+        let slot_idx = state.reader_slot_index();
+        let slot = &state.slots[slot_idx];
+
+        if slot.write_sequence == self.last_sequence {
+            return None; // No new data
+        }
+
+        self.last_sequence = slot.write_sequence;
+        Some(slot)
+    }
+
+    /// Read the active slot unconditionally (even if sequence hasn't changed).
+    pub fn read_current(&self) -> &OverlaySlot {
+        let state = unsafe { &*self.ptr };
+        let slot_idx = state.reader_slot_index();
+        &state.slots[slot_idx]
+    }
+
+    /// Returns true if the host appears to be writing (sequence > 0).
+    pub fn is_connected(&self) -> bool {
+        let state = unsafe { &*self.ptr };
+        let slot = &state.slots[state.reader_slot_index()];
+        slot.write_sequence > 0
+    }
+}
+
+impl Drop for SharedMemoryReader {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = UnmapViewOfFile(windows::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS {
+                Value: self.ptr as *mut std::ffi::c_void,
+            });
+            let _ = CloseHandle(self.handle);
+        }
+        log_to_file("[ipc] shared memory closed");
+    }
+}
