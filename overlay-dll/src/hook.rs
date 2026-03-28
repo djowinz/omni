@@ -11,9 +11,11 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC,
 };
+use windows::Win32::Graphics::Direct3D12::ID3D12CommandQueue;
 use windows::Win32::Graphics::Dxgi::{
     IDXGIDevice, IDXGIFactory2, IDXGISwapChain, IDXGISwapChain1,
-    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
+    DXGI_SWAP_EFFECT_FLIP_DISCARD,
     DXGI_USAGE_RENDER_TARGET_OUTPUT, DXGI_SCALING_STRETCH,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetModuleHandleA};
@@ -38,6 +40,34 @@ use windows::core::{w, Interface, PCWSTR};
 pub const PRESENT_VTABLE_INDEX: usize = 8;
 pub const PRESENT1_VTABLE_INDEX: usize = 22;
 pub const RESIZE_BUFFERS_VTABLE_INDEX: usize = 13;
+
+// IDXGIFactory2 vtable layout (0-based):
+//   IUnknown          : 0=QueryInterface, 1=AddRef, 2=Release
+//   IDXGIObject       : 3=SetPrivateData, 4=SetPrivateDataInterface, 5=GetPrivateData, 6=GetParent
+//   IDXGIFactory      : 7=EnumAdapters, 8=MakeWindowAssociation, 9=GetWindowAssociation,
+//                        10=CreateSwapChain, 11=CreateSoftwareAdapter
+//   IDXGIFactory1     : 12=EnumAdapters1, 13=IsCurrent
+//   IDXGIFactory2     : 14=IsWindowedStereoEnabled, 15=CreateSwapChainForHwnd, ...
+pub const CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX: usize = 15;
+
+/// Captured DX12 command queue (if the game is using DX12).
+/// Set by the CreateSwapChainForHwnd hook when QueryInterface for
+/// ID3D12CommandQueue succeeds on the pDevice parameter.
+pub static mut CAPTURED_COMMAND_QUEUE: Option<ID3D12CommandQueue> = None;
+
+/// Type alias for the original CreateSwapChainForHwnd function pointer.
+/// Signature: (this, pDevice, hWnd, pDesc, pFullscreenDesc, pRestrictToOutput, ppSwapChain) -> HRESULT
+pub type CreateSwapChainForHwndFn = unsafe extern "system" fn(
+    *mut c_void,    // this (IDXGIFactory2)
+    *mut c_void,    // pDevice (IUnknown — for DX12 this is ID3D12CommandQueue)
+    HWND,           // hWnd
+    *const DXGI_SWAP_CHAIN_DESC1,
+    *const DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
+    *mut c_void,    // pRestrictToOutput (IDXGIOutput)
+    *mut *mut c_void, // ppSwapChain (IDXGISwapChain1**)
+) -> windows::core::HRESULT;
+
+pub static mut ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND: Option<CreateSwapChainForHwndFn> = None;
 
 /// Raw vtable addresses captured from a temporary swap chain.
 pub struct SwapChainVtable {
@@ -265,6 +295,92 @@ unsafe fn log_loaded_graphics_modules() {
     ));
 }
 
+// ─── CreateSwapChainForHwnd hook ─────────────────────────────────────────────
+
+pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
+    this: *mut c_void,
+    p_device: *mut c_void,
+    hwnd: HWND,
+    p_desc: *const DXGI_SWAP_CHAIN_DESC1,
+    p_fullscreen_desc: *const DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
+    p_restrict_to_output: *mut c_void,
+    pp_swap_chain: *mut *mut c_void,
+) -> windows::core::HRESULT {
+    // Try to QueryInterface pDevice for ID3D12CommandQueue.
+    // For DX12 games, pDevice is actually the command queue.
+    // For DX11 games, this will fail — that's fine.
+    if CAPTURED_COMMAND_QUEUE.is_none() && !p_device.is_null() {
+        let unknown: &windows::core::IUnknown = std::mem::transmute(&p_device);
+        match unknown.cast::<ID3D12CommandQueue>() {
+            Ok(queue) => {
+                crate::logging::log_to_file(
+                    "[hook] captured ID3D12CommandQueue from CreateSwapChainForHwnd",
+                );
+                CAPTURED_COMMAND_QUEUE = Some(queue);
+            }
+            Err(_) => {
+                crate::logging::log_to_file(
+                    "[hook] pDevice is not ID3D12CommandQueue (DX11 game)",
+                );
+            }
+        }
+    }
+
+    if let Some(original) = ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND {
+        original(this, p_device, hwnd, p_desc, p_fullscreen_desc, p_restrict_to_output, pp_swap_chain)
+    } else {
+        windows::core::HRESULT(-1)
+    }
+}
+
+// ─── Factory2 vtable discovery ──────────────────────────────────────────────
+
+/// Discover the CreateSwapChainForHwnd vtable address from IDXGIFactory2.
+/// Creates a temporary D3D11 device, walks DXGI device → adapter → factory,
+/// then reads the vtable pointer at the correct index.
+unsafe fn discover_factory2_vtable() -> Result<*const c_void, String> {
+    // Create a temporary D3D11 device
+    let mut device: Option<ID3D11Device> = None;
+    D3D11CreateDevice(
+        None,
+        D3D_DRIVER_TYPE_HARDWARE,
+        None,
+        D3D11_CREATE_DEVICE_FLAG(0),
+        None,
+        D3D11_SDK_VERSION,
+        Some(&mut device),
+        None,
+        None,
+    )
+    .map_err(|e| format!("D3D11CreateDevice (factory2 discovery) failed: {e}"))?;
+
+    let device = device.ok_or("D3D11CreateDevice returned null device (factory2 discovery)")?;
+
+    let dxgi_device: IDXGIDevice = device
+        .cast()
+        .map_err(|e| format!("cast to IDXGIDevice (factory2): {e}"))?;
+
+    let adapter = dxgi_device
+        .GetAdapter()
+        .map_err(|e| format!("GetAdapter (factory2): {e}"))?;
+
+    let factory: IDXGIFactory2 = adapter
+        .GetParent()
+        .map_err(|e| format!("GetParent::<IDXGIFactory2> (factory2): {e}"))?;
+
+    // Read the vtable
+    let raw_ptr: *mut *const *const c_void = Interface::as_raw(&factory) as _;
+    let vtable: *const *const c_void = *raw_ptr;
+    let create_swap_chain_for_hwnd = *vtable.add(CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX);
+
+    crate::logging::log_to_file(&format!(
+        "[hook] factory2 vtable: CreateSwapChainForHwnd={:p}",
+        create_swap_chain_for_hwnd
+    ));
+
+    Ok(create_swap_chain_for_hwnd)
+}
+
 // ─── Hook state ──────────────────────────────────────────────────────────────
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -317,6 +433,27 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     crate::present::ORIGINAL_RESIZE_BUFFERS =
         Some(std::mem::transmute::<*mut c_void, crate::present::ResizeBuffersFn>(original_resize));
 
+    // Hook CreateSwapChainForHwnd (captures DX12 command queue)
+    match discover_factory2_vtable() {
+        Ok(create_scfh_addr) => {
+            let original_create_scfh = minhook::MinHook::create_hook(
+                create_scfh_addr as *mut c_void,
+                hooked_create_swap_chain_for_hwnd as *mut c_void,
+            )
+            .map_err(|s| format!("MinHook::create_hook(CreateSwapChainForHwnd) failed: {s:?}"))?;
+
+            ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND = Some(std::mem::transmute::<
+                *mut c_void,
+                CreateSwapChainForHwndFn,
+            >(original_create_scfh));
+        }
+        Err(e) => {
+            crate::logging::log_to_file(&format!(
+                "[hook] WARNING: factory2 vtable discovery failed ({e}), CreateSwapChainForHwnd hook skipped"
+            ));
+        }
+    }
+
     minhook::MinHook::enable_all_hooks()
         .map_err(|s| format!("MinHook::enable_all_hooks failed: {s:?}"))?;
 
@@ -336,5 +473,6 @@ mod tests {
         assert_eq!(PRESENT_VTABLE_INDEX, 8);
         assert_eq!(PRESENT1_VTABLE_INDEX, 22);
         assert_eq!(RESIZE_BUFFERS_VTABLE_INDEX, 13);
+        assert_eq!(CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX, 15);
     }
 }
