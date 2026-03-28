@@ -5,6 +5,7 @@ use windows::core::HRESULT;
 
 use crate::logging::log_to_file;
 use crate::renderer::OverlayRenderer;
+use crate::ipc::SharedMemoryReader;
 
 pub type PresentFn = unsafe extern "system" fn(*mut c_void, u32, u32) -> HRESULT;
 pub type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const c_void) -> HRESULT;
@@ -15,46 +16,77 @@ pub static mut ORIGINAL_PRESENT1: Option<Present1Fn> = None;
 pub static mut ORIGINAL_RESIZE_BUFFERS: Option<ResizeBuffersFn> = None;
 
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
-
-/// Global renderer, initialized on first Present call.
-static RENDERER_INIT_DONE: AtomicBool = AtomicBool::new(false);
+pub static RENDERER_INIT_DONE: AtomicBool = AtomicBool::new(false);
 static mut RENDERER: Option<OverlayRenderer> = None;
+static mut SHM_READER: Option<SharedMemoryReader> = None;
 
 /// Initialize the renderer on the first Present call.
-unsafe fn ensure_renderer(swap_chain: *mut c_void) {
+unsafe fn ensure_renderer() {
     if RENDERER_INIT_DONE.load(Ordering::Acquire) {
         return;
     }
 
-    match OverlayRenderer::init(swap_chain) {
+    match OverlayRenderer::init() {
         Ok(r) => {
             RENDERER = Some(r);
             RENDERER_INIT_DONE.store(true, Ordering::Release);
-            log_to_file("[present] renderer initialized on first frame");
+            log_to_file("[present] D2D renderer initialized on first frame");
         }
         Err(e) => {
             log_to_file(&format!("[present] FATAL: renderer init failed: {e}"));
-            // Prevent retry spam — mark as done even on failure.
             RENDERER_INIT_DONE.store(true, Ordering::Release);
         }
     }
 }
 
-/// Drop the renderer and release all D3D resources. Called during shutdown
-/// before the DLL is unloaded.
-pub unsafe fn destroy_renderer() {
-    RENDERER_INIT_DONE.store(false, Ordering::SeqCst);
-    if let Some(renderer) = RENDERER.take() {
-        drop(renderer);
-        log_to_file("[present] renderer destroyed — D3D resources released");
+/// Try to open shared memory if not already open.
+unsafe fn ensure_shm_reader() {
+    if SHM_READER.is_some() {
+        return;
     }
+    if let Some(reader) = SharedMemoryReader::open() {
+        SHM_READER = Some(reader);
+    }
+    // If it fails, we'll try again next frame — host might not be running yet
 }
 
 /// Common rendering logic shared by hooked_present and hooked_present1.
 unsafe fn render_overlay(swap_chain: *mut c_void) {
-    ensure_renderer(swap_chain);
-    if let Some(renderer) = &RENDERER {
-        renderer.render(swap_chain);
+    ensure_renderer();
+    ensure_shm_reader();
+
+    let renderer = match &mut RENDERER {
+        Some(r) => r,
+        None => return,
+    };
+
+    // Read widgets from shared memory
+    let widgets = match &mut SHM_READER {
+        Some(reader) => {
+            let slot = reader.read_current();
+            let count = slot.widget_count as usize;
+            if count > 0 {
+                &slot.widgets[..count]
+            } else {
+                return; // No widgets to render
+            }
+        }
+        None => return, // No shared memory — host not running
+    };
+
+    renderer.render(swap_chain, widgets);
+}
+
+/// Drop the renderer and shared memory reader. Called during shutdown.
+pub unsafe fn destroy_renderer() {
+    RENDERER_INIT_DONE.store(false, Ordering::SeqCst);
+    if let Some(renderer) = RENDERER.take() {
+        drop(renderer);
+        log_to_file("[present] D2D renderer destroyed");
+    }
+    if let Some(reader) = SHM_READER.take() {
+        drop(reader);
+        log_to_file("[present] shared memory reader closed");
     }
 }
 
@@ -113,9 +145,9 @@ pub unsafe extern "system" fn hooked_resize_buffers(
         "[resize_buffers] {width}x{height}, buffers={buffer_count}"
     ));
 
-    // Release RTV before resize (holding a reference blocks resize)
+    // Release D2D render target before resize
     if let Some(renderer) = &mut RENDERER {
-        renderer.release_rtv();
+        renderer.release_render_target();
     }
 
     // Call original ResizeBuffers
@@ -125,11 +157,11 @@ pub unsafe extern "system" fn hooked_resize_buffers(
         HRESULT(0)
     };
 
-    // Recreate RTV after resize
+    // Recreate render target after resize
     if result.is_ok() {
         if let Some(renderer) = &mut RENDERER {
-            if let Err(e) = renderer.recreate_rtv(swap_chain) {
-                log_to_file(&format!("[resize_buffers] failed to recreate RTV: {e}"));
+            if let Err(e) = renderer.recreate_render_target(swap_chain) {
+                log_to_file(&format!("[resize_buffers] failed to recreate render target: {e}"));
             }
         }
     }
