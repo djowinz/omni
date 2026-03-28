@@ -175,6 +175,7 @@ fn run_watch_mode(dll_path: &str) {
         Duration::from_millis(1000),
         sensor_running,
     );
+    info!("Sensor poller started, interval=1000ms");
 
     info!(
         dll_path,

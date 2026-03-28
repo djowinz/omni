@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use tracing::info;
 
 use omni_shared::SensorSnapshot;
 
@@ -28,6 +29,8 @@ impl SensorPoller {
 
             // sysinfo needs two samples to compute usage — wait before first real poll
             thread::sleep(Duration::from_millis(500));
+
+            info!("Sensor polling started");
 
             while running_clone.load(Ordering::Relaxed) {
                 let cpu_data = cpu.poll();
