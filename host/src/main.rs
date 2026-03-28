@@ -160,6 +160,22 @@ fn run_watch_mode(dll_path: &str) {
     })
     .expect("Failed to set Ctrl+C handler");
 
+    // Create shared memory for IPC with overlay DLL
+    let mut shm_writer = match ipc::SharedMemoryWriter::create() {
+        Ok(w) => w,
+        Err(e) => {
+            error!(error = %e, "Failed to create shared memory");
+            std::process::exit(1);
+        }
+    };
+
+    // Start sensor polling on background thread
+    let sensor_running = std::sync::Arc::new(AtomicBool::new(true));
+    let (mut sensor_poller, sensor_rx) = sensors::SensorPoller::start(
+        Duration::from_millis(1000),
+        sensor_running,
+    );
+
     info!(
         dll_path,
         config_path = ?config_path,
@@ -170,12 +186,50 @@ fn run_watch_mode(dll_path: &str) {
     info!("Press Ctrl+C to stop");
 
     let mut scanner = scanner::Scanner::new(dll_path.to_string(), config);
+    let mut latest_snapshot = omni_shared::SensorSnapshot::default();
+
     while RUNNING.load(Ordering::Relaxed) {
         scanner.poll();
+
+        // Drain sensor channel — keep only the latest snapshot
+        while let Ok(snapshot) = sensor_rx.try_recv() {
+            latest_snapshot = snapshot;
+        }
+
+        // Build hardcoded CPU usage widget
+        let widget = build_cpu_widget(&latest_snapshot);
+
+        // Write to shared memory
+        shm_writer.write(&latest_snapshot, &[widget], 1);
+
         std::thread::sleep(poll_interval);
     }
 
     info!("Shutting down — ejecting DLLs from injected processes");
     scanner.eject_all();
+    sensor_poller.stop();
     info!("Omni host stopped");
+}
+
+/// Build a hardcoded CPU usage widget for this phase.
+/// In later phases this is replaced by .widget file parsing + layout engine.
+fn build_cpu_widget(snapshot: &omni_shared::SensorSnapshot) -> omni_shared::ComputedWidget {
+    let mut widget = omni_shared::ComputedWidget::default();
+    widget.widget_type = omni_shared::WidgetType::SensorValue;
+    widget.source = omni_shared::SensorSource::CpuUsage;
+    widget.x = 20.0;
+    widget.y = 20.0;
+    widget.width = 200.0;
+    widget.height = 32.0;
+    widget.font_size = 18.0;
+    widget.font_weight = 700;
+    widget.color_rgba = [255, 255, 255, 255]; // white text
+    widget.bg_color_rgba = [20, 20, 20, 180]; // dark semi-transparent bg
+    widget.border_radius = [4.0; 4];
+    widget.opacity = 1.0;
+
+    let text = format!("CPU: {:.0}%", snapshot.cpu.total_usage_percent);
+    omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+
+    widget
 }
