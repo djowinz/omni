@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 mod injector;
 mod config;
 mod scanner;
+mod sensors;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
