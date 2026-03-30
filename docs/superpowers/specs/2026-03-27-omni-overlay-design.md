@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Rust-based hardware monitoring overlay that renders on top of any game, including exclusive fullscreen titles. Users define widget layout and styling using a Vue-style single-file component format (`.widget` files). The system uses DLL injection and graphics API hooking to render directly into the game's swap chain.
+A Rust-based hardware monitoring overlay that renders on top of any game, including exclusive fullscreen titles. Users define widget layout and styling using a Vue-style single-file component format (`.omni` files). The system uses DLL injection and graphics API hooking to render directly into the game's swap chain.
 
 ---
 
@@ -16,7 +16,7 @@ Two binaries communicating over shared memory IPC:
 │   (host.exe)        │   shared mem + pipe     │                      │
 │                     │                         │  ┌────────────────┐  │
 │  - Sensor polling   │   sensor snapshots ──►  │  │ Injected DLL   │  │
-│  - .widget parsing  │   computed layout  ──►  │  │ (overlay.dll)  │  │
+│  - .omni parsing  │   computed layout  ──►  │  │ (overlay.dll)  │  │
 │  - CSS resolution   │                         │  │                │  │
 │  - taffy layout     │   ◄── control msgs      │  │ - Hook Present │  │
 │  - Animation interp │   ◄── luminance data    │  │ - Sample lum.  │  │
@@ -30,7 +30,7 @@ Two binaries communicating over shared memory IPC:
 The main application the user launches. Responsibilities:
 
 - **Sensor polling**: Reads CPU, GPU, RAM, and frame timing data on a background thread (500ms–1s interval).
-- **Widget parsing**: Loads `.widget` single-file components (template + style blocks) via `quick-xml` and `cssparser`.
+- **Widget parsing**: Loads `.omni` single-file components (template + style blocks) via `quick-xml` and `cssparser`.
 - **Style resolution**: Merges theme file → local styles → cascade. Resolves CSS variables.
 - **Layout computation**: Uses `taffy` (flexbox engine) to compute widget positions from CSS within each panel.
 - **Animation interpolation**: Evaluates transitions and keyframe animations per-frame, writes resolved values.
@@ -76,7 +76,7 @@ repo/
         ram.rs                 # sysinfo + WMI for temps
         frames.rs              # ETW PresentMon consumer
       widget/
-        mod.rs                 # .widget file parser (quick-xml + cssparser)
+        mod.rs                 # .omni file parser (quick-xml + cssparser)
         template.rs            # Template block parsing → widget tree
         style.rs               # Style block + theme file parsing
         cascade.rs             # Selector matching, cascade resolution
@@ -327,7 +327,7 @@ pub struct ShadowDef {
 
 ---
 
-## Widget File Format (`.widget`)
+## Widget File Format (`.omni`)
 
 ### Structure
 
@@ -431,13 +431,13 @@ Every `<panel>` is `position: fixed`. Two positioning modes:
 
 ```
 error: unknown element <grph> in template
-  --> overlay.widget:8:5
+  --> overlay.omni:8:5
    |
 8  |     <grph source="cpu.usage" />
    |     ^^^^^ did you mean <graph>?
 
 warning: unsupported CSS property "text-shadow"
-  --> overlay.widget:18:3
+  --> overlay.omni:18:3
    |
 18 |   text-shadow: 1px 1px black;
    |   ^^^^^^^^^^^ this property is not supported
@@ -595,7 +595,7 @@ Unavailable sensors display **"N/A"** in the widget (not omitted). Widget stays 
 | `windows` | Win32 APIs, process management, shared memory, ETW |
 | `sysinfo` | CPU usage, frequencies, RAM |
 | `wmi` | LibreHardwareMonitor queries |
-| `quick-xml` | Parse `.widget` template blocks |
+| `quick-xml` | Parse `.omni` template blocks |
 | `cssparser` | Parse CSS style blocks and theme files |
 | `taffy` | Flexbox layout engine |
 | `tracing` + `tracing-subscriber` | Structured logging, sensor binding ledger |
@@ -707,7 +707,7 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 
 ### Phase 9a-1: Core Widget Format + Parser
 
-- `.widget` file parser (`quick-xml` + `cssparser`) → `WidgetTree` data structure
+- `.omni` file parser (`quick-xml` + `cssparser`) → `WidgetTree` data structure
 - `WidgetTree` is JSON-serializable (for Electron communication)
 - Template elements: `<panel>`, `<sensor>`, `<graph>`, `<bar>`, `<label>`, `<group>`, `<spacer>`
 - Basic styling: position, color, font, opacity, background, border-radius
@@ -715,7 +715,7 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - Sensible defaults and auto-formatting for sensor values
 - `WidgetTree` → `Vec<ComputedWidget>` replaces hardcoded `WidgetBuilder`
 - WebSocket `widget.update` and `widget.parse` endpoints
-- **Success**: Changing `.widget` file changes the overlay appearance
+- **Success**: Changing `.omni` file changes the overlay appearance
 
 ### Phase 9a-2: CSS Cascade + Themes
 
@@ -763,7 +763,7 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 ### Phase 11: Electron App + Installer
 
 - Electron app as main UI: visual widget editor, Monaco editor, live preview, settings
-- Monaco integration with custom IntelliSense for `.widget` format
+- Monaco integration with custom IntelliSense for `.omni` format
 - Live parser errors piped from host → Monaco squiggles
 - HTML/CSS preview (browser-native, matches in-game rendering)
 - Electron Builder + NSIS Windows installer
