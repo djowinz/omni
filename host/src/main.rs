@@ -12,6 +12,7 @@ mod sensors;
 mod ipc;
 mod ws_server;
 mod omni;
+mod workspace;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -208,7 +209,7 @@ fn run_stop() {
 fn run_host(dll_path: &str) {
     let config_path = config::config_path();
     let config = config::load_config(&config_path);
-    let poll_interval = Duration::from_millis(config.poll_interval_ms);
+    let poll_interval = Duration::from_millis(2000); // TODO(Task 6): was config.poll_interval_ms
 
     ctrlc::set_handler(|| {
         RUNNING.store(false, Ordering::Relaxed);
@@ -241,7 +242,7 @@ fn run_host(dll_path: &str) {
     info!(
         dll_path,
         config_path = ?config_path,
-        poll_ms = config.poll_interval_ms,
+        poll_ms = 2000, // TODO(Task 6): was config.poll_interval_ms
         ws_port = ws_server::WS_PORT,
         exclude_count = config.exclude.len(),
         "Omni host starting"

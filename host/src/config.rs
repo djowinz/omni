@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Returns the path to the Omni config file: %APPDATA%\Omni\config.json
@@ -7,26 +8,52 @@ pub fn config_path() -> PathBuf {
     PathBuf::from(appdata).join("Omni").join("config.json")
 }
 
+/// Returns the Omni data directory: %APPDATA%\Omni\
+pub fn data_dir() -> PathBuf {
+    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(appdata).join("Omni")
+}
+
 /// Top-level application configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Name of the active overlay folder (under overlays/).
+    pub active_overlay: String,
+    /// Map game exe names to overlay folder names.
+    /// e.g., {"valorant.exe": "Valorant Competitive"}
+    pub overlay_by_game: HashMap<String, String>,
+    /// Keybinds for overlay control.
+    pub keybinds: KeybindConfig,
     /// Process names that should never be injected.
     pub exclude: Vec<String>,
     /// Process names that should always be injected (overrides heuristics).
     pub include: Vec<String>,
     /// Directory path prefixes recognised as game installation roots.
-    /// Processes running from these directories are eligible for injection
-    /// even if they were already running when the host started.
     pub game_directories: Vec<String>,
-    /// How often (in milliseconds) to poll for new game processes.
-    pub poll_interval_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KeybindConfig {
+    /// Key to toggle overlay visibility.
+    pub toggle_overlay: String,
+}
+
+impl Default for KeybindConfig {
+    fn default() -> Self {
+        Self {
+            toggle_overlay: "F12".to_string(),
+        }
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            poll_interval_ms: 2000,
+            active_overlay: "Default".to_string(),
+            overlay_by_game: HashMap::new(),
+            keybinds: KeybindConfig::default(),
             include: Vec::new(),
             game_directories: default_game_directories(),
             exclude: vec![
@@ -234,9 +261,9 @@ mod tests {
     }
 
     #[test]
-    fn default_poll_is_2000ms() {
+    fn default_active_overlay_is_default() {
         let cfg = Config::default();
-        assert_eq!(cfg.poll_interval_ms, 2000);
+        assert_eq!(cfg.active_overlay, "Default");
     }
 
     #[test]
@@ -244,18 +271,21 @@ mod tests {
         let original = Config::default();
         let json = serde_json::to_string_pretty(&original).expect("serialize");
         let restored: Config = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(original.poll_interval_ms, restored.poll_interval_ms);
+        assert_eq!(original.active_overlay, restored.active_overlay);
         assert_eq!(original.exclude, restored.exclude);
+        assert_eq!(original.keybinds.toggle_overlay, restored.keybinds.toggle_overlay);
     }
 
     #[test]
     fn deserialize_with_missing_fields_uses_defaults() {
         // Supplying only one field — the other should fall back to its Default.
-        let json = r#"{ "poll_interval_ms": 5000 }"#;
+        let json = r#"{ "active_overlay": "Custom" }"#;
         let cfg: Config = serde_json::from_str(json).expect("deserialize partial");
-        assert_eq!(cfg.poll_interval_ms, 5000);
+        assert_eq!(cfg.active_overlay, "Custom");
         // exclude should be the default list, not empty
         assert!(!cfg.exclude.is_empty());
+        // keybinds should default
+        assert_eq!(cfg.keybinds.toggle_overlay, "F12");
     }
 
     #[test]
@@ -272,7 +302,7 @@ mod tests {
         }
 
         let cfg = load_config(&path);
-        assert_eq!(cfg.poll_interval_ms, Config::default().poll_interval_ms);
+        assert_eq!(cfg.active_overlay, Config::default().active_overlay);
         assert_eq!(cfg.exclude, Config::default().exclude);
 
         // Cleanup the file that load_config may have created.
