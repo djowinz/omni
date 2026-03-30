@@ -20,6 +20,7 @@ pub const WS_PORT: u16 = 9473;
 /// Shared state between the WebSocket server and the main loop.
 pub struct WsSharedState {
     pub latest_snapshot: Mutex<SensorSnapshot>,
+    pub active_omni_file: Mutex<Option<crate::omni::types::OmniFile>>,
     pub running: AtomicBool,
 }
 
@@ -27,6 +28,7 @@ impl WsSharedState {
     pub fn new() -> Self {
         Self {
             latest_snapshot: Mutex::new(SensorSnapshot::default()),
+            active_omni_file: Mutex::new(None),
             running: AtomicBool::new(true),
         }
     }
@@ -166,7 +168,7 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
 
 fn handle_message(
     text: &str,
-    _state: &Arc<WsSharedState>,
+    state: &Arc<WsSharedState>,
     sensor_subscribed: &mut bool,
 ) -> Option<String> {
     let msg: Value = serde_json::from_str(text).ok()?;
@@ -184,6 +186,48 @@ fn handle_message(
                 "ws_port": WS_PORT,
                 "running": true,
             }).to_string())
+        }
+        "widget.parse" => {
+            let source = msg.get("source")?.as_str()?;
+            match crate::omni::parser::parse_omni(source) {
+                Ok(file) => {
+                    Some(json!({
+                        "type": "widget.parsed",
+                        "file": file,
+                        "errors": [],
+                    }).to_string())
+                }
+                Err(errors) => {
+                    let error_list: Vec<Value> = errors.iter().map(|e| json!({
+                        "message": e.message,
+                        "offset": e.offset,
+                    })).collect();
+                    Some(json!({
+                        "type": "widget.parsed",
+                        "file": null,
+                        "errors": error_list,
+                    }).to_string())
+                }
+            }
+        }
+        "widget.update" => {
+            let file_value = msg.get("file")?;
+            match serde_json::from_value::<crate::omni::types::OmniFile>(file_value.clone()) {
+                Ok(file) => {
+                    if let Ok(mut active) = state.active_omni_file.lock() {
+                        *active = Some(file);
+                    }
+                    info!("Widget file updated via WebSocket");
+                    Some(json!({"type": "widget.updated"}).to_string())
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to deserialize widget file");
+                    Some(json!({
+                        "type": "error",
+                        "message": format!("Invalid widget file: {}", e),
+                    }).to_string())
+                }
+            }
         }
         _ => {
             debug!(msg_type, "Unknown WebSocket message type");
@@ -259,6 +303,79 @@ mod tests {
     fn format_f32_handles_nan() {
         assert_eq!(format_f32(42.5), json!(42.5));
         assert_eq!(format_f32(f32::NAN), Value::Null);
+    }
+
+    #[test]
+    fn handle_widget_parse_valid() {
+        let state = Arc::new(WsSharedState::new());
+        let mut subscribed = false;
+
+        let source = r#"<widget id="fps" name="FPS"><template><div>hello</div></template><style>#fps { color: white; }</style></widget>"#;
+        let msg = serde_json::to_string(&json!({
+            "type": "widget.parse",
+            "source": source,
+        })).unwrap();
+
+        let response = handle_message(&msg, &state, &mut subscribed);
+        let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+        assert_eq!(resp["type"], "widget.parsed");
+        assert!(resp["file"].is_object(), "Should return parsed file");
+        assert_eq!(resp["errors"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn handle_widget_parse_empty() {
+        let state = Arc::new(WsSharedState::new());
+        let mut subscribed = false;
+
+        let msg = serde_json::to_string(&json!({
+            "type": "widget.parse",
+            "source": "",
+        })).unwrap();
+
+        let response = handle_message(&msg, &state, &mut subscribed);
+        let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+        assert_eq!(resp["type"], "widget.parsed");
+    }
+
+    #[test]
+    fn handle_widget_update_valid() {
+        let state = Arc::new(WsSharedState::new());
+        let mut subscribed = false;
+
+        let file = crate::omni::types::OmniFile {
+            theme_src: None,
+            widgets: vec![],
+        };
+
+        let msg = serde_json::to_string(&json!({
+            "type": "widget.update",
+            "file": file,
+        })).unwrap();
+
+        let response = handle_message(&msg, &state, &mut subscribed);
+        let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+        assert_eq!(resp["type"], "widget.updated");
+
+        // Verify the file was stored in state
+        let active = state.active_omni_file.lock().unwrap();
+        assert!(active.is_some(), "Should have stored the file");
+    }
+
+    #[test]
+    fn handle_widget_update_invalid() {
+        let state = Arc::new(WsSharedState::new());
+        let mut subscribed = false;
+
+        let msg = serde_json::to_string(&json!({
+            "type": "widget.update",
+            "file": "not a valid file",
+        })).unwrap();
+
+        let response = handle_message(&msg, &state, &mut subscribed);
+        let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+        assert_eq!(resp["type"], "error");
+        assert!(resp["message"].as_str().unwrap().contains("Invalid widget file"));
     }
 
     #[test]

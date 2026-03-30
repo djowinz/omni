@@ -312,6 +312,14 @@ fn run_host(dll_path: &str) {
             *ws_snapshot = latest_snapshot;
         }
 
+        // Check for widget updates from WebSocket (Electron app)
+        if let Ok(mut active) = ws_state.active_omni_file.lock() {
+            if let Some(new_file) = active.take() {
+                omni_file = new_file;
+                info!("Applied widget update from WebSocket");
+            }
+        }
+
         // Resolve widgets from .omni file
         let widgets = omni_resolver.resolve(&omni_file, &latest_snapshot);
 
