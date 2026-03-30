@@ -13,6 +13,8 @@ ctrlc = "3"
 sysinfo = "0.35"
 wmi = "0.14"
 tungstenite = "0.26"
+quick-xml = "0.37"
+lightningcss = "1.0.0-alpha.71"
 
 [dependencies.windows]
 version = "0.58"
