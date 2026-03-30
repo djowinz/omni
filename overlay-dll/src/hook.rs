@@ -50,13 +50,19 @@ pub const RESIZE_BUFFERS_VTABLE_INDEX: usize = 13;
 //   IDXGIFactory2     : 14=IsWindowedStereoEnabled, 15=CreateSwapChainForHwnd, ...
 pub const CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX: usize = 15;
 
+// ID3D12CommandQueue vtable layout (0-based):
+//   IUnknown           : 0=QueryInterface, 1=AddRef, 2=Release
+//   ID3D12Object       : 3=GetPrivateData, 4=SetPrivateData, 5=SetPrivateDataInterface, 6=SetName
+//   ID3D12DeviceChild  : 7=GetDevice
+//   ID3D12Pageable     : (no own methods)
+//   ID3D12CommandQueue : 8=UpdateTileMappings, 9=CopyTileMappings, 10=ExecuteCommandLists, ...
+pub const EXECUTE_COMMAND_LISTS_VTABLE_INDEX: usize = 10;
+
 /// Captured DX12 command queue (if the game is using DX12).
-/// Set by the CreateSwapChainForHwnd hook when QueryInterface for
-/// ID3D12CommandQueue succeeds on the pDevice parameter.
+/// Set by the CreateSwapChainForHwnd hook or the ExecuteCommandLists hook.
 pub static mut CAPTURED_COMMAND_QUEUE: Option<ID3D12CommandQueue> = None;
 
 /// Type alias for the original CreateSwapChainForHwnd function pointer.
-/// Signature: (this, pDevice, hWnd, pDesc, pFullscreenDesc, pRestrictToOutput, ppSwapChain) -> HRESULT
 pub type CreateSwapChainForHwndFn = unsafe extern "system" fn(
     *mut c_void,    // this (IDXGIFactory2)
     *mut c_void,    // pDevice (IUnknown — for DX12 this is ID3D12CommandQueue)
@@ -68,6 +74,15 @@ pub type CreateSwapChainForHwndFn = unsafe extern "system" fn(
 ) -> windows::core::HRESULT;
 
 pub static mut ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND: Option<CreateSwapChainForHwndFn> = None;
+
+/// Type alias for the original ExecuteCommandLists function pointer.
+pub type ExecuteCommandListsFn = unsafe extern "system" fn(
+    *mut c_void,    // this (ID3D12CommandQueue)
+    u32,            // NumCommandLists
+    *const *mut c_void, // ppCommandLists
+);
+
+pub static mut ORIGINAL_EXECUTE_COMMAND_LISTS: Option<ExecuteCommandListsFn> = None;
 
 /// Raw vtable addresses captured from a temporary swap chain.
 pub struct SwapChainVtable {
@@ -333,6 +348,32 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
     }
 }
 
+// ─── ExecuteCommandLists hook ────────────────────────────────────────────────
+
+/// Hooks ID3D12CommandQueue::ExecuteCommandLists to capture the game's command queue.
+/// This fires every frame the game submits rendering work, so it captures the queue
+/// immediately — even after re-injection when CreateSwapChainForHwnd doesn't fire.
+unsafe extern "system" fn hooked_execute_command_lists(
+    this: *mut c_void,
+    num_command_lists: u32,
+    pp_command_lists: *const *mut c_void,
+) {
+    // Capture the queue on first call
+    if CAPTURED_COMMAND_QUEUE.is_none() && !this.is_null() {
+        let unknown: &windows::core::IUnknown = std::mem::transmute(&this);
+        if let Ok(queue) = unknown.cast::<ID3D12CommandQueue>() {
+            crate::logging::log_to_file(
+                "[hook] captured ID3D12CommandQueue from ExecuteCommandLists",
+            );
+            CAPTURED_COMMAND_QUEUE = Some(queue);
+        }
+    }
+
+    if let Some(original) = ORIGINAL_EXECUTE_COMMAND_LISTS {
+        original(this, num_command_lists, pp_command_lists);
+    }
+}
+
 // ─── Factory2 vtable discovery ──────────────────────────────────────────────
 
 /// Discover the CreateSwapChainForHwnd vtable address from IDXGIFactory2.
@@ -379,6 +420,58 @@ unsafe fn discover_factory2_vtable() -> Result<*const c_void, String> {
     ));
 
     Ok(create_swap_chain_for_hwnd)
+}
+
+// ─── Command queue vtable discovery ─────────────────────────────────────────
+
+/// Discover the ExecuteCommandLists vtable address from ID3D12CommandQueue.
+/// Creates a temporary D3D12 device + command queue, reads the vtable.
+/// Returns None if d3d12.dll is not loaded (DX11-only game).
+unsafe fn discover_command_queue_vtable() -> Option<*const c_void> {
+    use windows::Win32::Graphics::Direct3D12::{
+        D3D12CreateDevice, ID3D12Device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        D3D12_COMMAND_QUEUE_DESC,
+    };
+    use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0;
+
+    // Only attempt if d3d12.dll is loaded
+    if GetModuleHandleA(s!("d3d12.dll")).is_err() {
+        return None;
+    }
+
+    let mut device: Option<ID3D12Device> = None;
+    if D3D12CreateDevice(None, D3D_FEATURE_LEVEL_11_0, &mut device).is_err() {
+        crate::logging::log_to_file("[hook] D3D12CreateDevice failed for queue vtable discovery");
+        return None;
+    }
+
+    let device = device?;
+
+    let desc = D3D12_COMMAND_QUEUE_DESC {
+        Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
+        ..Default::default()
+    };
+
+    let queue: ID3D12CommandQueue = match device.CreateCommandQueue(&desc) {
+        Ok(q) => q,
+        Err(e) => {
+            crate::logging::log_to_file(&format!(
+                "[hook] CreateCommandQueue failed for vtable discovery: {e}"
+            ));
+            return None;
+        }
+    };
+
+    let raw_ptr: *mut *const *const c_void = Interface::as_raw(&queue) as _;
+    let vtable: *const *const c_void = *raw_ptr;
+    let execute_cl_addr = *vtable.add(EXECUTE_COMMAND_LISTS_VTABLE_INDEX);
+
+    crate::logging::log_to_file(&format!(
+        "[hook] ID3D12CommandQueue::ExecuteCommandLists at {:p}",
+        execute_cl_addr,
+    ));
+
+    Some(execute_cl_addr)
 }
 
 // ─── Hook state ──────────────────────────────────────────────────────────────
@@ -454,6 +547,23 @@ pub unsafe fn install_hooks() -> Result<(), String> {
         }
     }
 
+    // Hook ExecuteCommandLists (captures DX12 command queue on every frame —
+    // needed for re-injection when CreateSwapChainForHwnd doesn't fire)
+    if let Some(ecl_addr) = discover_command_queue_vtable() {
+        let original_ecl = minhook::MinHook::create_hook(
+            ecl_addr as *mut c_void,
+            hooked_execute_command_lists as *mut c_void,
+        )
+        .map_err(|s| format!("MinHook::create_hook(ExecuteCommandLists) failed: {s:?}"))?;
+
+        ORIGINAL_EXECUTE_COMMAND_LISTS = Some(std::mem::transmute::<
+            *mut c_void,
+            ExecuteCommandListsFn,
+        >(original_ecl));
+
+        crate::logging::log_to_file("[hook] ExecuteCommandLists hook created");
+    }
+
     minhook::MinHook::enable_all_hooks()
         .map_err(|s| format!("MinHook::enable_all_hooks failed: {s:?}"))?;
 
@@ -474,5 +584,6 @@ mod tests {
         assert_eq!(PRESENT1_VTABLE_INDEX, 22);
         assert_eq!(RESIZE_BUFFERS_VTABLE_INDEX, 13);
         assert_eq!(CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX, 15);
+        assert_eq!(EXECUTE_COMMAND_LISTS_VTABLE_INDEX, 10);
     }
 }

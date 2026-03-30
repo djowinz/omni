@@ -177,35 +177,20 @@ impl OverlayRenderer {
         Ok(())
     }
 
-    /// Create the D3D11On12 device from the DX12 device and a command queue.
-    /// Prefers the captured queue from the CreateSwapChainForHwnd hook.
-    /// Falls back to creating our own queue (needed after re-injection when
-    /// the game already has a swap chain and the hook doesn't fire).
+    /// Create the D3D11On12 device from the DX12 device and the captured command queue.
+    /// The queue is captured by the ExecuteCommandLists hook (fires every frame)
+    /// or the CreateSwapChainForHwnd hook (fires on swap chain creation).
     unsafe fn create_d3d11on12_device(&mut self, sc: &IDXGISwapChain) -> Result<(), String> {
-        use windows::Win32::Graphics::Direct3D12::{
-            D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC,
-        };
-
         let dx12_device: ID3D12Device = sc.GetDevice()
             .map_err(|e| format!("GetDevice::<ID3D12Device> failed: {e}"))?;
 
-        // Try the captured queue first, fall back to creating our own
-        let queue_unknown: IUnknown = if let Some(captured) = crate::hook::CAPTURED_COMMAND_QUEUE.as_ref() {
-            log_to_file("[renderer] using captured command queue for D3D11On12");
-            captured.cast()
-                .map_err(|e| format!("Cast captured command queue to IUnknown: {e}"))?
-        } else {
-            log_to_file("[renderer] no captured command queue — creating our own for D3D11On12");
-            let desc = D3D12_COMMAND_QUEUE_DESC {
-                Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
-                ..Default::default()
-            };
-            let queue: windows::Win32::Graphics::Direct3D12::ID3D12CommandQueue = dx12_device
-                .CreateCommandQueue(&desc)
-                .map_err(|e| format!("CreateCommandQueue failed: {e}"))?;
-            queue.cast()
-                .map_err(|e| format!("Cast new command queue to IUnknown: {e}"))?
-        };
+        let cmd_queue = crate::hook::CAPTURED_COMMAND_QUEUE.as_ref()
+            .ok_or_else(|| "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook".to_string())?;
+
+        log_to_file("[renderer] using captured command queue for D3D11On12");
+
+        let queue_unknown: IUnknown = cmd_queue.cast()
+            .map_err(|e| format!("Cast captured command queue to IUnknown: {e}"))?;
 
         let queues: [Option<IUnknown>; 1] = [Some(queue_unknown)];
 
@@ -296,8 +281,10 @@ impl OverlayRenderer {
             }
             GraphicsApi::DX12 => {
                 // If we've failed too many times on this swap chain, stop trying
-                // until the swap chain changes (avoids spamming during splash screens)
-                if self.dx12_fail_count >= 3 {
+                // until the swap chain changes (avoids spamming during splash screens).
+                // Allow more attempts (10) to give ExecuteCommandLists hook time to
+                // capture the command queue after re-injection.
+                if self.dx12_fail_count >= 10 {
                     return Err("DX12 rendering suspended after repeated failures".into());
                 }
                 // Release previous frame's resources — buffer index has rotated
@@ -341,9 +328,9 @@ impl OverlayRenderer {
         if let Err(e) = self.ensure_render_target(swap_chain_ptr) {
             if self.api == GraphicsApi::DX12 {
                 self.dx12_fail_count += 1;
-                if self.dx12_fail_count == 3 {
+                if self.dx12_fail_count == 10 {
                     log_to_file(&format!(
-                        "[renderer] DX12 rendering suspended after 3 failures (last: {e}). \
+                        "[renderer] DX12 rendering suspended after 10 failures (last: {e}). \
                          Will retry when swap chain changes."
                     ));
                 }
