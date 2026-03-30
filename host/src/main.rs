@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, error};
+use tracing::{info, warn, error};
 use tracing_subscriber::EnvFilter;
 
 mod injector;
@@ -10,7 +10,6 @@ mod config;
 mod scanner;
 mod sensors;
 mod ipc;
-mod widget_builder;
 mod ws_server;
 mod omni;
 
@@ -251,7 +250,54 @@ fn run_host(dll_path: &str) {
 
     let mut scanner_instance = scanner::Scanner::new(dll_path.to_string(), config);
     let mut latest_snapshot = omni_shared::SensorSnapshot::default();
-    let widget_builder = widget_builder::WidgetBuilder::new();
+
+    // Load .omni overlay definition
+    let omni_path = config::config_path().parent()
+        .map(|p| p.join("overlay.omni"))
+        .unwrap_or_else(|| PathBuf::from("overlay.omni"));
+
+    let omni_source = if omni_path.exists() {
+        match std::fs::read_to_string(&omni_path) {
+            Ok(s) => {
+                info!(path = %omni_path.display(), "Loaded .omni file");
+                s
+            }
+            Err(e) => {
+                warn!(path = %omni_path.display(), error = %e, "Failed to read .omni file, using default");
+                omni::default::DEFAULT_OMNI.to_string()
+            }
+        }
+    } else {
+        info!("No .omni file found, using built-in default");
+        omni::default::DEFAULT_OMNI.to_string()
+    };
+
+    #[allow(unused_mut)] // Task 10: WebSocket widget.update will mutate this
+    let mut omni_file = match omni::parser::parse_omni(&omni_source) {
+        Ok(f) => f,
+        Err(errs) => {
+            warn!(?errs, "Failed to parse .omni file, using empty file");
+            omni::OmniFile::empty()
+        }
+    };
+
+    let mut omni_resolver = omni::resolver::OmniResolver::new();
+
+    // Load theme if specified
+    if let Some(theme_src) = &omni_file.theme_src {
+        let theme_path = omni_path.parent()
+            .map(|p| p.join(theme_src))
+            .unwrap_or_else(|| PathBuf::from(theme_src));
+        match std::fs::read_to_string(&theme_path) {
+            Ok(css) => {
+                info!(path = %theme_path.display(), "Loaded theme CSS");
+                omni_resolver.load_theme(&css);
+            }
+            Err(e) => {
+                warn!(path = %theme_path.display(), error = %e, "Failed to load theme CSS");
+            }
+        }
+    }
 
     while RUNNING.load(Ordering::Relaxed) {
         scanner_instance.poll();
@@ -266,8 +312,8 @@ fn run_host(dll_path: &str) {
             *ws_snapshot = latest_snapshot;
         }
 
-        // Build sensor widgets
-        let widgets = widget_builder.build(&latest_snapshot);
+        // Resolve widgets from .omni file
+        let widgets = omni_resolver.resolve(&omni_file, &latest_snapshot);
 
         // Write to shared memory
         shm_writer.write(&latest_snapshot, &widgets, 1);
