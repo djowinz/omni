@@ -19,6 +19,7 @@ static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 pub static RENDERER_INIT_DONE: AtomicBool = AtomicBool::new(false);
 static mut RENDERER: Option<OverlayRenderer> = None;
 static mut SHM_READER: Option<SharedMemoryReader> = None;
+static mut FRAME_STATS: Option<crate::frame_stats::FrameStats> = None;
 
 /// Initialize the renderer on the first Present call.
 unsafe fn ensure_renderer() {
@@ -30,6 +31,8 @@ unsafe fn ensure_renderer() {
         Ok(r) => {
             RENDERER = Some(r);
             RENDERER_INIT_DONE.store(true, Ordering::Release);
+            FRAME_STATS = Some(crate::frame_stats::FrameStats::new());
+            log_to_file("[present] frame stats initialized");
             log_to_file("[present] D2D renderer initialized on first frame");
         }
         Err(e) => {
@@ -55,6 +58,11 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
     ensure_renderer();
     ensure_shm_reader();
 
+    // Record frame timing
+    if let Some(frame_stats) = &mut FRAME_STATS {
+        frame_stats.record();
+    }
+
     let renderer = match &mut RENDERER {
         Some(r) => r,
         None => return,
@@ -68,13 +76,47 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
             if count > 0 {
                 &slot.widgets[..count]
             } else {
-                return; // No widgets to render
+                return;
             }
         }
-        None => return, // No shared memory — host not running
+        None => return,
     };
 
-    renderer.render(swap_chain, widgets);
+    // Copy widgets to a local buffer so we can override FPS text
+    let mut local_widgets: Vec<omni_shared::ComputedWidget> = widgets.to_vec();
+
+    // Override frame timing widget text with DLL-computed values
+    if let Some(frame_stats) = &FRAME_STATS {
+        if frame_stats.available() {
+            for widget in &mut local_widgets {
+                match widget.source {
+                    omni_shared::SensorSource::Fps => {
+                        let text = format!("FPS: {:.0}", frame_stats.fps());
+                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    }
+                    omni_shared::SensorSource::FrameTime => {
+                        let text = format!("Frame: {:.1}ms", frame_stats.frame_time_ms());
+                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    }
+                    omni_shared::SensorSource::FrameTimeAvg => {
+                        let text = format!("Avg: {:.1}ms", frame_stats.frame_time_avg_ms());
+                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    }
+                    omni_shared::SensorSource::FrameTime1Pct => {
+                        let text = format!("1%: {:.1}ms", frame_stats.frame_time_1pct_ms());
+                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    }
+                    omni_shared::SensorSource::FrameTime01Pct => {
+                        let text = format!("0.1%: {:.1}ms", frame_stats.frame_time_01pct_ms());
+                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    renderer.render(swap_chain, &local_widgets);
 }
 
 /// Drop the renderer and shared memory reader. Called during shutdown.
@@ -88,6 +130,8 @@ pub unsafe fn destroy_renderer() {
         drop(reader);
         log_to_file("[present] shared memory reader closed");
     }
+    FRAME_STATS = None;
+    log_to_file("[present] frame stats destroyed");
 }
 
 pub unsafe extern "system" fn hooked_present(
