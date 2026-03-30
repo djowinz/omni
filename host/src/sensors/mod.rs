@@ -1,15 +1,22 @@
 pub mod cpu;
+pub mod cpu_temp;
+pub mod gpu;
+pub mod ram;
 
 use std::sync::mpsc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tracing::info;
 
 use omni_shared::SensorSnapshot;
+use sysinfo::System;
+use tracing::info;
 
 use cpu::CpuPoller;
+use cpu_temp::CpuTempPoller;
+use gpu::GpuPoller;
+use ram::RamPoller;
 
 /// Runs sensor polling on a background thread, sending snapshots via channel.
 pub struct SensorPoller {
@@ -25,15 +32,40 @@ impl SensorPoller {
         let running_clone = running.clone();
 
         let handle = thread::spawn(move || {
-            let mut cpu = CpuPoller::new();
+            // Shared sysinfo instance for CPU and RAM
+            let mut system = System::new();
+            system.refresh_cpu_all();
+            system.refresh_memory();
 
-            // sysinfo needs two samples to compute usage — wait before first real poll
+            let cpu = CpuPoller::new(&system);
+            let cpu_temp = CpuTempPoller::new();
+            let gpu = GpuPoller::new();
+            let ram = RamPoller::new();
+
+            if gpu.is_some() {
+                info!("sensor suite: CPU + GPU (NVAPI) + RAM + CPU temp (WMI)");
+            } else {
+                info!("sensor suite: CPU + RAM + CPU temp (WMI) — no NVIDIA GPU detected");
+            }
+
+            // sysinfo needs two samples to compute CPU usage
             thread::sleep(Duration::from_millis(500));
 
             info!("Sensor polling started");
 
             while running_clone.load(Ordering::Relaxed) {
-                let cpu_data = cpu.poll();
+                system.refresh_cpu_all();
+                system.refresh_memory();
+
+                let mut cpu_data = cpu.poll(&system);
+                cpu_data.package_temp_c = cpu_temp.poll();
+
+                let gpu_data = match &gpu {
+                    Some(g) => g.poll(),
+                    None => omni_shared::GpuData::default(),
+                };
+
+                let ram_data = ram.poll(&system);
 
                 let snapshot = SensorSnapshot {
                     timestamp_ms: std::time::SystemTime::now()
@@ -41,7 +73,9 @@ impl SensorPoller {
                         .unwrap_or_default()
                         .as_millis() as u64,
                     cpu: cpu_data,
-                    ..Default::default()
+                    gpu: gpu_data,
+                    ram: ram_data,
+                    ..Default::default() // frame data — Phase 8
                 };
 
                 if tx.send(snapshot).is_err() {
