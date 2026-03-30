@@ -16,7 +16,7 @@ use windows::core::s;
 
 const NVAPI_INITIALIZE: u32 = 0x0150E828;
 const NVAPI_ENUM_PHYSICAL_GPUS: u32 = 0xE5AC921F;
-const NVAPI_GPU_GET_USAGES: u32 = 0x189A1FDF;
+const NVAPI_GPU_GET_DYNAMIC_PSTATES_INFO_EX: u32 = 0x60DED2ED;
 const NVAPI_GPU_GET_THERMAL_SETTINGS: u32 = 0xE3640A56;
 const NVAPI_GPU_GET_ALL_CLOCK_FREQUENCIES: u32 = 0xDCB616C3;
 const NVAPI_GPU_GET_MEMORY_INFO_EX: u32 = 0xC0599498;
@@ -28,7 +28,7 @@ const NVAPI_GPU_CLIENT_POWER_TOPOLOGY_GET_STATUS: u32 = 0xEDCF624E;
 type NvAPI_QueryInterface = unsafe extern "C" fn(id: u32) -> *const c_void;
 type NvAPI_Initialize = unsafe extern "C" fn() -> i32;
 type NvAPI_EnumPhysicalGPUs = unsafe extern "C" fn(handles: *mut [usize; 64], count: *mut u32) -> i32;
-type NvAPI_GPU_GetUsages = unsafe extern "C" fn(handle: usize, usages: *mut GpuUsages) -> i32;
+type NvAPI_GPU_GetDynamicPstatesInfoEx = unsafe extern "C" fn(handle: usize, info: *mut DynamicPstatesInfoEx) -> i32;
 type NvAPI_GPU_GetThermalSettings = unsafe extern "C" fn(handle: usize, sensor: u32, settings: *mut ThermalSettings) -> i32;
 type NvAPI_GPU_GetAllClockFrequencies = unsafe extern "C" fn(handle: usize, clocks: *mut ClockFrequencies) -> i32;
 type NvAPI_GPU_GetMemoryInfoEx = unsafe extern "C" fn(handle: usize, info: *mut MemoryInfoEx) -> i32;
@@ -39,21 +39,29 @@ const NVAPI_OK: i32 = 0;
 
 // ─── NVAPI structs ───────────────────────────────────────────────────────────
 
+/// NV_GPU_DYNAMIC_PSTATES_INFO_EX — official GPU utilization API.
+/// Contains utilization for GPU core (index 0), frame buffer (1), video engine (2), bus (3).
 #[repr(C)]
-struct GpuUsages {
+struct DynamicPstatesInfoEx {
     version: u32,
-    usages: [u32; 34], // [0] = version echoed, [3] = GPU usage %
+    flags: u32,
+    utilization: [PstateUtilization; 8],
 }
 
-impl GpuUsages {
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct PstateUtilization {
+    present: u32,  // 1 if this domain is present
+    percentage: u32,
+}
+
+impl DynamicPstatesInfoEx {
     fn new() -> Self {
-        let mut s = Self {
-            version: 0,
-            usages: [0; 34],
-        };
-        // Version: struct size | version 1
-        s.version = (mem::size_of::<Self>() as u32) | (1 << 16);
-        s
+        Self {
+            version: (mem::size_of::<Self>() as u32) | (1 << 16),
+            flags: 0,
+            utilization: [PstateUtilization::default(); 8],
+        }
     }
 }
 
@@ -153,13 +161,21 @@ impl PowerTopologyStatus {
             entries: [PowerTopologyEntry::default(); 4],
         }
     }
+
+    fn new_v2() -> Self {
+        Self {
+            version: (mem::size_of::<Self>() as u32) | (2 << 16),
+            count: 0,
+            entries: [PowerTopologyEntry::default(); 4],
+        }
+    }
 }
 
 // ─── GpuPoller ───────────────────────────────────────────────────────────────
 
 pub struct GpuPoller {
     gpu_handle: usize,
-    fn_get_usages: NvAPI_GPU_GetUsages,
+    fn_get_pstates: NvAPI_GPU_GetDynamicPstatesInfoEx,
     fn_get_thermal: NvAPI_GPU_GetThermalSettings,
     fn_get_clocks: NvAPI_GPU_GetAllClockFrequencies,
     fn_get_memory: NvAPI_GPU_GetMemoryInfoEx,
@@ -197,8 +213,8 @@ impl GpuPoller {
         let fn_enum_gpus: NvAPI_EnumPhysicalGPUs = mem::transmute(
             query_interface(NVAPI_ENUM_PHYSICAL_GPUS)
         );
-        let fn_get_usages: NvAPI_GPU_GetUsages = mem::transmute(
-            query_interface(NVAPI_GPU_GET_USAGES)
+        let fn_get_pstates: NvAPI_GPU_GetDynamicPstatesInfoEx = mem::transmute(
+            query_interface(NVAPI_GPU_GET_DYNAMIC_PSTATES_INFO_EX)
         );
         let fn_get_thermal: NvAPI_GPU_GetThermalSettings = mem::transmute(
             query_interface(NVAPI_GPU_GET_THERMAL_SETTINGS)
@@ -235,7 +251,7 @@ impl GpuPoller {
 
         Some(Self {
             gpu_handle,
-            fn_get_usages,
+            fn_get_pstates,
             fn_get_thermal,
             fn_get_clocks,
             fn_get_memory,
@@ -249,10 +265,16 @@ impl GpuPoller {
         let mut data = GpuData::default();
 
         unsafe {
-            // Usage
-            let mut usages = GpuUsages::new();
-            if (self.fn_get_usages)(self.gpu_handle, &mut usages) == NVAPI_OK {
-                data.usage_percent = usages.usages[3] as f32;
+            // Usage via DynamicPstatesInfoEx (official API, works on all modern GPUs)
+            let mut pstates = DynamicPstatesInfoEx::new();
+            let pstates_result = (self.fn_get_pstates)(self.gpu_handle, &mut pstates);
+            if pstates_result == NVAPI_OK {
+                // Index 0 = GPU core utilization
+                if pstates.utilization[0].present != 0 {
+                    data.usage_percent = pstates.utilization[0].percentage as f32;
+                }
+            } else {
+                debug!(error_code = pstates_result, "NVAPI: GetDynamicPstatesInfoEx failed");
             }
 
             // Temperature
@@ -291,9 +313,21 @@ impl GpuPoller {
 
             // Power draw (GTX 900+ only)
             if let Some(fn_get_power) = self.fn_get_power {
+                // Try version 1 first
                 let mut power = PowerTopologyStatus::new();
-                if fn_get_power(self.gpu_handle, &mut power) == NVAPI_OK && power.count > 0 {
+                let power_result = fn_get_power(self.gpu_handle, &mut power);
+                if power_result == NVAPI_OK && power.count > 0 {
                     data.power_draw_w = power.entries[0].power_usage_mw as f32 / 1000.0;
+                } else {
+                    // Try version 2 for newer GPUs (50-series)
+                    let mut power_v2 = PowerTopologyStatus::new_v2();
+                    let power_v2_result = fn_get_power(self.gpu_handle, &mut power_v2);
+                    if power_v2_result == NVAPI_OK && power_v2.count > 0 {
+                        data.power_draw_w = power_v2.entries[0].power_usage_mw as f32 / 1000.0;
+                    } else {
+                        debug!(v1_error = power_result, v2_error = power_v2_result,
+                            "NVAPI: ClientPowerTopologyGetStatus failed (both v1 and v2)");
+                    }
                 }
             }
         }
@@ -321,11 +355,11 @@ mod tests {
     }
 
     #[test]
-    fn gpu_usages_struct_version() {
-        let usages = GpuUsages::new();
+    fn pstates_struct_version() {
+        let pstates = DynamicPstatesInfoEx::new();
         // Version encodes struct size in low 16 bits
-        let size = (usages.version & 0xFFFF) as usize;
-        assert_eq!(size, mem::size_of::<GpuUsages>());
+        let size = (pstates.version & 0xFFFF) as usize;
+        assert_eq!(size, mem::size_of::<DynamicPstatesInfoEx>());
     }
 
     #[test]
