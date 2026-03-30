@@ -4,7 +4,7 @@
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, ID3D11Device,
 };
@@ -157,17 +157,17 @@ unsafe fn read_vtable(swap_chain: &IDXGISwapChain1) -> SwapChainVtable {
 
 // ─── Vtable discovery ─────────────────────────────────────────────────────────
 
-/// Try the DXGI 1.2 path first (CreateSwapChainForHwnd with flip model),
-/// which is what modern games and SDL use. Falls back to the legacy
-/// D3D11CreateDeviceAndSwapChain path.
+/// Discover swap chain vtable addresses using a WARP (software) adapter.
+/// WARP avoids touching the GPU, eliminating races with the game's D3D12 init.
+/// Vtable addresses are the same regardless of adapter type (they live in dxgi.dll).
 pub unsafe fn discover_swapchain_vtable() -> Result<SwapChainVtable, String> {
     let hwnd = create_dummy_window()?;
 
-    // Create D3D11 device (no swap chain yet)
+    // Create D3D11 device using WARP (software) adapter — no GPU access, no race
     let mut device: Option<ID3D11Device> = None;
     D3D11CreateDevice(
         None,
-        D3D_DRIVER_TYPE_HARDWARE,
+        D3D_DRIVER_TYPE_WARP,
         None,
         D3D11_CREATE_DEVICE_FLAG(0),
         None,
@@ -176,9 +176,9 @@ pub unsafe fn discover_swapchain_vtable() -> Result<SwapChainVtable, String> {
         None,
         None,
     )
-    .map_err(|e| format!("D3D11CreateDevice failed: {e}"))?;
+    .map_err(|e| format!("D3D11CreateDevice (WARP) failed: {e}"))?;
 
-    let device = device.ok_or("D3D11CreateDevice returned null device")?;
+    let device = device.ok_or("D3D11CreateDevice (WARP) returned null device")?;
 
     // Get DXGI factory via device → IDXGIDevice → adapter → parent factory
     let result = discover_via_factory2(&device, hwnd);
@@ -389,11 +389,11 @@ unsafe extern "system" fn hooked_execute_command_lists(
 /// Creates a temporary D3D11 device, walks DXGI device → adapter → factory,
 /// then reads the vtable pointer at the correct index.
 unsafe fn discover_factory2_vtable() -> Result<*const c_void, String> {
-    // Create a temporary D3D11 device
+    // Create a temporary D3D11 device using WARP — no GPU access, no race
     let mut device: Option<ID3D11Device> = None;
     D3D11CreateDevice(
         None,
-        D3D_DRIVER_TYPE_HARDWARE,
+        D3D_DRIVER_TYPE_WARP,
         None,
         D3D11_CREATE_DEVICE_FLAG(0),
         None,
@@ -402,9 +402,9 @@ unsafe fn discover_factory2_vtable() -> Result<*const c_void, String> {
         None,
         None,
     )
-    .map_err(|e| format!("D3D11CreateDevice (factory2 discovery) failed: {e}"))?;
+    .map_err(|e| format!("D3D11CreateDevice WARP (factory2 discovery) failed: {e}"))?;
 
-    let device = device.ok_or("D3D11CreateDevice returned null device (factory2 discovery)")?;
+    let device = device.ok_or("D3D11CreateDevice WARP returned null (factory2 discovery)")?;
 
     let dxgi_device: IDXGIDevice = device
         .cast()
