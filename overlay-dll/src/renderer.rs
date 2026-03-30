@@ -15,7 +15,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
     DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_MEASURING_MODE_NATURAL,
 };
-use windows::Win32::Graphics::Dxgi::IDXGISwapChain;
+use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, IDXGISwapChain3};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
     ID3D11Device, ID3D11DeviceContext, ID3D11Resource,
@@ -119,6 +119,8 @@ impl OverlayRenderer {
     }
 
     /// Create render target for DX12 swap chains via D3D11On12.
+    /// Unlike DX11, this is called EVERY FRAME because DX12 flip-model swap chains
+    /// rotate through multiple back buffers. We must wrap the current buffer each frame.
     unsafe fn ensure_render_target_dx12(&mut self, sc: &IDXGISwapChain) -> Result<(), String> {
         // Create D3D11On12 device if we don't have one yet (survives resize)
         if self.d3d11on12_device.is_none() {
@@ -128,10 +130,15 @@ impl OverlayRenderer {
         let d3d11on12 = self.d3d11on12_device.as_ref()
             .ok_or_else(|| "D3D11On12 device not available".to_string())?;
 
-        // Get DX12 back buffer
+        // Get the CURRENT back buffer index — this changes each frame in flip model
+        let sc3: IDXGISwapChain3 = sc.cast()
+            .map_err(|e| format!("cast to IDXGISwapChain3: {e}"))?;
+        let buffer_idx = sc3.GetCurrentBackBufferIndex();
+
+        // Get DX12 back buffer at the current index
         let back_buffer: ID3D12Resource = sc
-            .GetBuffer(0)
-            .map_err(|e| format!("GetBuffer(0) as ID3D12Resource failed: {e}"))?;
+            .GetBuffer(buffer_idx)
+            .map_err(|e| format!("GetBuffer({buffer_idx}) as ID3D12Resource failed: {e}"))?;
 
         // Wrap DX12 resource as DX11 resource
         let flags = D3D11_RESOURCE_FLAGS {
@@ -160,7 +167,6 @@ impl OverlayRenderer {
         self.render_target = Some(rt);
         self.wrapped_back_buffer = Some(wrapped);
 
-        log_to_file("[renderer] D2D render target created from DX12 swap chain via D3D11On12");
         Ok(())
     }
 
@@ -228,19 +234,27 @@ impl OverlayRenderer {
     }
 
     /// Ensure we have a render target for the current swap chain back buffer.
+    /// For DX11: cached (created once, recreated on resize).
+    /// For DX12: recreated every frame (back buffer index rotates in flip model).
     unsafe fn ensure_render_target(&mut self, swap_chain_ptr: *mut c_void) -> Result<(), String> {
-        if self.render_target.is_some() {
-            return Ok(());
-        }
-
         let sc: IDXGISwapChain = std::mem::transmute_copy(&swap_chain_ptr);
         let sc = ManuallyDrop::new(sc);
 
         let api = self.detect_api(&sc);
 
         match api {
-            GraphicsApi::DX11 => self.ensure_render_target_dx11(&sc),
-            GraphicsApi::DX12 => self.ensure_render_target_dx12(&sc),
+            GraphicsApi::DX11 => {
+                if self.render_target.is_some() {
+                    return Ok(());
+                }
+                self.ensure_render_target_dx11(&sc)
+            }
+            GraphicsApi::DX12 => {
+                // Release previous frame's resources — buffer index has rotated
+                self.render_target = None;
+                self.wrapped_back_buffer = None;
+                self.ensure_render_target_dx12(&sc)
+            }
             GraphicsApi::Unknown => Err("Unknown graphics API — cannot create render target".to_string()),
         }
     }
