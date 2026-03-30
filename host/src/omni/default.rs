@@ -19,7 +19,7 @@ pub const DEFAULT_OMNI: &str = r#"
   </template>
   <style>
     .panel {
-      background: rgba(20, 20, 20, 180);
+      background: rgba(20, 20, 20, 0.7);
       border-radius: 4px;
       padding: 6px;
       display: flex;

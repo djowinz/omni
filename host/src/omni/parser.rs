@@ -14,7 +14,7 @@ use super::types::{HtmlNode, OmniFile, Widget};
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParseError {
     pub message: String,
-    pub line: usize,
+    pub offset: usize,
 }
 
 /// Parse a .omni source string into an OmniFile.
@@ -40,7 +40,7 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
                     let name = String::from_utf8_lossy(other).to_string();
                     errors.push(ParseError {
                         message: format!("Unknown top-level element <{}>", name),
-                        line: reader.buffer_position() as usize,
+                        offset: reader.buffer_position() as usize,
                     });
                 }
             },
@@ -53,7 +53,7 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
             Err(e) => {
                 errors.push(ParseError {
                     message: format!("XML parse error: {}", e),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
                 break;
             }
@@ -72,12 +72,12 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
 fn parse_widget(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget, ParseError> {
     let id = get_attr(start, "id").ok_or_else(|| ParseError {
         message: "Widget missing required 'id' attribute".to_string(),
-        line: reader.buffer_position() as usize,
+        offset: reader.buffer_position() as usize,
     })?;
 
     let name = get_attr(start, "name").ok_or_else(|| ParseError {
         message: format!("Widget '{}' missing required 'name' attribute", id),
-        line: reader.buffer_position() as usize,
+        offset: reader.buffer_position() as usize,
     })?;
 
     let enabled = get_attr(start, "enabled")
@@ -102,13 +102,13 @@ fn parse_widget(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget
             Ok(Event::Eof) => {
                 return Err(ParseError {
                     message: format!("Unexpected EOF inside widget '{}'", id),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             Err(e) => {
                 return Err(ParseError {
                     message: format!("XML error in widget '{}': {}", id, e),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             _ => {}
@@ -157,13 +157,13 @@ fn parse_template_children(reader: &mut Reader<&[u8]>) -> Result<HtmlNode, Parse
             Ok(Event::Eof) => {
                 return Err(ParseError {
                     message: "Unexpected EOF inside <template>".to_string(),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             Err(e) => {
                 return Err(ParseError {
                     message: format!("XML error in template: {}", e),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             _ => {}
@@ -222,13 +222,13 @@ fn parse_html_element(
             Ok(Event::Eof) => {
                 return Err(ParseError {
                     message: format!("Unexpected EOF inside <{}>", tag),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             Err(e) => {
                 return Err(ParseError {
                     message: format!("XML error in <{}>: {}", tag, e),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             _ => {}
@@ -283,13 +283,13 @@ fn read_text_content(reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, Pa
             Ok(Event::Eof) => {
                 return Err(ParseError {
                     message: format!("Unexpected EOF inside <{}>", tag),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             Err(e) => {
                 return Err(ParseError {
                     message: format!("XML error reading <{}>: {}", tag, e),
-                    line: reader.buffer_position() as usize,
+                    offset: reader.buffer_position() as usize,
                 });
             }
             _ => {}
