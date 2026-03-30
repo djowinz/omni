@@ -12,6 +12,7 @@ mod sensors;
 mod ipc;
 mod widget_builder;
 mod ws_server;
+mod omni;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
