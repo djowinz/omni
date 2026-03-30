@@ -8,6 +8,7 @@ mod hook;
 mod present;
 mod renderer;
 mod ipc;
+mod frame_stats;
 
 use logging::log_to_file;
 
