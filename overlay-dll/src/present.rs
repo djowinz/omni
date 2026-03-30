@@ -85,32 +85,44 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
     // Copy widgets to a local buffer so we can override FPS text
     let mut local_widgets: Vec<omni_shared::ComputedWidget> = widgets.to_vec();
 
-    // Override frame timing widget text with DLL-computed values
+    // Override frame timing values in widget text.
+    // The host stores the raw template in label_text (e.g., "{fps}: AVG")
+    // and the interpolated text in format_pattern (e.g., "N/A: AVG").
+    // The DLL replaces {fps}/{frame-time}/etc placeholders in the template
+    // with its own computed values, preserving the user's formatting.
     if let Some(frame_stats) = &FRAME_STATS {
         if frame_stats.available() {
             for widget in &mut local_widgets {
-                match widget.source {
-                    omni_shared::SensorSource::Fps => {
-                        let text = format!("FPS: {:.0}", frame_stats.fps());
-                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                let template = omni_shared::read_fixed_str(&widget.label_text);
+                if template.is_empty() {
+                    continue;
+                }
+
+                // Check if this template contains any frame timing placeholders
+                let has_fps = template.contains("{fps}");
+                let has_ft = template.contains("{frame-time}");
+                let has_ft_avg = template.contains("{frame-time.avg}");
+                let has_ft_1pct = template.contains("{frame-time.1pct}");
+                let has_ft_01pct = template.contains("{frame-time.01pct}");
+
+                if has_fps || has_ft || has_ft_avg || has_ft_1pct || has_ft_01pct {
+                    let mut text = template.to_string();
+                    if has_fps {
+                        text = text.replace("{fps}", &format!("{:.0}", frame_stats.fps()));
                     }
-                    omni_shared::SensorSource::FrameTime => {
-                        let text = format!("Frame: {:.1}ms", frame_stats.frame_time_ms());
-                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    if has_ft {
+                        text = text.replace("{frame-time}", &format!("{:.1}", frame_stats.frame_time_ms()));
                     }
-                    omni_shared::SensorSource::FrameTimeAvg => {
-                        let text = format!("Avg: {:.1}ms", frame_stats.frame_time_avg_ms());
-                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    if has_ft_avg {
+                        text = text.replace("{frame-time.avg}", &format!("{:.1}", frame_stats.frame_time_avg_ms()));
                     }
-                    omni_shared::SensorSource::FrameTime1Pct => {
-                        let text = format!("1%: {:.1}ms", frame_stats.frame_time_1pct_ms());
-                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    if has_ft_1pct {
+                        text = text.replace("{frame-time.1pct}", &format!("{:.1}", frame_stats.frame_time_1pct_ms()));
                     }
-                    omni_shared::SensorSource::FrameTime01Pct => {
-                        let text = format!("0.1%: {:.1}ms", frame_stats.frame_time_01pct_ms());
-                        omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
+                    if has_ft_01pct {
+                        text = text.replace("{frame-time.01pct}", &format!("{:.1}", frame_stats.frame_time_01pct_ms()));
                     }
-                    _ => {}
+                    omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
                 }
             }
         }

@@ -87,14 +87,17 @@ impl OmniResolver {
                 let has_text_children = children.iter().any(|c| matches!(c, HtmlNode::Text { .. }));
 
                 if has_text_children {
-                    // Collect text content
-                    let text: String = children.iter()
+                    // Collect raw template text (before interpolation)
+                    let raw_template: String = children.iter()
                         .filter_map(|c| match c {
-                            HtmlNode::Text { content } => Some(interpolation::interpolate(content, snapshot)),
+                            HtmlNode::Text { content } => Some(content.as_str()),
                             _ => None,
                         })
                         .collect::<Vec<_>>()
                         .join("");
+
+                    // Interpolate sensor values
+                    let text = interpolation::interpolate(&raw_template, snapshot);
 
                     // Determine sensor source from text content
                     let source = detect_sensor_source(&text, children);
@@ -102,6 +105,11 @@ impl OmniResolver {
                     let mut cw = style_to_computed_widget(&style, x, y, width);
                     cw.widget_type = WidgetType::SensorValue;
                     cw.source = source;
+
+                    // Store the raw template in label_text so the DLL can
+                    // interpolate frame timing placeholders while preserving
+                    // the user's formatting (e.g., "{fps}: AVG" → "120: AVG")
+                    write_fixed_str(&mut cw.label_text, &raw_template);
 
                     // Auto-calculate height if not specified
                     if height > 0.0 {

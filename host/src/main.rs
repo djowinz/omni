@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, debug};
 use tracing_subscriber::EnvFilter;
 
 mod injector;
@@ -320,13 +320,28 @@ fn run_host(dll_path: &str) {
         // Check for widget updates from WebSocket (Electron app)
         if let Ok(mut active) = ws_state.active_omni_file.lock() {
             if let Some(new_file) = active.take() {
+                info!(
+                    widget_count = new_file.widgets.len(),
+                    enabled = new_file.widgets.iter().filter(|w| w.enabled).count(),
+                    "Applied widget update from WebSocket"
+                );
+                // Reload theme for the new file if it specifies one
+                if let Some(theme_src) = &new_file.theme_src {
+                    if let Some(theme_path) = workspace::structure::resolve_theme_path(&data_dir, &overlay_name, theme_src) {
+                        if let Ok(css) = std::fs::read_to_string(&theme_path) {
+                            omni_resolver.load_theme(&css);
+                        }
+                    }
+                }
                 omni_file = new_file;
-                info!("Applied widget update from WebSocket");
             }
         }
 
         // Resolve widgets from .omni file
         let widgets = omni_resolver.resolve(&omni_file, &latest_snapshot);
+
+        // Log widget count on changes (debug level to avoid spam)
+        debug!(computed_widgets = widgets.len(), "Resolved overlay");
 
         // Write to shared memory
         shm_writer.write(&latest_snapshot, &widgets, 1);
