@@ -350,22 +350,33 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
 
 // ─── ExecuteCommandLists hook ────────────────────────────────────────────────
 
-/// Hooks ID3D12CommandQueue::ExecuteCommandLists to capture the game's command queue.
+/// Hooks ID3D12CommandQueue::ExecuteCommandLists to capture the game's DIRECT command queue.
 /// This fires every frame the game submits rendering work, so it captures the queue
 /// immediately — even after re-injection when CreateSwapChainForHwnd doesn't fire.
+/// Only captures DIRECT queues — D3D11On12 requires a direct queue, not compute/copy.
 unsafe extern "system" fn hooked_execute_command_lists(
     this: *mut c_void,
     num_command_lists: u32,
     pp_command_lists: *const *mut c_void,
 ) {
-    // Capture the queue on first call
+    use windows::Win32::Graphics::Direct3D12::D3D12_COMMAND_LIST_TYPE_DIRECT;
+
+    // Capture a DIRECT queue on first call
     if CAPTURED_COMMAND_QUEUE.is_none() && !this.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&this);
         if let Ok(queue) = unknown.cast::<ID3D12CommandQueue>() {
-            crate::logging::log_to_file(
-                "[hook] captured ID3D12CommandQueue from ExecuteCommandLists",
-            );
-            CAPTURED_COMMAND_QUEUE = Some(queue);
+            let desc = queue.GetDesc();
+            if desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT {
+                crate::logging::log_to_file(
+                    "[hook] captured DIRECT ID3D12CommandQueue from ExecuteCommandLists",
+                );
+                CAPTURED_COMMAND_QUEUE = Some(queue);
+            } else {
+                crate::logging::log_to_file(&format!(
+                    "[hook] skipping non-DIRECT command queue (type={:?}) from ExecuteCommandLists",
+                    desc.Type
+                ));
+            }
         }
     }
 

@@ -187,7 +187,24 @@ impl OverlayRenderer {
         let cmd_queue = crate::hook::CAPTURED_COMMAND_QUEUE.as_ref()
             .ok_or_else(|| "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook".to_string())?;
 
-        log_to_file("[renderer] using captured command queue for D3D11On12");
+        // Verify the captured queue is from the same device as the swap chain
+        let mut queue_device: Option<ID3D12Device> = None;
+        let device_check = cmd_queue.GetDevice(&mut queue_device);
+        match (device_check, &queue_device) {
+            (Ok(()), Some(qd)) => {
+                let same_device = Interface::as_raw(qd) == Interface::as_raw(&dx12_device);
+                log_to_file(&format!(
+                    "[renderer] using captured command queue for D3D11On12 (same_device={})",
+                    same_device
+                ));
+                if !same_device {
+                    return Err("Captured command queue is from a different D3D12 device".into());
+                }
+            }
+            _ => {
+                log_to_file("[renderer] WARNING: could not verify queue device, proceeding anyway");
+            }
+        }
 
         let queue_unknown: IUnknown = cmd_queue.cast()
             .map_err(|e| format!("Cast captured command queue to IUnknown: {e}"))?;
