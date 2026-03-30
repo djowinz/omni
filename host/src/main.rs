@@ -10,6 +10,7 @@ mod scanner;
 mod sensors;
 mod ipc;
 mod widget_builder;
+mod ws_server;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
