@@ -102,9 +102,16 @@ impl OverlayRenderer {
         }
 
         // Try DX12
-        if sc.GetDevice::<ID3D12Device>().is_ok() {
+        if let Ok(dx12_device) = sc.GetDevice::<ID3D12Device>() {
             log_to_file("[renderer] detected DX12 swap chain");
             self.api = GraphicsApi::DX12;
+
+            // Set up ExecuteCommandLists hook now that we have the game's D3D12 device.
+            // This is deferred from install_hooks to avoid racing with game's D3D12 init.
+            if let Err(e) = crate::hook::hook_execute_command_lists_deferred(&dx12_device) {
+                log_to_file(&format!("[renderer] WARNING: failed to hook ExecuteCommandLists: {e}"));
+            }
+
             return GraphicsApi::DX12;
         }
 

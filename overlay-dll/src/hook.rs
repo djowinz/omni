@@ -433,45 +433,32 @@ unsafe fn discover_factory2_vtable() -> Result<*const c_void, String> {
     Ok(create_swap_chain_for_hwnd)
 }
 
-// ─── Command queue vtable discovery ─────────────────────────────────────────
+// ─── Deferred DX12 hook setup ───────────────────────────────────────────────
 
-/// Discover the ExecuteCommandLists vtable address from ID3D12CommandQueue.
-/// Creates a temporary D3D12 device + command queue, reads the vtable.
-/// Returns None if d3d12.dll is not loaded (DX11-only game).
-unsafe fn discover_command_queue_vtable() -> Option<*const c_void> {
+/// Hook ExecuteCommandLists using an existing D3D12 device (the game's device).
+/// Called lazily from the renderer when DX12 is first detected, avoiding the need
+/// to call D3D12CreateDevice ourselves (which races with the game's init).
+pub unsafe fn hook_execute_command_lists_deferred(
+    device: &windows::Win32::Graphics::Direct3D12::ID3D12Device,
+) -> Result<(), String> {
     use windows::Win32::Graphics::Direct3D12::{
-        D3D12CreateDevice, ID3D12Device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        D3D12_COMMAND_QUEUE_DESC,
+        D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC,
     };
-    use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0;
 
-    // Only attempt if d3d12.dll is loaded
-    if GetModuleHandleA(s!("d3d12.dll")).is_err() {
-        return None;
+    // Already hooked?
+    if ORIGINAL_EXECUTE_COMMAND_LISTS.is_some() {
+        return Ok(());
     }
 
-    let mut device: Option<ID3D12Device> = None;
-    if D3D12CreateDevice(None, D3D_FEATURE_LEVEL_11_0, &mut device).is_err() {
-        crate::logging::log_to_file("[hook] D3D12CreateDevice failed for queue vtable discovery");
-        return None;
-    }
-
-    let device = device?;
-
+    // Create a temporary queue from the game's device to read the vtable
     let desc = D3D12_COMMAND_QUEUE_DESC {
         Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
         ..Default::default()
     };
 
-    let queue: ID3D12CommandQueue = match device.CreateCommandQueue(&desc) {
-        Ok(q) => q,
-        Err(e) => {
-            crate::logging::log_to_file(&format!(
-                "[hook] CreateCommandQueue failed for vtable discovery: {e}"
-            ));
-            return None;
-        }
-    };
+    let queue: ID3D12CommandQueue = device
+        .CreateCommandQueue(&desc)
+        .map_err(|e| format!("CreateCommandQueue (vtable discovery) failed: {e}"))?;
 
     let raw_ptr: *mut *const *const c_void = Interface::as_raw(&queue) as _;
     let vtable: *const *const c_void = *raw_ptr;
@@ -482,7 +469,26 @@ unsafe fn discover_command_queue_vtable() -> Option<*const c_void> {
         execute_cl_addr,
     ));
 
-    Some(execute_cl_addr)
+    // Drop the temp queue before hooking
+    drop(queue);
+
+    let original_ecl = minhook::MinHook::create_hook(
+        execute_cl_addr as *mut c_void,
+        hooked_execute_command_lists as *mut c_void,
+    )
+    .map_err(|s| format!("MinHook::create_hook(ExecuteCommandLists) failed: {s:?}"))?;
+
+    ORIGINAL_EXECUTE_COMMAND_LISTS = Some(std::mem::transmute::<
+        *mut c_void,
+        ExecuteCommandListsFn,
+    >(original_ecl));
+
+    minhook::MinHook::enable_all_hooks()
+        .map_err(|s| format!("MinHook::enable_all_hooks (ECL) failed: {s:?}"))?;
+
+    crate::logging::log_to_file("[hook] ExecuteCommandLists hook created and enabled (deferred)");
+
+    Ok(())
 }
 
 // ─── Hook state ──────────────────────────────────────────────────────────────
@@ -558,22 +564,10 @@ pub unsafe fn install_hooks() -> Result<(), String> {
         }
     }
 
-    // Hook ExecuteCommandLists (captures DX12 command queue on every frame —
-    // needed for re-injection when CreateSwapChainForHwnd doesn't fire)
-    if let Some(ecl_addr) = discover_command_queue_vtable() {
-        let original_ecl = minhook::MinHook::create_hook(
-            ecl_addr as *mut c_void,
-            hooked_execute_command_lists as *mut c_void,
-        )
-        .map_err(|s| format!("MinHook::create_hook(ExecuteCommandLists) failed: {s:?}"))?;
-
-        ORIGINAL_EXECUTE_COMMAND_LISTS = Some(std::mem::transmute::<
-            *mut c_void,
-            ExecuteCommandListsFn,
-        >(original_ecl));
-
-        crate::logging::log_to_file("[hook] ExecuteCommandLists hook created");
-    }
+    // NOTE: ExecuteCommandLists hook is NOT installed here — it's deferred
+    // to when the renderer first detects DX12 (via hook_execute_command_lists_deferred).
+    // This avoids calling D3D12CreateDevice during game startup, which races with
+    // the game's own D3D12 initialization and can cause crashes.
 
     minhook::MinHook::enable_all_hooks()
         .map_err(|s| format!("MinHook::enable_all_hooks failed: {s:?}"))?;
