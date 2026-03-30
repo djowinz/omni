@@ -9,6 +9,7 @@ mod config;
 mod scanner;
 mod sensors;
 mod ipc;
+mod widget_builder;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -188,6 +189,7 @@ fn run_watch_mode(dll_path: &str) {
 
     let mut scanner = scanner::Scanner::new(dll_path.to_string(), config);
     let mut latest_snapshot = omni_shared::SensorSnapshot::default();
+    let widget_builder = widget_builder::WidgetBuilder::new();
 
     while RUNNING.load(Ordering::Relaxed) {
         scanner.poll();
@@ -197,11 +199,11 @@ fn run_watch_mode(dll_path: &str) {
             latest_snapshot = snapshot;
         }
 
-        // Build hardcoded CPU usage widget
-        let widget = build_cpu_widget(&latest_snapshot);
+        // Build sensor widgets
+        let widgets = widget_builder.build(&latest_snapshot);
 
         // Write to shared memory
-        shm_writer.write(&latest_snapshot, &[widget], 1);
+        shm_writer.write(&latest_snapshot, &widgets, 1);
 
         std::thread::sleep(poll_interval);
     }
@@ -210,27 +212,4 @@ fn run_watch_mode(dll_path: &str) {
     scanner.eject_all();
     sensor_poller.stop();
     info!("Omni host stopped");
-}
-
-/// Build a hardcoded CPU usage widget for this phase.
-/// In later phases this is replaced by .widget file parsing + layout engine.
-fn build_cpu_widget(snapshot: &omni_shared::SensorSnapshot) -> omni_shared::ComputedWidget {
-    let mut widget = omni_shared::ComputedWidget::default();
-    widget.widget_type = omni_shared::WidgetType::SensorValue;
-    widget.source = omni_shared::SensorSource::CpuUsage;
-    widget.x = 20.0;
-    widget.y = 20.0;
-    widget.width = 200.0;
-    widget.height = 32.0;
-    widget.font_size = 18.0;
-    widget.font_weight = 700;
-    widget.color_rgba = [255, 255, 255, 255]; // white text
-    widget.bg_color_rgba = [20, 20, 20, 180]; // dark semi-transparent bg
-    widget.border_radius = [4.0; 4];
-    widget.opacity = 1.0;
-
-    let text = format!("CPU: {:.0}%", snapshot.cpu.total_usage_percent);
-    omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
-
-    widget
 }
