@@ -11,6 +11,9 @@ use windows::Win32::System::Performance::{
 const RING_BUFFER_SIZE: usize = 1000;
 const FPS_SMOOTHING_FRAMES: usize = 100;
 const PERCENTILE_RECALC_INTERVAL: usize = 100;
+/// How often to refresh the displayed values (in frames).
+/// At 60fps this is ~2 updates/sec, at 144fps ~5 updates/sec.
+const DISPLAY_UPDATE_INTERVAL: usize = 30;
 
 pub struct FrameStats {
     /// Ring buffer of frame times in milliseconds.
@@ -28,6 +31,13 @@ pub struct FrameStats {
     /// Cached percentile values (recalculated every PERCENTILE_RECALC_INTERVAL frames).
     cached_1pct_ms: f32,
     cached_01pct_ms: f32,
+    /// Display snapshot — refreshed every DISPLAY_UPDATE_INTERVAL frames.
+    /// This is what the overlay reads, preventing jittery text updates.
+    display_fps: f32,
+    display_frame_time_ms: f32,
+    display_avg_ms: f32,
+    display_1pct_ms: f32,
+    display_01pct_ms: f32,
 }
 
 impl FrameStats {
@@ -52,6 +62,11 @@ impl FrameStats {
             qpc_freq: freq as f64,
             cached_1pct_ms: 0.0,
             cached_01pct_ms: 0.0,
+            display_fps: 0.0,
+            display_frame_time_ms: 0.0,
+            display_avg_ms: 0.0,
+            display_1pct_ms: 0.0,
+            display_01pct_ms: 0.0,
         }
     }
 
@@ -67,6 +82,11 @@ impl FrameStats {
             qpc_freq: freq,
             cached_1pct_ms: 0.0,
             cached_01pct_ms: 0.0,
+            display_fps: 0.0,
+            display_frame_time_ms: 0.0,
+            display_avg_ms: 0.0,
+            display_1pct_ms: 0.0,
+            display_01pct_ms: 0.0,
         }
     }
 
@@ -94,6 +114,11 @@ impl FrameStats {
                 if self.total_frames % PERCENTILE_RECALC_INTERVAL as u64 == 0 && self.count >= 10 {
                     self.recalc_percentiles();
                 }
+
+                // Refresh display snapshot periodically (prevents jittery text)
+                if self.total_frames % DISPLAY_UPDATE_INTERVAL as u64 == 0 {
+                    self.refresh_display();
+                }
             }
         }
 
@@ -118,14 +143,42 @@ impl FrameStats {
                 if self.total_frames % PERCENTILE_RECALC_INTERVAL as u64 == 0 && self.count >= 10 {
                     self.recalc_percentiles();
                 }
+
+                if self.total_frames % DISPLAY_UPDATE_INTERVAL as u64 == 0 {
+                    self.refresh_display();
+                }
             }
         }
 
         self.last_qpc = qpc;
     }
 
-    /// Current FPS — rolling average over the last FPS_SMOOTHING_FRAMES frames.
+    /// Refresh the display snapshot with current computed values.
+    fn refresh_display(&mut self) {
+        self.display_fps = self.compute_fps();
+        self.display_frame_time_ms = self.compute_frame_time_ms();
+        self.display_avg_ms = self.compute_frame_time_avg_ms();
+        self.display_1pct_ms = self.cached_1pct_ms;
+        self.display_01pct_ms = self.cached_01pct_ms;
+    }
+
+    /// Displayed FPS (updated every DISPLAY_UPDATE_INTERVAL frames).
     pub fn fps(&self) -> f32 {
+        self.display_fps
+    }
+
+    /// Displayed frame time (updated every DISPLAY_UPDATE_INTERVAL frames).
+    pub fn frame_time_ms(&self) -> f32 {
+        self.display_frame_time_ms
+    }
+
+    /// Displayed average frame time (updated every DISPLAY_UPDATE_INTERVAL frames).
+    pub fn frame_time_avg_ms(&self) -> f32 {
+        self.display_avg_ms
+    }
+
+    /// Internal FPS computation — rolling average over the last FPS_SMOOTHING_FRAMES frames.
+    fn compute_fps(&self) -> f32 {
         if self.count == 0 {
             return 0.0;
         }
@@ -145,8 +198,8 @@ impl FrameStats {
         }
     }
 
-    /// Latest frame time in milliseconds.
-    pub fn frame_time_ms(&self) -> f32 {
+    /// Internal: latest frame time in milliseconds.
+    fn compute_frame_time_ms(&self) -> f32 {
         if self.count == 0 {
             return 0.0;
         }
@@ -154,8 +207,8 @@ impl FrameStats {
         self.ring[idx]
     }
 
-    /// Average frame time over the entire ring buffer.
-    pub fn frame_time_avg_ms(&self) -> f32 {
+    /// Internal: average frame time over the entire ring buffer.
+    fn compute_frame_time_avg_ms(&self) -> f32 {
         if self.count == 0 {
             return 0.0;
         }
@@ -169,12 +222,12 @@ impl FrameStats {
 
     /// 1% low frame time (99th percentile — the worst 1% of frames).
     pub fn frame_time_1pct_ms(&self) -> f32 {
-        self.cached_1pct_ms
+        self.display_1pct_ms
     }
 
     /// 0.1% low frame time (99.9th percentile — the worst 0.1% of frames).
     pub fn frame_time_01pct_ms(&self) -> f32 {
-        self.cached_01pct_ms
+        self.display_01pct_ms
     }
 
     /// Whether we have enough data to display stats.
@@ -215,6 +268,9 @@ mod tests {
             qpc += (ft as f64 * (freq / 1000.0)) as i64; // convert ms to ticks
             stats.record_with_qpc(qpc);
         }
+
+        // Force display snapshot refresh so tests can read displayed values
+        stats.refresh_display();
 
         stats
     }
