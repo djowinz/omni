@@ -75,7 +75,7 @@ pub unsafe extern "system" fn omni_shutdown(_param: *mut c_void) -> u32 {
     log_to_file("[shutdown] hooks disabled, resources released, unloading DLL");
 
     // Get our own module handle to pass to FreeLibraryAndExitThread.
-    if let Ok(hmod) = GetModuleHandleA(windows::core::s!("omni_overlay_dll.dll")) {
+    if let Ok(hmod) = GetModuleHandleA(windows::core::s!("omni_overlay.dll")) {
         windows::Win32::System::LibraryLoader::FreeLibraryAndExitThread(hmod, 0);
     }
 

@@ -77,7 +77,7 @@ fn run_inject_once(pid: u32, dll_path: &str) {
 
 fn run_stop() {
     let my_pid = std::process::id();
-    let dll_name = "omni_overlay_dll.dll";
+    let dll_name = "omni_overlay.dll";
 
     let processes = match scanner::enumerate_processes() {
         Ok(p) => p,

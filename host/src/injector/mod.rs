@@ -42,7 +42,7 @@ pub fn inject_dll(pid: u32, dll_path: &str) -> Result<(), Box<dyn std::error::Er
     let dll_filename = std::path::Path::new(dll_path)
         .file_name()
         .and_then(|f| f.to_str())
-        .unwrap_or("omni_overlay_dll.dll");
+        .unwrap_or("omni_overlay.dll");
 
     if crate::scanner::has_module(pid, dll_filename).unwrap_or(false) {
         info!(pid, dll_filename, "DLL already loaded in target — skipping injection");
@@ -172,7 +172,7 @@ fn do_injection(
 ///
 /// # Arguments
 /// * `pid` - Process ID of the target
-/// * `dll_name` - Filename of the DLL to eject (e.g. "omni_overlay_dll.dll")
+/// * `dll_name` - Filename of the DLL to eject (e.g. "omni_overlay.dll")
 pub fn eject_dll(pid: u32, dll_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let module_handle = find_remote_module(pid, dll_name)?
         .ok_or_else(|| format!("Module '{}' not found in pid {}", dll_name, pid))?;

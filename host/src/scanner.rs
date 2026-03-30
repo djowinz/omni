@@ -49,7 +49,7 @@ impl Scanner {
         let dll_filename = Path::new(&dll_path)
             .file_name()
             .and_then(|f| f.to_str())
-            .unwrap_or("omni_overlay_dll.dll")
+            .unwrap_or("omni_overlay.dll")
             .to_string();
 
         Self {
