@@ -226,7 +226,7 @@ fn run_host(dll_path: &str) {
     };
 
     // Shared state for WebSocket server
-    let ws_state = Arc::new(ws_server::WsSharedState::new());
+    let ws_state = Arc::new(ws_server::WsSharedState::new(config::data_dir()));
 
     // Start WebSocket server
     let ws_handle = ws_server::start(ws_state.clone());

@@ -21,14 +21,16 @@ pub const WS_PORT: u16 = 9473;
 pub struct WsSharedState {
     pub latest_snapshot: Mutex<SensorSnapshot>,
     pub active_omni_file: Mutex<Option<crate::omni::types::OmniFile>>,
+    pub data_dir: std::path::PathBuf,
     pub running: AtomicBool,
 }
 
 impl WsSharedState {
-    pub fn new() -> Self {
+    pub fn new(data_dir: std::path::PathBuf) -> Self {
         Self {
             latest_snapshot: Mutex::new(SensorSnapshot::default()),
             active_omni_file: Mutex::new(None),
+            data_dir,
             running: AtomicBool::new(true),
         }
     }
@@ -229,6 +231,54 @@ fn handle_message(
                 }
             }
         }
+        "file.list" => {
+            Some(crate::workspace::file_api::handle_list(&state.data_dir).to_string())
+        }
+        "file.read" => {
+            let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            Some(crate::workspace::file_api::handle_read(&state.data_dir, path).to_string())
+        }
+        "file.write" => {
+            let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            Some(crate::workspace::file_api::handle_write(&state.data_dir, path, content).to_string())
+        }
+        "file.create" => {
+            let create_type = msg.get("createType").and_then(|v| v.as_str()).unwrap_or("");
+            let name = msg.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            Some(crate::workspace::file_api::handle_create(&state.data_dir, create_type, name).to_string())
+        }
+        "file.delete" => {
+            let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            Some(crate::workspace::file_api::handle_delete(&state.data_dir, path).to_string())
+        }
+        "widget.apply" => {
+            let source = msg.get("source").and_then(|v| v.as_str()).unwrap_or("");
+            match crate::omni::parser::parse_omni(source) {
+                Ok(file) => {
+                    if let Ok(mut active) = state.active_omni_file.lock() {
+                        *active = Some(file.clone());
+                    }
+                    let json_file = serde_json::to_value(&file).unwrap_or(json!(null));
+                    Some(json!({
+                        "type": "widget.applied",
+                        "file": json_file,
+                        "errors": [],
+                    }).to_string())
+                }
+                Err(errors) => {
+                    let error_list: Vec<Value> = errors.iter().map(|e| json!({
+                        "message": e.message,
+                        "offset": e.offset,
+                    })).collect();
+                    Some(json!({
+                        "type": "widget.applied",
+                        "file": null,
+                        "errors": error_list,
+                    }).to_string())
+                }
+            }
+        }
         _ => {
             debug!(msg_type, "Unknown WebSocket message type");
             Some(json!({
@@ -254,7 +304,7 @@ mod tests {
 
     #[test]
     fn handle_sensors_subscribe() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let response = handle_message(
@@ -270,7 +320,7 @@ mod tests {
 
     #[test]
     fn handle_status() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let response = handle_message(
@@ -286,7 +336,7 @@ mod tests {
 
     #[test]
     fn handle_unknown_message() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let response = handle_message(
@@ -307,7 +357,7 @@ mod tests {
 
     #[test]
     fn handle_widget_parse_valid() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let source = r#"<widget id="fps" name="FPS"><template><div>hello</div></template><style>#fps { color: white; }</style></widget>"#;
@@ -325,7 +375,7 @@ mod tests {
 
     #[test]
     fn handle_widget_parse_empty() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let msg = serde_json::to_string(&json!({
@@ -340,7 +390,7 @@ mod tests {
 
     #[test]
     fn handle_widget_update_valid() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let file = crate::omni::types::OmniFile {
@@ -364,7 +414,7 @@ mod tests {
 
     #[test]
     fn handle_widget_update_invalid() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
         let msg = serde_json::to_string(&json!({
@@ -380,7 +430,7 @@ mod tests {
 
     #[test]
     fn server_starts_and_accepts_connection() {
-        let state = Arc::new(WsSharedState::new());
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let _handle = start(state.clone());
 
         // Give server time to bind
