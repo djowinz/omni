@@ -35,6 +35,19 @@ pub const DEFAULT_OMNI: &str = r#"
 </widget>
 "#;
 
+pub const DEFAULT_THEME_CSS: &str = r#":root {
+  --bg: rgba(20, 20, 20, 0.7);
+  --bg-light: rgba(40, 40, 40, 0.6);
+  --text: #ffffff;
+  --text-dim: #aaaaaa;
+  --accent: #44ff88;
+  --warning: #ff8844;
+  --critical: #ff4444;
+  --font: 'Segoe UI';
+  --font-size: 14px;
+}
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
