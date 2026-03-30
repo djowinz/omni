@@ -109,6 +109,19 @@ impl WidgetBuilder {
         ));
         y += row_height;
 
+        // GPU Fan
+        let fan_text = if snapshot.gpu.fan_speed_percent > 0 {
+            format!("GPU Fan: {}%", snapshot.gpu.fan_speed_percent)
+        } else {
+            "GPU Fan: N/A".to_string()
+        };
+        widgets.push(self.make_sensor_widget(
+            x, y, width, row_height,
+            SensorSource::GpuFan,
+            &fan_text,
+        ));
+        y += row_height;
+
         // RAM
         widgets.push(self.make_sensor_widget(
             x, y, width, row_height,
@@ -163,7 +176,7 @@ mod tests {
         let builder = WidgetBuilder::new();
         let snapshot = SensorSnapshot::default();
         let widgets = builder.build(&snapshot);
-        assert_eq!(widgets.len(), 9, "Should produce 9 sensor widgets");
+        assert_eq!(widgets.len(), 10, "Should produce 10 sensor widgets");
     }
 
     #[test]
@@ -192,7 +205,7 @@ mod tests {
         assert!(gpu_text.contains("N/A"), "GPU should be N/A, got: {gpu_text}");
 
         // FPS should always be N/A in this phase
-        let fps_text = omni_shared::read_fixed_str(&widgets[8].format_pattern);
+        let fps_text = omni_shared::read_fixed_str(&widgets[9].format_pattern);
         assert!(fps_text.contains("N/A"), "FPS should be N/A, got: {fps_text}");
     }
 
@@ -215,7 +228,7 @@ mod tests {
         let gpu_text = omni_shared::read_fixed_str(&widgets[2].format_pattern);
         assert!(gpu_text.contains("83"), "GPU should show 83%, got: {gpu_text}");
 
-        let ram_text = omni_shared::read_fixed_str(&widgets[7].format_pattern);
+        let ram_text = omni_shared::read_fixed_str(&widgets[8].format_pattern);
         assert!(ram_text.contains("62"), "RAM should show 62%, got: {ram_text}");
     }
 }
