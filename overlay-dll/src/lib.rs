@@ -30,6 +30,13 @@ pub unsafe extern "system" fn DllMain(
             DLL_MODULE = Some(hinst);
             log_to_file("omni overlay DLL attached — spawning init thread");
             std::thread::spawn(|| {
+                // Wait for the game's graphics stack to initialize before creating
+                // dummy devices for vtable discovery. Without this delay, creating
+                // a D3D11 device races with the game's D3D12/DXGI initialization
+                // and can crash (especially on game restart when injection is fast).
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                log_to_file("[init] starting hook installation after startup delay");
+
                 if let Err(e) = unsafe { hook::install_hooks() } {
                     log_to_file(&format!("FATAL: hook installation failed: {e}"));
                 }
