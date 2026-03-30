@@ -209,7 +209,11 @@ fn run_stop() {
 fn run_host(dll_path: &str) {
     let config_path = config::config_path();
     let config = config::load_config(&config_path);
-    let poll_interval = Duration::from_millis(2000); // TODO(Task 6): was config.poll_interval_ms
+    let data_dir = config::data_dir();
+    let poll_interval = Duration::from_millis(2000);
+
+    // Initialize workspace folder structure (overlays/, themes/, Default overlay)
+    workspace::structure::init_workspace(&data_dir);
 
     ctrlc::set_handler(|| {
         RUNNING.store(false, Ordering::Relaxed);
@@ -226,7 +230,7 @@ fn run_host(dll_path: &str) {
     };
 
     // Shared state for WebSocket server
-    let ws_state = Arc::new(ws_server::WsSharedState::new(config::data_dir()));
+    let ws_state = Arc::new(ws_server::WsSharedState::new(data_dir.clone()));
 
     // Start WebSocket server
     let ws_handle = ws_server::start(ws_state.clone());
@@ -242,61 +246,61 @@ fn run_host(dll_path: &str) {
     info!(
         dll_path,
         config_path = ?config_path,
-        poll_ms = 2000, // TODO(Task 6): was config.poll_interval_ms
+        poll_ms = 2000,
         ws_port = ws_server::WS_PORT,
         exclude_count = config.exclude.len(),
         "Omni host starting"
     );
     info!("Press Ctrl+C to stop");
 
-    let mut scanner_instance = scanner::Scanner::new(dll_path.to_string(), config);
     let mut latest_snapshot = omni_shared::SensorSnapshot::default();
 
-    // Load .omni overlay definition
-    let omni_path = config::config_path().parent()
-        .map(|p| p.join("overlay.omni"))
-        .unwrap_or_else(|| PathBuf::from("overlay.omni"));
+    // Resolve which overlay to load
+    let overlay_name = workspace::overlay_resolver::resolve_overlay_name(
+        None, // No game running yet — will be updated when scanner detects one
+        &config.overlay_by_game,
+        &config.active_overlay,
+        &data_dir,
+    );
+    info!(overlay = %overlay_name, "Resolved active overlay");
 
-    let omni_source = if omni_path.exists() {
-        match std::fs::read_to_string(&omni_path) {
-            Ok(s) => {
-                info!(path = %omni_path.display(), "Loaded .omni file");
-                s
-            }
-            Err(e) => {
-                warn!(path = %omni_path.display(), error = %e, "Failed to read .omni file, using default");
-                omni::default::DEFAULT_OMNI.to_string()
-            }
+    let mut scanner_instance = scanner::Scanner::new(dll_path.to_string(), config);
+
+    // Load the overlay .omni file
+    let omni_path = workspace::structure::overlay_omni_path(&data_dir, &overlay_name);
+    let omni_source = match std::fs::read_to_string(&omni_path) {
+        Ok(s) => {
+            info!(path = %omni_path.display(), "Loaded overlay file");
+            s
         }
-    } else {
-        info!("No .omni file found, using built-in default");
-        omni::default::DEFAULT_OMNI.to_string()
+        Err(e) => {
+            warn!(path = %omni_path.display(), error = %e, "Failed to read overlay, using default");
+            omni::default::DEFAULT_OMNI.to_string()
+        }
     };
 
-    #[allow(unused_mut)] // Task 10: WebSocket widget.update will mutate this
     let mut omni_file = match omni::parser::parse_omni(&omni_source) {
         Ok(f) => f,
         Err(errs) => {
-            warn!(?errs, "Failed to parse .omni file, using empty file");
+            warn!(?errs, "Failed to parse overlay, using empty file");
             omni::OmniFile::empty()
         }
     };
 
     let mut omni_resolver = omni::resolver::OmniResolver::new();
 
-    // Load theme if specified
+    // Load theme with workspace resolution (local → shared)
     if let Some(theme_src) = &omni_file.theme_src {
-        let theme_path = omni_path.parent()
-            .map(|p| p.join(theme_src))
-            .unwrap_or_else(|| PathBuf::from(theme_src));
-        match std::fs::read_to_string(&theme_path) {
-            Ok(css) => {
-                info!(path = %theme_path.display(), "Loaded theme CSS");
-                omni_resolver.load_theme(&css);
+        if let Some(theme_path) = workspace::structure::resolve_theme_path(&data_dir, &overlay_name, theme_src) {
+            match std::fs::read_to_string(&theme_path) {
+                Ok(css) => {
+                    info!(path = %theme_path.display(), "Loaded theme CSS");
+                    omni_resolver.load_theme(&css);
+                }
+                Err(e) => warn!(path = %theme_path.display(), error = %e, "Failed to load theme"),
             }
-            Err(e) => {
-                warn!(path = %theme_path.display(), error = %e, "Failed to load theme CSS");
-            }
+        } else {
+            warn!(theme_src, "Theme file not found in overlay folder or shared themes");
         }
     }
 
