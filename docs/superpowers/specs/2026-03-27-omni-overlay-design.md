@@ -697,17 +697,51 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - FPS, frame time, rolling average, 1%/0.1% lows
 - **Success**: Accurate frame timing data in the overlay
 
-### Phase 9a: Widget File Format + CSS Styling
+### Phase 9a-0: Host Service Infrastructure
 
-- `.widget` file parser (`quick-xml` + `cssparser`)
-- Theme file loading with CSS variables
+- WebSocket server on host (localhost:9473) for Electron communication
+- `--service` mode: auto-discover DLL from install directory, no CLI args needed
+- Basic JSON message routing (parse, dispatch to handlers)
+- Sensor data streaming over WebSocket
+- **Success**: External client can connect via WebSocket and receive sensor data
+
+### Phase 9a-1: Core Widget Format + Parser
+
+- `.widget` file parser (`quick-xml` + `cssparser`) → `WidgetTree` data structure
+- `WidgetTree` is JSON-serializable (for Electron communication)
+- Template elements: `<panel>`, `<sensor>`, `<graph>`, `<bar>`, `<label>`, `<group>`, `<spacer>`
+- Basic styling: position, color, font, opacity, background, border-radius
 - Panel positioning (anchor + pixel-precise + percentage)
-- Full visual properties (gradients, box-shadow, border-radius, opacity)
-- Selector matching and cascade resolution
-- `taffy` flexbox layout within panels
-- Sensible defaults and auto-formatting
-- Error reporting with locations and suggestions
+- Sensible defaults and auto-formatting for sensor values
+- `WidgetTree` → `Vec<ComputedWidget>` replaces hardcoded `WidgetBuilder`
+- WebSocket `widget.update` and `widget.parse` endpoints
 - **Success**: Changing `.widget` file changes the overlay appearance
+
+### Phase 9a-2: CSS Cascade + Themes
+
+- Theme file loading (`<theme src="...">`)
+- CSS variables (`:root { --var: value }` + `var(--var)`)
+- Selector matching: class, type, compound, descendant selectors
+- Cascade resolution (built-in → theme → local style)
+- Specificity calculation
+- **Success**: Theme files change appearance, CSS cascade works correctly
+
+### Phase 9a-3: Advanced Visuals + Flexbox
+
+- Full visual properties: gradients (`linear-gradient`), `box-shadow`, per-corner `border-radius`
+- `taffy` flexbox layout within panels (`flex-direction`, `justify-content`, `align-items`, `gap`)
+- D2D renderer updates for gradients and shadows
+- **Success**: Complex layouts with flexbox and advanced visual effects
+
+### Phase 9a-4: Structured Error Reporting
+
+- Parser returns structured error objects with line, column, severity, message, suggestion
+- Rust-compiler-style CLI output for developer mode
+- JSON error format for Electron/Monaco integration
+- Element name suggestions ("did you mean <graph>?")
+- CSS property validation with supported property hints
+- WebSocket `widget.parse` returns structured errors
+- **Success**: Parse errors include file locations and actionable suggestions
 
 ### Phase 9b: Animations + Adaptive Color
 
@@ -726,13 +760,23 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - Preview aware of animations and adaptive color
 - **Success**: Edit, save, see changes instantly
 
-### Phase 11: Polish
+### Phase 11: Electron App + Installer
 
-- Tray icon / minimal host UI with process picker
+- Electron app as main UI: visual widget editor, Monaco editor, live preview, settings
+- Monaco integration with custom IntelliSense for `.widget` format
+- Live parser errors piped from host → Monaco squiggles
+- HTML/CSS preview (browser-native, matches in-game rendering)
+- Electron Builder + NSIS Windows installer
+- Tray icon / background service behavior
+- 2-3 built-in themes (dark minimal, cyberpunk, retro)
+- **Success**: Non-technical users can install, customize, and use the overlay
+
+### Phase 12: Polish
+
 - Error recovery (host detects game exit, cleans up)
 - Anti-cheat detection with borderless window fallback
-- 2-3 built-in themes (dark minimal, cyberpunk, retro)
 - Graph widget ring buffer data in shared memory
+- Performance profiling and optimization
 
 ---
 
