@@ -177,17 +177,35 @@ impl OverlayRenderer {
         Ok(())
     }
 
-    /// Create the D3D11On12 device from the DX12 device and captured command queue.
+    /// Create the D3D11On12 device from the DX12 device and a command queue.
+    /// Prefers the captured queue from the CreateSwapChainForHwnd hook.
+    /// Falls back to creating our own queue (needed after re-injection when
+    /// the game already has a swap chain and the hook doesn't fire).
     unsafe fn create_d3d11on12_device(&mut self, sc: &IDXGISwapChain) -> Result<(), String> {
+        use windows::Win32::Graphics::Direct3D12::{
+            D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC,
+        };
+
         let dx12_device: ID3D12Device = sc.GetDevice()
             .map_err(|e| format!("GetDevice::<ID3D12Device> failed: {e}"))?;
 
-        // Get the captured command queue from the hook module
-        let cmd_queue = crate::hook::CAPTURED_COMMAND_QUEUE.as_ref()
-            .ok_or_else(|| "No captured DX12 command queue available".to_string())?;
-
-        let queue_unknown: IUnknown = cmd_queue.cast()
-            .map_err(|e| format!("Cast command queue to IUnknown failed: {e}"))?;
+        // Try the captured queue first, fall back to creating our own
+        let queue_unknown: IUnknown = if let Some(captured) = crate::hook::CAPTURED_COMMAND_QUEUE.as_ref() {
+            log_to_file("[renderer] using captured command queue for D3D11On12");
+            captured.cast()
+                .map_err(|e| format!("Cast captured command queue to IUnknown: {e}"))?
+        } else {
+            log_to_file("[renderer] no captured command queue — creating our own for D3D11On12");
+            let desc = D3D12_COMMAND_QUEUE_DESC {
+                Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
+                ..Default::default()
+            };
+            let queue: windows::Win32::Graphics::Direct3D12::ID3D12CommandQueue = dx12_device
+                .CreateCommandQueue(&desc)
+                .map_err(|e| format!("CreateCommandQueue failed: {e}"))?;
+            queue.cast()
+                .map_err(|e| format!("Cast new command queue to IUnknown: {e}"))?
+        };
 
         let queues: [Option<IUnknown>; 1] = [Some(queue_unknown)];
 
