@@ -717,14 +717,21 @@ Minimize DLL dependencies — every crate increases crash risk in the game proce
 - WebSocket `widget.update` and `widget.parse` endpoints
 - **Success**: Changing `.omni` file changes the overlay appearance
 
-### Phase 9a-2: CSS Cascade + Themes
+### Phase 9a-2: CSS Cascade + Themes + File Management
 
-- Theme file loading (`<theme src="...">`)
-- CSS variables (`:root { --var: value }` + `var(--var)`)
+- Theme file loading (`<theme src="...">`) with full cascade
+- CSS variables (`:root { --var: value }` + `var(--var)`) across theme → widget
 - Selector matching: class, type, compound, descendant selectors
 - Cascade resolution (built-in → theme → local style)
 - Specificity calculation
-- **Success**: Theme files change appearance, CSS cascade works correctly
+- WebSocket file management API for Electron workspace:
+  - `file.list` — list `.omni` and `.css` files in `%APPDATA%\Omni/`
+  - `file.read` — read raw file content
+  - `file.write` — write raw content to file
+  - `file.create` — create new `.omni` or theme `.css` file
+  - `file.delete` — delete a file
+  - `widget.apply` — parse raw `.omni` source + apply to overlay (no disk write)
+- **Success**: Theme files change appearance, CSS cascade works correctly, Electron can manage workspace files
 
 ### Phase 9a-3: Advanced Visuals + Flexbox
 
