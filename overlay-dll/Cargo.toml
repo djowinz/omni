@@ -29,5 +29,6 @@ features = [
     "Win32_Graphics_Direct2D_Common",
     "Win32_Graphics_DirectWrite",
     "Win32_System_Memory",
+    "Win32_System_Performance",
     "Foundation_Numerics",
 ]
