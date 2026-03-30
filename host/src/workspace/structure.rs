@@ -126,8 +126,17 @@ pub fn list_themes(data_dir: &Path) -> Vec<String> {
 }
 
 /// Validate that a relative path doesn't escape the data directory.
-/// Rejects paths with "..", absolute paths, and paths starting with "/" or "\".
+/// Rejects traversal, absolute paths, null bytes, and Windows alternate data streams.
 pub fn validate_relative_path(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("Path must not be empty".to_string());
+    }
+    if path.contains('\0') {
+        return Err("Path contains null byte".to_string());
+    }
+    if path.contains(':') {
+        return Err("Path contains invalid character ':'".to_string());
+    }
     if path.contains("..") {
         return Err("Path traversal not allowed".to_string());
     }
@@ -136,6 +145,27 @@ pub fn validate_relative_path(path: &str) -> Result<(), String> {
     }
     if path.starts_with('/') || path.starts_with('\\') {
         return Err("Path must be relative".to_string());
+    }
+    Ok(())
+}
+
+/// Validate a name for use as an overlay folder or theme file name.
+/// Rejects names containing path separators, traversal, null bytes, and colons.
+pub fn validate_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Name must not be empty".to_string());
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err("Name must not contain path separators".to_string());
+    }
+    if name.contains("..") {
+        return Err("Name must not contain '..'".to_string());
+    }
+    if name.contains('\0') {
+        return Err("Name contains null byte".to_string());
+    }
+    if name.contains(':') {
+        return Err("Name contains invalid character ':'".to_string());
     }
     Ok(())
 }

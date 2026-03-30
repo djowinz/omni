@@ -75,6 +75,10 @@ pub fn handle_write(data_dir: &Path, relative_path: &str, content: &str) -> Valu
 /// Handle a file.create request.
 /// Input: { type: "overlay", name: "My New Overlay" } or { type: "theme", name: "neon.css" }
 pub fn handle_create(data_dir: &Path, create_type: &str, name: &str) -> Value {
+    if let Err(e) = structure::validate_name(name) {
+        return json!({ "type": "error", "message": e });
+    }
+
     match create_type {
         "overlay" => {
             let overlay_dir = data_dir.join("overlays").join(name);
@@ -148,8 +152,10 @@ pub fn handle_delete(data_dir: &Path, relative_path: &str) -> Value {
         return json!({ "type": "error", "message": e });
     }
 
-    // Prevent deleting Default overlay
-    if relative_path == "overlays/Default" || relative_path == "overlays\\Default" {
+    // Prevent deleting Default overlay (normalize trailing slashes and separators)
+    let normalized = relative_path.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    if normalized == "overlays/Default" {
         return json!({
             "type": "error",
             "message": "Cannot delete the Default overlay",
