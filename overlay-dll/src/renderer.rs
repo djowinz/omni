@@ -50,6 +50,11 @@ pub struct OverlayRenderer {
     d3d11on12_device: Option<ID3D11On12Device>,
     d3d11_context: Option<ID3D11DeviceContext>,
     wrapped_back_buffer: Option<ID3D11Resource>,
+    /// Tracks the last swap chain pointer to detect when the game creates a new one.
+    last_swap_chain_ptr: *mut c_void,
+    /// Number of consecutive DX12 render failures. After too many, stop trying
+    /// until the swap chain changes (avoids spamming errors during splash screens).
+    dx12_fail_count: u32,
 }
 
 impl OverlayRenderer {
@@ -78,6 +83,8 @@ impl OverlayRenderer {
             d3d11on12_device: None,
             d3d11_context: None,
             wrapped_back_buffer: None,
+            last_swap_chain_ptr: std::ptr::null_mut(),
+            dx12_fail_count: 0,
         })
     }
 
@@ -233,10 +240,30 @@ impl OverlayRenderer {
             .map_err(|e| format!("CreateDxgiSurfaceRenderTarget failed: {e}"))
     }
 
+    /// Reset all cached state. Called when the swap chain pointer changes
+    /// (game transitioned from splash screen to main renderer, or recreated the swap chain).
+    fn reset_state(&mut self) {
+        self.render_target = None;
+        self.wrapped_back_buffer = None;
+        self.d3d11on12_device = None;
+        self.d3d11_context = None;
+        self.api = GraphicsApi::Unknown;
+        self.dx12_fail_count = 0;
+        log_to_file("[renderer] swap chain changed — reset all state");
+    }
+
     /// Ensure we have a render target for the current swap chain back buffer.
     /// For DX11: cached (created once, recreated on resize).
     /// For DX12: recreated every frame (back buffer index rotates in flip model).
     unsafe fn ensure_render_target(&mut self, swap_chain_ptr: *mut c_void) -> Result<(), String> {
+        // Detect swap chain changes (splash → game transition, recreation)
+        if swap_chain_ptr != self.last_swap_chain_ptr {
+            if !self.last_swap_chain_ptr.is_null() {
+                self.reset_state();
+            }
+            self.last_swap_chain_ptr = swap_chain_ptr;
+        }
+
         let sc: IDXGISwapChain = std::mem::transmute_copy(&swap_chain_ptr);
         let sc = ManuallyDrop::new(sc);
 
@@ -250,6 +277,11 @@ impl OverlayRenderer {
                 self.ensure_render_target_dx11(&sc)
             }
             GraphicsApi::DX12 => {
+                // If we've failed too many times on this swap chain, stop trying
+                // until the swap chain changes (avoids spamming during splash screens)
+                if self.dx12_fail_count >= 3 {
+                    return Err("DX12 rendering suspended after repeated failures".into());
+                }
                 // Release previous frame's resources — buffer index has rotated
                 self.render_target = None;
                 self.wrapped_back_buffer = None;
@@ -289,8 +321,21 @@ impl OverlayRenderer {
     /// Render a list of computed widgets onto the swap chain back buffer.
     pub unsafe fn render(&mut self, swap_chain_ptr: *mut c_void, widgets: &[ComputedWidget]) {
         if let Err(e) = self.ensure_render_target(swap_chain_ptr) {
-            log_to_file(&format!("[renderer] failed to create render target: {e}"));
+            if self.api == GraphicsApi::DX12 {
+                self.dx12_fail_count += 1;
+                if self.dx12_fail_count == 3 {
+                    log_to_file(&format!(
+                        "[renderer] DX12 rendering suspended after 3 failures (last: {e}). \
+                         Will retry when swap chain changes."
+                    ));
+                }
+            }
             return;
+        }
+
+        // DX12 render succeeded — reset fail counter
+        if self.api == GraphicsApi::DX12 {
+            self.dx12_fail_count = 0;
         }
 
         let rt = match &self.render_target {
@@ -399,6 +444,13 @@ impl OverlayRenderer {
     pub fn release_render_target(&mut self) {
         self.render_target = None;
         self.wrapped_back_buffer = None;
+        // For DX12, also reset the D3D11On12 device since the swap chain
+        // buffers are being recreated and old wrapped resources are invalid.
+        if self.api == GraphicsApi::DX12 {
+            self.d3d11on12_device = None;
+            self.d3d11_context = None;
+            self.dx12_fail_count = 0;
+        }
         log_to_file("[renderer] D2D render target released");
     }
 
