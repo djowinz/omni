@@ -34,7 +34,7 @@ pub struct GpuData {
     pub mem_clock_mhz: u32,
     pub vram_used_mb: u32,
     pub vram_total_mb: u32,
-    pub fan_speed_rpm: u32,
+    pub fan_speed_percent: u32,
     pub power_draw_w: f32,
 }
 
@@ -95,7 +95,7 @@ impl Default for GpuData {
             mem_clock_mhz: 0,
             vram_used_mb: 0,
             vram_total_mb: 0,
-            fan_speed_rpm: 0,
+            fan_speed_percent: 0,
             power_draw_w: 0.0,
         }
     }

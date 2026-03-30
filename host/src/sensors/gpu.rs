@@ -1,261 +1,138 @@
-//! NVIDIA GPU sensor via NVAPI FFI bindings.
+//! NVIDIA GPU sensor via NVML (NVIDIA Management Library).
 //!
-//! NVAPI uses a single exported function `nvapi_QueryInterface(id) -> fn_ptr`
-//! to resolve all API functions by their 32-bit ID. This module loads the DLL
-//! at runtime and resolves only the functions we need.
+//! NVML is a documented, stable API that ships with every NVIDIA driver.
+//! Unlike NVAPI's undocumented QueryInterface, NVML has proper exported
+//! functions that work reliably across all GPU generations.
+//!
+//! nvml.dll is loaded at runtime via LoadLibrary + GetProcAddress.
 
 use std::ffi::c_void;
 use std::mem;
 
 use omni_shared::GpuData;
-use tracing::{info, warn, debug};
+use tracing::{info, warn};
 use windows::Win32::System::LibraryLoader::{LoadLibraryA, GetProcAddress};
 use windows::core::s;
 
-// ─── NVAPI function IDs ──────────────────────────────────────────────────────
+// ─── NVML constants ──────────────────────────────────────────────────────────
 
-const NVAPI_INITIALIZE: u32 = 0x0150E828;
-const NVAPI_ENUM_PHYSICAL_GPUS: u32 = 0xE5AC921F;
-const NVAPI_GPU_GET_DYNAMIC_PSTATES_INFO_EX: u32 = 0x60DED2ED;
-const NVAPI_GPU_GET_THERMAL_SETTINGS: u32 = 0xE3640A56;
-const NVAPI_GPU_GET_ALL_CLOCK_FREQUENCIES: u32 = 0xDCB616C3;
-const NVAPI_GPU_GET_MEMORY_INFO_EX: u32 = 0xC0599498;
-const NVAPI_GPU_GET_TACH_READING: u32 = 0x5F608315;
-const NVAPI_GPU_CLIENT_POWER_TOPOLOGY_GET_STATUS: u32 = 0xEDCF624E;
+const NVML_SUCCESS: u32 = 0;
+const NVML_TEMPERATURE_GPU: u32 = 0;
+const NVML_CLOCK_GRAPHICS: u32 = 0;
+const NVML_CLOCK_MEM: u32 = 2;
 
-// ─── NVAPI types ─────────────────────────────────────────────────────────────
+// ─── NVML types ──────────────────────────────────────────────────────────────
 
-type NvAPI_QueryInterface = unsafe extern "C" fn(id: u32) -> *const c_void;
-type NvAPI_Initialize = unsafe extern "C" fn() -> i32;
-type NvAPI_EnumPhysicalGPUs = unsafe extern "C" fn(handles: *mut [usize; 64], count: *mut u32) -> i32;
-type NvAPI_GPU_GetDynamicPstatesInfoEx = unsafe extern "C" fn(handle: usize, info: *mut DynamicPstatesInfoEx) -> i32;
-type NvAPI_GPU_GetThermalSettings = unsafe extern "C" fn(handle: usize, sensor: u32, settings: *mut ThermalSettings) -> i32;
-type NvAPI_GPU_GetAllClockFrequencies = unsafe extern "C" fn(handle: usize, clocks: *mut ClockFrequencies) -> i32;
-type NvAPI_GPU_GetMemoryInfoEx = unsafe extern "C" fn(handle: usize, info: *mut MemoryInfoEx) -> i32;
-type NvAPI_GPU_GetTachReading = unsafe extern "C" fn(handle: usize, rpm: *mut u32) -> i32;
-type NvAPI_GPU_ClientPowerTopologyGetStatus = unsafe extern "C" fn(handle: usize, status: *mut PowerTopologyStatus) -> i32;
+/// Opaque device handle (pointer-sized).
+type NvmlDevice = *mut c_void;
 
-const NVAPI_OK: i32 = 0;
+type NvmlInit = unsafe extern "C" fn() -> u32;
+type NvmlShutdown = unsafe extern "C" fn() -> u32;
+type NvmlDeviceGetCount = unsafe extern "C" fn(count: *mut u32) -> u32;
+type NvmlDeviceGetHandleByIndex = unsafe extern "C" fn(index: u32, device: *mut NvmlDevice) -> u32;
+type NvmlDeviceGetUtilizationRates = unsafe extern "C" fn(device: NvmlDevice, utilization: *mut NvmlUtilization) -> u32;
+type NvmlDeviceGetTemperature = unsafe extern "C" fn(device: NvmlDevice, sensor_type: u32, temp: *mut u32) -> u32;
+type NvmlDeviceGetClockInfo = unsafe extern "C" fn(device: NvmlDevice, clock_type: u32, clock_mhz: *mut u32) -> u32;
+type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(device: NvmlDevice, memory: *mut NvmlMemory) -> u32;
+type NvmlDeviceGetFanSpeed = unsafe extern "C" fn(device: NvmlDevice, speed: *mut u32) -> u32;
+type NvmlDeviceGetPowerUsage = unsafe extern "C" fn(device: NvmlDevice, power_mw: *mut u32) -> u32;
+type NvmlDeviceGetName = unsafe extern "C" fn(device: NvmlDevice, name: *mut u8, length: u32) -> u32;
 
-// ─── NVAPI structs ───────────────────────────────────────────────────────────
+// ─── NVML structs ────────────────────────────────────────────────────────────
 
-/// NV_GPU_DYNAMIC_PSTATES_INFO_EX — official GPU utilization API.
-/// Contains utilization for GPU core (index 0), frame buffer (1), video engine (2), bus (3).
 #[repr(C)]
-struct DynamicPstatesInfoEx {
-    version: u32,
-    flags: u32,
-    utilization: [PstateUtilization; 8],
+struct NvmlUtilization {
+    gpu: u32,    // GPU utilization percentage
+    memory: u32, // Memory controller utilization percentage
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct PstateUtilization {
-    present: u32,  // 1 if this domain is present
-    percentage: u32,
-}
-
-impl DynamicPstatesInfoEx {
-    fn new() -> Self {
-        Self {
-            version: (mem::size_of::<Self>() as u32) | (1 << 16),
-            flags: 0,
-            utilization: [PstateUtilization::default(); 8],
-        }
-    }
-}
-
-#[repr(C)]
-struct ThermalSettings {
-    version: u32,
-    count: u32,
-    sensors: [ThermalSensor; 3],
-}
-
-#[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct ThermalSensor {
-    controller: u32,
-    default_min_temp: i32,
-    default_max_temp: i32,
-    current_temp: i32,
-    target: u32,
-}
-
-impl ThermalSettings {
-    fn new() -> Self {
-        Self {
-            version: (mem::size_of::<Self>() as u32) | (2 << 16),
-            count: 0,
-            sensors: [ThermalSensor::default(); 3],
-        }
-    }
-}
-
-#[repr(C)]
-struct ClockFrequencies {
-    version: u32,
-    clock_type: u32, // 0 = current
-    entries: [ClockEntry; 32],
-}
-
-#[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct ClockEntry {
-    present: u32,
-    frequency_khz: u32,
-}
-
-impl ClockFrequencies {
-    fn new() -> Self {
-        Self {
-            version: (mem::size_of::<Self>() as u32) | (3 << 16),
-            clock_type: 0, // current clocks
-            entries: [ClockEntry::default(); 32],
-        }
-    }
-}
-
-#[repr(C)]
-struct MemoryInfoEx {
-    version: u32,
-    dedicated_video_memory_kb: u32,
-    available_dedicated_video_memory_kb: u32,
-    system_video_memory_kb: u32,
-    shared_system_memory_kb: u32,
-    current_available_dedicated_video_memory_kb: u32,
-    dedicated_video_memory_evictions_size_kb: u32,
-    dedicated_video_memory_eviction_count: u32,
-    dedicated_video_memory_promotions_size_kb: u32,
-    dedicated_video_memory_promotion_count: u32,
-}
-
-impl MemoryInfoEx {
-    fn new() -> Self {
-        let mut s: Self = unsafe { mem::zeroed() };
-        s.version = (mem::size_of::<Self>() as u32) | (1 << 16);
-        s
-    }
-}
-
-#[repr(C)]
-struct PowerTopologyStatus {
-    version: u32,
-    count: u32,
-    entries: [PowerTopologyEntry; 4],
-}
-
-#[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct PowerTopologyEntry {
-    domain: u32,
-    power_usage_mw: u32,
-    power_budget_mw: u32,
-}
-
-impl PowerTopologyStatus {
-    fn new() -> Self {
-        Self {
-            version: (mem::size_of::<Self>() as u32) | (1 << 16),
-            count: 0,
-            entries: [PowerTopologyEntry::default(); 4],
-        }
-    }
-
-    fn new_v2() -> Self {
-        Self {
-            version: (mem::size_of::<Self>() as u32) | (2 << 16),
-            count: 0,
-            entries: [PowerTopologyEntry::default(); 4],
-        }
-    }
+struct NvmlMemory {
+    total: u64,  // Total VRAM in bytes
+    free: u64,   // Free VRAM in bytes
+    used: u64,   // Used VRAM in bytes
 }
 
 // ─── GpuPoller ───────────────────────────────────────────────────────────────
 
 pub struct GpuPoller {
-    gpu_handle: usize,
-    fn_get_pstates: NvAPI_GPU_GetDynamicPstatesInfoEx,
-    fn_get_thermal: NvAPI_GPU_GetThermalSettings,
-    fn_get_clocks: NvAPI_GPU_GetAllClockFrequencies,
-    fn_get_memory: NvAPI_GPU_GetMemoryInfoEx,
-    fn_get_tach: NvAPI_GPU_GetTachReading,
-    fn_get_power: Option<NvAPI_GPU_ClientPowerTopologyGetStatus>,
+    device: NvmlDevice,
+    fn_get_utilization: NvmlDeviceGetUtilizationRates,
+    fn_get_temperature: NvmlDeviceGetTemperature,
+    fn_get_clock: NvmlDeviceGetClockInfo,
+    fn_get_memory: NvmlDeviceGetMemoryInfo,
+    fn_get_fan_speed: NvmlDeviceGetFanSpeed,
+    fn_get_power: NvmlDeviceGetPowerUsage,
 }
 
+// SAFETY: NvmlDevice is a pointer used only by the polling thread.
+unsafe impl Send for GpuPoller {}
+
 impl GpuPoller {
-    /// Attempt to initialize NVAPI. Returns None if nvapi64.dll is not found
+    /// Attempt to initialize NVML. Returns None if nvml.dll is not found
     /// or initialization fails (e.g., AMD GPU system).
     pub fn new() -> Option<Self> {
-        unsafe { Self::init_nvapi() }
+        unsafe { Self::init_nvml() }
     }
 
-    unsafe fn init_nvapi() -> Option<Self> {
-        // Load nvapi64.dll
-        let module = LoadLibraryA(s!("nvapi64.dll")).ok()?;
+    unsafe fn init_nvml() -> Option<Self> {
+        // Try loading nvml.dll — it's in System32 on modern NVIDIA drivers
+        let module = LoadLibraryA(s!("nvml.dll"))
+            .or_else(|_| LoadLibraryA(s!("C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvml.dll")))
+            .ok()?;
 
-        // Get the single exported function
-        let query_interface: NvAPI_QueryInterface = mem::transmute(
-            GetProcAddress(module, s!("nvapi_QueryInterface"))?
-        );
+        // Resolve all functions
+        let fn_init: NvmlInit = mem::transmute(GetProcAddress(module, s!("nvmlInit_v2"))?);
+        let fn_get_count: NvmlDeviceGetCount = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetCount_v2"))?);
+        let fn_get_handle: NvmlDeviceGetHandleByIndex = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetHandleByIndex_v2"))?);
+        let fn_get_utilization: NvmlDeviceGetUtilizationRates = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetUtilizationRates"))?);
+        let fn_get_temperature: NvmlDeviceGetTemperature = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetTemperature"))?);
+        let fn_get_clock: NvmlDeviceGetClockInfo = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetClockInfo"))?);
+        let fn_get_memory: NvmlDeviceGetMemoryInfo = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetMemoryInfo"))?);
+        let fn_get_fan_speed: NvmlDeviceGetFanSpeed = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetFanSpeed"))?);
+        let fn_get_power: NvmlDeviceGetPowerUsage = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetPowerUsage"))?);
+        let fn_get_name: NvmlDeviceGetName = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetName"))?);
 
-        // Resolve NvAPI_Initialize
-        let initialize: NvAPI_Initialize = mem::transmute(
-            query_interface(NVAPI_INITIALIZE)
-        );
-
-        if initialize() != NVAPI_OK {
-            warn!("NVAPI: NvAPI_Initialize failed");
+        // Initialize NVML
+        let result = fn_init();
+        if result != NVML_SUCCESS {
+            warn!(error_code = result, "NVML: nvmlInit_v2 failed");
             return None;
         }
 
-        // Resolve all needed functions
-        let fn_enum_gpus: NvAPI_EnumPhysicalGPUs = mem::transmute(
-            query_interface(NVAPI_ENUM_PHYSICAL_GPUS)
-        );
-        let fn_get_pstates: NvAPI_GPU_GetDynamicPstatesInfoEx = mem::transmute(
-            query_interface(NVAPI_GPU_GET_DYNAMIC_PSTATES_INFO_EX)
-        );
-        let fn_get_thermal: NvAPI_GPU_GetThermalSettings = mem::transmute(
-            query_interface(NVAPI_GPU_GET_THERMAL_SETTINGS)
-        );
-        let fn_get_clocks: NvAPI_GPU_GetAllClockFrequencies = mem::transmute(
-            query_interface(NVAPI_GPU_GET_ALL_CLOCK_FREQUENCIES)
-        );
-        let fn_get_memory: NvAPI_GPU_GetMemoryInfoEx = mem::transmute(
-            query_interface(NVAPI_GPU_GET_MEMORY_INFO_EX)
-        );
-        let fn_get_tach: NvAPI_GPU_GetTachReading = mem::transmute(
-            query_interface(NVAPI_GPU_GET_TACH_READING)
-        );
-
-        // Power topology is optional (GTX 900+ only)
-        let fn_get_power_ptr = query_interface(NVAPI_GPU_CLIENT_POWER_TOPOLOGY_GET_STATUS);
-        let fn_get_power: Option<NvAPI_GPU_ClientPowerTopologyGetStatus> = if fn_get_power_ptr.is_null() {
-            info!("NVAPI: power topology not available (pre-GTX 900 GPU)");
-            None
-        } else {
-            Some(mem::transmute(fn_get_power_ptr))
-        };
-
-        // Enumerate GPUs — use the first one
-        let mut handles = [0usize; 64];
+        // Get device count
         let mut count = 0u32;
-        if fn_enum_gpus(&mut handles, &mut count) != NVAPI_OK || count == 0 {
-            warn!("NVAPI: no GPUs found");
+        let result = fn_get_count(&mut count);
+        if result != NVML_SUCCESS || count == 0 {
+            warn!(error_code = result, "NVML: no GPUs found");
             return None;
         }
 
-        let gpu_handle = handles[0];
-        info!(gpu_count = count, "NVAPI: initialized, using GPU 0");
+        // Get handle for GPU 0
+        let mut device: NvmlDevice = std::ptr::null_mut();
+        let result = fn_get_handle(0, &mut device);
+        if result != NVML_SUCCESS {
+            warn!(error_code = result, "NVML: failed to get GPU 0 handle");
+            return None;
+        }
+
+        // Log GPU name
+        let mut name_buf = [0u8; 256];
+        if fn_get_name(device, name_buf.as_mut_ptr(), 256) == NVML_SUCCESS {
+            let name_end = name_buf.iter().position(|&b| b == 0).unwrap_or(name_buf.len());
+            let name = String::from_utf8_lossy(&name_buf[..name_end]);
+            info!(gpu_name = %name, gpu_count = count, "NVML: initialized");
+        } else {
+            info!(gpu_count = count, "NVML: initialized (GPU 0)");
+        }
 
         Some(Self {
-            gpu_handle,
-            fn_get_pstates,
-            fn_get_thermal,
-            fn_get_clocks,
+            device,
+            fn_get_utilization,
+            fn_get_temperature,
+            fn_get_clock,
             fn_get_memory,
-            fn_get_tach,
+            fn_get_fan_speed,
             fn_get_power,
         })
     }
@@ -265,70 +142,47 @@ impl GpuPoller {
         let mut data = GpuData::default();
 
         unsafe {
-            // Usage via DynamicPstatesInfoEx (official API, works on all modern GPUs)
-            let mut pstates = DynamicPstatesInfoEx::new();
-            let pstates_result = (self.fn_get_pstates)(self.gpu_handle, &mut pstates);
-            if pstates_result == NVAPI_OK {
-                // Index 0 = GPU core utilization
-                if pstates.utilization[0].present != 0 {
-                    data.usage_percent = pstates.utilization[0].percentage as f32;
-                }
-            } else {
-                debug!(error_code = pstates_result, "NVAPI: GetDynamicPstatesInfoEx failed");
+            // Utilization (GPU + memory controller)
+            let mut util = NvmlUtilization { gpu: 0, memory: 0 };
+            if (self.fn_get_utilization)(self.device, &mut util) == NVML_SUCCESS {
+                data.usage_percent = util.gpu as f32;
             }
 
             // Temperature
-            let mut thermal = ThermalSettings::new();
-            if (self.fn_get_thermal)(self.gpu_handle, 0, &mut thermal) == NVAPI_OK {
-                if thermal.count > 0 {
-                    data.temp_c = thermal.sensors[0].current_temp as f32;
-                }
+            let mut temp = 0u32;
+            if (self.fn_get_temperature)(self.device, NVML_TEMPERATURE_GPU, &mut temp) == NVML_SUCCESS {
+                data.temp_c = temp as f32;
             }
 
-            // Clock frequencies (index 0 = graphics, index 8 = memory)
-            let mut clocks = ClockFrequencies::new();
-            if (self.fn_get_clocks)(self.gpu_handle, &mut clocks) == NVAPI_OK {
-                if clocks.entries[0].present != 0 {
-                    data.core_clock_mhz = clocks.entries[0].frequency_khz / 1000;
-                }
-                if clocks.entries[8].present != 0 {
-                    data.mem_clock_mhz = clocks.entries[8].frequency_khz / 1000;
-                }
+            // Core clock
+            let mut clock = 0u32;
+            if (self.fn_get_clock)(self.device, NVML_CLOCK_GRAPHICS, &mut clock) == NVML_SUCCESS {
+                data.core_clock_mhz = clock;
             }
 
-            // Memory
-            let mut mem_info = MemoryInfoEx::new();
-            if (self.fn_get_memory)(self.gpu_handle, &mut mem_info) == NVAPI_OK {
-                data.vram_total_mb = mem_info.dedicated_video_memory_kb / 1024;
-                let available_kb = mem_info.current_available_dedicated_video_memory_kb;
-                let total_kb = mem_info.dedicated_video_memory_kb;
-                data.vram_used_mb = (total_kb.saturating_sub(available_kb)) / 1024;
+            // Memory clock
+            let mut mem_clock = 0u32;
+            if (self.fn_get_clock)(self.device, NVML_CLOCK_MEM, &mut mem_clock) == NVML_SUCCESS {
+                data.mem_clock_mhz = mem_clock;
             }
 
-            // Fan speed
-            let mut rpm = 0u32;
-            if (self.fn_get_tach)(self.gpu_handle, &mut rpm) == NVAPI_OK {
-                data.fan_speed_rpm = rpm;
+            // VRAM
+            let mut memory = NvmlMemory { total: 0, free: 0, used: 0 };
+            if (self.fn_get_memory)(self.device, &mut memory) == NVML_SUCCESS {
+                data.vram_total_mb = (memory.total / (1024 * 1024)) as u32;
+                data.vram_used_mb = (memory.used / (1024 * 1024)) as u32;
             }
 
-            // Power draw (GTX 900+ only)
-            if let Some(fn_get_power) = self.fn_get_power {
-                // Try version 1 first
-                let mut power = PowerTopologyStatus::new();
-                let power_result = fn_get_power(self.gpu_handle, &mut power);
-                if power_result == NVAPI_OK && power.count > 0 {
-                    data.power_draw_w = power.entries[0].power_usage_mw as f32 / 1000.0;
-                } else {
-                    // Try version 2 for newer GPUs (50-series)
-                    let mut power_v2 = PowerTopologyStatus::new_v2();
-                    let power_v2_result = fn_get_power(self.gpu_handle, &mut power_v2);
-                    if power_v2_result == NVAPI_OK && power_v2.count > 0 {
-                        data.power_draw_w = power_v2.entries[0].power_usage_mw as f32 / 1000.0;
-                    } else {
-                        debug!(v1_error = power_result, v2_error = power_v2_result,
-                            "NVAPI: ClientPowerTopologyGetStatus failed (both v1 and v2)");
-                    }
-                }
+            // Fan speed (percentage)
+            let mut fan_speed = 0u32;
+            if (self.fn_get_fan_speed)(self.device, &mut fan_speed) == NVML_SUCCESS {
+                data.fan_speed_percent = fan_speed;
+            }
+
+            // Power draw (milliwatts → watts)
+            let mut power_mw = 0u32;
+            if (self.fn_get_power)(self.device, &mut power_mw) == NVML_SUCCESS {
+                data.power_draw_w = power_mw as f32 / 1000.0;
             }
         }
 
@@ -342,30 +196,22 @@ mod tests {
 
     #[test]
     fn gpu_poller_init_returns_some_on_nvidia() {
-        // This test only passes on NVIDIA systems.
-        // On AMD/Intel, it returns None — which is correct behavior.
         let poller = GpuPoller::new();
-        if poller.is_some() {
-            let data = poller.unwrap().poll();
-            // Temperature should be a reasonable value if GPU is present
+        if let Some(poller) = poller {
+            let data = poller.poll();
+            // Temperature should be reasonable if GPU is present
             assert!(data.temp_c > 0.0 && data.temp_c < 120.0,
-                "GPU temp should be between 0-120°C, got {}", data.temp_c);
+                "GPU temp should be 0-120°C, got {}", data.temp_c);
+            // Should have some VRAM
+            assert!(data.vram_total_mb > 0,
+                "GPU should report VRAM total");
         }
-        // If None, that's fine — no NVIDIA GPU
+        // If None, that's fine — no NVIDIA GPU or nvml.dll not found
     }
 
     #[test]
-    fn pstates_struct_version() {
-        let pstates = DynamicPstatesInfoEx::new();
-        // Version encodes struct size in low 16 bits
-        let size = (pstates.version & 0xFFFF) as usize;
-        assert_eq!(size, mem::size_of::<DynamicPstatesInfoEx>());
-    }
-
-    #[test]
-    fn thermal_settings_struct_version() {
-        let thermal = ThermalSettings::new();
-        let size = (thermal.version & 0xFFFF) as usize;
-        assert_eq!(size, mem::size_of::<ThermalSettings>());
+    fn nvml_structs_are_correct_size() {
+        assert_eq!(mem::size_of::<NvmlUtilization>(), 8); // two u32
+        assert_eq!(mem::size_of::<NvmlMemory>(), 24);     // three u64
     }
 }
