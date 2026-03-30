@@ -324,7 +324,9 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
     // Try to QueryInterface pDevice for ID3D12CommandQueue.
     // For DX12 games, pDevice is actually the command queue.
     // For DX11 games, this will fail — that's fine.
-    if CAPTURED_COMMAND_QUEUE.is_none() && !p_device.is_null() {
+    // Always overwrite — games may create multiple swap chains (splash → main game)
+    // and the latest one is the one we want.
+    if !p_device.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&p_device);
         match unknown.cast::<ID3D12CommandQueue>() {
             Ok(queue) => {
@@ -333,11 +335,7 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
                 );
                 CAPTURED_COMMAND_QUEUE = Some(queue);
             }
-            Err(_) => {
-                crate::logging::log_to_file(
-                    "[hook] pDevice is not ID3D12CommandQueue (DX11 game)",
-                );
-            }
+            Err(_) => {}
         }
     }
 
@@ -361,21 +359,21 @@ unsafe extern "system" fn hooked_execute_command_lists(
 ) {
     use windows::Win32::Graphics::Direct3D12::D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    // Capture a DIRECT queue on first call
-    if CAPTURED_COMMAND_QUEUE.is_none() && !this.is_null() {
+    // Capture DIRECT queues. Always overwrite — the game may switch devices
+    // (splash → main game) and we need the latest DIRECT queue.
+    if !this.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&this);
         if let Ok(queue) = unknown.cast::<ID3D12CommandQueue>() {
             let desc = queue.GetDesc();
             if desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT {
-                crate::logging::log_to_file(
-                    "[hook] captured DIRECT ID3D12CommandQueue from ExecuteCommandLists",
-                );
+                // Only log on first capture or device change to avoid log spam
+                let is_new = CAPTURED_COMMAND_QUEUE.is_none();
                 CAPTURED_COMMAND_QUEUE = Some(queue);
-            } else {
-                crate::logging::log_to_file(&format!(
-                    "[hook] skipping non-DIRECT command queue (type={:?}) from ExecuteCommandLists",
-                    desc.Type
-                ));
+                if is_new {
+                    crate::logging::log_to_file(
+                        "[hook] captured DIRECT ID3D12CommandQueue from ExecuteCommandLists",
+                    );
+                }
             }
         }
     }

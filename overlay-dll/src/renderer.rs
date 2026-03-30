@@ -200,13 +200,13 @@ impl OverlayRenderer {
         match (device_check, &queue_device) {
             (Ok(()), Some(qd)) => {
                 let same_device = Interface::as_raw(qd) == Interface::as_raw(&dx12_device);
-                log_to_file(&format!(
-                    "[renderer] using captured command queue for D3D11On12 (same_device={})",
-                    same_device
-                ));
                 if !same_device {
-                    return Err("Captured command queue is from a different D3D12 device".into());
+                    // Queue is from a different device (e.g. splash screen).
+                    // Don't increment fail count — the ExecuteCommandLists hook
+                    // will overwrite with the correct queue shortly.
+                    return Err("Queue device mismatch — waiting for correct queue".into());
                 }
+                log_to_file("[renderer] using captured command queue for D3D11On12 (device verified)");
             }
             _ => {
                 log_to_file("[renderer] WARNING: could not verify queue device, proceeding anyway");
@@ -351,12 +351,16 @@ impl OverlayRenderer {
     pub unsafe fn render(&mut self, swap_chain_ptr: *mut c_void, widgets: &[ComputedWidget]) {
         if let Err(e) = self.ensure_render_target(swap_chain_ptr) {
             if self.api == GraphicsApi::DX12 {
-                self.dx12_fail_count += 1;
-                if self.dx12_fail_count == 10 {
-                    log_to_file(&format!(
-                        "[renderer] DX12 rendering suspended after 10 failures (last: {e}). \
-                         Will retry when swap chain changes."
-                    ));
+                // Don't count device-mismatch toward suspension — the hooks will
+                // update the captured queue and it'll resolve itself.
+                if !e.contains("device mismatch") && !e.contains("not yet captured") {
+                    self.dx12_fail_count += 1;
+                    if self.dx12_fail_count == 10 {
+                        log_to_file(&format!(
+                            "[renderer] DX12 rendering suspended after 10 failures (last: {e}). \
+                             Will retry when swap chain changes."
+                        ));
+                    }
                 }
             }
             return;
