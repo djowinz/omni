@@ -45,8 +45,9 @@ impl OmniResolver {
             let stylesheet = css::parse_css(&widget_def.style_source);
             let flat_nodes = flat_tree::flatten_tree(&widget_def.template);
 
-            // Track resolved positions per node for child positioning
+            // Track resolved positions and widths per node for child layout
             let mut positions: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
+            let mut parent_widths: Vec<f32> = vec![0.0; flat_nodes.len()];
             // Track resolved styles per node for height estimation
             let mut resolved_styles: Vec<Option<ResolvedStyle>> = vec![None; flat_nodes.len()];
 
@@ -74,7 +75,10 @@ impl OmniResolver {
 
                 let x = parse_px(style.left.as_deref()).unwrap_or(assigned_x);
                 let y = parse_px(style.top.as_deref()).unwrap_or(assigned_y);
-                let width = parse_px(style.width.as_deref()).unwrap_or(200.0);
+                // Width: explicit > inherit from parent > fallback 0 (auto)
+                let inherited_width = parent_widths[i];
+                let width = parse_px(style.width.as_deref())
+                    .unwrap_or(if inherited_width > 0.0 { inherited_width } else { 0.0 });
                 let height = parse_px(style.height.as_deref()).unwrap_or(0.0);
 
                 // For child positioning: account for padding and gap
@@ -82,13 +86,17 @@ impl OmniResolver {
                 let gap = parse_px(style.gap.as_deref()).unwrap_or(0.0);
                 let is_row = style.flex_direction.as_deref() == Some("row");
 
+                // Child content width = parent width minus padding on both sides
+                let child_content_width = if width > 0.0 { width - padding * 2.0 } else { 0.0 };
+
                 // Set initial child position (inside padding)
                 let mut child_x = x + padding;
                 let mut child_y = y + padding;
 
-                // Update positions for each direct child
+                // Update positions and widths for each direct child
                 for &child_idx in &node.child_indices {
                     positions[child_idx] = (child_x, child_y);
+                    parent_widths[child_idx] = child_content_width;
 
                     if is_row {
                         child_x += width + gap;
