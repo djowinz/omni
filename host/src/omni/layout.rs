@@ -74,25 +74,24 @@ pub fn compute_layout(
         .filter(|&i| flat_nodes[i].parent_index.is_none())
         .collect();
 
-    let layout_root = if root_indices.len() == 1 {
-        taffy_ids[root_indices[0]]
-    } else {
-        // Create a wrapper flex-column node
-        let wrapper_children: Vec<NodeId> = root_indices.iter().map(|&i| taffy_ids[i]).collect();
-        tree.new_with_children(
-            Style {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                size: Size {
-                    width: Dimension::Length(available_width),
-                    height: Dimension::Length(available_height),
-                },
-                ..Style::DEFAULT
+    // ALWAYS wrap roots in a viewport container.
+    // This is required for position:absolute/fixed to work — taffy positions
+    // absolute elements relative to their containing block (parent), so without
+    // a viewport wrapper, absolute positioning has no reference frame.
+    let wrapper_children: Vec<NodeId> = root_indices.iter().map(|&i| taffy_ids[i]).collect();
+    let layout_root = tree.new_with_children(
+        Style {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Column,
+            size: Size {
+                width: Dimension::Length(available_width),
+                height: Dimension::Length(available_height),
             },
-            &wrapper_children,
-        )
-        .expect("taffy wrapper node failed")
-    };
+            ..Style::DEFAULT
+        },
+        &wrapper_children,
+    )
+    .expect("taffy viewport wrapper node failed");
 
     // Phase 4: Compute layout.
     tree.compute_layout(
@@ -120,15 +119,11 @@ pub fn compute_layout(
         let (parent_abs_x, parent_abs_y) = match flat_nodes[i].parent_index {
             Some(pi) => (results[pi].x, results[pi].y),
             None => {
-                if root_indices.len() > 1 {
-                    // Wrapper node offset
-                    let wrapper_layout = tree
-                        .layout(layout_root)
-                        .expect("taffy wrapper layout query failed");
-                    (wrapper_layout.location.x, wrapper_layout.location.y)
-                } else {
-                    (0.0, 0.0)
-                }
+                // Root nodes: parent is the viewport wrapper (always present)
+                let wrapper_layout = tree
+                    .layout(layout_root)
+                    .expect("taffy viewport layout query failed");
+                (wrapper_layout.location.x, wrapper_layout.location.y)
             }
         };
 
@@ -739,5 +734,74 @@ mod tests {
         // child_b at (10 + 5, 10 + 5) = (15, 15) due to nested padding
         assert_eq!(results[2].x, 15.0);
         assert_eq!(results[2].y, 15.0);
+    }
+}
+
+#[cfg(test)]
+mod position_debug_test {
+    use super::*;
+    use crate::omni::types::ResolvedStyle;
+    use crate::omni::flat_tree::FlatNode;
+
+    #[test]
+    fn fixed_position_with_left_top() {
+        let nodes = vec![
+            FlatNode {
+                tag: "div".to_string(),
+                id: None,
+                classes: vec![],
+                inline_style: None,
+                parent_index: None,
+                depth: 0,
+                is_text: false,
+                text_content: None,
+                child_indices: vec![1],
+            },
+            FlatNode {
+                tag: "span".to_string(),
+                id: None,
+                classes: vec![],
+                inline_style: None,
+                parent_index: Some(0),
+                depth: 1,
+                is_text: false,
+                text_content: None,
+                child_indices: vec![2],
+            },
+            FlatNode {
+                tag: String::new(),
+                id: None,
+                classes: vec![],
+                inline_style: None,
+                parent_index: Some(1),
+                depth: 2,
+                is_text: true,
+                text_content: Some("test".to_string()),
+                child_indices: vec![],
+            },
+        ];
+
+        let mut root_style = ResolvedStyle::default();
+        root_style.position = Some("fixed".to_string());
+        root_style.top = Some("100px".to_string());
+        root_style.left = Some("200px".to_string());
+        root_style.width = Some("300px".to_string());
+        root_style.display = Some("flex".to_string());
+        root_style.flex_direction = Some("column".to_string());
+        root_style.padding = Some("10px".to_string());
+
+        let span_style = ResolvedStyle::default();
+        let text_style = ResolvedStyle::default();
+
+        let styles = vec![root_style, span_style, text_style];
+        let text_sizes = vec![(0.0, 0.0), (80.0, 16.0), (0.0, 0.0)];
+
+        let results = compute_layout(&nodes, &styles, &text_sizes, 1920.0, 1080.0);
+
+        eprintln!("Root: x={}, y={}, w={}, h={}", results[0].x, results[0].y, results[0].width, results[0].height);
+        eprintln!("Span: x={}, y={}, w={}, h={}", results[1].x, results[1].y, results[1].width, results[1].height);
+
+        assert!(results[0].x > 100.0, "Root x should be ~200, got {}", results[0].x);
+        assert!(results[0].y > 50.0, "Root y should be ~100, got {}", results[0].y);
     }
 }
