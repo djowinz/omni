@@ -88,6 +88,14 @@ impl SharedMemoryWriter {
 
         state.flip_slot();
     }
+
+    /// Read frame data written by the DLL (FPS, frame time, etc.).
+    /// Returns the DLL's frame stats so the host can use them in
+    /// reactive class conditions (e.g., "fps < 30").
+    pub fn read_dll_frame_data(&self) -> omni_shared::FrameData {
+        let state = unsafe { &*self.ptr };
+        state.dll_frame_data
+    }
 }
 
 impl Drop for SharedMemoryWriter {

@@ -61,6 +61,21 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
     // Record frame timing
     if let Some(frame_stats) = &mut FRAME_STATS {
         frame_stats.record();
+
+        // Write frame stats back to shared memory for host-side reactive conditions
+        if frame_stats.available() {
+            if let Some(reader) = &SHM_READER {
+                let fd = omni_shared::FrameData {
+                    fps: frame_stats.fps(),
+                    frame_time_ms: frame_stats.frame_time_ms(),
+                    frame_time_avg_ms: frame_stats.frame_time_avg_ms(),
+                    frame_time_1percent_ms: frame_stats.frame_time_1pct_ms(),
+                    frame_time_01percent_ms: frame_stats.frame_time_01pct_ms(),
+                    available: true,
+                };
+                reader.write_frame_data(&fd);
+            }
+        }
     }
 
     let renderer = match &mut RENDERER {

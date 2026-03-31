@@ -2,14 +2,14 @@ use omni_shared::{SharedOverlayState, OverlaySlot, SHARED_MEM_NAME};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
     OpenFileMappingW, MapViewOfFile, UnmapViewOfFile,
-    FILE_MAP_READ,
+    FILE_MAP_ALL_ACCESS,
 };
 
 use crate::logging::log_to_file;
 
 pub struct SharedMemoryReader {
     handle: HANDLE,
-    ptr: *const SharedOverlayState,
+    ptr: *mut SharedOverlayState,
     last_sequence: u64,
 }
 
@@ -25,7 +25,7 @@ impl SharedMemoryReader {
 
         let handle = unsafe {
             OpenFileMappingW(
-                FILE_MAP_READ.0,
+                FILE_MAP_ALL_ACCESS.0,
                 false,
                 windows::core::PCWSTR(name_wide.as_ptr()),
             )
@@ -37,7 +37,7 @@ impl SharedMemoryReader {
         };
 
         let ptr = unsafe {
-            MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0)
+            MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0)
         };
 
         if ptr.Value.is_null() {
@@ -49,7 +49,7 @@ impl SharedMemoryReader {
 
         Some(Self {
             handle,
-            ptr: ptr.Value as *const SharedOverlayState,
+            ptr: ptr.Value as *mut SharedOverlayState,
             last_sequence: 0,
         })
     }
@@ -80,6 +80,13 @@ impl SharedMemoryReader {
         let state = unsafe { &*self.ptr };
         let slot = &state.slots[state.reader_slot_index()];
         slot.write_sequence > 0
+    }
+
+    /// Write frame data back to shared memory so the host can use
+    /// FPS/frame-time values in reactive class conditions.
+    pub unsafe fn write_frame_data(&self, frame_data: &omni_shared::FrameData) {
+        let state = &mut *self.ptr;
+        state.dll_frame_data = *frame_data;
     }
 }
 

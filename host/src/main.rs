@@ -318,6 +318,14 @@ fn run_host(dll_path: &str) {
             latest_snapshot = snapshot;
         }
 
+        // Read DLL frame data (FPS, frame time) from shared memory.
+        // The DLL writes this each frame so the host can use it in
+        // reactive class conditions (e.g., "fps > 60").
+        let dll_frame = shm_writer.read_dll_frame_data();
+        if dll_frame.available {
+            latest_snapshot.frame = dll_frame;
+        }
+
         // Update WebSocket shared state
         if let Ok(mut ws_snapshot) = ws_state.latest_snapshot.lock() {
             *ws_snapshot = latest_snapshot;

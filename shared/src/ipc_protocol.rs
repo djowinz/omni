@@ -16,6 +16,9 @@ pub struct SharedOverlayState {
     /// 0 or 1 — which slot the DLL should read from.
     pub active_slot: AtomicU64,
     pub slots: [OverlaySlot; 2],
+    /// Frame data written by the DLL, read by the host.
+    /// This enables the host to use FPS/frame-time in reactive class conditions.
+    pub dll_frame_data: crate::sensor_types::FrameData,
 }
 
 #[repr(C)]
@@ -93,6 +96,7 @@ mod tests {
         let state = SharedOverlayState {
             active_slot: AtomicU64::new(0),
             slots: [OverlaySlot::default(), OverlaySlot::default()],
+            dll_frame_data: crate::sensor_types::FrameData::default(),
         };
 
         assert_eq!(state.reader_slot_index(), 0);
