@@ -7,6 +7,13 @@
 use std::collections::HashMap;
 
 use omni_shared::{ComputedWidget, SensorSnapshot, WidgetType, SensorSource, write_fixed_str};
+use tracing::warn;
+use windows::Win32::Graphics::DirectWrite::{
+    DWriteCreateFactory, IDWriteFactory,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_BOLD,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+};
+use windows::core::w;
 
 use super::types::{OmniFile, ResolvedStyle};
 use super::css;
@@ -18,12 +25,74 @@ use super::sensor_map;
 pub struct OmniResolver {
     /// Theme CSS variables (loaded from theme file).
     theme_vars: HashMap<String, String>,
+    /// DirectWrite factory for text measurement.
+    dwrite_factory: Option<IDWriteFactory>,
 }
 
 impl OmniResolver {
     pub fn new() -> Self {
+        let dwrite_factory: Option<IDWriteFactory> = unsafe {
+            DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED).ok()
+        };
+        if dwrite_factory.is_none() {
+            warn!("Failed to create IDWriteFactory — text measurement will use fallback estimates");
+        }
         Self {
             theme_vars: HashMap::new(),
+            dwrite_factory,
+        }
+    }
+
+    /// Measure text dimensions using DirectWrite.
+    ///
+    /// Returns `(width, height)` for the given text rendered at the specified
+    /// font size and weight.  Falls back to a simple character-count estimate
+    /// if DirectWrite is unavailable or any API call fails.
+    pub fn measure_text(&self, text: &str, font_size: f32, font_weight: u16) -> (f32, f32) {
+        if let Some(ref factory) = self.dwrite_factory {
+            if let Ok(size) = Self::measure_text_dwrite(factory, text, font_size, font_weight) {
+                return size;
+            }
+        }
+        // Fallback: rough estimate
+        (text.len() as f32 * font_size * 0.6, font_size + 4.0)
+    }
+
+    fn measure_text_dwrite(
+        factory: &IDWriteFactory,
+        text: &str,
+        font_size: f32,
+        font_weight: u16,
+    ) -> Result<(f32, f32), windows::core::Error> {
+        unsafe {
+            let weight = if font_weight >= 700 {
+                DWRITE_FONT_WEIGHT_BOLD
+            } else {
+                DWRITE_FONT_WEIGHT_NORMAL
+            };
+
+            let format = factory.CreateTextFormat(
+                w!("Segoe UI"),
+                None,
+                weight,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                font_size,
+                w!("en-us"),
+            )?;
+
+            let text_wide: Vec<u16> = text.encode_utf16().collect();
+
+            let layout = factory.CreateTextLayout(
+                &text_wide,
+                &format,
+                10000.0,
+                10000.0,
+            )?;
+
+            let mut metrics = std::mem::zeroed::<windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_METRICS>();
+            layout.GetMetrics(&mut metrics)?;
+            Ok((metrics.width, metrics.height))
         }
     }
 
