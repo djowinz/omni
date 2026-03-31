@@ -293,10 +293,28 @@ fn style_to_computed_widget(style: &ResolvedStyle, x: f32, y: f32, default_width
     cw
 }
 
+/// Split a string by a delimiter, but only at parenthesis depth 0.
+/// This prevents splitting inside rgba(), linear-gradient(), etc.
+fn split_at_depth_0(s: &str, delim: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0;
+    let mut start = 0;
+    for (i, ch) in s.char_indices() {
+        if ch == '(' { depth += 1; }
+        else if ch == ')' { depth -= 1; }
+        else if ch == delim && depth == 0 {
+            parts.push(&s[start..i]);
+            start = i + ch.len_utf8();
+        }
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
 /// Parse a CSS `linear-gradient(...)` value into a `GradientDef`.
 fn parse_linear_gradient(value: &str) -> Option<omni_shared::GradientDef> {
     let inner = value.strip_prefix("linear-gradient(")?.strip_suffix(')')?;
-    let parts: Vec<&str> = inner.splitn(3, ',').collect();
+    let parts = split_at_depth_0(inner, ',');
     if parts.len() < 2 { return None; }
 
     let angle_str = parts[0].trim();
@@ -339,16 +357,59 @@ fn parse_linear_gradient(value: &str) -> Option<omni_shared::GradientDef> {
 }
 
 /// Parse a CSS `box-shadow` value into a `ShadowDef`.
+/// Handles rgba() colors with spaces: `2px 4px 8px rgba(0, 0, 0, 0.5)`
 fn parse_box_shadow(value: &str) -> Option<omni_shared::ShadowDef> {
-    let parts: Vec<&str> = value.trim().splitn(4, ' ').collect();
-    if parts.len() < 3 { return None; }
+    let v = value.trim();
 
-    let offset_x = parse_px(Some(parts[0])).unwrap_or(0.0);
-    let offset_y = parse_px(Some(parts[1])).unwrap_or(0.0);
-    let blur_radius = parse_px(Some(parts[2])).unwrap_or(0.0);
+    // Find the first 3 numeric values (offset_x, offset_y, blur_radius)
+    // then everything remaining is the color
+    let mut nums = Vec::new();
+    let mut rest_start = 0;
+    let mut chars = v.char_indices().peekable();
 
-    let color_str = if parts.len() >= 4 { parts[3] } else { "rgba(0,0,0,0.5)" };
-    let color_rgba = parse_color(Some(color_str));
+    while nums.len() < 3 {
+        // Skip whitespace
+        while let Some(&(_, ch)) = chars.peek() {
+            if ch.is_whitespace() { chars.next(); } else { break; }
+        }
+
+        let start = match chars.peek() {
+            Some(&(i, _)) => i,
+            None => break,
+        };
+
+        // Collect until whitespace or paren (start of color)
+        let mut end = start;
+        while let Some(&(i, ch)) = chars.peek() {
+            if ch.is_whitespace() || ch == '(' { break; }
+            end = i + ch.len_utf8();
+            chars.next();
+        }
+
+        if end > start {
+            if let Some(val) = parse_px(Some(&v[start..end])) {
+                nums.push(val);
+                rest_start = end;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if nums.len() < 3 { return None; }
+
+    let offset_x = nums[0];
+    let offset_y = nums[1];
+    let blur_radius = nums[2];
+
+    let color_str = v[rest_start..].trim();
+    let color_rgba = if color_str.is_empty() {
+        parse_color(Some("rgba(0,0,0,0.5)"))
+    } else {
+        parse_color(Some(color_str))
+    };
 
     Some(omni_shared::ShadowDef {
         enabled: true,
