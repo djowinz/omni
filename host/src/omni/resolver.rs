@@ -67,13 +67,13 @@ impl OmniResolver {
                     &resolve_node, i, &flat_nodes, &stylesheet, &self.theme_vars,
                 );
 
-                // Compute position from style or derive from parent
-                let (parent_x, parent_y) = node.parent_index
-                    .map(|pi| positions[pi])
-                    .unwrap_or((0.0, 0.0));
+                // Compute position:
+                // 1. If the element has explicit position (left/top), use it (fixed positioning)
+                // 2. Otherwise, use the position assigned by the parent's flex layout
+                let (assigned_x, assigned_y) = positions[i]; // position parent computed for us
 
-                let x = parse_px(style.left.as_deref()).unwrap_or(parent_x);
-                let y = parse_px(style.top.as_deref()).unwrap_or(parent_y);
+                let x = parse_px(style.left.as_deref()).unwrap_or(assigned_x);
+                let y = parse_px(style.top.as_deref()).unwrap_or(assigned_y);
                 let width = parse_px(style.width.as_deref()).unwrap_or(200.0);
                 let height = parse_px(style.height.as_deref()).unwrap_or(0.0);
 
