@@ -558,34 +558,59 @@ impl OverlayRenderer {
                         bottom: rect.bottom + shadow.offset_y,
                     };
 
-                    // Simple blur approximation: draw multiple expanding rects
-                    // with decreasing opacity. For blur_radius == 0, draw once.
-                    let passes = if shadow.blur_radius > 0.0 {
-                        3u32
+                    // Smooth shadow: draw from outermost (faintest) to innermost (darkest)
+                    // using a Gaussian-like falloff. More passes = smoother gradient.
+                    let blur = shadow.blur_radius.max(0.0);
+                    if blur > 0.0 {
+                        let num_passes = ((blur / 2.0).ceil() as u32).clamp(4, 20);
+                        // Draw outermost first (painter's algorithm)
+                        for pass in (0..num_passes).rev() {
+                            let t = (pass as f32 + 1.0) / num_passes as f32; // 1.0 (outermost) to ~0 (innermost)
+                            let expand = blur * t;
+                            // Gaussian-like falloff: exp(-3 * t^2)
+                            let alpha_factor = (-3.0 * t * t).exp();
+                            // Each pass contributes a fraction of the total alpha
+                            let pass_alpha = shadow_alpha * alpha_factor / num_passes as f32;
+
+                            let pass_rect = D2D_RECT_F {
+                                left: shadow_rect.left - expand,
+                                top: shadow_rect.top - expand,
+                                right: shadow_rect.right + expand,
+                                bottom: shadow_rect.bottom + expand,
+                            };
+
+                            let shadow_color = D2D1_COLOR_F {
+                                r: sc[0] as f32 / 255.0,
+                                g: sc[1] as f32 / 255.0,
+                                b: sc[2] as f32 / 255.0,
+                                a: pass_alpha,
+                            };
+
+                            // Scale radii with expansion
+                            let pass_radii = [
+                                radii[0] + expand,
+                                radii[1] + expand,
+                                radii[2] + expand,
+                                radii[3] + expand,
+                            ];
+
+                            if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None) {
+                                fill_rounded_rect_per_corner(
+                                    rt, &self.d2d_factory, &pass_rect, pass_radii, &*shadow_brush,
+                                );
+                            }
+                        }
                     } else {
-                        1u32
-                    };
-
-                    for pass in 0..passes {
-                        let expand = shadow.blur_radius * (pass as f32 + 1.0) / passes as f32;
-                        let alpha_factor = 1.0 / (pass as f32 + 1.0);
-                        let pass_rect = D2D_RECT_F {
-                            left: shadow_rect.left - expand,
-                            top: shadow_rect.top - expand,
-                            right: shadow_rect.right + expand,
-                            bottom: shadow_rect.bottom + expand,
-                        };
-
+                        // No blur — single sharp shadow
                         let shadow_color = D2D1_COLOR_F {
                             r: sc[0] as f32 / 255.0,
                             g: sc[1] as f32 / 255.0,
                             b: sc[2] as f32 / 255.0,
-                            a: shadow_alpha * alpha_factor,
+                            a: shadow_alpha,
                         };
-
                         if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None) {
                             fill_rounded_rect_per_corner(
-                                rt, &self.d2d_factory, &pass_rect, radii, &*shadow_brush,
+                                rt, &self.d2d_factory, &shadow_rect, radii, &*shadow_brush,
                             );
                         }
                     }
