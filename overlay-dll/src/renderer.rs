@@ -2,12 +2,16 @@ use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D_RECT_F, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D1_ALPHA_MODE_PREMULTIPLIED,
+    D2D_RECT_F, D2D_POINT_2F, D2D_SIZE_F, D2D1_COLOR_F, D2D1_GRADIENT_STOP,
+    D2D1_PIXEL_FORMAT, D2D1_ALPHA_MODE_PREMULTIPLIED,
+    D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED, D2D1_FILL_MODE_WINDING,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, ID2D1Factory1, ID2D1RenderTarget,
+    D2D1CreateFactory, ID2D1Factory1, ID2D1RenderTarget, ID2D1Brush,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_RENDER_TARGET_PROPERTIES,
     D2D1_ROUNDED_RECT, D2D1_DRAW_TEXT_OPTIONS_NONE,
+    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
+    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL, D2D1_SWEEP_DIRECTION_CLOCKWISE,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory,
@@ -33,6 +37,152 @@ use windows::core::{w, Interface, IUnknown};
 use omni_shared::{ComputedWidget, read_fixed_str};
 
 use crate::logging::log_to_file;
+
+/// Compute gradient start/end points from a CSS-style angle and a bounding rect.
+/// CSS gradient angles: 0deg = to top, 90deg = to right, 180deg = to bottom.
+fn gradient_points(rect: &D2D_RECT_F, angle_deg: f32) -> (D2D_POINT_2F, D2D_POINT_2F) {
+    let cx = (rect.left + rect.right) / 2.0;
+    let cy = (rect.top + rect.bottom) / 2.0;
+    let w = rect.right - rect.left;
+    let h = rect.bottom - rect.top;
+
+    // CSS gradient angle: 0deg = to top, 90deg = to right, 180deg = to bottom
+    let rad = (angle_deg - 90.0_f32).to_radians();
+    let dx = rad.cos() * w / 2.0;
+    let dy = rad.sin() * h / 2.0;
+
+    let start = D2D_POINT_2F { x: cx - dx, y: cy - dy };
+    let end = D2D_POINT_2F { x: cx + dx, y: cy + dy };
+    (start, end)
+}
+
+/// Fill a rectangle with per-corner border radii using `ID2D1PathGeometry`.
+///
+/// `radii` order: [top-left, top-right, bottom-right, bottom-left].
+/// If all four corners are equal, uses the fast `FillRoundedRectangle` path.
+/// Otherwise builds a path geometry with arc segments for each corner.
+unsafe fn fill_rounded_rect_per_corner(
+    rt: &ID2D1RenderTarget,
+    factory: &ID2D1Factory1,
+    rect: &D2D_RECT_F,
+    radii: [f32; 4],
+    brush: &impl windows::core::Param<ID2D1Brush>,
+) {
+    let [r_tl, r_tr, r_br, r_bl] = radii;
+
+    // Fast path: uniform radius
+    if r_tl == r_tr && r_tr == r_br && r_br == r_bl {
+        if r_tl > 0.0 {
+            let rounded = D2D1_ROUNDED_RECT {
+                rect: *rect,
+                radiusX: r_tl,
+                radiusY: r_tl,
+            };
+            let _ = rt.FillRoundedRectangle(&rounded, brush);
+        } else {
+            let _ = rt.FillRectangle(rect, brush);
+        }
+        return;
+    }
+
+    // Slow path: build an ID2D1PathGeometry with per-corner arcs
+    let geometry = match factory.CreatePathGeometry() {
+        Ok(g) => g,
+        Err(_) => {
+            // Fallback: fill plain rectangle
+            let _ = rt.FillRectangle(rect, brush);
+            return;
+        }
+    };
+
+    let sink = match geometry.Open() {
+        Ok(s) => s,
+        Err(_) => {
+            let _ = rt.FillRectangle(rect, brush);
+            return;
+        }
+    };
+
+    sink.SetFillMode(D2D1_FILL_MODE_WINDING);
+
+    let left = rect.left;
+    let top = rect.top;
+    let right = rect.right;
+    let bottom = rect.bottom;
+
+    // Start at (left, top + r_tl) — left edge just below the top-left corner
+    sink.BeginFigure(
+        D2D_POINT_2F { x: left, y: top + r_tl },
+        D2D1_FIGURE_BEGIN_FILLED,
+    );
+
+    // Top-left corner arc: from (left, top+r_tl) to (left+r_tl, top)
+    if r_tl > 0.0 {
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: D2D_POINT_2F { x: left + r_tl, y: top },
+            size: D2D_SIZE_F { width: r_tl, height: r_tl },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+    } else {
+        sink.AddLine(D2D_POINT_2F { x: left, y: top });
+    }
+
+    // Top edge to (right - r_tr, top)
+    sink.AddLine(D2D_POINT_2F { x: right - r_tr, y: top });
+
+    // Top-right corner arc: from (right-r_tr, top) to (right, top+r_tr)
+    if r_tr > 0.0 {
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: D2D_POINT_2F { x: right, y: top + r_tr },
+            size: D2D_SIZE_F { width: r_tr, height: r_tr },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+    } else {
+        sink.AddLine(D2D_POINT_2F { x: right, y: top });
+    }
+
+    // Right edge to (right, bottom - r_br)
+    sink.AddLine(D2D_POINT_2F { x: right, y: bottom - r_br });
+
+    // Bottom-right corner arc: from (right, bottom-r_br) to (right-r_br, bottom)
+    if r_br > 0.0 {
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: D2D_POINT_2F { x: right - r_br, y: bottom },
+            size: D2D_SIZE_F { width: r_br, height: r_br },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+    } else {
+        sink.AddLine(D2D_POINT_2F { x: right, y: bottom });
+    }
+
+    // Bottom edge to (left + r_bl, bottom)
+    sink.AddLine(D2D_POINT_2F { x: left + r_bl, y: bottom });
+
+    // Bottom-left corner arc: from (left+r_bl, bottom) to (left, bottom-r_bl)
+    if r_bl > 0.0 {
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: D2D_POINT_2F { x: left, y: bottom - r_bl },
+            size: D2D_SIZE_F { width: r_bl, height: r_bl },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+    } else {
+        sink.AddLine(D2D_POINT_2F { x: left, y: bottom });
+    }
+
+    // Close the figure (implicit line back to start point)
+    sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+    let _ = sink.Close();
+
+    let _ = rt.FillGeometry(&geometry, brush, None::<&ID2D1Brush>);
+}
 
 /// Which graphics API the swap chain belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -392,27 +542,114 @@ impl OverlayRenderer {
                 bottom: widget.y + widget.height,
             };
 
-            // Draw background
-            let bg = &widget.bg_color_rgba;
-            if bg[3] > 0 {
-                let bg_color = D2D1_COLOR_F {
-                    r: bg[0] as f32 / 255.0,
-                    g: bg[1] as f32 / 255.0,
-                    b: bg[2] as f32 / 255.0,
-                    a: (bg[3] as f32 / 255.0) * widget.opacity,
+            let radii = widget.border_radius; // [tl, tr, br, bl]
+
+            // Draw box shadow (before main background)
+            if widget.box_shadow.enabled {
+                let shadow = &widget.box_shadow;
+                let sc = &shadow.color_rgba;
+                let shadow_alpha = (sc[3] as f32 / 255.0) * widget.opacity;
+
+                if shadow_alpha > 0.0 {
+                    let shadow_rect = D2D_RECT_F {
+                        left: rect.left + shadow.offset_x,
+                        top: rect.top + shadow.offset_y,
+                        right: rect.right + shadow.offset_x,
+                        bottom: rect.bottom + shadow.offset_y,
+                    };
+
+                    // Simple blur approximation: draw multiple expanding rects
+                    // with decreasing opacity. For blur_radius == 0, draw once.
+                    let passes = if shadow.blur_radius > 0.0 {
+                        3u32
+                    } else {
+                        1u32
+                    };
+
+                    for pass in 0..passes {
+                        let expand = shadow.blur_radius * (pass as f32 + 1.0) / passes as f32;
+                        let alpha_factor = 1.0 / (pass as f32 + 1.0);
+                        let pass_rect = D2D_RECT_F {
+                            left: shadow_rect.left - expand,
+                            top: shadow_rect.top - expand,
+                            right: shadow_rect.right + expand,
+                            bottom: shadow_rect.bottom + expand,
+                        };
+
+                        let shadow_color = D2D1_COLOR_F {
+                            r: sc[0] as f32 / 255.0,
+                            g: sc[1] as f32 / 255.0,
+                            b: sc[2] as f32 / 255.0,
+                            a: shadow_alpha * alpha_factor,
+                        };
+
+                        if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None) {
+                            fill_rounded_rect_per_corner(
+                                rt, &self.d2d_factory, &pass_rect, radii, &shadow_brush,
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Draw background (gradient or solid color) with per-corner border radius
+            if widget.bg_gradient.enabled {
+                // Linear gradient background
+                let grad = &widget.bg_gradient;
+                let start_color = D2D1_COLOR_F {
+                    r: grad.start_rgba[0] as f32 / 255.0,
+                    g: grad.start_rgba[1] as f32 / 255.0,
+                    b: grad.start_rgba[2] as f32 / 255.0,
+                    a: (grad.start_rgba[3] as f32 / 255.0) * widget.opacity,
+                };
+                let end_color = D2D1_COLOR_F {
+                    r: grad.end_rgba[0] as f32 / 255.0,
+                    g: grad.end_rgba[1] as f32 / 255.0,
+                    b: grad.end_rgba[2] as f32 / 255.0,
+                    a: (grad.end_rgba[3] as f32 / 255.0) * widget.opacity,
                 };
 
-                if let Ok(brush) = rt.CreateSolidColorBrush(&bg_color, None) {
-                    let radius = widget.border_radius[0]; // simplified: use top-left for all
-                    if radius > 0.0 {
-                        let rounded = D2D1_ROUNDED_RECT {
-                            rect,
-                            radiusX: radius,
-                            radiusY: radius,
-                        };
-                        rt.FillRoundedRectangle(&rounded, &brush);
-                    } else {
-                        rt.FillRectangle(&rect, &brush);
+                let stops = [
+                    D2D1_GRADIENT_STOP { position: 0.0, color: start_color },
+                    D2D1_GRADIENT_STOP { position: 1.0, color: end_color },
+                ];
+
+                if let Ok(stop_collection) = rt.CreateGradientStopCollection(
+                    &stops,
+                    D2D1_GAMMA_2_2,
+                    D2D1_EXTEND_MODE_CLAMP,
+                ) {
+                    let (start_pt, end_pt) = gradient_points(&rect, grad.angle_deg);
+                    let grad_props = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                        startPoint: start_pt,
+                        endPoint: end_pt,
+                    };
+
+                    if let Ok(brush) = rt.CreateLinearGradientBrush(
+                        &grad_props,
+                        None,
+                        &stop_collection,
+                    ) {
+                        fill_rounded_rect_per_corner(
+                            rt, &self.d2d_factory, &rect, radii, &brush,
+                        );
+                    }
+                }
+            } else {
+                // Solid color background (default)
+                let bg = &widget.bg_color_rgba;
+                if bg[3] > 0 {
+                    let bg_color = D2D1_COLOR_F {
+                        r: bg[0] as f32 / 255.0,
+                        g: bg[1] as f32 / 255.0,
+                        b: bg[2] as f32 / 255.0,
+                        a: (bg[3] as f32 / 255.0) * widget.opacity,
+                    };
+
+                    if let Ok(brush) = rt.CreateSolidColorBrush(&bg_color, None) {
+                        fill_rounded_rect_per_corner(
+                            rt, &self.d2d_factory, &rect, radii, &brush,
+                        );
                     }
                 }
             }
