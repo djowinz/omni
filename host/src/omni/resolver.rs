@@ -165,7 +165,11 @@ impl OmniResolver {
                             _ => w.parse().ok(),
                         })
                         .unwrap_or(400);
-                    text_sizes[i] = self.measure_text(&text, font_size, font_weight);
+                    let (tw, th) = self.measure_text(&text, font_size, font_weight);
+                    // Add buffer: ceil + 4px for sub-pixel rounding between
+                    // host measurement and DLL rendering at different DPIs.
+                    // Also accounts for DLL frame timing override changing text length.
+                    text_sizes[i] = (tw.ceil() + 4.0, th.ceil());
                 }
             }
 
@@ -173,10 +177,49 @@ impl OmniResolver {
             let styles_for_layout: Vec<ResolvedStyle> = resolved_styles.iter()
                 .map(|s| s.clone().unwrap_or_default())
                 .collect();
+
+            // Debug: log resolved styles for each element
+            for (i, node) in flat_nodes.iter().enumerate() {
+                if node.is_text { continue; }
+                let s = &styles_for_layout[i];
+                tracing::debug!(
+                    idx = i,
+                    tag = %node.tag,
+                    classes = ?node.classes,
+                    display = ?s.display,
+                    flex_dir = ?s.flex_direction,
+                    justify = ?s.justify_content,
+                    width = ?s.width,
+                    position = ?s.position,
+                    top = ?s.top,
+                    left = ?s.left,
+                    padding = ?s.padding,
+                    gap = ?s.gap,
+                    text_size = ?(text_sizes[i].0, text_sizes[i].1),
+                    "resolved style"
+                );
+            }
+
             let layouts = layout::compute_layout(
                 &flat_nodes, &styles_for_layout, &text_sizes,
                 1920.0, 1080.0,
             );
+
+            // Debug: log layout results
+            for (i, node) in flat_nodes.iter().enumerate() {
+                if node.is_text { continue; }
+                let lo = &layouts[i];
+                tracing::debug!(
+                    idx = i,
+                    tag = %node.tag,
+                    classes = ?node.classes,
+                    x = lo.x,
+                    y = lo.y,
+                    w = lo.width,
+                    h = lo.height,
+                    "layout result"
+                );
+            }
 
             // Step 5: Emit ComputedWidgets using layout positions
             for (i, node) in flat_nodes.iter().enumerate() {
@@ -210,7 +253,21 @@ impl OmniResolver {
                     let text = interpolation::interpolate(&raw_template, snapshot);
                     let source = detect_sensor_source_flat(&flat_nodes, node);
 
-                    let mut cw = style_to_computed_widget(style, x, y, width);
+                    // For text widgets, use the parent row's width as the draw rect
+                    // instead of the element's taffy-computed width. Taffy sizes
+                    // flex children to their content (min_size), but the D2D DrawText
+                    // rect needs to be wide enough for the text not to clip.
+                    // Left-aligned text renders correctly with extra width.
+                    let text_draw_width = node.parent_index
+                        .map(|pi| {
+                            let parent_lo = &layouts[pi];
+                            // Width from the element's left edge to the parent's right edge
+                            (parent_lo.x + parent_lo.width) - x
+                        })
+                        .unwrap_or(width)
+                        .max(width);
+
+                    let mut cw = style_to_computed_widget(style, x, y, text_draw_width);
                     cw.widget_type = WidgetType::SensorValue;
                     cw.source = source;
                     cw.height = height;
