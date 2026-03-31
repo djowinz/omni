@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
-use super::types::{HtmlNode, OmniFile, Widget};
+use super::types::{ConditionalClass, HtmlNode, OmniFile, Widget};
 
 /// A parse error with position information.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -129,6 +129,7 @@ fn parse_widget(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget
         id: None,
         classes: vec![],
         inline_style: None,
+        conditional_classes: vec![],
         children: vec![],
     });
 
@@ -188,6 +189,7 @@ fn parse_template_children(reader: &mut Reader<&[u8]>) -> Result<HtmlNode, Parse
             id: None,
             classes: vec![],
             inline_style: None,
+            conditional_classes: vec![],
             children,
         })
     }
@@ -204,6 +206,7 @@ fn parse_html_element(
         .map(|c| c.split_whitespace().map(String::from).collect())
         .unwrap_or_default();
     let inline_style = get_attr(start, "style");
+    let conditional_classes = get_conditional_classes(start);
 
     let mut children = Vec::new();
 
@@ -249,6 +252,7 @@ fn parse_html_element(
         id,
         classes,
         inline_style,
+        conditional_classes,
         children,
     })
 }
@@ -261,12 +265,14 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
         .map(|c| c.split_whitespace().map(String::from).collect())
         .unwrap_or_default();
     let inline_style = get_attr(start, "style");
+    let conditional_classes = get_conditional_classes(start);
 
     HtmlNode::Element {
         tag,
         id,
         classes,
         inline_style,
+        conditional_classes,
         children: vec![],
     }
 }
@@ -344,6 +350,25 @@ fn get_attr(start: &BytesStart, name: &str) -> Option<String> {
         .filter_map(|a| a.ok())
         .find(|a| a.key.as_ref() == name.as_bytes())
         .map(|a| String::from_utf8_lossy(&a.value).to_string())
+}
+
+/// Extract conditional class bindings from `class:name="expression"` attributes.
+fn get_conditional_classes(start: &BytesStart) -> Vec<ConditionalClass> {
+    let prefix = b"class:";
+    start
+        .attributes()
+        .filter_map(|a| a.ok())
+        .filter_map(|a| {
+            let key = a.key.as_ref();
+            if key.starts_with(prefix) && key.len() > prefix.len() {
+                let class_name = String::from_utf8_lossy(&key[prefix.len()..]).to_string();
+                let expression = String::from_utf8_lossy(&a.value).to_string();
+                Some(ConditionalClass { class_name, expression })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -508,5 +533,38 @@ mod tests {
         assert!(result.unwrap_err()[0]
             .message
             .contains("missing required 'id'"));
+    }
+
+    #[test]
+    fn parse_conditional_class_bindings() {
+        let source = r#"
+            <widget id="gpu" name="GPU Monitor" enabled="true">
+                <template>
+                    <div class="panel" class:warning="gpu.temp > 80" class:critical="gpu.temp > 95">
+                        <span>{gpu.temp}°C</span>
+                    </div>
+                </template>
+                <style></style>
+            </widget>
+        "#;
+
+        let file = parse_omni(source).unwrap();
+        if let HtmlNode::Element {
+            classes,
+            conditional_classes,
+            ..
+        } = &file.widgets[0].template
+        {
+            assert_eq!(classes, &["panel"]);
+            assert_eq!(conditional_classes.len(), 2);
+
+            assert_eq!(conditional_classes[0].class_name, "warning");
+            assert_eq!(conditional_classes[0].expression, "gpu.temp > 80");
+
+            assert_eq!(conditional_classes[1].class_name, "critical");
+            assert_eq!(conditional_classes[1].expression, "gpu.temp > 95");
+        } else {
+            panic!("Expected Element");
+        }
     }
 }

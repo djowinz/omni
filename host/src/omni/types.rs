@@ -31,6 +31,13 @@ pub struct Widget {
     pub style_source: String,
 }
 
+/// A conditional class binding parsed from `class:name="expression"` attributes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConditionalClass {
+    pub class_name: String,
+    pub expression: String,
+}
+
 /// A node in the HTML template tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -41,6 +48,8 @@ pub enum HtmlNode {
         classes: Vec<String>,
         /// Inline style attribute value (unparsed CSS).
         inline_style: Option<String>,
+        /// Conditional class bindings (`class:name="expr"`).
+        conditional_classes: Vec<ConditionalClass>,
         children: Vec<HtmlNode>,
     },
     Text {
@@ -160,6 +169,7 @@ mod tests {
                     id: Some("fps".to_string()),
                     classes: vec![],
                     inline_style: None,
+                    conditional_classes: vec![],
                     children: vec![HtmlNode::Text {
                         content: "{fps}".to_string(),
                     }],
@@ -181,6 +191,7 @@ mod tests {
             id: None,
             classes: vec!["panel".to_string(), "active".to_string()],
             inline_style: Some("color: red;".to_string()),
+            conditional_classes: vec![],
             children: vec![],
         };
 
