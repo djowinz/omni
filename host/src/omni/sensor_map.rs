@@ -43,11 +43,11 @@ pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
         "ram.usage" => format!("{:.0}", snapshot.ram.usage_percent),
         "ram.used" => format!("{}", snapshot.ram.used_mb),
         "ram.total" => format!("{}", snapshot.ram.total_mb),
-        "fps" => "N/A".to_string(), // overridden by DLL frame stats
-        "frame-time" => "N/A".to_string(),
-        "frame-time.avg" => "N/A".to_string(),
-        "frame-time.1pct" => "N/A".to_string(),
-        "frame-time.01pct" => "N/A".to_string(),
+        "fps" => if snapshot.frame.available { format!("{:.0}", snapshot.frame.fps) } else { "N/A".to_string() },
+        "frame-time" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_ms) } else { "N/A".to_string() },
+        "frame-time.avg" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_avg_ms) } else { "N/A".to_string() },
+        "frame-time.1pct" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_1percent_ms) } else { "N/A".to_string() },
+        "frame-time.01pct" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_01percent_ms) } else { "N/A".to_string() },
         _ => "N/A".to_string(),
     }
 }
