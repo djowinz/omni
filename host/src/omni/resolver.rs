@@ -123,23 +123,28 @@ impl OmniResolver {
             // Step 1-2: Resolve CSS for each non-text node
             let mut resolved_styles: Vec<Option<ResolvedStyle>> = vec![None; flat_nodes.len()];
 
-            for (i, node) in flat_nodes.iter().enumerate() {
+            // Step 1b: Evaluate reactive classes for ALL elements first,
+            // so descendant selectors (e.g., .hot .temp-value) see the
+            // updated classes on ancestors during CSS resolution.
+            let mut reactive_flat_nodes = flat_nodes.clone();
+            for (i, node) in reactive_flat_nodes.iter_mut().enumerate() {
+                if node.is_text { continue; }
+                node.classes = reactive::resolve_active_classes(&flat_nodes[i], snapshot);
+            }
+
+            for (i, node) in reactive_flat_nodes.iter().enumerate() {
                 if node.is_text {
                     continue;
                 }
 
-                // Evaluate reactive classes (conditional class bindings)
-                let active_classes = reactive::resolve_active_classes(node, snapshot);
-
-                let interpolated_inline = node.inline_style.as_ref()
+                let interpolated_inline = flat_nodes[i].inline_style.as_ref()
                     .map(|s| interpolation::interpolate(s, snapshot));
 
                 let mut resolve_node = node.clone();
-                resolve_node.classes = active_classes;
                 resolve_node.inline_style = interpolated_inline;
 
                 let mut style = css::resolve_styles(
-                    &resolve_node, i, &flat_nodes, &stylesheet, &self.theme_vars,
+                    &resolve_node, i, &reactive_flat_nodes, &stylesheet, &self.theme_vars,
                 );
 
                 // Apply transitions: if the style declares a transition property,
