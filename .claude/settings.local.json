@@ -41,7 +41,15 @@
       "Bash(git worktree:*)",
       "Bash(git branch:*)",
       "Bash(grep -r \"QueryPerformanceCounter\\\\|QueryPerformanceFrequency\" /c/Users/DyllenOwens/.cargo/registry/src/index.crates.io-*/windows-0.58.0/src/)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cd:*)",
+      "Bash(LCSS_DIR=\"$HOME/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lightningcss-1.0.0-alpha.71/src\")",
+      "Read(//c/Users/DyllenOwens/Projects/omni/.worktrees/phase9a2b/$LCSS_DIR/**)",
+      "Bash(PSEL=\"$HOME/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parcel_selectors-0.28.2\")",
+      "Read(//c/Users/DyllenOwens/Projects/omni/.worktrees/phase9a2b/$PSEL/**)",
+      "Bash(ls target/doc/taffy/struct.*)",
+      "Bash(grep -n \"\"\"position\"\"\" host/src/omni/css.rs)",
+      "Bash(find /c/Users/DyllenOwens/Projects/omni/docs -name *phase* -o -name *hot*)"
     ]
   }
 }
