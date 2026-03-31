@@ -18,7 +18,7 @@ pub enum ReloadEvent {
 /// A file watcher that monitors overlay, theme, and config paths and
 /// emits debounced [`ReloadEvent`]s over the `rx` channel.
 pub struct FileWatcher {
-    _watcher: RecommendedWatcher,
+    watcher: RecommendedWatcher,
     pub rx: mpsc::Receiver<ReloadEvent>,
 }
 
@@ -55,36 +55,37 @@ impl FileWatcher {
             .watch(&config_parent, RecursiveMode::NonRecursive)
             .map_err(|e| format!("Failed to watch config parent {}: {e}", config_parent.display()))?;
 
-        // Spawn the debounce thread
-        let overlay_dir_clone = overlay_dir.clone();
-        let themes_dir_clone = themes_dir.clone();
-        let config_path_clone = config_path.clone();
+        // Canonicalize reference paths once so debounce_loop never pays a syscall per event.
+        let overlay_dir_c = canon(&overlay_dir);
+        let themes_dir_c = canon(&themes_dir);
+        let config_path_c = canon(&config_path);
 
+        // Spawn the debounce thread
         std::thread::Builder::new()
             .name("file-watcher-debounce".to_string())
             .spawn(move || {
                 debounce_loop(
                     raw_rx,
                     event_tx,
-                    overlay_dir_clone,
-                    themes_dir_clone,
-                    config_path_clone,
+                    overlay_dir_c,
+                    themes_dir_c,
+                    config_path_c,
                 );
             })
             .map_err(|e| format!("Failed to spawn debounce thread: {e}"))?;
 
         Ok(Self {
-            _watcher: watcher,
+            watcher,
             rx: event_rx,
         })
     }
 
     /// Stop watching `old_dir` and start watching `new_dir` for overlay changes.
     pub fn update_overlay_dir(&mut self, old_dir: &Path, new_dir: &Path) -> Result<(), String> {
-        self._watcher
+        self.watcher
             .unwatch(old_dir)
             .map_err(|e| format!("Failed to unwatch old overlay_dir {}: {e}", old_dir.display()))?;
-        self._watcher
+        self.watcher
             .watch(new_dir, RecursiveMode::Recursive)
             .map_err(|e| format!("Failed to watch new overlay_dir {}: {e}", new_dir.display()))?;
         Ok(())
@@ -97,6 +98,9 @@ fn canon(path: &Path) -> PathBuf {
 }
 
 /// Classify a changed `path` into a [`ReloadEvent`], or `None` if the change is irrelevant.
+///
+/// `overlay_dir`, `themes_dir`, and `config_path` must already be canonicalized by the caller.
+/// Only `path` (the incoming event path) is canonicalized here.
 pub fn classify_path(
     path: &Path,
     overlay_dir: &Path,
@@ -104,15 +108,11 @@ pub fn classify_path(
     config_path: &Path,
 ) -> Option<ReloadEvent> {
     let path_c = canon(path);
-    let config_c = canon(config_path);
 
     // Exact match on config path
-    if path_c == config_c {
+    if path_c == config_path {
         return Some(ReloadEvent::Config);
     }
-
-    let overlay_c = canon(overlay_dir);
-    let themes_c = canon(themes_dir);
 
     let ext = path
         .extension()
@@ -120,7 +120,7 @@ pub fn classify_path(
         .map(|e| e.to_ascii_lowercase());
 
     // Theme: .css file inside themes_dir
-    if path_c.starts_with(&themes_c) {
+    if path_c.starts_with(themes_dir) {
         if ext.as_deref() == Some("css") {
             return Some(ReloadEvent::Theme);
         }
@@ -128,7 +128,7 @@ pub fn classify_path(
     }
 
     // Overlay: .omni or .css file inside overlay_dir
-    if path_c.starts_with(&overlay_c) {
+    if path_c.starts_with(overlay_dir) {
         match ext.as_deref() {
             Some("omni") | Some("css") => return Some(ReloadEvent::Overlay),
             _ => return None,
