@@ -235,18 +235,11 @@ fn run_host(dll_path: &str) {
     // Start WebSocket server
     let ws_handle = ws_server::start(ws_state.clone());
 
-    // Start sensor polling on background thread
     let sensor_running = std::sync::Arc::new(AtomicBool::new(true));
-    let (mut sensor_poller, sensor_rx) = sensors::SensorPoller::start(
-        Duration::from_millis(1000),
-        sensor_running,
-    );
-    info!("Sensor poller started, interval=1000ms");
 
     info!(
         dll_path,
         config_path = ?config_path,
-        poll_ms = 2000,
         ws_port = ws_server::WS_PORT,
         exclude_count = config.exclude.len(),
         "Omni host starting"
@@ -286,6 +279,12 @@ fn run_host(dll_path: &str) {
             omni::OmniFile::empty()
         }
     };
+
+    // Start sensor polling on background thread (uses poll_config from .omni file)
+    let (mut sensor_poller, sensor_rx) = sensors::SensorPoller::start(
+        omni_file.poll_config.clone(),
+        sensor_running,
+    );
 
     let mut omni_resolver = omni::resolver::OmniResolver::new();
 
