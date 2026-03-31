@@ -9,5 +9,7 @@ pub mod flat_tree;
 pub mod layout;
 pub mod easing;
 pub mod expression;
+pub mod reactive;
+pub mod transition;
 
 pub use types::*;
