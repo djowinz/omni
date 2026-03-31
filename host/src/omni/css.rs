@@ -632,6 +632,7 @@ fn props_to_resolved_style(props: &HashMap<String, String>) -> ResolvedStyle {
         flex_grow: props.get("flex-grow").cloned(),
         flex_shrink: props.get("flex-shrink").cloned(),
         flex_wrap: props.get("flex-wrap").cloned(),
+        transition: props.get("transition").cloned(),
     }
 }
 

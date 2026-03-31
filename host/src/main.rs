@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::EnvFilter;
 
@@ -210,7 +210,8 @@ fn run_host(dll_path: &str) {
     let config_path = config::config_path();
     let config = config::load_config(&config_path);
     let data_dir = config::data_dir();
-    let poll_interval = Duration::from_millis(2000);
+    let scan_interval = Duration::from_millis(2000);
+    let frame_interval = Duration::from_millis(8); // 120Hz for smooth transitions
 
     // Initialize workspace folder structure (overlays/, themes/, Default overlay)
     workspace::structure::init_workspace(&data_dir);
@@ -303,8 +304,14 @@ fn run_host(dll_path: &str) {
         }
     }
 
+    let mut last_scan = Instant::now();
+
     while RUNNING.load(Ordering::Relaxed) {
-        scanner_instance.poll();
+        // Throttle scanner to only poll every 2 seconds
+        if last_scan.elapsed() >= scan_interval {
+            scanner_instance.poll();
+            last_scan = Instant::now();
+        }
 
         // Drain sensor channel — keep only the latest snapshot
         while let Ok(snapshot) = sensor_rx.try_recv() {
@@ -345,7 +352,7 @@ fn run_host(dll_path: &str) {
         // Write to shared memory
         shm_writer.write(&latest_snapshot, &widgets, 1);
 
-        std::thread::sleep(poll_interval);
+        std::thread::sleep(frame_interval);
     }
 
     info!("Shutting down — ejecting DLLs from injected processes");

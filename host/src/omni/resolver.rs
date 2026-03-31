@@ -21,6 +21,8 @@ use super::flat_tree::{self, FlatNode};
 use super::interpolation;
 use super::layout;
 use super::sensor_map;
+use super::transition;
+use super::reactive;
 
 /// Resolves an OmniFile into a flat list of ComputedWidgets.
 pub struct OmniResolver {
@@ -28,6 +30,8 @@ pub struct OmniResolver {
     theme_vars: HashMap<String, String>,
     /// DirectWrite factory for text measurement.
     dwrite_factory: Option<IDWriteFactory>,
+    /// Transition engine for smooth property interpolation.
+    transition_manager: transition::TransitionManager,
 }
 
 impl OmniResolver {
@@ -41,6 +45,7 @@ impl OmniResolver {
         Self {
             theme_vars: HashMap::new(),
             dwrite_factory,
+            transition_manager: transition::TransitionManager::new(),
         }
     }
 
@@ -104,7 +109,7 @@ impl OmniResolver {
     }
 
     /// Resolve the OmniFile into ComputedWidgets using current sensor data.
-    pub fn resolve(&self, file: &OmniFile, snapshot: &SensorSnapshot) -> Vec<ComputedWidget> {
+    pub fn resolve(&mut self, file: &OmniFile, snapshot: &SensorSnapshot) -> Vec<ComputedWidget> {
         let mut widgets = Vec::new();
 
         for widget_def in &file.widgets {
@@ -123,15 +128,30 @@ impl OmniResolver {
                     continue;
                 }
 
+                // Evaluate reactive classes (conditional class bindings)
+                let active_classes = reactive::resolve_active_classes(node, snapshot);
+
                 let interpolated_inline = node.inline_style.as_ref()
                     .map(|s| interpolation::interpolate(s, snapshot));
 
                 let mut resolve_node = node.clone();
+                resolve_node.classes = active_classes;
                 resolve_node.inline_style = interpolated_inline;
 
-                let style = css::resolve_styles(
+                let mut style = css::resolve_styles(
                     &resolve_node, i, &flat_nodes, &stylesheet, &self.theme_vars,
                 );
+
+                // Apply transitions: if the style declares a transition property,
+                // parse rules, compute current property map, and interpolate.
+                if let Some(transition_str) = &style.transition.clone() {
+                    let rules = transition::TransitionManager::parse_transition(transition_str);
+                    let current_props = style_to_property_map(&style);
+                    let overrides = self.transition_manager.update(
+                        &widget_def.id, i, &rules, &current_props,
+                    );
+                    apply_property_overrides(&mut style, &overrides);
+                }
 
                 resolved_styles[i] = Some(style);
             }
@@ -539,6 +559,74 @@ fn parse_px(value: Option<&str>) -> Option<f32> {
     v.parse().ok()
 }
 
+/// Extract animatable CSS property values from a ResolvedStyle into a property map.
+fn style_to_property_map(style: &ResolvedStyle) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    macro_rules! insert_if_some {
+        ($map:expr, $name:expr, $field:expr) => {
+            if let Some(ref v) = $field {
+                $map.insert($name.to_string(), v.clone());
+            }
+        };
+    }
+    insert_if_some!(map, "width", style.width);
+    insert_if_some!(map, "height", style.height);
+    insert_if_some!(map, "background", style.background);
+    insert_if_some!(map, "background-color", style.background_color);
+    insert_if_some!(map, "color", style.color);
+    insert_if_some!(map, "border-radius", style.border_radius);
+    insert_if_some!(map, "font-size", style.font_size);
+    insert_if_some!(map, "padding", style.padding);
+    insert_if_some!(map, "margin", style.margin);
+    insert_if_some!(map, "gap", style.gap);
+    insert_if_some!(map, "top", style.top);
+    insert_if_some!(map, "right", style.right);
+    insert_if_some!(map, "bottom", style.bottom);
+    insert_if_some!(map, "left", style.left);
+    insert_if_some!(map, "min-width", style.min_width);
+    insert_if_some!(map, "max-width", style.max_width);
+    insert_if_some!(map, "min-height", style.min_height);
+    insert_if_some!(map, "max-height", style.max_height);
+    insert_if_some!(map, "box-shadow", style.box_shadow);
+    if let Some(opacity) = style.opacity {
+        map.insert("opacity".to_string(), format!("{}", opacity));
+    }
+    map
+}
+
+/// Apply interpolated property overrides back onto a ResolvedStyle.
+fn apply_property_overrides(style: &mut ResolvedStyle, overrides: &HashMap<String, String>) {
+    for (key, value) in overrides {
+        match key.as_str() {
+            "width" => style.width = Some(value.clone()),
+            "height" => style.height = Some(value.clone()),
+            "background" => style.background = Some(value.clone()),
+            "background-color" => style.background_color = Some(value.clone()),
+            "color" => style.color = Some(value.clone()),
+            "border-radius" => style.border_radius = Some(value.clone()),
+            "font-size" => style.font_size = Some(value.clone()),
+            "padding" => style.padding = Some(value.clone()),
+            "margin" => style.margin = Some(value.clone()),
+            "gap" => style.gap = Some(value.clone()),
+            "top" => style.top = Some(value.clone()),
+            "right" => style.right = Some(value.clone()),
+            "bottom" => style.bottom = Some(value.clone()),
+            "left" => style.left = Some(value.clone()),
+            "min-width" => style.min_width = Some(value.clone()),
+            "max-width" => style.max_width = Some(value.clone()),
+            "min-height" => style.min_height = Some(value.clone()),
+            "max-height" => style.max_height = Some(value.clone()),
+            "box-shadow" => style.box_shadow = Some(value.clone()),
+            "opacity" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    style.opacity = Some(v);
+                }
+            }
+            _ => {} // Unknown properties are ignored
+        }
+    }
+}
+
 /// Detect the primary sensor source from text children of a flat node.
 fn detect_sensor_source_flat(flat_nodes: &[FlatNode], node: &FlatNode) -> SensorSource {
     for &idx in &node.child_indices {
@@ -583,7 +671,7 @@ mod tests {
         let mut snapshot = SensorSnapshot::default();
         snapshot.cpu.total_usage_percent = 42.0;
 
-        let resolver = OmniResolver::new();
+        let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &snapshot);
 
         assert!(!widgets.is_empty(), "Should produce at least one widget");
@@ -606,7 +694,7 @@ mod tests {
         "#;
 
         let file = parser::parse_omni(source).unwrap();
-        let resolver = OmniResolver::new();
+        let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
         assert!(widgets.is_empty());
     }
@@ -656,7 +744,7 @@ mod tests {
         "#;
 
         let file = parser::parse_omni(source).unwrap();
-        let resolver = OmniResolver::new();
+        let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
 
         let text_widget = widgets.iter()
@@ -684,7 +772,7 @@ mod tests {
         "#;
 
         let file = parser::parse_omni(source).unwrap();
-        let resolver = OmniResolver::new();
+        let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
 
         let sensor_widgets: Vec<_> = widgets.iter()
@@ -716,7 +804,7 @@ mod tests {
         "#;
 
         let file = parser::parse_omni(source).unwrap();
-        let resolver = OmniResolver::new();
+        let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
 
         let w = &widgets[0];

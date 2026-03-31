@@ -100,6 +100,8 @@ pub struct ResolvedStyle {
     pub flex_grow: Option<String>,
     pub flex_shrink: Option<String>,
     pub flex_wrap: Option<String>,
+    // Transitions
+    pub transition: Option<String>,
 }
 
 impl Default for ResolvedStyle {
@@ -136,6 +138,7 @@ impl Default for ResolvedStyle {
             flex_grow: None,
             flex_shrink: None,
             flex_wrap: None,
+            transition: None,
         }
     }
 }
