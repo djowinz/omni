@@ -42,6 +42,8 @@ pub struct Scanner {
     config: Config,
     /// Whether the first poll has run.
     first_poll_done: bool,
+    /// Exe name of the most recently injected (or reconnected) process.
+    last_injected_exe: Option<String>,
 }
 
 impl Scanner {
@@ -60,7 +62,14 @@ impl Scanner {
             dll_filename,
             config,
             first_poll_done: false,
+            last_injected_exe: None,
         }
+    }
+
+    /// Returns the exe name of the most recently injected (or reconnected) process,
+    /// or `None` if no injection has occurred yet this session.
+    pub fn last_injected_exe(&self) -> Option<&str> {
+        self.last_injected_exe.as_deref()
     }
 
     /// Run one poll cycle: enumerate processes, clean up dead PIDs, and
@@ -155,6 +164,7 @@ impl Scanner {
                 Ok(true) => {
                     info!(pid, exe_name, "Overlay DLL already loaded — reconnecting");
                     self.injected.insert(pid);
+                    self.last_injected_exe = Some(exe_name.clone());
                     self.seen.insert(pid);
                     continue;
                 }
@@ -197,6 +207,7 @@ impl Scanner {
                 Ok(()) => {
                     info!(pid, exe_name, "Injection successful");
                     self.injected.insert(pid);
+                    self.last_injected_exe = Some(exe_name.clone());
                 }
                 Err(e) => warn!(pid, exe_name, error = %e, "Injection failed"),
             }
@@ -468,5 +479,11 @@ mod tests {
         assert!(scanner.injected.is_empty());
         assert!(scanner.seen.is_empty());
         assert!(!scanner.first_poll_done);
+    }
+
+    #[test]
+    fn last_injected_exe_starts_none() {
+        let scanner = Scanner::new("dummy.dll".to_string(), Config::default());
+        assert_eq!(scanner.last_injected_exe(), None);
     }
 }
