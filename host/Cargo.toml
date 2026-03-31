@@ -16,6 +16,7 @@ tungstenite = "0.26"
 quick-xml = "0.37"
 lightningcss = "1.0.0-alpha.71"
 taffy = "0.5"
+notify = "7"
 
 [dependencies.windows]
 version = "0.58"

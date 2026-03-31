@@ -13,6 +13,7 @@ mod ipc;
 mod ws_server;
 mod omni;
 mod workspace;
+mod watcher;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
