@@ -150,15 +150,16 @@ fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<Pars
             // Check if element name is known
             if !validation::KNOWN_ELEMENTS.contains(&tag.as_str()) {
                 let suggestion = validation::suggest_element(tag);
-                // Try to find the tag in source for offset
                 let search = format!("<{}", tag);
                 let offset = source.find(&search).unwrap_or(0);
-                warnings.push(make_warning(
-                    source,
-                    offset,
-                    format!("unknown element <{}>", tag),
+                let (line, column) = offset_to_line_col(source, offset);
+                warnings.push(ParseError {
+                    message: format!("unknown element <{}>", tag),
+                    severity: Severity::Error,
+                    line,
+                    column,
                     suggestion,
-                ));
+                });
             }
             // Recurse into children
             for child in children {
