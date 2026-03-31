@@ -19,6 +19,7 @@ use super::types::{OmniFile, ResolvedStyle};
 use super::css;
 use super::flat_tree::{self, FlatNode};
 use super::interpolation;
+use super::layout;
 use super::sensor_map;
 
 /// Resolves an OmniFile into a flat list of ComputedWidgets.
@@ -114,22 +115,17 @@ impl OmniResolver {
             let stylesheet = css::parse_css(&widget_def.style_source);
             let flat_nodes = flat_tree::flatten_tree(&widget_def.template);
 
-            // Track resolved positions and widths per node for child layout
-            let mut positions: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
-            let mut parent_widths: Vec<f32> = vec![0.0; flat_nodes.len()];
-            // Track resolved styles per node for height estimation
+            // Step 1-2: Resolve CSS for each non-text node
             let mut resolved_styles: Vec<Option<ResolvedStyle>> = vec![None; flat_nodes.len()];
 
             for (i, node) in flat_nodes.iter().enumerate() {
                 if node.is_text {
-                    continue; // text nodes handled by parent
+                    continue;
                 }
 
-                // Resolve CSS with full selector matching
                 let interpolated_inline = node.inline_style.as_ref()
                     .map(|s| interpolation::interpolate(s, snapshot));
 
-                // Create a temporary node with interpolated inline style for CSS resolution
                 let mut resolve_node = node.clone();
                 resolve_node.inline_style = interpolated_inline;
 
@@ -137,50 +133,69 @@ impl OmniResolver {
                     &resolve_node, i, &flat_nodes, &stylesheet, &self.theme_vars,
                 );
 
-                // Compute position:
-                // 1. If the element has explicit position (left/top), use it (fixed positioning)
-                // 2. Otherwise, use the position assigned by the parent's flex layout
-                let (assigned_x, assigned_y) = positions[i]; // position parent computed for us
+                resolved_styles[i] = Some(style);
+            }
 
-                let x = parse_px(style.left.as_deref()).unwrap_or(assigned_x);
-                let y = parse_px(style.top.as_deref()).unwrap_or(assigned_y);
-                // Width: explicit > inherit from parent > fallback 0 (auto)
-                let inherited_width = parent_widths[i];
-                let width = parse_px(style.width.as_deref())
-                    .unwrap_or(if inherited_width > 0.0 { inherited_width } else { 0.0 });
-                let height = parse_px(style.height.as_deref()).unwrap_or(0.0);
-
-                // For child positioning: account for padding and gap
-                let padding = parse_px(style.padding.as_deref()).unwrap_or(0.0);
-                let gap = parse_px(style.gap.as_deref()).unwrap_or(0.0);
-                let is_row = style.flex_direction.as_deref() == Some("row");
-
-                // Child content width = parent width minus padding on both sides
-                let child_content_width = if width > 0.0 { width - padding * 2.0 } else { 0.0 };
-
-                // Set initial child position (inside padding)
-                let mut child_x = x + padding;
-                let mut child_y = y + padding;
-
-                // Update positions and widths for each direct child
-                for &child_idx in &node.child_indices {
-                    positions[child_idx] = (child_x, child_y);
-                    parent_widths[child_idx] = child_content_width;
-
-                    if is_row {
-                        child_x += width + gap;
-                    } else {
-                        let ch = estimate_flat_node_height(&flat_nodes, child_idx, &style);
-                        child_y += ch + gap;
-                    }
+            // Step 3: Measure text for text-bearing elements
+            let mut text_sizes: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
+            for (i, node) in flat_nodes.iter().enumerate() {
+                if node.is_text { continue; }
+                let has_text = node.child_indices.iter().any(|&idx| flat_nodes[idx].is_text);
+                if has_text {
+                    let raw_template: String = node.child_indices.iter()
+                        .filter_map(|&idx| {
+                            if flat_nodes[idx].is_text {
+                                flat_nodes[idx].text_content.as_deref()
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    let text = interpolation::interpolate(&raw_template, snapshot);
+                    let style = resolved_styles[i].as_ref();
+                    let font_size = style
+                        .and_then(|s| parse_px(s.font_size.as_deref()))
+                        .unwrap_or(14.0);
+                    let font_weight: u16 = style
+                        .and_then(|s| s.font_weight.as_deref())
+                        .and_then(|w| match w {
+                            "bold" => Some(700),
+                            "normal" => Some(400),
+                            _ => w.parse().ok(),
+                        })
+                        .unwrap_or(400);
+                    text_sizes[i] = self.measure_text(&text, font_size, font_weight);
                 }
+            }
 
-                // Check if this element has text children
+            // Step 4: Compute layout with taffy
+            let styles_for_layout: Vec<ResolvedStyle> = resolved_styles.iter()
+                .map(|s| s.clone().unwrap_or_default())
+                .collect();
+            let layouts = layout::compute_layout(
+                &flat_nodes, &styles_for_layout, &text_sizes,
+                1920.0, 1080.0,
+            );
+
+            // Step 5: Emit ComputedWidgets using layout positions
+            for (i, node) in flat_nodes.iter().enumerate() {
+                if node.is_text { continue; }
+
+                let lo = &layouts[i];
+                let style = resolved_styles[i].as_ref();
+                let default_style = ResolvedStyle::default();
+                let style = style.unwrap_or(&default_style);
+
+                let x = lo.x;
+                let y = lo.y;
+                let width = lo.width;
+                let height = lo.height;
+
                 let has_text_children = node.child_indices.iter()
                     .any(|&idx| flat_nodes[idx].is_text);
 
                 if has_text_children {
-                    // Collect raw template text (before interpolation)
                     let raw_template: String = node.child_indices.iter()
                         .filter_map(|&idx| {
                             if flat_nodes[idx].is_text {
@@ -192,57 +207,35 @@ impl OmniResolver {
                         .collect::<Vec<_>>()
                         .join("");
 
-                    // Interpolate sensor values
                     let text = interpolation::interpolate(&raw_template, snapshot);
-
-                    // Determine sensor source from text content
                     let source = detect_sensor_source_flat(&flat_nodes, node);
 
-                    let mut cw = style_to_computed_widget(&style, x, y, width);
+                    let mut cw = style_to_computed_widget(style, x, y, width);
                     cw.widget_type = WidgetType::SensorValue;
                     cw.source = source;
+                    cw.height = height;
 
-                    // Store the raw template in label_text so the DLL can
-                    // interpolate frame timing placeholders while preserving
-                    // the user's formatting (e.g., "{fps}: AVG" → "120: AVG")
                     write_fixed_str(&mut cw.label_text, &raw_template);
-
-                    // Auto-calculate height if not specified
-                    if height > 0.0 {
-                        cw.height = height;
-                    } else {
-                        cw.height = cw.font_size + 8.0; // font size + padding
-                    }
-
                     write_fixed_str(&mut cw.format_pattern, &text);
                     widgets.push(cw);
                 } else if !node.child_indices.is_empty() {
-                    // Container element — emit background if styled
                     let bg = parse_color(style.background.as_deref());
                     if bg[3] > 0 || style.border_radius.is_some() {
-                        let mut cw = style_to_computed_widget(&style, x, y, width);
+                        let mut cw = style_to_computed_widget(style, x, y, width);
                         cw.widget_type = WidgetType::Group;
                         cw.source = SensorSource::None;
-
-                        // Calculate container height from children
-                        let child_height = estimate_children_height_flat(
-                            &flat_nodes, node, &style,
-                        );
-                        cw.height = if height > 0.0 { height } else { child_height };
+                        cw.height = height;
 
                         widgets.push(cw);
                     }
                 } else {
-                    // Empty element (spacer, decoration)
                     if height > 0.0 || parse_color(style.background.as_deref())[3] > 0 {
-                        let mut cw = style_to_computed_widget(&style, x, y, width);
+                        let mut cw = style_to_computed_widget(style, x, y, width);
                         cw.widget_type = WidgetType::Spacer;
                         cw.height = height;
                         widgets.push(cw);
                     }
                 }
-
-                resolved_styles[i] = Some(style);
             }
         }
 
@@ -483,85 +476,6 @@ fn detect_sensor_source_flat(flat_nodes: &[FlatNode], node: &FlatNode) -> Sensor
         }
     }
     SensorSource::None
-}
-
-/// Estimate the height of all children of a flat node for container sizing.
-fn estimate_children_height_flat(
-    flat_nodes: &[FlatNode],
-    parent: &FlatNode,
-    parent_style: &ResolvedStyle,
-) -> f32 {
-    let gap = parse_px(parent_style.gap.as_deref()).unwrap_or(0.0);
-    let padding = parse_px(parent_style.padding.as_deref()).unwrap_or(0.0);
-
-    let mut total = padding * 2.0;
-    let count = parent.child_indices.len();
-    for (idx_pos, &child_idx) in parent.child_indices.iter().enumerate() {
-        total += estimate_flat_node_height(flat_nodes, child_idx, parent_style);
-        if idx_pos < count - 1 {
-            total += gap;
-        }
-    }
-    total
-}
-
-/// Estimate the height of a single flat node.
-fn estimate_flat_node_height(
-    flat_nodes: &[FlatNode],
-    node_idx: usize,
-    parent_style: &ResolvedStyle,
-) -> f32 {
-    let node = &flat_nodes[node_idx];
-
-    if node.is_text {
-        return parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0) + 8.0;
-    }
-
-    // Check for explicit height in inline style
-    if let Some(ref style) = node.inline_style {
-        if let Some(h) = style.split(';')
-            .find(|s| s.trim().starts_with("height"))
-            .and_then(|s| s.split(':').nth(1))
-            .and_then(|v| parse_px(Some(v)))
-        {
-            return h;
-        }
-    }
-
-    if node.child_indices.is_empty() {
-        0.0
-    } else {
-        // Check if this node has direct text children (it's a text-bearing element)
-        let has_text = node.child_indices.iter().any(|&idx| flat_nodes[idx].is_text);
-        if has_text {
-            let font_size = parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0);
-            font_size + 8.0
-        } else {
-            // Container with element children — sum their heights recursively
-            let gap = node.inline_style.as_ref()
-                .and_then(|s| s.split(';')
-                    .find(|p| p.trim().starts_with("gap"))
-                    .and_then(|p| p.split(':').nth(1))
-                    .and_then(|v| parse_px(Some(v))))
-                .unwrap_or(0.0);
-            let padding = node.inline_style.as_ref()
-                .and_then(|s| s.split(';')
-                    .find(|p| p.trim().starts_with("padding"))
-                    .and_then(|p| p.split(':').nth(1))
-                    .and_then(|v| parse_px(Some(v))))
-                .unwrap_or(0.0);
-
-            let count = node.child_indices.len();
-            let mut total = padding * 2.0;
-            for (i, &child_idx) in node.child_indices.iter().enumerate() {
-                total += estimate_flat_node_height(flat_nodes, child_idx, parent_style);
-                if i < count - 1 {
-                    total += gap;
-                }
-            }
-            total
-        }
-    }
 }
 
 #[cfg(test)]
