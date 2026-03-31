@@ -658,17 +658,20 @@ mod tests {
             id: None,
             classes: vec!["panel".to_string()],
             inline_style: None,
+            conditional_classes: vec![],
             children: vec![
                 HtmlNode::Element {
                     tag: "div".to_string(),
                     id: None,
                     classes: vec!["row".to_string()],
                     inline_style: None,
+                    conditional_classes: vec![],
                     children: vec![HtmlNode::Element {
                         tag: "span".to_string(),
                         id: Some("cpu".to_string()),
                         classes: vec!["value".to_string(), "critical".to_string()],
                         inline_style: Some("color: red".to_string()),
+                        conditional_classes: vec![],
                         children: vec![HtmlNode::Text {
                             content: "text".to_string(),
                         }],
@@ -679,6 +682,7 @@ mod tests {
                     id: None,
                     classes: vec!["label".to_string()],
                     inline_style: None,
+                    conditional_classes: vec![],
                     children: vec![HtmlNode::Text {
                         content: "label text".to_string(),
                     }],

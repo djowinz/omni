@@ -7,5 +7,7 @@ pub mod sensor_map;
 pub mod default;
 pub mod flat_tree;
 pub mod layout;
+pub mod easing;
+pub mod expression;
 
 pub use types::*;

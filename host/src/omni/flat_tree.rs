@@ -4,7 +4,7 @@
 //! has a parent index for O(1) ancestor lookups. This enables efficient
 //! descendant selector matching regardless of tree depth.
 
-use super::types::HtmlNode;
+use super::types::{ConditionalClass, HtmlNode};
 
 /// A flattened node with parent reference for ancestor traversal.
 #[derive(Debug, Clone)]
@@ -17,6 +17,8 @@ pub struct FlatNode {
     pub classes: Vec<String>,
     /// Inline style attribute (unparsed).
     pub inline_style: Option<String>,
+    /// Conditional class bindings (`class:name="expr"`).
+    pub conditional_classes: Vec<ConditionalClass>,
     /// Index of parent in the flat list. None for root.
     pub parent_index: Option<usize>,
     /// Nesting depth (0 for root).
@@ -45,12 +47,13 @@ fn flatten_recursive(
     let my_index = nodes.len();
 
     match node {
-        HtmlNode::Element { tag, id, classes, inline_style, children } => {
+        HtmlNode::Element { tag, id, classes, inline_style, conditional_classes, children } => {
             nodes.push(FlatNode {
                 tag: tag.clone(),
                 id: id.clone(),
                 classes: classes.clone(),
                 inline_style: inline_style.clone(),
+                conditional_classes: conditional_classes.clone(),
                 parent_index,
                 depth,
                 is_text: false,
@@ -80,6 +83,7 @@ fn flatten_recursive(
                 id: None,
                 classes: Vec::new(),
                 inline_style: None,
+                conditional_classes: Vec::new(),
                 parent_index,
                 depth,
                 is_text: true,
@@ -158,18 +162,21 @@ mod tests {
             id: None,
             classes: vec!["panel".to_string()],
             inline_style: None,
+            conditional_classes: vec![],
             children: vec![
                 HtmlNode::Element {
                     tag: "div".to_string(),
                     id: None,
                     classes: vec!["row".to_string()],
                     inline_style: None,
+                    conditional_classes: vec![],
                     children: vec![
                         HtmlNode::Element {
                             tag: "span".to_string(),
                             id: Some("cpu".to_string()),
                             classes: vec!["value".to_string(), "critical".to_string()],
                             inline_style: Some("color: red;".to_string()),
+                            conditional_classes: vec![],
                             children: vec![
                                 HtmlNode::Text { content: "text".to_string() },
                             ],
@@ -181,6 +188,7 @@ mod tests {
                     id: None,
                     classes: vec!["label".to_string()],
                     inline_style: None,
+                    conditional_classes: vec![],
                     children: vec![
                         HtmlNode::Text { content: "label".to_string() },
                     ],
@@ -251,6 +259,7 @@ mod tests {
                 id: None,
                 classes: vec![format!("level-{}", i)],
                 inline_style: None,
+                conditional_classes: vec![],
                 children: vec![node],
             };
         }
