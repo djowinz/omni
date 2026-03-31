@@ -200,10 +200,9 @@ fn handle_message(
                     }).to_string())
                 }
                 Err(errors) => {
-                    let error_list: Vec<Value> = errors.iter().map(|e| json!({
-                        "message": e.message,
-                        "offset": e.offset,
-                    })).collect();
+                    let error_list: Vec<Value> = errors.iter().map(|e| {
+                        serde_json::to_value(e).unwrap_or(json!(null))
+                    }).collect();
                     Some(json!({
                         "type": "widget.parsed",
                         "file": null,
@@ -267,10 +266,9 @@ fn handle_message(
                     }).to_string())
                 }
                 Err(errors) => {
-                    let error_list: Vec<Value> = errors.iter().map(|e| json!({
-                        "message": e.message,
-                        "offset": e.offset,
-                    })).collect();
+                    let error_list: Vec<Value> = errors.iter().map(|e| {
+                        serde_json::to_value(e).unwrap_or(json!(null))
+                    }).collect();
                     Some(json!({
                         "type": "widget.applied",
                         "file": null,

@@ -12,11 +12,54 @@ use quick_xml::Reader;
 
 use super::types::{ConditionalClass, HtmlNode, OmniFile, Widget};
 
-/// A parse error with position information.
+/// Severity level for parse diagnostics.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+/// A parse error/warning with position and optional suggestion.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParseError {
     pub message: String,
-    pub offset: usize,
+    pub severity: Severity,
+    pub line: usize,   // 1-based
+    pub column: usize,  // 1-based
+    pub suggestion: Option<String>,
+}
+
+/// Convert a byte offset in a source string to 1-based (line, column).
+pub fn offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(source.len());
+    let before = &source[..offset];
+    let line = before.matches('\n').count() + 1;
+    let last_newline = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let column = offset - last_newline + 1;
+    (line, column)
+}
+
+fn make_error(source: &str, offset: usize, message: String) -> ParseError {
+    let (line, column) = offset_to_line_col(source, offset);
+    ParseError {
+        message,
+        severity: Severity::Error,
+        line,
+        column,
+        suggestion: None,
+    }
+}
+
+#[allow(dead_code)]
+fn make_warning(source: &str, offset: usize, message: String, suggestion: Option<String>) -> ParseError {
+    let (line, column) = offset_to_line_col(source, offset);
+    ParseError {
+        message,
+        severity: Severity::Warning,
+        line,
+        column,
+        suggestion,
+    }
 }
 
 /// Parse a .omni source string into an OmniFile.
@@ -32,12 +75,12 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) => match e.name().as_ref() {
-                b"widget" => match parse_widget(&mut reader, e) {
+                b"widget" => match parse_widget(source, &mut reader, e) {
                     Ok(widget) => widgets.push(widget),
                     Err(e) => errors.push(e),
                 },
                 b"config" => {
-                    match parse_config_block(&mut reader) {
+                    match parse_config_block(source, &mut reader) {
                         Ok(config) => poll_config = config,
                         Err(e) => errors.push(e),
                     }
@@ -47,10 +90,11 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
                 }
                 other => {
                     let name = String::from_utf8_lossy(other).to_string();
-                    errors.push(ParseError {
-                        message: format!("Unknown top-level element <{}>", name),
-                        offset: reader.buffer_position() as usize,
-                    });
+                    errors.push(make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        format!("Unknown top-level element <{}>", name),
+                    ));
                 }
             },
             Ok(Event::Empty(ref e)) => {
@@ -60,10 +104,11 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                errors.push(ParseError {
-                    message: format!("XML parse error: {}", e),
-                    offset: reader.buffer_position() as usize,
-                });
+                errors.push(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("XML parse error: {}", e),
+                ));
                 break;
             }
             _ => {}
@@ -78,16 +123,18 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
 }
 
 /// Parse a `<widget>` element and its children (`<template>` and `<style>`).
-fn parse_widget(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget, ParseError> {
-    let id = get_attr(start, "id").ok_or_else(|| ParseError {
-        message: "Widget missing required 'id' attribute".to_string(),
-        offset: reader.buffer_position() as usize,
-    })?;
+fn parse_widget(source: &str, reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget, ParseError> {
+    let id = get_attr(start, "id").ok_or_else(|| make_error(
+        source,
+        reader.buffer_position() as usize,
+        "Widget missing required 'id' attribute".to_string(),
+    ))?;
 
-    let name = get_attr(start, "name").ok_or_else(|| ParseError {
-        message: format!("Widget '{}' missing required 'name' attribute", id),
-        offset: reader.buffer_position() as usize,
-    })?;
+    let name = get_attr(start, "name").ok_or_else(|| make_error(
+        source,
+        reader.buffer_position() as usize,
+        format!("Widget '{}' missing required 'name' attribute", id),
+    ))?;
 
     let enabled = get_attr(start, "enabled")
         .map(|v| v != "false")
@@ -100,25 +147,27 @@ fn parse_widget(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget
         match reader.read_event() {
             Ok(Event::Start(ref e)) => match e.name().as_ref() {
                 b"template" => {
-                    template = Some(parse_template_children(reader)?);
+                    template = Some(parse_template_children(source, reader)?);
                 }
                 b"style" => {
-                    style_source = read_text_content(reader, "style")?;
+                    style_source = read_text_content(source, reader, "style")?;
                 }
                 _ => {}
             },
             Ok(Event::End(ref e)) if e.name().as_ref() == b"widget" => break,
             Ok(Event::Eof) => {
-                return Err(ParseError {
-                    message: format!("Unexpected EOF inside widget '{}'", id),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("Unexpected EOF inside widget '{}'", id),
+                ));
             }
             Err(e) => {
-                return Err(ParseError {
-                    message: format!("XML error in widget '{}': {}", id, e),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("XML error in widget '{}': {}", id, e),
+                ));
             }
             _ => {}
         }
@@ -144,13 +193,13 @@ fn parse_widget(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget
 
 /// Parse the children of a `<template>` element into an HtmlNode tree.
 /// Wraps multiple root elements in a synthetic `<div>`.
-fn parse_template_children(reader: &mut Reader<&[u8]>) -> Result<HtmlNode, ParseError> {
+fn parse_template_children(source: &str, reader: &mut Reader<&[u8]>) -> Result<HtmlNode, ParseError> {
     let mut children = Vec::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) => {
-                let node = parse_html_element(reader, e)?;
+                let node = parse_html_element(source, reader, e)?;
                 children.push(node);
             }
             Ok(Event::Empty(ref e)) => {
@@ -165,16 +214,18 @@ fn parse_template_children(reader: &mut Reader<&[u8]>) -> Result<HtmlNode, Parse
             }
             Ok(Event::End(ref e)) if e.name().as_ref() == b"template" => break,
             Ok(Event::Eof) => {
-                return Err(ParseError {
-                    message: "Unexpected EOF inside <template>".to_string(),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    "Unexpected EOF inside <template>".to_string(),
+                ));
             }
             Err(e) => {
-                return Err(ParseError {
-                    message: format!("XML error in template: {}", e),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("XML error in template: {}", e),
+                ));
             }
             _ => {}
         }
@@ -197,6 +248,7 @@ fn parse_template_children(reader: &mut Reader<&[u8]>) -> Result<HtmlNode, Parse
 
 /// Parse an HTML element with children.
 fn parse_html_element(
+    source: &str,
     reader: &mut Reader<&[u8]>,
     start: &BytesStart,
 ) -> Result<HtmlNode, ParseError> {
@@ -213,7 +265,7 @@ fn parse_html_element(
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) => {
-                let child = parse_html_element(reader, e)?;
+                let child = parse_html_element(source, reader, e)?;
                 children.push(child);
             }
             Ok(Event::Empty(ref e)) => {
@@ -232,16 +284,18 @@ fn parse_html_element(
                 }
             }
             Ok(Event::Eof) => {
-                return Err(ParseError {
-                    message: format!("Unexpected EOF inside <{}>", tag),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("Unexpected EOF inside <{}>", tag),
+                ));
             }
             Err(e) => {
-                return Err(ParseError {
-                    message: format!("XML error in <{}>: {}", tag, e),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("XML error in <{}>: {}", tag, e),
+                ));
             }
             _ => {}
         }
@@ -278,7 +332,7 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
 }
 
 /// Read all text content until the closing tag is found.
-fn read_text_content(reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, ParseError> {
+fn read_text_content(source: &str, reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, ParseError> {
     let mut content = String::new();
 
     loop {
@@ -296,16 +350,18 @@ fn read_text_content(reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, Pa
                 }
             }
             Ok(Event::Eof) => {
-                return Err(ParseError {
-                    message: format!("Unexpected EOF inside <{}>", tag),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("Unexpected EOF inside <{}>", tag),
+                ));
             }
             Err(e) => {
-                return Err(ParseError {
-                    message: format!("XML error reading <{}>: {}", tag, e),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    format!("XML error reading <{}>: {}", tag, e),
+                ));
             }
             _ => {}
         }
@@ -315,7 +371,7 @@ fn read_text_content(reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, Pa
 }
 
 /// Parse a `<config>` block containing `<poll sensor="..." interval="..." />` entries.
-fn parse_config_block(reader: &mut Reader<&[u8]>) -> Result<HashMap<String, u64>, ParseError> {
+fn parse_config_block(source: &str, reader: &mut Reader<&[u8]>) -> Result<HashMap<String, u64>, ParseError> {
     let mut config = HashMap::new();
 
     loop {
@@ -331,10 +387,11 @@ fn parse_config_block(reader: &mut Reader<&[u8]>) -> Result<HashMap<String, u64>
             }
             Ok(Event::End(ref e)) if e.name().as_ref() == b"config" => break,
             Ok(Event::Eof) => {
-                return Err(ParseError {
-                    message: "Unexpected EOF inside <config>".to_string(),
-                    offset: reader.buffer_position() as usize,
-                });
+                return Err(make_error(
+                    source,
+                    reader.buffer_position() as usize,
+                    "Unexpected EOF inside <config>".to_string(),
+                ));
             }
             _ => {}
         }
@@ -530,9 +587,11 @@ mod tests {
 
         let result = parse_omni(source);
         assert!(result.is_err());
-        assert!(result.unwrap_err()[0]
-            .message
-            .contains("missing required 'id'"));
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].severity, Severity::Error);
+        assert!(errors[0].message.contains("missing required 'id'"));
+        assert!(errors[0].line > 0);
+        assert!(errors[0].column > 0);
     }
 
     #[test]
@@ -566,5 +625,20 @@ mod tests {
         } else {
             panic!("Expected Element");
         }
+    }
+
+    #[test]
+    fn offset_to_line_col_basic() {
+        let source = "line1\nline2\nline3";
+        assert_eq!(offset_to_line_col(source, 0), (1, 1));  // start of line1
+        assert_eq!(offset_to_line_col(source, 5), (1, 6));  // newline at end of line1
+        assert_eq!(offset_to_line_col(source, 6), (2, 1));  // start of line2
+        assert_eq!(offset_to_line_col(source, 12), (3, 1)); // start of line3
+    }
+
+    #[test]
+    fn offset_to_line_col_beyond_end() {
+        let source = "abc";
+        assert_eq!(offset_to_line_col(source, 100), (1, 4)); // clamped
     }
 }
