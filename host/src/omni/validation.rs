@@ -96,9 +96,6 @@ pub fn suggest_sensor_path(unknown: &str) -> Option<String> {
 }
 
 /// Validate CSS properties in a style source and return warnings for unknown ones.
-///
-/// NOTE: Currently uses old ParseError format (message + offset). Task 3 will
-/// reconcile once ParseError gains line/column/severity/suggestion fields.
 pub fn validate_css_properties(
     css_source: &str,
     omni_source: &str,
@@ -106,27 +103,33 @@ pub fn validate_css_properties(
 ) -> Vec<ParseError> {
     let mut warnings = Vec::new();
 
-    for line_str in css_source.lines() {
-        let trimmed = line_str.trim();
-        if trimmed.is_empty() || trimmed.starts_with('}') || trimmed.starts_with('{')
-            || trimmed.starts_with('.') || trimmed.starts_with('#')
-            || trimmed.starts_with(':') || trimmed.starts_with('@') {
-            continue;
-        }
+    // Extract property declarations from within rule blocks.
+    // Find content between { and }, then split by ; to get declarations.
+    let mut remaining = css_source;
+    while let Some(open) = remaining.find('{') {
+        let after_open = &remaining[open + 1..];
+        let close = after_open.find('}').unwrap_or(after_open.len());
+        let block_content = &after_open[..close];
 
-        if let Some(colon_pos) = trimmed.find(':') {
-            let prop_name = trimmed[..colon_pos].trim();
-            if prop_name.starts_with('-') {
-                continue; // CSS custom properties (--var)
+        // Split block by semicolons to get individual declarations
+        for declaration in block_content.split(';') {
+            let decl = declaration.trim();
+            if decl.is_empty() {
+                continue;
             }
-            if !prop_name.is_empty() && !KNOWN_CSS_PROPERTIES.contains(&prop_name) {
-                let suggestion = suggest_css_property(prop_name);
-                // Find offset in omni source
-                let prop_offset = if let Some(pos) = omni_source.find(trimmed) {
-                    pos
-                } else {
-                    base_offset
-                };
+
+            if let Some(colon_pos) = decl.find(':') {
+                let prop_name = decl[..colon_pos].trim();
+                if prop_name.is_empty() || prop_name.starts_with('-') {
+                    continue; // CSS custom properties (--var)
+                }
+                if !KNOWN_CSS_PROPERTIES.contains(&prop_name) {
+                    let suggestion = suggest_css_property(prop_name);
+                    let prop_offset = if let Some(pos) = omni_source.find(prop_name) {
+                        pos
+                    } else {
+                        base_offset
+                    };
                 let msg = match suggestion {
                     Some(ref s) => format!("unsupported CSS property \"{}\"; {}", prop_name, s),
                     None => format!("unsupported CSS property \"{}\"", prop_name),
@@ -139,7 +142,13 @@ pub fn validate_css_properties(
                     column,
                     suggestion,
                 });
+                }
             }
+        }
+
+        remaining = &after_open[close..];
+        if remaining.starts_with('}') {
+            remaining = &remaining[1..];
         }
     }
 
