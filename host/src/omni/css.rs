@@ -354,33 +354,6 @@ fn selector_matches(
 // Style resolution
 // ---------------------------------------------------------------------------
 
-/// Legacy resolve_styles for backward compatibility with the old resolver.
-/// Creates a temporary FlatNode from the given element properties and matches
-/// against the stylesheet. Will be removed when the resolver is updated (Task 3).
-pub fn resolve_styles_legacy(
-    tag: &str,
-    id: Option<&str>,
-    classes: &[String],
-    inline_style: Option<&str>,
-    stylesheet: &ParsedStylesheet,
-    theme_vars: &HashMap<String, String>,
-) -> ResolvedStyle {
-    // Build a temporary FlatNode for matching.
-    let node = FlatNode {
-        tag: tag.to_string(),
-        id: id.map(|s| s.to_string()),
-        classes: classes.to_vec(),
-        inline_style: inline_style.map(|s| s.to_string()),
-        parent_index: None,
-        depth: 0,
-        is_text: false,
-        text_content: None,
-        child_indices: Vec::new(),
-    };
-    let flat_tree = [node.clone()];
-    resolve_styles(&flat_tree[0], 0, &flat_tree, stylesheet, theme_vars)
-}
-
 /// Resolve styles for a FlatNode by matching CSS rules, applying specificity
 /// ordering, and resolving var() references.
 pub fn resolve_styles(

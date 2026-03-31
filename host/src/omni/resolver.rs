@@ -1,14 +1,16 @@
 //! Resolves an OmniFile into ComputedWidgets for rendering.
 //!
-//! Pipeline: OmniFile → for each enabled widget → resolve CSS → interpolate
-//! sensor values → emit ComputedWidget for each HTML element.
+//! Pipeline: OmniFile → for each enabled widget → flatten template tree →
+//! resolve CSS with full selector matching → interpolate sensor values →
+//! emit ComputedWidget for each HTML element.
 
 use std::collections::HashMap;
 
 use omni_shared::{ComputedWidget, SensorSnapshot, WidgetType, SensorSource, write_fixed_str};
 
-use super::types::{OmniFile, HtmlNode, ResolvedStyle};
-use super::css::{self, ParsedStylesheet};
+use super::types::{OmniFile, ResolvedStyle};
+use super::css;
+use super::flat_tree::{self, FlatNode};
 use super::interpolation;
 use super::sensor_map;
 
@@ -41,57 +43,74 @@ impl OmniResolver {
             }
 
             let stylesheet = css::parse_css(&widget_def.style_source);
-            self.resolve_node(
-                &widget_def.template,
-                &stylesheet,
-                snapshot,
-                &mut widgets,
-                0.0, 0.0, // parent offset
-            );
-        }
+            let flat_nodes = flat_tree::flatten_tree(&widget_def.template);
 
-        widgets
-    }
+            // Track resolved positions per node for child positioning
+            let mut positions: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
+            // Track resolved styles per node for height estimation
+            let mut resolved_styles: Vec<Option<ResolvedStyle>> = vec![None; flat_nodes.len()];
 
-    fn resolve_node(
-        &self,
-        node: &HtmlNode,
-        stylesheet: &ParsedStylesheet,
-        snapshot: &SensorSnapshot,
-        out: &mut Vec<ComputedWidget>,
-        parent_x: f32,
-        parent_y: f32,
-    ) {
-        match node {
-            HtmlNode::Element { tag, id, classes, inline_style, children } => {
-                // Resolve CSS for this element
-                let interpolated_inline = inline_style.as_ref()
+            for (i, node) in flat_nodes.iter().enumerate() {
+                if node.is_text {
+                    continue; // text nodes handled by parent
+                }
+
+                // Resolve CSS with full selector matching
+                let interpolated_inline = node.inline_style.as_ref()
                     .map(|s| interpolation::interpolate(s, snapshot));
 
-                let style = css::resolve_styles_legacy(
-                    tag,
-                    id.as_deref(),
-                    classes,
-                    interpolated_inline.as_deref(),
-                    stylesheet,
-                    &self.theme_vars,
+                // Create a temporary node with interpolated inline style for CSS resolution
+                let mut resolve_node = node.clone();
+                resolve_node.inline_style = interpolated_inline;
+
+                let style = css::resolve_styles(
+                    &resolve_node, i, &flat_nodes, &stylesheet, &self.theme_vars,
                 );
 
-                // Compute position
+                // Compute position from style or derive from parent
+                let (parent_x, parent_y) = node.parent_index
+                    .map(|pi| positions[pi])
+                    .unwrap_or((0.0, 0.0));
+
                 let x = parse_px(style.left.as_deref()).unwrap_or(parent_x);
                 let y = parse_px(style.top.as_deref()).unwrap_or(parent_y);
                 let width = parse_px(style.width.as_deref()).unwrap_or(200.0);
                 let height = parse_px(style.height.as_deref()).unwrap_or(0.0);
 
-                // Check if this is a container (has children) or a leaf
-                let has_text_children = children.iter().any(|c| matches!(c, HtmlNode::Text { .. }));
+                // For child positioning: account for padding and gap
+                let padding = parse_px(style.padding.as_deref()).unwrap_or(0.0);
+                let gap = parse_px(style.gap.as_deref()).unwrap_or(0.0);
+                let is_row = style.flex_direction.as_deref() == Some("row");
+
+                // Set initial child position (inside padding)
+                let mut child_x = x + padding;
+                let mut child_y = y + padding;
+
+                // Update positions for each direct child
+                for &child_idx in &node.child_indices {
+                    positions[child_idx] = (child_x, child_y);
+
+                    if is_row {
+                        child_x += width + gap;
+                    } else {
+                        let ch = estimate_flat_node_height(&flat_nodes, child_idx, &style);
+                        child_y += ch + gap;
+                    }
+                }
+
+                // Check if this element has text children
+                let has_text_children = node.child_indices.iter()
+                    .any(|&idx| flat_nodes[idx].is_text);
 
                 if has_text_children {
                     // Collect raw template text (before interpolation)
-                    let raw_template: String = children.iter()
-                        .filter_map(|c| match c {
-                            HtmlNode::Text { content } => Some(content.as_str()),
-                            _ => None,
+                    let raw_template: String = node.child_indices.iter()
+                        .filter_map(|&idx| {
+                            if flat_nodes[idx].is_text {
+                                flat_nodes[idx].text_content.as_deref()
+                            } else {
+                                None
+                            }
                         })
                         .collect::<Vec<_>>()
                         .join("");
@@ -100,7 +119,7 @@ impl OmniResolver {
                     let text = interpolation::interpolate(&raw_template, snapshot);
 
                     // Determine sensor source from text content
-                    let source = detect_sensor_source(&text, children);
+                    let source = detect_sensor_source_flat(&flat_nodes, node);
 
                     let mut cw = style_to_computed_widget(&style, x, y, width);
                     cw.widget_type = WidgetType::SensorValue;
@@ -119,41 +138,22 @@ impl OmniResolver {
                     }
 
                     write_fixed_str(&mut cw.format_pattern, &text);
-                    out.push(cw);
-                } else if !children.is_empty() {
-                    // Container element — emit background if styled, then process children
+                    widgets.push(cw);
+                } else if !node.child_indices.is_empty() {
+                    // Container element — emit background if styled
                     let bg = parse_color(style.background.as_deref());
                     if bg[3] > 0 || style.border_radius.is_some() {
-                        // Emit a background widget for the container
                         let mut cw = style_to_computed_widget(&style, x, y, width);
                         cw.widget_type = WidgetType::Group;
                         cw.source = SensorSource::None;
 
                         // Calculate container height from children
-                        let child_height = estimate_children_height(children, &style);
+                        let child_height = estimate_children_height_flat(
+                            &flat_nodes, node, &style,
+                        );
                         cw.height = if height > 0.0 { height } else { child_height };
 
-                        out.push(cw);
-                    }
-
-                    // Layout children
-                    let padding = parse_px(style.padding.as_deref()).unwrap_or(0.0);
-                    let gap = parse_px(style.gap.as_deref()).unwrap_or(0.0);
-                    let is_row = style.flex_direction.as_deref() == Some("row");
-
-                    let mut child_x = x + padding;
-                    let mut child_y = y + padding;
-
-                    for child in children {
-                        self.resolve_node(child, stylesheet, snapshot, out, child_x, child_y);
-
-                        if is_row {
-                            child_x += width + gap; // simplified: each child gets same width
-                        } else {
-                            // Estimate child height for vertical stacking
-                            let ch = estimate_node_height(child, &style);
-                            child_y += ch + gap;
-                        }
+                        widgets.push(cw);
                     }
                 } else {
                     // Empty element (spacer, decoration)
@@ -161,14 +161,15 @@ impl OmniResolver {
                         let mut cw = style_to_computed_widget(&style, x, y, width);
                         cw.widget_type = WidgetType::Spacer;
                         cw.height = height;
-                        out.push(cw);
+                        widgets.push(cw);
                     }
                 }
-            }
-            HtmlNode::Text { .. } => {
-                // Text nodes are handled by their parent Element
+
+                resolved_styles[i] = Some(style);
             }
         }
+
+        widgets
     }
 }
 
@@ -282,16 +283,17 @@ fn parse_px(value: Option<&str>) -> Option<f32> {
     v.parse().ok()
 }
 
-/// Detect the primary sensor source from text content.
-fn detect_sensor_source(_text: &str, children: &[HtmlNode]) -> SensorSource {
-    // Look for {sensor.path} in the original template text
-    for child in children {
-        if let HtmlNode::Text { content } = child {
-            if let Some(start) = content.find('{') {
-                if let Some(end) = content[start..].find('}') {
-                    let path = content[start + 1..start + end].trim();
-                    if let Some(source) = sensor_map::parse_sensor_path(path) {
-                        return source;
+/// Detect the primary sensor source from text children of a flat node.
+fn detect_sensor_source_flat(flat_nodes: &[FlatNode], node: &FlatNode) -> SensorSource {
+    for &idx in &node.child_indices {
+        if flat_nodes[idx].is_text {
+            if let Some(ref content) = flat_nodes[idx].text_content {
+                if let Some(start) = content.find('{') {
+                    if let Some(end) = content[start..].find('}') {
+                        let path = content[start + 1..start + end].trim();
+                        if let Some(source) = sensor_map::parse_sensor_path(path) {
+                            return source;
+                        }
                     }
                 }
             }
@@ -300,45 +302,54 @@ fn detect_sensor_source(_text: &str, children: &[HtmlNode]) -> SensorSource {
     SensorSource::None
 }
 
-/// Estimate the height of child nodes for container sizing.
-fn estimate_children_height(children: &[HtmlNode], parent_style: &ResolvedStyle) -> f32 {
+/// Estimate the height of all children of a flat node for container sizing.
+fn estimate_children_height_flat(
+    flat_nodes: &[FlatNode],
+    parent: &FlatNode,
+    parent_style: &ResolvedStyle,
+) -> f32 {
     let gap = parse_px(parent_style.gap.as_deref()).unwrap_or(0.0);
     let padding = parse_px(parent_style.padding.as_deref()).unwrap_or(0.0);
 
     let mut total = padding * 2.0;
-    let count = children.len();
-    for (i, child) in children.iter().enumerate() {
-        total += estimate_node_height(child, parent_style);
-        if i < count - 1 {
+    let count = parent.child_indices.len();
+    for (idx_pos, &child_idx) in parent.child_indices.iter().enumerate() {
+        total += estimate_flat_node_height(flat_nodes, child_idx, parent_style);
+        if idx_pos < count - 1 {
             total += gap;
         }
     }
     total
 }
 
-fn estimate_node_height(node: &HtmlNode, parent_style: &ResolvedStyle) -> f32 {
-    match node {
-        HtmlNode::Text { .. } => {
-            parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0) + 8.0
+/// Estimate the height of a single flat node.
+fn estimate_flat_node_height(
+    flat_nodes: &[FlatNode],
+    node_idx: usize,
+    parent_style: &ResolvedStyle,
+) -> f32 {
+    let node = &flat_nodes[node_idx];
+
+    if node.is_text {
+        return parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0) + 8.0;
+    }
+
+    // Check for explicit height in inline style
+    if let Some(ref style) = node.inline_style {
+        if let Some(h) = style.split(';')
+            .find(|s| s.trim().starts_with("height"))
+            .and_then(|s| s.split(':').nth(1))
+            .and_then(|v| parse_px(Some(v)))
+        {
+            return h;
         }
-        HtmlNode::Element { children, inline_style, .. } => {
-            // Check for explicit height in inline style
-            if let Some(style) = inline_style {
-                if let Some(h) = style.split(';')
-                    .find(|s| s.trim().starts_with("height"))
-                    .and_then(|s| s.split(':').nth(1))
-                    .and_then(|v| parse_px(Some(v)))
-                {
-                    return h;
-                }
-            }
-            if children.is_empty() {
-                0.0
-            } else {
-                let font_size = parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0);
-                font_size + 8.0 // default text element height
-            }
-        }
+    }
+
+    if node.child_indices.is_empty() {
+        0.0
+    } else {
+        let font_size = parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0);
+        font_size + 8.0 // default text element height
     }
 }
 
@@ -421,5 +432,89 @@ mod tests {
         assert_eq!(parse_color(Some("white")), [255, 255, 255, 255]);
         assert_eq!(parse_color(Some("transparent")), [0, 0, 0, 0]);
         assert_eq!(parse_color(None), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn descendant_selector_applies() {
+        // .panel .label { color: red; } applies to span inside div.panel
+        let source = r#"
+            <widget id="test" name="Test" enabled="true">
+                <template>
+                    <div class="panel">
+                        <span class="label">hello</span>
+                    </div>
+                </template>
+                <style>
+                    .panel .label { color: red; }
+                </style>
+            </widget>
+        "#;
+
+        let file = parser::parse_omni(source).unwrap();
+        let resolver = OmniResolver::new();
+        let widgets = resolver.resolve(&file, &SensorSnapshot::default());
+
+        let text_widget = widgets.iter()
+            .find(|w| w.widget_type == WidgetType::SensorValue)
+            .expect("Should have a SensorValue widget");
+        assert_eq!(text_widget.color_rgba, [255, 0, 0, 255], "Descendant selector should apply red color");
+    }
+
+    #[test]
+    fn compound_selector_applies() {
+        // .value.critical { color: red; } applies to element with both classes
+        let source = r#"
+            <widget id="test" name="Test" enabled="true">
+                <template>
+                    <div>
+                        <span class="value critical">hot</span>
+                        <span class="value">normal</span>
+                    </div>
+                </template>
+                <style>
+                    .value { color: white; }
+                    .value.critical { color: red; }
+                </style>
+            </widget>
+        "#;
+
+        let file = parser::parse_omni(source).unwrap();
+        let resolver = OmniResolver::new();
+        let widgets = resolver.resolve(&file, &SensorSnapshot::default());
+
+        let sensor_widgets: Vec<_> = widgets.iter()
+            .filter(|w| w.widget_type == WidgetType::SensorValue)
+            .collect();
+        assert_eq!(sensor_widgets.len(), 2, "Should have 2 SensorValue widgets");
+
+        // First widget (value critical) should be red
+        assert_eq!(sensor_widgets[0].color_rgba, [255, 0, 0, 255],
+            "Compound selector .value.critical should apply red");
+        // Second widget (value only) should be white
+        assert_eq!(sensor_widgets[1].color_rgba, [255, 255, 255, 255],
+            "Simple .value should apply white");
+    }
+
+    #[test]
+    fn specificity_wins() {
+        // #id rule beats .class rule
+        let source = r#"
+            <widget id="test" name="Test" enabled="true">
+                <template>
+                    <span class="val" id="main">text</span>
+                </template>
+                <style>
+                    .val { font-size: 14px; }
+                    #main { font-size: 24px; }
+                </style>
+            </widget>
+        "#;
+
+        let file = parser::parse_omni(source).unwrap();
+        let resolver = OmniResolver::new();
+        let widgets = resolver.resolve(&file, &SensorSnapshot::default());
+
+        let w = &widgets[0];
+        assert_eq!(w.font_size, 24.0, "ID selector should win over class selector");
     }
 }
