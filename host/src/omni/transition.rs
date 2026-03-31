@@ -264,14 +264,32 @@ pub fn interpolate_value(from: &str, to: &str, t: f64) -> String {
 }
 
 /// Parse an rgba(...) color string into (r, g, b, a) components.
+/// Parse a color string (rgba, rgb, hex) into (r, g, b, a) components.
+/// Supports: rgba(r,g,b,a), rgb(r,g,b), #RRGGBB, #RRGGBBAA, #RGB, #RGBA
 fn parse_rgba(s: &str) -> Option<(f64, f64, f64, f64)> {
     let s = s.trim();
+
+    // Hex colors
+    if s.starts_with('#') {
+        return parse_hex_to_rgba(s);
+    }
+
+    // rgba(...) or rgb(...)
     let inner = if let Some(rest) = s.strip_prefix("rgba(") {
         rest.strip_suffix(')')?
     } else if let Some(rest) = s.strip_prefix("rgb(") {
         rest.strip_suffix(')')?
     } else {
-        return None;
+        // Named colors
+        return match s {
+            "white" => Some((255.0, 255.0, 255.0, 1.0)),
+            "black" => Some((0.0, 0.0, 0.0, 1.0)),
+            "red" => Some((255.0, 0.0, 0.0, 1.0)),
+            "green" => Some((0.0, 128.0, 0.0, 1.0)),
+            "blue" => Some((0.0, 0.0, 255.0, 1.0)),
+            "transparent" => Some((0.0, 0.0, 0.0, 0.0)),
+            _ => None,
+        };
     };
 
     let parts: Vec<&str> = inner.split(',').collect();
@@ -288,6 +306,40 @@ fn parse_rgba(s: &str) -> Option<(f64, f64, f64, f64)> {
         Some((r, g, b, 1.0))
     } else {
         None
+    }
+}
+
+/// Parse hex color to (r, g, b, a) with values 0-255 for rgb and 0-1 for alpha.
+fn parse_hex_to_rgba(hex: &str) -> Option<(f64, f64, f64, f64)> {
+    let hex = hex.strip_prefix('#')?;
+    match hex.len() {
+        3 => {
+            let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()? as f64;
+            let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()? as f64;
+            let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()? as f64;
+            Some((r, g, b, 1.0))
+        }
+        4 => {
+            let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()? as f64;
+            let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()? as f64;
+            let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()? as f64;
+            let a = u8::from_str_radix(&hex[3..4].repeat(2), 16).ok()? as f64 / 255.0;
+            Some((r, g, b, a))
+        }
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f64;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f64;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f64;
+            Some((r, g, b, 1.0))
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f64;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f64;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f64;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()? as f64 / 255.0;
+            Some((r, g, b, a))
+        }
+        _ => None,
     }
 }
 

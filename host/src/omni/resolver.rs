@@ -152,9 +152,30 @@ impl OmniResolver {
                 if let Some(transition_str) = &style.transition.clone() {
                     let rules = transition::TransitionManager::parse_transition(transition_str);
                     let current_props = style_to_property_map(&style);
+
+                    // Log transition state on first element with transitions (every 120 frames to avoid spam)
+                    static FRAME_CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                    let frame = FRAME_CTR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i == 0 && frame % 120 == 0 {
+                        tracing::debug!(
+                            transition = %transition_str,
+                            rules_count = rules.len(),
+                            bg = ?current_props.get("background"),
+                            width = ?current_props.get("width"),
+                            "transition input"
+                        );
+                    }
+
                     let overrides = self.transition_manager.update(
                         &widget_def.id, i, &rules, &current_props,
                     );
+                    if !overrides.is_empty() && frame % 120 == 0 {
+                        tracing::debug!(
+                            idx = i,
+                            overrides = ?overrides,
+                            "transition overrides"
+                        );
+                    }
                     apply_property_overrides(&mut style, &overrides);
                 }
 
