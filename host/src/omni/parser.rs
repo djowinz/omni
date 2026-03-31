@@ -11,6 +11,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use super::types::{ConditionalClass, HtmlNode, OmniFile, Widget};
+use super::validation;
 
 /// Severity level for parse diagnostics.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -50,7 +51,6 @@ fn make_error(source: &str, offset: usize, message: String) -> ParseError {
     }
 }
 
-#[allow(dead_code)]
 fn make_warning(source: &str, offset: usize, message: String, suggestion: Option<String>) -> ParseError {
     let (line, column) = offset_to_line_col(source, offset);
     ParseError {
@@ -62,8 +62,12 @@ fn make_warning(source: &str, offset: usize, message: String, suggestion: Option
     }
 }
 
-/// Parse a .omni source string into an OmniFile.
-pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
+/// Parse a .omni source string into an OmniFile with full diagnostics (errors + warnings).
+///
+/// Returns `(Option<OmniFile>, Vec<ParseError>)`. The file is `Some` if parsing succeeded
+/// (no fatal errors). The diagnostics vec contains both errors and warnings — warnings
+/// don't prevent parsing.
+pub fn parse_omni_with_diagnostics(source: &str) -> (Option<OmniFile>, Vec<ParseError>) {
     let mut errors = Vec::new();
     let mut theme_src = None;
     let mut poll_config = HashMap::new();
@@ -115,8 +119,74 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
         }
     }
 
+    let has_errors = errors.iter().any(|e| e.severity == Severity::Error);
+
+    if has_errors {
+        (None, errors)
+    } else {
+        let file = OmniFile { theme_src, poll_config, widgets };
+
+        // Run validation on successfully parsed file
+        let mut warnings = errors; // may contain warnings from parsing phase
+        for widget in &file.widgets {
+            // Validate CSS properties
+            let css_warnings = validation::validate_css_properties(
+                &widget.style_source, source, 0,
+            );
+            warnings.extend(css_warnings);
+
+            // Walk template tree for element names and sensor paths
+            validate_template_tree(&widget.template, source, &mut warnings);
+        }
+
+        (Some(file), warnings)
+    }
+}
+
+/// Recursively walk an HtmlNode tree to validate element names and sensor paths.
+fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<ParseError>) {
+    match node {
+        HtmlNode::Element { tag, children, .. } => {
+            // Check if element name is known
+            if !validation::KNOWN_ELEMENTS.contains(&tag.as_str()) {
+                let suggestion = validation::suggest_element(tag);
+                // Try to find the tag in source for offset
+                let search = format!("<{}", tag);
+                let offset = source.find(&search).unwrap_or(0);
+                warnings.push(make_warning(
+                    source,
+                    offset,
+                    format!("unknown element <{}>", tag),
+                    suggestion,
+                ));
+            }
+            // Recurse into children
+            for child in children {
+                validate_template_tree(child, source, warnings);
+            }
+        }
+        HtmlNode::Text { content } => {
+            // Find approximate offset of this text in source
+            let text_offset = source.find(content.as_str()).unwrap_or(0);
+            let path_warnings = validation::validate_sensor_paths(
+                content, source, text_offset,
+            );
+            warnings.extend(path_warnings);
+        }
+    }
+}
+
+/// Parse a .omni source string into an OmniFile.
+///
+/// Backward-compatible wrapper around `parse_omni_with_diagnostics`.
+/// Returns `Ok(file)` if no errors (warnings are discarded), `Err(errors)` otherwise.
+pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
+    let (file, diagnostics) = parse_omni_with_diagnostics(source);
+    let errors: Vec<ParseError> = diagnostics.into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
     if errors.is_empty() {
-        Ok(OmniFile { theme_src, poll_config, widgets })
+        Ok(file.unwrap_or_else(OmniFile::empty))
     } else {
         Err(errors)
     }

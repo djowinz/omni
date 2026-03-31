@@ -273,13 +273,27 @@ fn run_host(dll_path: &str) {
         }
     };
 
-    let mut omni_file = match omni::parser::parse_omni(&omni_source) {
-        Ok(f) => f,
-        Err(errs) => {
-            warn!(?errs, "Failed to parse overlay, using empty file");
-            omni::OmniFile::empty()
+    let (parsed_file, diagnostics) = omni::parser::parse_omni_with_diagnostics(&omni_source);
+    for diag in &diagnostics {
+        match diag.severity {
+            omni::parser::Severity::Error => error!(
+                line = diag.line, col = diag.column,
+                msg = %diag.message,
+                suggestion = ?diag.suggestion,
+                "parse error"
+            ),
+            omni::parser::Severity::Warning => warn!(
+                line = diag.line, col = diag.column,
+                msg = %diag.message,
+                suggestion = ?diag.suggestion,
+                "parse warning"
+            ),
         }
-    };
+    }
+    let mut omni_file = parsed_file.unwrap_or_else(|| {
+        warn!("Failed to parse overlay, using empty file");
+        omni::OmniFile::empty()
+    });
 
     // Start sensor polling on background thread (uses poll_config from .omni file)
     let (mut sensor_poller, sensor_rx) = sensors::SensorPoller::start(

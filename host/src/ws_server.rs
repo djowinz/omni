@@ -191,25 +191,15 @@ fn handle_message(
         }
         "widget.parse" => {
             let source = msg.get("source")?.as_str()?;
-            match crate::omni::parser::parse_omni(source) {
-                Ok(file) => {
-                    Some(json!({
-                        "type": "widget.parsed",
-                        "file": file,
-                        "errors": [],
-                    }).to_string())
-                }
-                Err(errors) => {
-                    let error_list: Vec<Value> = errors.iter().map(|e| {
-                        serde_json::to_value(e).unwrap_or(json!(null))
-                    }).collect();
-                    Some(json!({
-                        "type": "widget.parsed",
-                        "file": null,
-                        "errors": error_list,
-                    }).to_string())
-                }
-            }
+            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
+            let diag_json: Vec<Value> = diagnostics.iter()
+                .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
+                .collect();
+            Some(json!({
+                "type": "widget.parsed",
+                "file": file.as_ref().map(|f| serde_json::to_value(f).unwrap_or(json!(null))),
+                "diagnostics": diag_json,
+            }).to_string())
         }
         "widget.update" => {
             let file_value = msg.get("file")?;
@@ -253,29 +243,26 @@ fn handle_message(
         }
         "widget.apply" => {
             let source = msg.get("source").and_then(|v| v.as_str()).unwrap_or("");
-            match crate::omni::parser::parse_omni(source) {
-                Ok(file) => {
+            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
+            let diag_json: Vec<Value> = diagnostics.iter()
+                .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
+                .collect();
+            let has_errors = diagnostics.iter().any(|d| {
+                d.severity == crate::omni::parser::Severity::Error
+            });
+            // Only apply if no errors
+            if !has_errors {
+                if let Some(ref f) = file {
                     if let Ok(mut active) = state.active_omni_file.lock() {
-                        *active = Some(file.clone());
+                        *active = Some(f.clone());
                     }
-                    let json_file = serde_json::to_value(&file).unwrap_or(json!(null));
-                    Some(json!({
-                        "type": "widget.applied",
-                        "file": json_file,
-                        "errors": [],
-                    }).to_string())
-                }
-                Err(errors) => {
-                    let error_list: Vec<Value> = errors.iter().map(|e| {
-                        serde_json::to_value(e).unwrap_or(json!(null))
-                    }).collect();
-                    Some(json!({
-                        "type": "widget.applied",
-                        "file": null,
-                        "errors": error_list,
-                    }).to_string())
                 }
             }
+            Some(json!({
+                "type": "widget.applied",
+                "file": file.as_ref().map(|f| serde_json::to_value(f).unwrap_or(json!(null))),
+                "diagnostics": diag_json,
+            }).to_string())
         }
         _ => {
             debug!(msg_type, "Unknown WebSocket message type");
@@ -368,7 +355,7 @@ mod tests {
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "widget.parsed");
         assert!(resp["file"].is_object(), "Should return parsed file");
-        assert_eq!(resp["errors"].as_array().unwrap().len(), 0);
+        assert!(resp["diagnostics"].is_array(), "Should return diagnostics array");
     }
 
     #[test]
