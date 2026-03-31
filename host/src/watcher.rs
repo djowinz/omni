@@ -208,7 +208,12 @@ fn debounce_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     fn paths() -> (PathBuf, PathBuf, PathBuf) {
         let overlay_dir = PathBuf::from("/data/overlays/Default");
@@ -262,5 +267,148 @@ mod tests {
         let file = PathBuf::from("/tmp/something_else.css");
         let result = classify_path(&file, &overlay_dir, &themes_dir, &config_path);
         assert_eq!(result, None);
+    }
+
+    // -------------------------------------------------------------------------
+    // Integration tests — require a real filesystem and a running watcher thread
+    // Run with: cargo test -p omni-host watcher -- --test-threads=1
+    // -------------------------------------------------------------------------
+
+    /// RAII temp workspace: directories are removed on drop even if the test panics.
+    struct TempWorkspace {
+        root: PathBuf,
+        overlay_dir: PathBuf,
+        themes_dir: PathBuf,
+        config_path: PathBuf,
+    }
+
+    impl TempWorkspace {
+        fn new() -> Self {
+            let id = format!(
+                "omni-watcher-test-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            );
+            let root = std::env::temp_dir().join(id);
+            let overlay_dir = root.join("overlays").join("Default");
+            let themes_dir = root.join("themes");
+            let config_path = root.join("config.json");
+
+            fs::create_dir_all(&overlay_dir).expect("create overlay_dir");
+            fs::create_dir_all(&themes_dir).expect("create themes_dir");
+            fs::write(&config_path, "{}").expect("create config.json");
+            // Seed a file so the overlay dir isn't empty
+            fs::write(overlay_dir.join("overlay.omni"), "# initial").expect("seed overlay.omni");
+
+            Self { root, overlay_dir, themes_dir, config_path }
+        }
+    }
+
+    impl Drop for TempWorkspace {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn watcher_detects_overlay_change() {
+        let ws = TempWorkspace::new();
+
+        let fw = FileWatcher::start(
+            ws.overlay_dir.clone(),
+            ws.themes_dir.clone(),
+            ws.config_path.clone(),
+        )
+        .expect("FileWatcher::start");
+
+        // Give the watcher time to register its watches
+        std::thread::sleep(Duration::from_millis(100));
+
+        fs::write(ws.overlay_dir.join("overlay.omni"), "# changed").expect("write overlay.omni");
+
+        let event = fw
+            .rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("expected ReloadEvent::Overlay within 5s");
+        assert_eq!(event, ReloadEvent::Overlay);
+    }
+
+    #[test]
+    fn watcher_detects_theme_change() {
+        let ws = TempWorkspace::new();
+
+        let fw = FileWatcher::start(
+            ws.overlay_dir.clone(),
+            ws.themes_dir.clone(),
+            ws.config_path.clone(),
+        )
+        .expect("FileWatcher::start");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        fs::write(ws.themes_dir.join("dark.css"), "body { color: red; }").expect("write dark.css");
+
+        let event = fw
+            .rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("expected ReloadEvent::Theme within 5s");
+        assert_eq!(event, ReloadEvent::Theme);
+    }
+
+    #[test]
+    fn watcher_detects_config_change() {
+        let ws = TempWorkspace::new();
+
+        let fw = FileWatcher::start(
+            ws.overlay_dir.clone(),
+            ws.themes_dir.clone(),
+            ws.config_path.clone(),
+        )
+        .expect("FileWatcher::start");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        fs::write(&ws.config_path, r#"{"theme":"dark"}"#).expect("write config.json");
+
+        let event = fw
+            .rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("expected ReloadEvent::Config within 5s");
+        assert_eq!(event, ReloadEvent::Config);
+    }
+
+    #[test]
+    fn watcher_debounces_rapid_changes() {
+        let ws = TempWorkspace::new();
+
+        let fw = FileWatcher::start(
+            ws.overlay_dir.clone(),
+            ws.themes_dir.clone(),
+            ws.config_path.clone(),
+        )
+        .expect("FileWatcher::start");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Rapid-fire 5 writes with 50 ms between each
+        let overlay_file = ws.overlay_dir.join("overlay.omni");
+        for i in 0..5u32 {
+            fs::write(&overlay_file, format!("# write {i}")).expect("rapid write");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        // Exactly one debounced event should arrive
+        let event = fw
+            .rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("expected exactly one ReloadEvent::Overlay within 5s");
+        assert_eq!(event, ReloadEvent::Overlay);
+
+        // No second event should arrive within 300 ms
+        let second = fw.rx.recv_timeout(Duration::from_millis(300));
+        assert!(
+            second.is_err(),
+            "expected no second event within 300ms, got: {second:?}"
+        );
     }
 }
