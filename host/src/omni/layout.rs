@@ -45,9 +45,19 @@ pub fn compute_layout(
     let mut tree: TaffyTree<()> = TaffyTree::new();
 
     // Phase 1: Create a taffy node for every flat node (as leaves initially).
+    // Text nodes inherit their parent's measured text size so taffy knows
+    // how much space the text content needs.
     let mut taffy_ids: Vec<NodeId> = Vec::with_capacity(n);
     for i in 0..n {
-        let style = build_taffy_style(&styles[i], &flat_nodes[i], text_sizes[i]);
+        let effective_text_size = if flat_nodes[i].is_text {
+            // Text node: use parent's measured text size
+            flat_nodes[i].parent_index
+                .map(|pi| text_sizes[pi])
+                .unwrap_or((0.0, 0.0))
+        } else {
+            text_sizes[i]
+        };
+        let style = build_taffy_style(&styles[i], &flat_nodes[i], effective_text_size);
         let node_id = tree.new_leaf(style).expect("taffy new_leaf failed");
         taffy_ids.push(node_id);
     }
@@ -604,7 +614,8 @@ mod tests {
 
     #[test]
     fn text_sizing_respected() {
-        // Parent with a text child that has measured dimensions
+        // Parent span with a text child. Text measurement is on the parent
+        // (the resolver measures at the span level, not the text node level).
         let nodes = vec![
             elem("span", None, vec![1]),
             text_node(Some(0)),
@@ -616,13 +627,16 @@ mod tests {
             ResolvedStyle::default(),
         ];
         let text_sizes = vec![
-            (0.0, 0.0),   // parent
-            (80.0, 16.0),  // text node measured at 80x16
+            (80.0, 16.0),  // parent span — measured text dimensions
+            (0.0, 0.0),    // text node — inherits parent's measurement
         ];
 
         let results = compute_layout(&nodes, &styles, &text_sizes, 1920.0, 1080.0);
 
-        // Text node should have its measured size
+        // Parent span should be at least as wide as its text content
+        assert!(results[0].width >= 80.0, "Span should be >= 80px wide, got {}", results[0].width);
+        assert!(results[0].height >= 16.0, "Span should be >= 16px tall, got {}", results[0].height);
+        // Text node inherits parent's measured size
         assert_eq!(results[1].width, 80.0);
         assert_eq!(results[1].height, 16.0);
     }
