@@ -348,8 +348,36 @@ fn estimate_flat_node_height(
     if node.child_indices.is_empty() {
         0.0
     } else {
-        let font_size = parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0);
-        font_size + 8.0 // default text element height
+        // Check if this node has direct text children (it's a text-bearing element)
+        let has_text = node.child_indices.iter().any(|&idx| flat_nodes[idx].is_text);
+        if has_text {
+            let font_size = parse_px(parent_style.font_size.as_deref()).unwrap_or(14.0);
+            font_size + 8.0
+        } else {
+            // Container with element children — sum their heights recursively
+            let gap = node.inline_style.as_ref()
+                .and_then(|s| s.split(';')
+                    .find(|p| p.trim().starts_with("gap"))
+                    .and_then(|p| p.split(':').nth(1))
+                    .and_then(|v| parse_px(Some(v))))
+                .unwrap_or(0.0);
+            let padding = node.inline_style.as_ref()
+                .and_then(|s| s.split(';')
+                    .find(|p| p.trim().starts_with("padding"))
+                    .and_then(|p| p.split(':').nth(1))
+                    .and_then(|v| parse_px(Some(v))))
+                .unwrap_or(0.0);
+
+            let count = node.child_indices.len();
+            let mut total = padding * 2.0;
+            for (i, &child_idx) in node.child_indices.iter().enumerate() {
+                total += estimate_flat_node_height(flat_nodes, child_idx, parent_style);
+                if i < count - 1 {
+                    total += gap;
+                }
+            }
+            total
+        }
     }
 }
 
