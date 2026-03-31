@@ -178,48 +178,10 @@ impl OmniResolver {
                 .map(|s| s.clone().unwrap_or_default())
                 .collect();
 
-            // Debug: log resolved styles for each element
-            for (i, node) in flat_nodes.iter().enumerate() {
-                if node.is_text { continue; }
-                let s = &styles_for_layout[i];
-                tracing::debug!(
-                    idx = i,
-                    tag = %node.tag,
-                    classes = ?node.classes,
-                    display = ?s.display,
-                    flex_dir = ?s.flex_direction,
-                    justify = ?s.justify_content,
-                    width = ?s.width,
-                    position = ?s.position,
-                    top = ?s.top,
-                    left = ?s.left,
-                    padding = ?s.padding,
-                    gap = ?s.gap,
-                    text_size = ?(text_sizes[i].0, text_sizes[i].1),
-                    "resolved style"
-                );
-            }
-
             let layouts = layout::compute_layout(
                 &flat_nodes, &styles_for_layout, &text_sizes,
                 1920.0, 1080.0,
             );
-
-            // Debug: log layout results
-            for (i, node) in flat_nodes.iter().enumerate() {
-                if node.is_text { continue; }
-                let lo = &layouts[i];
-                tracing::debug!(
-                    idx = i,
-                    tag = %node.tag,
-                    classes = ?node.classes,
-                    x = lo.x,
-                    y = lo.y,
-                    w = lo.width,
-                    h = lo.height,
-                    "layout result"
-                );
-            }
 
             // Step 5: Emit ComputedWidgets using layout positions
             for (i, node) in flat_nodes.iter().enumerate() {
