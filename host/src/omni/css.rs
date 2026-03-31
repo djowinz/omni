@@ -622,6 +622,16 @@ fn props_to_resolved_style(props: &HashMap<String, String>) -> ResolvedStyle {
         gap: props.get("gap").cloned(),
         padding: props.get("padding").cloned(),
         margin: props.get("margin").cloned(),
+        min_width: props.get("min-width").cloned(),
+        max_width: props.get("max-width").cloned(),
+        min_height: props.get("min-height").cloned(),
+        max_height: props.get("max-height").cloned(),
+        background_color: props.get("background-color").cloned(),
+        box_shadow: props.get("box-shadow").cloned(),
+        align_self: props.get("align-self").cloned(),
+        flex_grow: props.get("flex-grow").cloned(),
+        flex_shrink: props.get("flex-shrink").cloned(),
+        flex_wrap: props.get("flex-wrap").cloned(),
     }
 }
 

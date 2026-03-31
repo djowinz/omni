@@ -78,6 +78,19 @@ pub struct ResolvedStyle {
     // Padding/margin
     pub padding: Option<String>,
     pub margin: Option<String>,
+    // Min/max dimensions
+    pub min_width: Option<String>,
+    pub max_width: Option<String>,
+    pub min_height: Option<String>,
+    pub max_height: Option<String>,
+    // Extended visual
+    pub background_color: Option<String>,
+    pub box_shadow: Option<String>,
+    // Extended flexbox
+    pub align_self: Option<String>,
+    pub flex_grow: Option<String>,
+    pub flex_shrink: Option<String>,
+    pub flex_wrap: Option<String>,
 }
 
 impl Default for ResolvedStyle {
@@ -104,6 +117,16 @@ impl Default for ResolvedStyle {
             gap: None,
             padding: None,
             margin: None,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            background_color: None,
+            box_shadow: None,
+            align_self: None,
+            flex_grow: None,
+            flex_shrink: None,
+            flex_wrap: None,
         }
     }
 }
