@@ -266,14 +266,120 @@ fn style_to_computed_widget(style: &ResolvedStyle, x: f32, y: f32, default_width
         })
         .unwrap_or(400);
     cw.color_rgba = parse_color(style.color.as_deref());
-    cw.bg_color_rgba = parse_color(style.background.as_deref());
 
+    // Parse background: gradient takes priority, otherwise solid color
+    if let Some(bg) = &style.background {
+        let bg_trimmed = bg.trim();
+        if bg_trimmed.starts_with("linear-gradient(") {
+            if let Some(gradient) = parse_linear_gradient(bg_trimmed) {
+                cw.bg_gradient = gradient;
+            }
+        } else {
+            cw.bg_color_rgba = parse_color(Some(bg_trimmed));
+        }
+    }
+    // background-color as fallback when no solid bg was set
+    if cw.bg_color_rgba == [0, 0, 0, 0] && !cw.bg_gradient.enabled {
+        if let Some(bg_color) = &style.background_color {
+            cw.bg_color_rgba = parse_color(Some(bg_color));
+        }
+    }
+
+    // Box shadow
+    if let Some(shadow_str) = &style.box_shadow {
+        if let Some(shadow) = parse_box_shadow(shadow_str) {
+            cw.box_shadow = shadow;
+        }
+    }
+
+    // Per-corner border radius
     if let Some(br) = &style.border_radius {
-        let r = parse_px(Some(br)).unwrap_or(0.0);
-        cw.border_radius = [r; 4];
+        cw.border_radius = parse_border_radius(br);
     }
 
     cw
+}
+
+/// Parse a CSS `linear-gradient(...)` value into a `GradientDef`.
+fn parse_linear_gradient(value: &str) -> Option<omni_shared::GradientDef> {
+    let inner = value.strip_prefix("linear-gradient(")?.strip_suffix(')')?;
+    let parts: Vec<&str> = inner.splitn(3, ',').collect();
+    if parts.len() < 2 { return None; }
+
+    let angle_str = parts[0].trim();
+    let has_angle = angle_str.ends_with("deg") || angle_str.starts_with("to ");
+
+    let angle_deg = if angle_str.ends_with("deg") {
+        angle_str.trim_end_matches("deg").parse::<f32>().unwrap_or(180.0)
+    } else if angle_str.starts_with("to ") {
+        match angle_str {
+            "to right" => 90.0,
+            "to left" => 270.0,
+            "to bottom" => 180.0,
+            "to top" => 0.0,
+            "to bottom right" => 135.0,
+            "to top right" => 45.0,
+            _ => 180.0,
+        }
+    } else {
+        180.0
+    };
+
+    // Pick color strings based on whether an angle/direction was provided
+    let color1_str = if has_angle {
+        parts.get(1).map(|s| s.trim()).unwrap_or("")
+    } else {
+        parts.get(0).map(|s| s.trim()).unwrap_or("")
+    };
+    let color2_str = parts.last().map(|s| s.trim()).unwrap_or("");
+
+    // Strip percentage suffixes from color stops
+    let color1 = color1_str.split_whitespace().next().unwrap_or("");
+    let color2 = color2_str.split_whitespace().next().unwrap_or("");
+
+    Some(omni_shared::GradientDef {
+        enabled: true,
+        angle_deg,
+        start_rgba: parse_color(Some(color1)),
+        end_rgba: parse_color(Some(color2)),
+    })
+}
+
+/// Parse a CSS `box-shadow` value into a `ShadowDef`.
+fn parse_box_shadow(value: &str) -> Option<omni_shared::ShadowDef> {
+    let parts: Vec<&str> = value.trim().splitn(4, ' ').collect();
+    if parts.len() < 3 { return None; }
+
+    let offset_x = parse_px(Some(parts[0])).unwrap_or(0.0);
+    let offset_y = parse_px(Some(parts[1])).unwrap_or(0.0);
+    let blur_radius = parse_px(Some(parts[2])).unwrap_or(0.0);
+
+    let color_str = if parts.len() >= 4 { parts[3] } else { "rgba(0,0,0,0.5)" };
+    let color_rgba = parse_color(Some(color_str));
+
+    Some(omni_shared::ShadowDef {
+        enabled: true,
+        offset_x,
+        offset_y,
+        blur_radius,
+        color_rgba,
+    })
+}
+
+/// Parse a CSS `border-radius` shorthand with 1-4 values.
+/// Returns `[top-left, top-right, bottom-right, bottom-left]`.
+fn parse_border_radius(value: &str) -> [f32; 4] {
+    let parts: Vec<f32> = value.split_whitespace()
+        .filter_map(|s| parse_px(Some(s)))
+        .collect();
+
+    match parts.len() {
+        1 => [parts[0]; 4],
+        2 => [parts[0], parts[1], parts[0], parts[1]],
+        3 => [parts[0], parts[1], parts[2], parts[1]],
+        4 => [parts[0], parts[1], parts[2], parts[3]],
+        _ => [0.0; 4],
+    }
 }
 
 /// Parse a CSS color value into [r, g, b, a].
@@ -621,5 +727,134 @@ mod tests {
 
         let w = &widgets[0];
         assert_eq!(w.font_size, 24.0, "ID selector should win over class selector");
+    }
+
+    // --- Gradient parsing tests ---
+
+    #[test]
+    fn parse_gradient_degrees_and_colors() {
+        let g = parse_linear_gradient("linear-gradient(135deg, #ff0000, #0000ff)").unwrap();
+        assert!(g.enabled);
+        assert_eq!(g.angle_deg, 135.0);
+        assert_eq!(g.start_rgba, [255, 0, 0, 255]);
+        assert_eq!(g.end_rgba, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn parse_gradient_to_right_keyword() {
+        let g = parse_linear_gradient("linear-gradient(to right, red, blue)").unwrap();
+        assert_eq!(g.angle_deg, 90.0);
+        assert_eq!(g.start_rgba, [255, 0, 0, 255]);
+        assert_eq!(g.end_rgba, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn parse_gradient_with_percent_stops() {
+        let g = parse_linear_gradient("linear-gradient(180deg, #ff0000 0%, #0000ff 100%)").unwrap();
+        assert_eq!(g.angle_deg, 180.0);
+        assert_eq!(g.start_rgba, [255, 0, 0, 255]);
+        assert_eq!(g.end_rgba, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn parse_gradient_returns_none_for_invalid() {
+        assert!(parse_linear_gradient("not-a-gradient").is_none());
+        assert!(parse_linear_gradient("linear-gradient(red)").is_none());
+    }
+
+    // --- Box shadow parsing tests ---
+
+    #[test]
+    fn parse_box_shadow_with_rgba() {
+        let s = parse_box_shadow("2px 4px 8px rgba(0,0,0,0.5)").unwrap();
+        assert!(s.enabled);
+        assert_eq!(s.offset_x, 2.0);
+        assert_eq!(s.offset_y, 4.0);
+        assert_eq!(s.blur_radius, 8.0);
+        assert_eq!(s.color_rgba, [0, 0, 0, 127]);
+    }
+
+    #[test]
+    fn parse_box_shadow_zeroes() {
+        let s = parse_box_shadow("0 0 0").unwrap();
+        assert!(s.enabled);
+        assert_eq!(s.offset_x, 0.0);
+        assert_eq!(s.offset_y, 0.0);
+        assert_eq!(s.blur_radius, 0.0);
+    }
+
+    #[test]
+    fn parse_box_shadow_too_few_parts() {
+        assert!(parse_box_shadow("2px 4px").is_none());
+    }
+
+    // --- Border radius parsing tests ---
+
+    #[test]
+    fn parse_border_radius_one_value() {
+        assert_eq!(parse_border_radius("8px"), [8.0, 8.0, 8.0, 8.0]);
+    }
+
+    #[test]
+    fn parse_border_radius_two_values() {
+        assert_eq!(parse_border_radius("8px 0"), [8.0, 0.0, 8.0, 0.0]);
+    }
+
+    #[test]
+    fn parse_border_radius_three_values() {
+        assert_eq!(parse_border_radius("8px 4px 2px"), [8.0, 4.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn parse_border_radius_four_values() {
+        assert_eq!(parse_border_radius("8px 4px 2px 0"), [8.0, 4.0, 2.0, 0.0]);
+    }
+
+    // --- Background shorthand integration tests ---
+
+    #[test]
+    fn style_to_widget_solid_background() {
+        let style = ResolvedStyle {
+            background: Some("#ff0000".to_string()),
+            ..Default::default()
+        };
+        let cw = style_to_computed_widget(&style, 0.0, 0.0, 100.0);
+        assert_eq!(cw.bg_color_rgba, [255, 0, 0, 255]);
+        assert!(!cw.bg_gradient.enabled);
+    }
+
+    #[test]
+    fn style_to_widget_gradient_background() {
+        let style = ResolvedStyle {
+            background: Some("linear-gradient(90deg, #ff0000, #0000ff)".to_string()),
+            ..Default::default()
+        };
+        let cw = style_to_computed_widget(&style, 0.0, 0.0, 100.0);
+        assert!(cw.bg_gradient.enabled);
+        assert_eq!(cw.bg_gradient.angle_deg, 90.0);
+        assert_eq!(cw.bg_gradient.start_rgba, [255, 0, 0, 255]);
+        assert_eq!(cw.bg_gradient.end_rgba, [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn style_to_widget_background_color_fallback() {
+        let style = ResolvedStyle {
+            background_color: Some("#00ff00".to_string()),
+            ..Default::default()
+        };
+        let cw = style_to_computed_widget(&style, 0.0, 0.0, 100.0);
+        assert_eq!(cw.bg_color_rgba, [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn style_to_widget_background_overrides_background_color() {
+        let style = ResolvedStyle {
+            background: Some("#ff0000".to_string()),
+            background_color: Some("#00ff00".to_string()),
+            ..Default::default()
+        };
+        let cw = style_to_computed_widget(&style, 0.0, 0.0, 100.0);
+        // background should win over background_color
+        assert_eq!(cw.bg_color_rgba, [255, 0, 0, 255]);
     }
 }
