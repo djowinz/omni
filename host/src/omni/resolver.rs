@@ -68,7 +68,7 @@ impl OmniResolver {
                 let interpolated_inline = inline_style.as_ref()
                     .map(|s| interpolation::interpolate(s, snapshot));
 
-                let style = css::resolve_styles(
+                let style = css::resolve_styles_legacy(
                     tag,
                     id.as_deref(),
                     classes,
