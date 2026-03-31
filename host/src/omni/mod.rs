@@ -11,5 +11,6 @@ pub mod easing;
 pub mod expression;
 pub mod reactive;
 pub mod transition;
+pub mod validation;
 
 pub use types::*;
