@@ -66,7 +66,7 @@ unsafe fn fill_rounded_rect_per_corner(
     factory: &ID2D1Factory1,
     rect: &D2D_RECT_F,
     radii: [f32; 4],
-    brush: &impl windows::core::Param<ID2D1Brush>,
+    brush: &ID2D1Brush,
 ) {
     let [r_tl, r_tr, r_br, r_bl] = radii;
 
@@ -585,7 +585,7 @@ impl OverlayRenderer {
 
                         if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None) {
                             fill_rounded_rect_per_corner(
-                                rt, &self.d2d_factory, &pass_rect, radii, &shadow_brush,
+                                rt, &self.d2d_factory, &pass_rect, radii, &*shadow_brush,
                             );
                         }
                     }
@@ -631,7 +631,7 @@ impl OverlayRenderer {
                         &stop_collection,
                     ) {
                         fill_rounded_rect_per_corner(
-                            rt, &self.d2d_factory, &rect, radii, &brush,
+                            rt, &self.d2d_factory, &rect, radii, &*brush,
                         );
                     }
                 }
@@ -648,7 +648,7 @@ impl OverlayRenderer {
 
                     if let Ok(brush) = rt.CreateSolidColorBrush(&bg_color, None) {
                         fill_rounded_rect_per_corner(
-                            rt, &self.d2d_factory, &rect, radii, &brush,
+                            rt, &self.d2d_factory, &rect, radii, &*brush,
                         );
                     }
                 }
