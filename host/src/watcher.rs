@@ -18,7 +18,7 @@ pub enum ReloadEvent {
 /// A file watcher that monitors overlay, theme, and config paths and
 /// emits debounced [`ReloadEvent`]s over the `rx` channel.
 pub struct FileWatcher {
-    watcher: RecommendedWatcher,
+    _watcher: RecommendedWatcher,
     pub rx: mpsc::Receiver<ReloadEvent>,
 }
 
@@ -75,20 +75,9 @@ impl FileWatcher {
             .map_err(|e| format!("Failed to spawn debounce thread: {e}"))?;
 
         Ok(Self {
-            watcher,
+            _watcher: watcher,
             rx: event_rx,
         })
-    }
-
-    /// Stop watching `old_dir` and start watching `new_dir` for overlay changes.
-    pub fn update_overlay_dir(&mut self, old_dir: &Path, new_dir: &Path) -> Result<(), String> {
-        self.watcher
-            .unwatch(old_dir)
-            .map_err(|e| format!("Failed to unwatch old overlay_dir {}: {e}", old_dir.display()))?;
-        self.watcher
-            .watch(new_dir, RecursiveMode::Recursive)
-            .map_err(|e| format!("Failed to watch new overlay_dir {}: {e}", new_dir.display()))?;
-        Ok(())
     }
 }
 
