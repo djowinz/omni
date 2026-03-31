@@ -5,6 +5,8 @@
 //! - One or more `<widget id="..." name="..." enabled="true/false">` blocks
 //!   - Each widget contains `<template>...</template>` and `<style>...</style>`
 
+use std::collections::HashMap;
+
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
@@ -21,6 +23,7 @@ pub struct ParseError {
 pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
     let mut errors = Vec::new();
     let mut theme_src = None;
+    let mut poll_config = HashMap::new();
     let mut widgets = Vec::new();
 
     let mut reader = Reader::from_str(source);
@@ -33,6 +36,12 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
                     Ok(widget) => widgets.push(widget),
                     Err(e) => errors.push(e),
                 },
+                b"config" => {
+                    match parse_config_block(&mut reader) {
+                        Ok(config) => poll_config = config,
+                        Err(e) => errors.push(e),
+                    }
+                }
                 b"theme" => {
                     theme_src = get_attr(e, "src");
                 }
@@ -62,7 +71,7 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
     }
 
     if errors.is_empty() {
-        Ok(OmniFile { theme_src, widgets })
+        Ok(OmniFile { theme_src, poll_config, widgets })
     } else {
         Err(errors)
     }
@@ -299,6 +308,35 @@ fn read_text_content(reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, Pa
     Ok(content)
 }
 
+/// Parse a `<config>` block containing `<poll sensor="..." interval="..." />` entries.
+fn parse_config_block(reader: &mut Reader<&[u8]>) -> Result<HashMap<String, u64>, ParseError> {
+    let mut config = HashMap::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Empty(ref e)) if e.name().as_ref() == b"poll" => {
+                let sensor = get_attr(e, "sensor");
+                let interval = get_attr(e, "interval")
+                    .and_then(|v| v.parse::<u64>().ok());
+
+                if let (Some(sensor), Some(interval)) = (sensor, interval) {
+                    config.insert(sensor, interval);
+                }
+            }
+            Ok(Event::End(ref e)) if e.name().as_ref() == b"config" => break,
+            Ok(Event::Eof) => {
+                return Err(ParseError {
+                    message: "Unexpected EOF inside <config>".to_string(),
+                    offset: reader.buffer_position() as usize,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    Ok(config)
+}
+
 /// Extract an attribute value from an XML element.
 fn get_attr(start: &BytesStart, name: &str) -> Option<String> {
     start
@@ -420,6 +458,40 @@ mod tests {
                 panic!("Expected Text node");
             }
         }
+    }
+
+    #[test]
+    fn parse_config_block() {
+        let source = r#"
+            <config>
+                <poll sensor="fps" interval="100" />
+                <poll sensor="gpu.temp" interval="250" />
+                <poll sensor="cpu.usage" interval="1000" />
+            </config>
+            <widget id="test" name="Test" enabled="true">
+                <template><span>test</span></template>
+                <style></style>
+            </widget>
+        "#;
+
+        let file = parse_omni(source).unwrap();
+        assert_eq!(file.poll_config.len(), 3);
+        assert_eq!(file.poll_config.get("fps"), Some(&100));
+        assert_eq!(file.poll_config.get("gpu.temp"), Some(&250));
+        assert_eq!(file.poll_config.get("cpu.usage"), Some(&1000));
+    }
+
+    #[test]
+    fn omni_file_without_config_has_empty_poll_config() {
+        let source = r#"
+            <widget id="test" name="Test" enabled="true">
+                <template><span>test</span></template>
+                <style></style>
+            </widget>
+        "#;
+
+        let file = parse_omni(source).unwrap();
+        assert!(file.poll_config.is_empty());
     }
 
     #[test]

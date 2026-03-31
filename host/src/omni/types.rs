@@ -1,6 +1,8 @@
 //! Data types for the parsed .omni file format.
 //! All types are JSON-serializable for Electron WebSocket communication.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// A parsed .omni file containing a theme reference and widget definitions.
@@ -8,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub struct OmniFile {
     /// Optional path to a theme CSS file.
     pub theme_src: Option<String>,
+    /// Per-sensor poll interval configuration (sensor name -> interval in ms).
+    pub poll_config: HashMap<String, u64>,
     /// Ordered list of widget definitions.
     pub widgets: Vec<Widget>,
 }
@@ -109,6 +113,7 @@ impl OmniFile {
     pub fn empty() -> Self {
         Self {
             theme_src: None,
+            poll_config: HashMap::new(),
             widgets: Vec::new(),
         }
     }
@@ -122,6 +127,7 @@ mod tests {
     fn omni_file_serializes_to_json() {
         let file = OmniFile {
             theme_src: Some("./themes/dark.css".to_string()),
+            poll_config: HashMap::new(),
             widgets: vec![Widget {
                 id: "fps".to_string(),
                 name: "FPS Counter".to_string(),
