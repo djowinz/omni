@@ -421,6 +421,8 @@ pub fn resolve_styles(
     }
 
     // Resolve var() references.
+    // Cascade: theme vars first, then stylesheet :root vars (stylesheet wins on conflict,
+    // because local :root overrides theme — same cascade order as CSS rules).
     let all_vars: HashMap<String, String> = theme_vars
         .iter()
         .chain(stylesheet.variables.iter())
