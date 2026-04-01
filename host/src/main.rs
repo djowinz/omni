@@ -107,6 +107,7 @@ fn switch_overlay(
 }
 
 mod error;
+pub(crate) mod win32;
 mod injector;
 mod config;
 mod scanner;
