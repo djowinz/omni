@@ -1,8 +1,9 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, net } from "electron";
 import * as path from "path";
+import * as fs from "fs";
 import { HostManager } from "./host-manager";
 
-const isProd = process.env.NODE_ENV === 'production';
+const isProd = process.env.NODE_ENV === "production";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -10,14 +11,14 @@ let isQuitting = false;
 const hostManager = new HostManager();
 
 function createWindow(): BrowserWindow {
-  const preloadPath = path.join(__dirname, 'preload.js');
+  const preloadPath = path.join(__dirname, "preload.js");
 
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Omni',
+    title: "Omni",
     frame: false,
     webPreferences: {
       preload: preloadPath,
@@ -27,10 +28,10 @@ function createWindow(): BrowserWindow {
     show: false,
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once("ready-to-show", () => win.show());
 
   // Minimize to tray on close
-  win.on('close', (e) => {
+  win.on("close", (e) => {
     if (!isQuitting) {
       e.preventDefault();
       win.hide();
@@ -42,7 +43,7 @@ function createWindow(): BrowserWindow {
 
 function createTray(): void {
   // Try to load icon, fall back to empty
-  const iconPath = path.join(__dirname, '../resources/icon.png');
+  const iconPath = path.join(__dirname, "../resources/icon.png");
   let icon: Electron.NativeImage;
   try {
     icon = nativeImage.createFromPath(iconPath);
@@ -56,19 +57,19 @@ function createTray(): void {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('Omni Overlay');
+  tray.setToolTip("Omni Overlay");
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Open Omni',
+      label: "Open Omni",
       click: () => {
         mainWindow?.show();
         mainWindow?.focus();
       },
     },
-    { type: 'separator' },
+    { type: "separator" },
     {
-      label: 'Quit',
+      label: "Quit",
       click: () => {
         isQuitting = true;
         app.quit();
@@ -77,55 +78,84 @@ function createTray(): void {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.on('click', () => {
+  tray.on("click", () => {
     mainWindow?.show();
     mainWindow?.focus();
   });
 }
 
+// Get Resource path for frontend components
+ipcMain.on("get-resource-path", (event, filename) => {
+  const resourcesPath = app.isPackaged
+    ? path.join(app.getAppPath(), "resources")
+    : path.join(__dirname, "../../resources");
+  event.returnValue = path.join(resourcesPath, filename);
+});
+
 // Window control IPC handlers
-ipcMain.on('window-minimize', () => mainWindow?.minimize());
-ipcMain.on('window-maximize', () => {
+ipcMain.on("window-minimize", () => mainWindow?.minimize());
+ipcMain.on("window-maximize", () => {
   if (mainWindow?.isMaximized()) {
     mainWindow.unmaximize();
   } else {
     mainWindow?.maximize();
   }
 });
-ipcMain.on('window-close', () => mainWindow?.close());
+ipcMain.on("window-close", () => mainWindow?.close());
 
-app.on('ready', async () => {
+// Register omni:// protocol for serving local resources
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'omni', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
+
+app.on("ready", async () => {
+  // Handle omni://resource/<filename> requests by serving from resources/
+  protocol.handle('omni', (request) => {
+    const url = new URL(request.url);
+    const resourcesDir = isProd
+      ? path.join(app.getAppPath(), 'resources')
+      : path.join(__dirname, '../../resources');
+    const filePath = path.join(resourcesDir, url.pathname);
+
+    // Prevent path traversal
+    if (!filePath.startsWith(resourcesDir)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    return net.fetch(`file://${filePath}`);
+  });
   mainWindow = createWindow();
   createTray();
 
   if (isProd) {
     // Production: load the static Next.js export
-    await mainWindow.loadFile(path.join(__dirname, '../app/home/index.html'));
+    await mainWindow.loadFile(path.join(__dirname, "../app/home/index.html"));
   } else {
     // Development: load from Next.js dev server
-    const port = process.argv[2] || '8888';
+    const port = process.argv[2] || "8888";
     await mainWindow.loadURL(`http://localhost:${port}/home`);
+    mainWindow.webContents.openDevTools();
   }
 
   // Start host manager
   await hostManager.start();
 
   // Forward status to renderer via IPC
-  hostManager.on('connected', () => {
-    mainWindow?.webContents.send('host-status', hostManager.status);
+  hostManager.on("connected", () => {
+    mainWindow?.webContents.send("host-status", hostManager.status);
   });
-  hostManager.on('disconnected', () => {
-    mainWindow?.webContents.send('host-status', { connected: false });
+  hostManager.on("disconnected", () => {
+    mainWindow?.webContents.send("host-status", { connected: false });
   });
-  hostManager.on('status', (status) => {
-    mainWindow?.webContents.send('host-status', status);
+  hostManager.on("status", (status) => {
+    mainWindow?.webContents.send("host-status", status);
   });
 });
 
-app.on('before-quit', async () => {
+app.on("before-quit", async () => {
   await hostManager.shutdown();
 });
 
-app.on('window-all-closed', () => {
+app.on("window-all-closed", () => {
   // Don't quit — tray keeps us alive
 });
