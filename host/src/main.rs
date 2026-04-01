@@ -5,6 +5,25 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::EnvFilter;
 
+/// Load and apply a theme CSS file for the given overlay.
+fn reload_theme(
+    data_dir: &Path,
+    overlay_name: &str,
+    theme_src: &str,
+    omni_resolver: &mut omni::resolver::OmniResolver,
+) {
+    if let Some(theme_path) =
+        workspace::structure::resolve_theme_path(data_dir, overlay_name, theme_src)
+    {
+        match std::fs::read_to_string(&theme_path) {
+            Ok(css) => omni_resolver.load_theme(&css),
+            Err(e) => warn!(path = %theme_path.display(), error = %e, "Failed to read theme file"),
+        }
+    } else {
+        warn!(theme_src, "Theme file not found in overlay folder or shared themes");
+    }
+}
+
 /// Attempt to load an overlay from disk and apply it.
 /// Returns `true` if the overlay was successfully loaded.
 fn reload_overlay(
@@ -44,17 +63,7 @@ fn reload_overlay(
     match parsed {
         Some(new_file) => {
             if let Some(theme_src) = &new_file.theme_src {
-                if let Some(theme_path) =
-                    workspace::structure::resolve_theme_path(data_dir, overlay_name, theme_src)
-                {
-                    if let Ok(css) = std::fs::read_to_string(&theme_path) {
-                        omni_resolver.load_theme(&css);
-                    } else {
-                        warn!(path = %theme_path.display(), "Failed to read theme file");
-                    }
-                } else {
-                    warn!(theme_src, "Theme file not found in overlay folder or shared themes");
-                }
+                reload_theme(data_dir, overlay_name, theme_src, omni_resolver);
             }
             info!(widgets = new_file.widgets.len(), "Overlay loaded successfully");
             *omni_file = new_file;
@@ -68,25 +77,22 @@ fn reload_overlay(
     }
 }
 
-/// Switch watch paths and load a new overlay.
+/// Recreate the file watcher for a new overlay folder and load the overlay.
+/// We rebuild the watcher entirely because the debounce thread captures
+/// a canonicalized overlay_dir at startup and cannot be updated in place.
 fn switch_overlay(
-    _old_name: &str,
     new_name: &str,
     data_dir: &Path,
+    config_path: &Path,
     omni_file: &mut omni::OmniFile,
     omni_resolver: &mut omni::resolver::OmniResolver,
     layout_version: &mut u64,
     file_watcher: &mut Option<watcher::FileWatcher>,
 ) -> bool {
-    // Recreate the file watcher to watch the new overlay folder.
-    // We rebuild entirely rather than patching because the debounce thread
-    // captures a canonicalized overlay_dir at startup and cannot be updated.
     let new_dir = workspace::structure::overlay_dir(data_dir, new_name);
     let themes_dir = data_dir.join("themes");
-    let config_path = config::config_path();
 
-    // Drop old watcher, create new one watching the new overlay dir
-    *file_watcher = match watcher::FileWatcher::start(new_dir.clone(), themes_dir, config_path) {
+    *file_watcher = match watcher::FileWatcher::start(new_dir.clone(), themes_dir, config_path.to_path_buf()) {
         Ok(w) => {
             info!(path = %new_dir.display(), "Recreated file watcher for new overlay");
             Some(w)
@@ -100,6 +106,7 @@ fn switch_overlay(
     reload_overlay(new_name, data_dir, omni_file, omni_resolver, layout_version)
 }
 
+mod error;
 mod injector;
 mod config;
 mod scanner;
@@ -398,7 +405,6 @@ fn run_host(dll_path: &str) {
     let mut last_scan = Instant::now();
 
     while RUNNING.load(Ordering::Relaxed) {
-        // Throttle scanner to only poll every 2 seconds
         if last_scan.elapsed() >= scan_interval {
             scanner_instance.poll();
             last_scan = Instant::now();
@@ -419,9 +425,9 @@ fn run_host(dll_path: &str) {
                     "Game-specific overlay switch"
                 );
                 if switch_overlay(
-                    &current_overlay_name,
                     &new_overlay,
                     &data_dir,
+                    &config_path,
                     &mut omni_file,
                     &mut omni_resolver,
                     &mut layout_version,
@@ -432,7 +438,6 @@ fn run_host(dll_path: &str) {
             }
         }
 
-        // Drain sensor channel — keep only the latest snapshot
         while let Ok(snapshot) = sensor_rx.try_recv() {
             latest_snapshot = snapshot;
         }
@@ -458,13 +463,8 @@ fn run_host(dll_path: &str) {
                     enabled = new_file.widgets.iter().filter(|w| w.enabled).count(),
                     "Applied widget update from WebSocket"
                 );
-                // Reload theme for the new file if it specifies one
                 if let Some(theme_src) = &new_file.theme_src {
-                    if let Some(theme_path) = workspace::structure::resolve_theme_path(&data_dir, &current_overlay_name, theme_src) {
-                        if let Ok(css) = std::fs::read_to_string(&theme_path) {
-                            omni_resolver.load_theme(&css);
-                        }
-                    }
+                    reload_theme(&data_dir, &current_overlay_name, theme_src, &mut omni_resolver);
                 }
                 omni_file = new_file;
                 layout_version += 1;
@@ -472,15 +472,9 @@ fn run_host(dll_path: &str) {
         }
 
         // Handle file watcher events (hot-reload)
-        // Drain events first to release the borrow on file_watcher before processing
-        let pending_events: Vec<watcher::ReloadEvent> = if let Some(ref mut fw) = file_watcher {
-            let mut events = Vec::new();
-            while let Ok(event) = fw.rx.try_recv() {
-                events.push(event);
-            }
-            events
-        } else {
-            Vec::new()
+        let pending_events = match file_watcher {
+            Some(ref fw) => fw.drain_events(),
+            None => Vec::new(),
         };
 
         for event in pending_events {
@@ -498,22 +492,8 @@ fn run_host(dll_path: &str) {
                 watcher::ReloadEvent::Theme => {
                     info!("Theme file changed — reloading");
                     if let Some(theme_src) = &omni_file.theme_src {
-                        if let Some(theme_path) =
-                            workspace::structure::resolve_theme_path(
-                                &data_dir,
-                                &current_overlay_name,
-                                theme_src,
-                            )
-                        {
-                            match std::fs::read_to_string(&theme_path) {
-                                Ok(css) => {
-                                    omni_resolver.load_theme(&css);
-                                    layout_version += 1;
-                                    info!("Theme hot-reload successful");
-                                }
-                                Err(e) => warn!(error = %e, "Failed to read theme file"),
-                            }
-                        }
+                        reload_theme(&data_dir, &current_overlay_name, theme_src, &mut omni_resolver);
+                        layout_version += 1;
                     }
                 }
                 watcher::ReloadEvent::Config => {
@@ -534,9 +514,9 @@ fn run_host(dll_path: &str) {
                             "Active overlay changed — switching"
                         );
                         if switch_overlay(
-                            &current_overlay_name,
                             &new_overlay,
                             &data_dir,
+                            &config_path,
                             &mut omni_file,
                             &mut omni_resolver,
                             &mut layout_version,
@@ -554,7 +534,6 @@ fn run_host(dll_path: &str) {
         // Resolve widgets from .omni file
         let widgets = omni_resolver.resolve(&omni_file, &latest_snapshot);
 
-        // Log widget count on changes (debug level to avoid spam)
         debug!(computed_widgets = widgets.len(), "Resolved overlay");
 
         // Write to shared memory
