@@ -3,6 +3,63 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Geist — UI text */
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-Thin.ttf') format('truetype');
+  font-weight: 100;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-ExtraLight.ttf') format('truetype');
+  font-weight: 200;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../resources/fonts/Geist-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+}
+
+/* Monaspace Krypton NF — code editor */
 @font-face {
   font-family: 'Monaspace Krypton';
   src: url('../../resources/fonts/MonaspaceKryptonNF-Light.otf') format('opentype');
@@ -120,7 +177,7 @@
 }
 
 @theme inline {
-  --font-sans: 'Monaspace Krypton', monospace;
+  --font-sans: 'Geist', system-ui, sans-serif;
   --font-mono: 'Monaspace Krypton', monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);

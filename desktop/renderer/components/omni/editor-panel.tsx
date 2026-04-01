@@ -343,7 +343,7 @@ export function EditorPanel() {
         {/* Line numbers */}
         <div 
           className="flex-shrink-0 select-none bg-[#0a0a0c] border-r border-[#27272A] pt-4 px-2 overflow-hidden"
-          style={{ fontFamily: '"Geist Mono", monospace', fontSize: 13, lineHeight: '20px' }}
+          style={{ fontFamily: '"Monaspace Krypton", monospace', fontSize: 13, lineHeight: '20px' }}
         >
           {Array.from({ length: lineCount }, (_, i) => (
             <div key={i + 1} className="text-right text-[#52525B] pr-2" style={{ height: 20 }}>
@@ -362,7 +362,7 @@ export function EditorPanel() {
             ref={highlightRef}
             className="absolute inset-0 p-4 m-0 overflow-hidden pointer-events-none whitespace-pre-wrap break-words"
             style={{
-              fontFamily: '"Geist Mono", "JetBrains Mono", "Fira Code", monospace',
+              fontFamily: '"Geist Mono", monospace',
               fontSize: 13,
               lineHeight: '20px',
               color: '#FAFAFA',
@@ -381,7 +381,7 @@ export function EditorPanel() {
             spellCheck={false}
             className="absolute inset-0 w-full h-full p-4 m-0 resize-none border-0 outline-none bg-transparent"
             style={{
-              fontFamily: '"Geist Mono", "JetBrains Mono", "Fira Code", monospace',
+              fontFamily: '"Geist Mono", monospace',
               fontSize: 13,
               lineHeight: '20px',
               color: 'transparent',
