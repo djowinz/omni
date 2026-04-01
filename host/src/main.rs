@@ -6,101 +6,109 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 
-/// Load and apply a theme CSS file for the given overlay.
-fn reload_theme(
-    data_dir: &Path,
-    overlay_name: &str,
-    theme_src: &str,
-    omni_resolver: &mut omni::resolver::OmniResolver,
-) {
-    if let Some(theme_path) =
-        workspace::structure::resolve_theme_path(data_dir, overlay_name, theme_src)
-    {
-        match std::fs::read_to_string(&theme_path) {
-            Ok(css) => omni_resolver.load_theme(&css),
-            Err(e) => warn!(path = %theme_path.display(), error = %e, "Failed to read theme file"),
+struct HostState {
+    omni_file: omni::OmniFile,
+    omni_resolver: omni::resolver::OmniResolver,
+    layout_version: u64,
+    current_overlay: String,
+    file_watcher: Option<watcher::FileWatcher>,
+    data_dir: PathBuf,
+    config_path: PathBuf,
+}
+
+impl HostState {
+    fn new(overlay_name: String, data_dir: PathBuf, config_path: PathBuf) -> Self {
+        Self {
+            omni_file: omni::OmniFile::empty(),
+            omni_resolver: omni::resolver::OmniResolver::new(),
+            layout_version: 0,
+            current_overlay: overlay_name,
+            file_watcher: None,
+            data_dir,
+            config_path,
         }
-    } else {
-        warn!(
+    }
+
+    /// Load and apply a theme CSS file for the current overlay.
+    fn reload_theme(&mut self, theme_src: &str) {
+        if let Some(theme_path) = workspace::structure::resolve_theme_path(
+            &self.data_dir,
+            &self.current_overlay,
             theme_src,
-            "Theme file not found in overlay folder or shared themes"
-        );
-    }
-}
-
-/// Attempt to load an overlay from disk and apply it.
-/// Returns `true` if the overlay was successfully loaded.
-fn reload_overlay(
-    overlay_name: &str,
-    data_dir: &Path,
-    omni_file: &mut omni::OmniFile,
-    omni_resolver: &mut omni::resolver::OmniResolver,
-    layout_version: &mut u64,
-) -> bool {
-    let omni_path = workspace::structure::overlay_omni_path(data_dir, overlay_name);
-    let source = match std::fs::read_to_string(&omni_path) {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(path = %omni_path.display(), error = %e, "Failed to read overlay file");
-            return false;
-        }
-    };
-
-    let (parsed, diagnostics) = omni::parser::parse_omni_with_diagnostics(&source);
-    for diag in &diagnostics {
-        match diag.severity {
-            omni::parser::Severity::Error => error!(
-                line = diag.line, col = diag.column,
-                msg = %diag.message,
-                suggestion = ?diag.suggestion,
-                "parse error"
-            ),
-            omni::parser::Severity::Warning => warn!(
-                line = diag.line, col = diag.column,
-                msg = %diag.message,
-                suggestion = ?diag.suggestion,
-                "parse warning"
-            ),
-        }
-    }
-
-    match parsed {
-        Some(new_file) => {
-            if let Some(theme_src) = &new_file.theme_src {
-                reload_theme(data_dir, overlay_name, theme_src, omni_resolver);
+        ) {
+            match std::fs::read_to_string(&theme_path) {
+                Ok(css) => self.omni_resolver.load_theme(&css),
+                Err(e) => warn!(path = %theme_path.display(), error = %e, "Failed to read theme file"),
             }
-            info!(
-                widgets = new_file.widgets.len(),
-                "Overlay loaded successfully"
-            );
-            *omni_file = new_file;
-            *layout_version += 1;
-            true
-        }
-        None => {
-            warn!("Parse errors in overlay — keeping previous version");
-            false
+        } else {
+            warn!(theme_src, "Theme file not found");
         }
     }
-}
 
-/// Recreate the file watcher for a new overlay folder and load the overlay.
-/// We rebuild the watcher entirely because the debounce thread captures
-/// a canonicalized overlay_dir at startup and cannot be updated in place.
-fn switch_overlay(
-    new_name: &str,
-    data_dir: &Path,
-    config_path: &Path,
-    omni_file: &mut omni::OmniFile,
-    omni_resolver: &mut omni::resolver::OmniResolver,
-    layout_version: &mut u64,
-    file_watcher: &mut Option<watcher::FileWatcher>,
-) -> bool {
-    let new_dir = workspace::structure::overlay_dir(data_dir, new_name);
-    let themes_dir = data_dir.join("themes");
+    /// Attempt to load the current overlay from disk and apply it.
+    /// Returns `true` if the overlay was successfully loaded.
+    fn reload_overlay(&mut self) -> bool {
+        let omni_path =
+            workspace::structure::overlay_omni_path(&self.data_dir, &self.current_overlay);
+        let source = match std::fs::read_to_string(&omni_path) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(path = %omni_path.display(), error = %e, "Failed to read overlay file");
+                return false;
+            }
+        };
 
-    *file_watcher =
-        match watcher::FileWatcher::start(new_dir.clone(), themes_dir, config_path.to_path_buf()) {
+        let (parsed, diagnostics) = omni::parser::parse_omni_with_diagnostics(&source);
+        for diag in &diagnostics {
+            match diag.severity {
+                omni::parser::Severity::Error => error!(
+                    line = diag.line,
+                    col = diag.column,
+                    msg = %diag.message,
+                    suggestion = ?diag.suggestion,
+                    "parse error"
+                ),
+                omni::parser::Severity::Warning => warn!(
+                    line = diag.line,
+                    col = diag.column,
+                    msg = %diag.message,
+                    suggestion = ?diag.suggestion,
+                    "parse warning"
+                ),
+            }
+        }
+
+        match parsed {
+            Some(new_file) => {
+                // Clone theme_src before moving new_file to avoid borrow conflict
+                let theme_src = new_file.theme_src.clone();
+                info!(widgets = new_file.widgets.len(), "Overlay loaded successfully");
+                self.omni_file = new_file;
+                self.layout_version += 1;
+                if let Some(ts) = theme_src {
+                    self.reload_theme(&ts);
+                }
+                true
+            }
+            None => {
+                warn!("Parse errors in overlay — keeping previous version");
+                false
+            }
+        }
+    }
+
+    /// Recreate the file watcher for a new overlay folder and load the overlay.
+    /// We rebuild the watcher entirely because the debounce thread captures
+    /// a canonicalized overlay_dir at startup and cannot be updated in place.
+    fn switch_overlay(&mut self, new_name: &str) -> bool {
+        let new_dir = workspace::structure::overlay_dir(&self.data_dir, new_name);
+        let themes_dir = self.data_dir.join("themes");
+
+        self.file_watcher = match watcher::FileWatcher::start(
+            new_dir.clone(),
+            themes_dir,
+            self.config_path.clone(),
+        ) {
             Ok(w) => {
                 info!(path = %new_dir.display(), "Recreated file watcher for new overlay");
                 Some(w)
@@ -111,7 +119,9 @@ fn switch_overlay(
             }
         };
 
-    reload_overlay(new_name, data_dir, omni_file, omni_resolver, layout_version)
+        self.current_overlay = new_name.to_string();
+        self.reload_overlay()
+    }
 }
 
 mod config;
@@ -379,28 +389,22 @@ fn run_host(dll_path: &str) {
 
     let mut scanner_instance = scanner::Scanner::new(dll_path.to_string(), config.clone());
 
-    let mut layout_version: u64 = 0;
-    let mut omni_resolver = omni::resolver::OmniResolver::new();
-    let mut omni_file = omni::OmniFile::empty();
+    let mut host = HostState::new(overlay_name, data_dir.clone(), config_path.clone());
 
-    // Load the initial overlay using the shared helper
-    reload_overlay(
-        &overlay_name,
-        &data_dir,
-        &mut omni_file,
-        &mut omni_resolver,
-        &mut layout_version,
-    );
+    // Load the initial overlay
+    host.reload_overlay();
 
     // Start sensor polling on background thread (uses poll_config from .omni file)
     let (mut sensor_poller, sensor_rx) =
-        sensors::SensorPoller::start(omni_file.poll_config.clone(), sensor_running);
+        sensors::SensorPoller::start(host.omni_file.poll_config.clone(), sensor_running);
 
     // Start file watcher for hot-reload
-    let current_overlay_dir = workspace::structure::overlay_dir(&data_dir, &overlay_name);
-    let themes_dir = data_dir.join("themes");
-    let mut file_watcher =
-        match watcher::FileWatcher::start(current_overlay_dir, themes_dir, config_path.clone()) {
+    let current_overlay_dir =
+        workspace::structure::overlay_dir(&host.data_dir, &host.current_overlay);
+    let themes_dir = host.data_dir.join("themes");
+    host.file_watcher =
+        match watcher::FileWatcher::start(current_overlay_dir, themes_dir, host.config_path.clone())
+        {
             Ok(w) => {
                 info!("File watcher started for hot-reload");
                 Some(w)
@@ -410,8 +414,6 @@ fn run_host(dll_path: &str) {
                 None
             }
         };
-
-    let mut current_overlay_name = overlay_name;
 
     let mut last_scan = Instant::now();
 
@@ -428,24 +430,14 @@ fn run_host(dll_path: &str) {
                 &data_dir,
             );
 
-            if new_overlay != current_overlay_name {
+            if new_overlay != host.current_overlay {
                 info!(
-                    from = %current_overlay_name,
+                    from = %host.current_overlay,
                     to = %new_overlay,
                     game = ?scanner_instance.last_injected_exe(),
                     "Game-specific overlay switch"
                 );
-                if switch_overlay(
-                    &new_overlay,
-                    &data_dir,
-                    &config_path,
-                    &mut omni_file,
-                    &mut omni_resolver,
-                    &mut layout_version,
-                    &mut file_watcher,
-                ) {
-                    current_overlay_name = new_overlay;
-                }
+                host.switch_overlay(&new_overlay);
             }
         }
 
@@ -474,21 +466,17 @@ fn run_host(dll_path: &str) {
                     enabled = new_file.widgets.iter().filter(|w| w.enabled).count(),
                     "Applied widget update from WebSocket"
                 );
-                if let Some(theme_src) = &new_file.theme_src {
-                    reload_theme(
-                        &data_dir,
-                        &current_overlay_name,
-                        theme_src,
-                        &mut omni_resolver,
-                    );
+                let theme_src = new_file.theme_src.clone();
+                host.omni_file = new_file;
+                host.layout_version += 1;
+                if let Some(ts) = theme_src {
+                    host.reload_theme(&ts);
                 }
-                omni_file = new_file;
-                layout_version += 1;
             }
         }
 
         // Handle file watcher events (hot-reload)
-        let pending_events = match file_watcher {
+        let pending_events = match host.file_watcher {
             Some(ref fw) => fw.drain_events(),
             None => Vec::new(),
         };
@@ -497,54 +485,33 @@ fn run_host(dll_path: &str) {
             match event {
                 watcher::ReloadEvent::Overlay => {
                     info!("Overlay file changed — reloading");
-                    reload_overlay(
-                        &current_overlay_name,
-                        &data_dir,
-                        &mut omni_file,
-                        &mut omni_resolver,
-                        &mut layout_version,
-                    );
+                    host.reload_overlay();
                 }
                 watcher::ReloadEvent::Theme => {
                     info!("Theme file changed — reloading");
-                    if let Some(theme_src) = &omni_file.theme_src {
-                        reload_theme(
-                            &data_dir,
-                            &current_overlay_name,
-                            theme_src,
-                            &mut omni_resolver,
-                        );
-                        layout_version += 1;
+                    if let Some(theme_src) = host.omni_file.theme_src.clone() {
+                        host.reload_theme(&theme_src);
+                        host.layout_version += 1;
                     }
                 }
                 watcher::ReloadEvent::Config => {
                     info!("Config changed — reloading");
-                    let new_config = config::load_config(&config_path);
+                    let new_config = config::load_config(&host.config_path);
 
                     let new_overlay = workspace::overlay_resolver::resolve_overlay_name(
                         scanner_instance.last_injected_exe(),
                         &new_config.overlay_by_game,
                         &new_config.active_overlay,
-                        &data_dir,
+                        &host.data_dir,
                     );
 
-                    if new_overlay != current_overlay_name {
+                    if new_overlay != host.current_overlay {
                         info!(
-                            from = %current_overlay_name,
+                            from = %host.current_overlay,
                             to = %new_overlay,
                             "Active overlay changed — switching"
                         );
-                        if switch_overlay(
-                            &new_overlay,
-                            &data_dir,
-                            &config_path,
-                            &mut omni_file,
-                            &mut omni_resolver,
-                            &mut layout_version,
-                            &mut file_watcher,
-                        ) {
-                            current_overlay_name = new_overlay;
-                        }
+                        host.switch_overlay(&new_overlay);
                     }
 
                     config = new_config;
@@ -553,12 +520,12 @@ fn run_host(dll_path: &str) {
         }
 
         // Resolve widgets from .omni file
-        let widgets = omni_resolver.resolve(&omni_file, &latest_snapshot);
+        let widgets = host.omni_resolver.resolve(&host.omni_file, &latest_snapshot);
 
         debug!(computed_widgets = widgets.len(), "Resolved overlay");
 
         // Write to shared memory
-        shm_writer.write(&latest_snapshot, &widgets, layout_version);
+        shm_writer.write(&latest_snapshot, &widgets, host.layout_version);
 
         std::thread::sleep(frame_interval);
     }
