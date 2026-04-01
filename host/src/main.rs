@@ -38,7 +38,9 @@ impl HostState {
         ) {
             match std::fs::read_to_string(&theme_path) {
                 Ok(css) => self.omni_resolver.load_theme(&css),
-                Err(e) => warn!(path = %theme_path.display(), error = %e, "Failed to read theme file"),
+                Err(e) => {
+                    warn!(path = %theme_path.display(), error = %e, "Failed to read theme file")
+                }
             }
         } else {
             warn!(theme_src, "Theme file not found");
@@ -82,7 +84,10 @@ impl HostState {
             Some(new_file) => {
                 // Clone theme_src before moving new_file to avoid borrow conflict
                 let theme_src = new_file.theme_src.clone();
-                info!(widgets = new_file.widgets.len(), "Overlay loaded successfully");
+                info!(
+                    widgets = new_file.widgets.len(),
+                    "Overlay loaded successfully"
+                );
                 self.omni_file = new_file;
                 self.layout_version += 1;
                 if let Some(ts) = theme_src {
@@ -401,18 +406,20 @@ fn run_host(dll_path: &str) {
     let current_overlay_dir =
         workspace::structure::overlay_dir(&host.data_dir, &host.current_overlay);
     let themes_dir = host.data_dir.join("themes");
-    host.file_watcher =
-        match watcher::FileWatcher::start(current_overlay_dir, themes_dir, host.config_path.clone())
-        {
-            Ok(w) => {
-                info!("File watcher started for hot-reload");
-                Some(w)
-            }
-            Err(e) => {
-                warn!(error = %e, "Failed to start file watcher — hot-reload disabled");
-                None
-            }
-        };
+    host.file_watcher = match watcher::FileWatcher::start(
+        current_overlay_dir,
+        themes_dir,
+        host.config_path.clone(),
+    ) {
+        Ok(w) => {
+            info!("File watcher started for hot-reload");
+            Some(w)
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to start file watcher — hot-reload disabled");
+            None
+        }
+    };
 
     let mut last_scan = Instant::now();
     let mut transitions_active = false;
@@ -520,7 +527,9 @@ fn run_host(dll_path: &str) {
         }
 
         // Resolve widgets from .omni file
-        let widgets = host.omni_resolver.resolve(&host.omni_file, &latest_snapshot);
+        let widgets = host
+            .omni_resolver
+            .resolve(&host.omni_file, &latest_snapshot);
 
         debug!(computed_widgets = widgets.len(), "Resolved overlay");
 

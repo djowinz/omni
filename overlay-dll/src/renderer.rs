@@ -394,12 +394,9 @@ impl OverlayRenderer {
 
         // SAFETY: Accessed from the render thread during renderer init.
         let hook_state = &*crate::hook::HOOK_STATE.0.get();
-        let cmd_queue = hook_state.captured_command_queue
-            .as_ref()
-            .ok_or_else(|| {
-                "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook"
-                    .to_string()
-            })?;
+        let cmd_queue = hook_state.captured_command_queue.as_ref().ok_or_else(|| {
+            "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook".to_string()
+        })?;
 
         // Verify the captured queue is from the same device as the swap chain
         let mut queue_device: Option<ID3D12Device> = None;

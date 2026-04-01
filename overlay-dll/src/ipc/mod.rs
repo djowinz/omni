@@ -60,9 +60,12 @@ impl SharedMemoryReader {
         if version != omni_shared::IPC_PROTOCOL_VERSION {
             log_to_file(&format!(
                 "[ipc] version mismatch: expected {}, found {}",
-                omni_shared::IPC_PROTOCOL_VERSION, version
+                omni_shared::IPC_PROTOCOL_VERSION,
+                version
             ));
-            unsafe { let _ = CloseHandle(handle); }
+            unsafe {
+                let _ = CloseHandle(handle);
+            }
             return None;
         }
 

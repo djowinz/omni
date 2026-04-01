@@ -17,9 +17,8 @@ use windows::Win32::System::Memory::{
     VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
 };
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, OpenProcess, WaitForSingleObject,
-    PROCESS_ACCESS_RIGHTS, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
-    PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
+    CreateRemoteThread, OpenProcess, WaitForSingleObject, PROCESS_ACCESS_RIGHTS,
+    PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
 };
 
 use crate::error::HostError;
@@ -73,7 +72,10 @@ pub fn inject_dll(pid: u32, dll_path: &str) -> Result<(), HostError> {
     debug!(pid, dll_path, path_byte_size, "Opening target process");
 
     const INJECT_RIGHTS: PROCESS_ACCESS_RIGHTS = PROCESS_ACCESS_RIGHTS(
-        PROCESS_CREATE_THREAD.0 | PROCESS_VM_OPERATION.0 | PROCESS_VM_WRITE.0 | PROCESS_QUERY_INFORMATION.0,
+        PROCESS_CREATE_THREAD.0
+            | PROCESS_VM_OPERATION.0
+            | PROCESS_VM_WRITE.0
+            | PROCESS_QUERY_INFORMATION.0,
     );
     // SAFETY: OpenProcess with minimum required rights on a valid PID.
     let process = OwnedHandle::new(unsafe { OpenProcess(INJECT_RIGHTS, false, pid)? });
@@ -165,9 +167,8 @@ pub fn eject_dll(pid: u32, dll_name: &str) -> Result<(), HostError> {
 
     debug!(?shutdown_addr, "Found omni_shutdown address");
 
-    const EJECT_RIGHTS: PROCESS_ACCESS_RIGHTS = PROCESS_ACCESS_RIGHTS(
-        PROCESS_CREATE_THREAD.0 | PROCESS_QUERY_INFORMATION.0,
-    );
+    const EJECT_RIGHTS: PROCESS_ACCESS_RIGHTS =
+        PROCESS_ACCESS_RIGHTS(PROCESS_CREATE_THREAD.0 | PROCESS_QUERY_INFORMATION.0);
     // SAFETY: Opening the target process with minimum required rights.
     let process = OwnedHandle::new(unsafe { OpenProcess(EJECT_RIGHTS, false, pid)? });
 

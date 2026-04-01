@@ -549,9 +549,10 @@ pub unsafe fn hook_execute_command_lists_deferred(
     )
     .map_err(|s| format!("MinHook::create_hook(ExecuteCommandLists) failed: {s:?}"))?;
 
-    state.original_execute_command_lists = Some(
-        std::mem::transmute::<*mut c_void, ExecuteCommandListsFn>(original_ecl),
-    );
+    state.original_execute_command_lists = Some(std::mem::transmute::<
+        *mut c_void,
+        ExecuteCommandListsFn,
+    >(original_ecl));
 
     minhook::MinHook::enable_all_hooks()
         .map_err(|s| format!("MinHook::enable_all_hooks (ECL) failed: {s:?}"))?;
@@ -641,7 +642,9 @@ pub unsafe fn install_hooks() -> Result<(), String> {
             hook_state.original_create_swap_chain_for_hwnd = Some(std::mem::transmute::<
                 *mut c_void,
                 CreateSwapChainForHwndFn,
-            >(original_create_scfh));
+            >(
+                original_create_scfh
+            ));
         }
         Err(e) => {
             crate::logging::log_to_file(&format!(
