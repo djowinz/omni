@@ -1,6 +1,6 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron';
-import * as path from 'path';
-import { HostManager } from './host-manager';
+import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
+import * as path from "path";
+import { HostManager } from "./host-manager";
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -18,6 +18,7 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     title: 'Omni',
+    frame: false,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
