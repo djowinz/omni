@@ -39,6 +39,28 @@ impl Drop for OwnedHandle {
     }
 }
 
+/// Compare a null-terminated UTF-16 buffer to an ASCII string, case-insensitive.
+/// Returns true if they match. Does not allocate.
+pub fn wchar_eq_ignore_ascii_case(buf: &[u16], ascii: &str) -> bool {
+    let mut buf_iter = buf.iter().copied();
+    let mut str_iter = ascii.bytes();
+
+    loop {
+        match (buf_iter.next(), str_iter.next()) {
+            (Some(0), None) | (None, None) => return true,
+            (Some(w), Some(a)) => {
+                if w > 127 || !a.is_ascii() {
+                    return false;
+                }
+                if (w as u8).to_ascii_lowercase() != a.to_ascii_lowercase() {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+}
+
 /// Convert a null-terminated UTF-16 slice to a `String`.
 /// If no null terminator is present, the entire slice is decoded.
 pub fn wchar_to_string(buf: &[u16]) -> String {
@@ -119,7 +141,7 @@ pub fn has_module(pid: u32, dll_name: &str) -> Result<bool, HostError> {
     let modules = iter_modules(pid)?;
     Ok(modules
         .iter()
-        .any(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name)))
+        .any(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name)))
 }
 
 /// Get the full executable path for the first module of a process (the exe itself).
@@ -138,7 +160,7 @@ pub fn find_remote_module_base(
     let modules = iter_modules(pid)?;
     Ok(modules
         .iter()
-        .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
+        .find(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name))
         .map(|m| m.modBaseAddr as *const std::ffi::c_void))
 }
 
@@ -147,7 +169,7 @@ pub fn find_remote_module_path(pid: u32, dll_name: &str) -> Result<Option<String
     let modules = iter_modules(pid)?;
     Ok(modules
         .iter()
-        .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
+        .find(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name))
         .map(|m| wchar_to_string(&m.szExePath)))
 }
 
@@ -159,7 +181,7 @@ pub fn find_remote_module(
     let modules = iter_modules(pid)?;
     Ok(modules
         .iter()
-        .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
+        .find(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name))
         .map(|m| {
             (
                 m.modBaseAddr as *const std::ffi::c_void,
@@ -171,6 +193,21 @@ pub fn find_remote_module(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wchar_eq_case_insensitive() {
+        let buf: Vec<u16> = "d3d11.dll\0".encode_utf16().collect();
+        assert!(wchar_eq_ignore_ascii_case(&buf, "D3D11.DLL"));
+        assert!(wchar_eq_ignore_ascii_case(&buf, "d3d11.dll"));
+        assert!(!wchar_eq_ignore_ascii_case(&buf, "d3d12.dll"));
+    }
+
+    #[test]
+    fn wchar_eq_empty() {
+        let buf: Vec<u16> = vec![0];
+        assert!(wchar_eq_ignore_ascii_case(&buf, ""));
+        assert!(!wchar_eq_ignore_ascii_case(&buf, "x"));
+    }
 
     #[test]
     fn wchar_to_string_null_terminated() {

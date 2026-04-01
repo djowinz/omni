@@ -124,9 +124,9 @@ impl Scanner {
                 continue;
             }
 
-            let overlay_loaded = modules.iter().any(|m| {
-                win32::wchar_to_string(&m.szModule).eq_ignore_ascii_case(&self.dll_filename)
-            });
+            let overlay_loaded = modules
+                .iter()
+                .any(|m| win32::wchar_eq_ignore_ascii_case(&m.szModule, &self.dll_filename));
             if overlay_loaded {
                 info!(pid, exe_name, "Overlay DLL already loaded — reconnecting");
                 self.injected.insert(pid);
@@ -197,8 +197,9 @@ impl Scanner {
 
 fn has_graphics_dll(modules: &[MODULEENTRY32W]) -> bool {
     modules.iter().any(|m| {
-        let name = win32::wchar_to_string(&m.szModule).to_ascii_lowercase();
-        GRAPHICS_DLLS.iter().any(|&dll| name == dll)
+        GRAPHICS_DLLS
+            .iter()
+            .any(|&dll| win32::wchar_eq_ignore_ascii_case(&m.szModule, dll))
     })
 }
 
