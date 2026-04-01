@@ -1,3 +1,4 @@
+use std::cell::UnsafeCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -12,32 +13,53 @@ pub type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const c_
 pub type ResizeBuffersFn =
     unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> HRESULT;
 
-// SAFETY (static mut globals): All accessed exclusively from the render thread
+/// Wrapper for state that is only accessed from a single thread.
+/// Implements `Sync` so it can live in a `static`, but the caller
+/// must ensure single-threaded access.
+#[repr(transparent)]
+pub struct SingleThread<T>(pub UnsafeCell<T>);
+// SAFETY: All access sites document why they are single-threaded.
+unsafe impl<T> Sync for SingleThread<T> {}
+
+pub struct RenderState {
+    pub renderer: Option<OverlayRenderer>,
+    pub shm_reader: Option<SharedMemoryReader>,
+    pub frame_stats: Option<crate::frame_stats::FrameStats>,
+    pub original_present: Option<PresentFn>,
+    pub original_present1: Option<Present1Fn>,
+    pub original_resize_buffers: Option<ResizeBuffersFn>,
+}
+
+// SAFETY (RenderState): All fields are accessed exclusively from the render thread
 // (the thread that calls Present). ensure_renderer and ensure_shm_reader are
 // only called from render_overlay, which only runs from hooked Present/Present1.
 // RENDERER_INIT_DONE (AtomicBool) gates one-time init. destroy_renderer is
 // called from omni_shutdown after hooks are disabled and drained (200ms sleep).
-pub static mut ORIGINAL_PRESENT: Option<PresentFn> = None;
-pub static mut ORIGINAL_PRESENT1: Option<Present1Fn> = None;
-pub static mut ORIGINAL_RESIZE_BUFFERS: Option<ResizeBuffersFn> = None;
+// The original_* function pointers are written once during install_hooks
+// (single init thread) and read from hook callbacks on the render thread.
+pub static RENDER_STATE: SingleThread<RenderState> = SingleThread(UnsafeCell::new(RenderState {
+    renderer: None,
+    shm_reader: None,
+    frame_stats: None,
+    original_present: None,
+    original_present1: None,
+    original_resize_buffers: None,
+}));
 
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 pub static RENDERER_INIT_DONE: AtomicBool = AtomicBool::new(false);
-static mut RENDERER: Option<OverlayRenderer> = None;
-static mut SHM_READER: Option<SharedMemoryReader> = None;
-static mut FRAME_STATS: Option<crate::frame_stats::FrameStats> = None;
 
 /// Initialize the renderer on the first Present call.
-unsafe fn ensure_renderer() {
+unsafe fn ensure_renderer(state: &mut RenderState) {
     if RENDERER_INIT_DONE.load(Ordering::Acquire) {
         return;
     }
 
     match OverlayRenderer::init() {
         Ok(r) => {
-            RENDERER = Some(r);
+            state.renderer = Some(r);
             RENDERER_INIT_DONE.store(true, Ordering::Release);
-            FRAME_STATS = Some(crate::frame_stats::FrameStats::new());
+            state.frame_stats = Some(crate::frame_stats::FrameStats::new());
             log_to_file("[present] frame stats initialized");
             log_to_file("[present] D2D renderer initialized on first frame");
         }
@@ -49,28 +71,28 @@ unsafe fn ensure_renderer() {
 }
 
 /// Try to open shared memory if not already open.
-unsafe fn ensure_shm_reader() {
-    if SHM_READER.is_some() {
+unsafe fn ensure_shm_reader(state: &mut RenderState) {
+    if state.shm_reader.is_some() {
         return;
     }
     if let Some(reader) = SharedMemoryReader::open() {
-        SHM_READER = Some(reader);
+        state.shm_reader = Some(reader);
     }
     // If it fails, we'll try again next frame — host might not be running yet
 }
 
 /// Common rendering logic shared by hooked_present and hooked_present1.
-unsafe fn render_overlay(swap_chain: *mut c_void) {
-    ensure_renderer();
-    ensure_shm_reader();
+unsafe fn render_overlay(state: &mut RenderState, swap_chain: *mut c_void) {
+    ensure_renderer(state);
+    ensure_shm_reader(state);
 
     // Record frame timing
-    if let Some(frame_stats) = &mut FRAME_STATS {
+    if let Some(frame_stats) = &mut state.frame_stats {
         frame_stats.record();
 
         // Write frame stats back to shared memory for host-side reactive conditions
         if frame_stats.available() {
-            if let Some(reader) = &SHM_READER {
+            if let Some(reader) = &state.shm_reader {
                 let fd = omni_shared::FrameData {
                     fps: frame_stats.fps(),
                     frame_time_ms: frame_stats.frame_time_ms(),
@@ -84,13 +106,13 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
         }
     }
 
-    let renderer = match &mut RENDERER {
+    let renderer = match &mut state.renderer {
         Some(r) => r,
         None => return,
     };
 
     // Read widgets from shared memory
-    let widgets = match &mut SHM_READER {
+    let widgets = match &mut state.shm_reader {
         Some(reader) => {
             let slot = reader.read_current();
             let count = slot.widget_count as usize;
@@ -111,7 +133,7 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
     // and the interpolated text in format_pattern (e.g., "N/A: AVG").
     // The DLL replaces {fps}/{frame-time}/etc placeholders in the template
     // with its own computed values, preserving the user's formatting.
-    if let Some(frame_stats) = &FRAME_STATS {
+    if let Some(frame_stats) = &state.frame_stats {
         if frame_stats.available() {
             for widget in &mut local_widgets {
                 let template = omni_shared::read_fixed_str(&widget.label_text);
@@ -166,16 +188,19 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
 
 /// Drop the renderer and shared memory reader. Called during shutdown.
 pub unsafe fn destroy_renderer() {
+    // SAFETY: Called from omni_shutdown after hooks are disabled and drained (200ms sleep).
+    // No render thread can be accessing RENDER_STATE at this point.
+    let state = &mut *RENDER_STATE.0.get();
     RENDERER_INIT_DONE.store(false, Ordering::SeqCst);
-    if let Some(renderer) = RENDERER.take() {
+    if let Some(renderer) = state.renderer.take() {
         drop(renderer);
         log_to_file("[present] D2D renderer destroyed");
     }
-    if let Some(reader) = SHM_READER.take() {
+    if let Some(reader) = state.shm_reader.take() {
         drop(reader);
         log_to_file("[present] shared memory reader closed");
     }
-    FRAME_STATS = None;
+    state.frame_stats = None;
     log_to_file("[present] frame stats destroyed");
 }
 
@@ -187,6 +212,11 @@ pub unsafe extern "system" fn hooked_present(
     sync_interval: u32,
     flags: u32,
 ) -> HRESULT {
+    // SAFETY: hooked_present is only called from the render thread (DXGI Present callback).
+    // No other thread accesses RENDER_STATE concurrently — hooks are disabled before
+    // destroy_renderer runs, with a 200ms drain window.
+    let state = &mut *RENDER_STATE.0.get();
+
     let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
     if count % 300 == 0 {
         log_to_file(&format!(
@@ -194,9 +224,9 @@ pub unsafe extern "system" fn hooked_present(
         ));
     }
 
-    render_overlay(swap_chain);
+    render_overlay(state, swap_chain);
 
-    if let Some(original) = ORIGINAL_PRESENT {
+    if let Some(original) = state.original_present {
         original(swap_chain, sync_interval, flags)
     } else {
         HRESULT(0)
@@ -212,6 +242,9 @@ pub unsafe extern "system" fn hooked_present1(
     present_flags: u32,
     present_params: *const c_void,
 ) -> HRESULT {
+    // SAFETY: Same as hooked_present — single render thread access.
+    let state = &mut *RENDER_STATE.0.get();
+
     let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
     if count % 300 == 0 {
         log_to_file(&format!(
@@ -219,9 +252,9 @@ pub unsafe extern "system" fn hooked_present1(
         ));
     }
 
-    render_overlay(swap_chain);
+    render_overlay(state, swap_chain);
 
-    if let Some(original) = ORIGINAL_PRESENT1 {
+    if let Some(original) = state.original_present1 {
         original(swap_chain, sync_interval, present_flags, present_params)
     } else {
         HRESULT(0)
@@ -239,17 +272,20 @@ pub unsafe extern "system" fn hooked_resize_buffers(
     new_format: u32,
     swap_chain_flags: u32,
 ) -> HRESULT {
+    // SAFETY: Same as hooked_present — single render thread access.
+    let state = &mut *RENDER_STATE.0.get();
+
     log_to_file(&format!(
         "[resize_buffers] {width}x{height}, buffers={buffer_count}"
     ));
 
     // Release D2D render target before resize
-    if let Some(renderer) = &mut RENDERER {
+    if let Some(renderer) = &mut state.renderer {
         renderer.release_render_target();
     }
 
     // Call original ResizeBuffers
-    let result = if let Some(original) = ORIGINAL_RESIZE_BUFFERS {
+    let result = if let Some(original) = state.original_resize_buffers {
         original(
             swap_chain,
             buffer_count,
@@ -264,7 +300,7 @@ pub unsafe extern "system" fn hooked_resize_buffers(
 
     // Recreate render target after resize
     if result.is_ok() {
-        if let Some(renderer) = &mut RENDERER {
+        if let Some(renderer) = &mut state.renderer {
             if let Err(e) = renderer.recreate_render_target(swap_chain) {
                 log_to_file(&format!(
                     "[resize_buffers] failed to recreate render target: {e}"

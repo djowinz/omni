@@ -17,7 +17,8 @@ use logging::log_to_file;
 /// # Safety
 /// Written once in `DllMain` (DLL_PROCESS_ATTACH), read once in `omni_shutdown`.
 /// Both are serialized by the Windows loader / our own call sequence.
-static mut DLL_MODULE: Option<HINSTANCE> = None;
+static DLL_MODULE: crate::present::SingleThread<Option<HINSTANCE>> =
+    crate::present::SingleThread(std::cell::UnsafeCell::new(None));
 
 /// DLL entry point. Called by Windows when the DLL is loaded/unloaded.
 ///
@@ -32,7 +33,7 @@ pub unsafe extern "system" fn DllMain(
 ) -> BOOL {
     match reason {
         x if x == DLL_PROCESS_ATTACH => {
-            DLL_MODULE = Some(hinst);
+            *DLL_MODULE.0.get() = Some(hinst);
             log_to_file("omni overlay DLL attached — spawning init thread");
             std::thread::spawn(|| {
                 // SAFETY: install_hooks is called on a dedicated thread (not

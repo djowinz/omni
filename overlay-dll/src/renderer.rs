@@ -392,7 +392,9 @@ impl OverlayRenderer {
             .GetDevice()
             .map_err(|e| format!("GetDevice::<ID3D12Device> failed: {e}"))?;
 
-        let cmd_queue = crate::hook::CAPTURED_COMMAND_QUEUE
+        // SAFETY: Accessed from the render thread during renderer init.
+        let hook_state = &*crate::hook::HOOK_STATE.0.get();
+        let cmd_queue = hook_state.captured_command_queue
             .as_ref()
             .ok_or_else(|| {
                 "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook"

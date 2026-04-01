@@ -55,16 +55,6 @@ pub const CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX: usize = 15;
 //   ID3D12CommandQueue : 8=UpdateTileMappings, 9=CopyTileMappings, 10=ExecuteCommandLists, ...
 pub const EXECUTE_COMMAND_LISTS_VTABLE_INDEX: usize = 10;
 
-// SAFETY (static mut globals): These are written once during `install_hooks`
-// (single init thread) and read from hook callbacks on the render thread.
-// The `HOOKS_INSTALLED` AtomicBool gate ensures hooks are fully installed
-// before any callback fires. On shutdown, hooks are disabled (SeqCst)
-// before any globals are cleared.
-
-/// Captured DX12 command queue (if the game is using DX12).
-/// Set by the CreateSwapChainForHwnd hook or the ExecuteCommandLists hook.
-pub static mut CAPTURED_COMMAND_QUEUE: Option<ID3D12CommandQueue> = None;
-
 /// Type alias for the original CreateSwapChainForHwnd function pointer.
 pub type CreateSwapChainForHwndFn = unsafe extern "system" fn(
     *mut c_void, // this (IDXGIFactory2)
@@ -76,8 +66,6 @@ pub type CreateSwapChainForHwndFn = unsafe extern "system" fn(
     *mut *mut c_void, // ppSwapChain (IDXGISwapChain1**)
 ) -> windows::core::HRESULT;
 
-pub static mut ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND: Option<CreateSwapChainForHwndFn> = None;
-
 /// Type alias for the original ExecuteCommandLists function pointer.
 pub type ExecuteCommandListsFn = unsafe extern "system" fn(
     *mut c_void,        // this (ID3D12CommandQueue)
@@ -85,7 +73,25 @@ pub type ExecuteCommandListsFn = unsafe extern "system" fn(
     *const *mut c_void, // ppCommandLists
 );
 
-pub static mut ORIGINAL_EXECUTE_COMMAND_LISTS: Option<ExecuteCommandListsFn> = None;
+pub struct HookState {
+    /// Captured DX12 command queue (if the game is using DX12).
+    /// Set by the CreateSwapChainForHwnd hook or the ExecuteCommandLists hook.
+    pub captured_command_queue: Option<ID3D12CommandQueue>,
+    pub original_create_swap_chain_for_hwnd: Option<CreateSwapChainForHwndFn>,
+    pub original_execute_command_lists: Option<ExecuteCommandListsFn>,
+}
+
+// SAFETY (HookState): Fields are written once during `install_hooks`
+// (single init thread) and read from hook callbacks on the render thread.
+// The `HOOKS_INSTALLED` AtomicBool gate ensures hooks are fully installed
+// before any callback fires. On shutdown, hooks are disabled (SeqCst)
+// before any globals are cleared.
+pub static HOOK_STATE: crate::present::SingleThread<HookState> =
+    crate::present::SingleThread(std::cell::UnsafeCell::new(HookState {
+        captured_command_queue: None,
+        original_create_swap_chain_for_hwnd: None,
+        original_execute_command_lists: None,
+    }));
 
 /// Raw vtable addresses captured from a temporary swap chain.
 pub struct SwapChainVtable {
@@ -375,6 +381,8 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
     // and the latest one is the one we want.
     // SAFETY: p_device is a valid IUnknown pointer from the DXGI runtime.
     // QueryInterface for ID3D12CommandQueue — if DX11, returns E_NOINTERFACE.
+    // SAFETY: Single-threaded access — this hook runs on the render/DXGI thread.
+    let state = &mut *HOOK_STATE.0.get();
     if !p_device.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&p_device);
         match unknown.cast::<ID3D12CommandQueue>() {
@@ -382,13 +390,13 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
                 crate::logging::log_to_file(
                     "[hook] captured ID3D12CommandQueue from CreateSwapChainForHwnd",
                 );
-                CAPTURED_COMMAND_QUEUE = Some(queue);
+                state.captured_command_queue = Some(queue);
             }
             Err(_) => {}
         }
     }
 
-    if let Some(original) = ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND {
+    if let Some(original) = state.original_create_swap_chain_for_hwnd {
         original(
             this,
             p_device,
@@ -418,14 +426,16 @@ unsafe extern "system" fn hooked_execute_command_lists(
 
     // Capture DIRECT queues. Always overwrite — the game may switch devices
     // (splash → main game) and we need the latest DIRECT queue.
+    // SAFETY: Single-threaded access — this hook runs on the render/submit thread.
+    let state = &mut *HOOK_STATE.0.get();
     if !this.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&this);
         if let Ok(queue) = unknown.cast::<ID3D12CommandQueue>() {
             let desc = queue.GetDesc();
             if desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT {
                 // Only log on first capture or device change to avoid log spam
-                let is_new = CAPTURED_COMMAND_QUEUE.is_none();
-                CAPTURED_COMMAND_QUEUE = Some(queue);
+                let is_new = state.captured_command_queue.is_none();
+                state.captured_command_queue = Some(queue);
                 if is_new {
                     crate::logging::log_to_file(
                         "[hook] captured DIRECT ID3D12CommandQueue from ExecuteCommandLists",
@@ -435,7 +445,7 @@ unsafe extern "system" fn hooked_execute_command_lists(
         }
     }
 
-    if let Some(original) = ORIGINAL_EXECUTE_COMMAND_LISTS {
+    if let Some(original) = state.original_execute_command_lists {
         original(this, num_command_lists, pp_command_lists);
     }
 }
@@ -500,8 +510,11 @@ pub unsafe fn hook_execute_command_lists_deferred(
         D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC,
     };
 
+    // SAFETY: Called from the renderer init path on the render thread.
+    let state = &mut *HOOK_STATE.0.get();
+
     // Already hooked?
-    if ORIGINAL_EXECUTE_COMMAND_LISTS.is_some() {
+    if state.original_execute_command_lists.is_some() {
         return Ok(());
     }
 
@@ -536,7 +549,7 @@ pub unsafe fn hook_execute_command_lists_deferred(
     )
     .map_err(|s| format!("MinHook::create_hook(ExecuteCommandLists) failed: {s:?}"))?;
 
-    ORIGINAL_EXECUTE_COMMAND_LISTS = Some(
+    state.original_execute_command_lists = Some(
         std::mem::transmute::<*mut c_void, ExecuteCommandListsFn>(original_ecl),
     );
 
@@ -570,6 +583,11 @@ pub unsafe fn install_hooks() -> Result<(), String> {
 
     let vtable = discover_swapchain_vtable()?;
 
+    // SAFETY: install_hooks runs on a single init thread before any hook callbacks fire.
+    // The HOOKS_INSTALLED AtomicBool gate prevents concurrent access.
+    let render_state = &mut *crate::present::RENDER_STATE.0.get();
+    let hook_state = &mut *HOOK_STATE.0.get();
+
     // SAFETY: vtable.present is a valid function pointer read from the
     // IDXGISwapChain vtable. hooked_present has the matching PresentFn signature.
     // Hook Present
@@ -579,7 +597,7 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     )
     .map_err(|s| format!("MinHook::create_hook(Present) failed: {s:?}"))?;
 
-    crate::present::ORIGINAL_PRESENT =
+    render_state.original_present =
         Some(std::mem::transmute::<*mut c_void, crate::present::PresentFn>(original_present));
 
     // SAFETY: vtable.present1 is a valid function pointer read from the
@@ -591,7 +609,7 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     )
     .map_err(|s| format!("MinHook::create_hook(Present1) failed: {s:?}"))?;
 
-    crate::present::ORIGINAL_PRESENT1 =
+    render_state.original_present1 =
         Some(std::mem::transmute::<*mut c_void, crate::present::Present1Fn>(original_present1));
 
     // SAFETY: vtable.resize_buffers is a valid function pointer read from the
@@ -603,7 +621,7 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     )
     .map_err(|s| format!("MinHook::create_hook(ResizeBuffers) failed: {s:?}"))?;
 
-    crate::present::ORIGINAL_RESIZE_BUFFERS = Some(std::mem::transmute::<
+    render_state.original_resize_buffers = Some(std::mem::transmute::<
         *mut c_void,
         crate::present::ResizeBuffersFn,
     >(original_resize));
@@ -620,7 +638,7 @@ pub unsafe fn install_hooks() -> Result<(), String> {
             )
             .map_err(|s| format!("MinHook::create_hook(CreateSwapChainForHwnd) failed: {s:?}"))?;
 
-            ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND = Some(std::mem::transmute::<
+            hook_state.original_create_swap_chain_for_hwnd = Some(std::mem::transmute::<
                 *mut c_void,
                 CreateSwapChainForHwndFn,
             >(original_create_scfh));
