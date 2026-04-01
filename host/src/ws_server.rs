@@ -191,20 +191,23 @@ fn handle_message(
             Some(json!({"type": "sensors.subscribed"}).to_string())
         }
         "status" => {
-            let active_overlay = state.active_overlay.lock()
+            let active_overlay = state
+                .active_overlay
+                .lock()
                 .map(|s| s.clone())
                 .unwrap_or_default();
-            let injected_game = state.injected_game.lock()
-                .ok()
-                .and_then(|s| s.clone());
-            Some(json!({
-                "type": "status.data",
-                "ws_port": WS_PORT,
-                "running": true,
-                "active_overlay": active_overlay,
-                "injected_game": injected_game,
-            }).to_string())
-        },
+            let injected_game = state.injected_game.lock().ok().and_then(|s| s.clone());
+            Some(
+                json!({
+                    "type": "status.data",
+                    "ws_port": WS_PORT,
+                    "running": true,
+                    "active_overlay": active_overlay,
+                    "injected_game": injected_game,
+                })
+                .to_string(),
+            )
+        }
         "widget.parse" => {
             let source = msg.get("source")?.as_str()?;
             let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
