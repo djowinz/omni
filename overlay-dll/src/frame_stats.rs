@@ -101,6 +101,17 @@ impl FrameStats {
             let _ = QueryPerformanceCounter(&mut qpc);
         }
 
+        self.record_frame(qpc);
+    }
+
+    /// Record a frame with an explicit timestamp (for testing).
+    #[cfg(test)]
+    pub fn record_with_qpc(&mut self, qpc: i64) {
+        self.record_frame(qpc);
+    }
+
+    /// Shared frame recording logic: computes delta from last QPC, updates ring buffer.
+    fn record_frame(&mut self, qpc: i64) {
         if self.last_qpc > 0 && self.qpc_freq > 0.0 {
             let delta_ticks = (qpc - self.last_qpc) as f64;
             let frame_time_ms = (delta_ticks / self.qpc_freq) * 1000.0;
@@ -120,34 +131,6 @@ impl FrameStats {
                 }
 
                 // Refresh display snapshot periodically (prevents jittery text)
-                if self.total_frames % DISPLAY_UPDATE_INTERVAL as u64 == 0 {
-                    self.refresh_display();
-                }
-            }
-        }
-
-        self.last_qpc = qpc;
-    }
-
-    /// Record a frame with an explicit timestamp (for testing).
-    #[cfg(test)]
-    pub fn record_with_qpc(&mut self, qpc: i64) {
-        if self.last_qpc > 0 && self.qpc_freq > 0.0 {
-            let delta_ticks = (qpc - self.last_qpc) as f64;
-            let frame_time_ms = (delta_ticks / self.qpc_freq) * 1000.0;
-
-            if frame_time_ms > 0.0 && frame_time_ms < 1000.0 {
-                self.ring[self.head] = frame_time_ms as f32;
-                self.head = (self.head + 1) % RING_BUFFER_SIZE;
-                if self.count < RING_BUFFER_SIZE {
-                    self.count += 1;
-                }
-                self.total_frames += 1;
-
-                if self.total_frames % PERCENTILE_RECALC_INTERVAL as u64 == 0 && self.count >= 10 {
-                    self.recalc_percentiles();
-                }
-
                 if self.total_frames % DISPLAY_UPDATE_INTERVAL as u64 == 0 {
                     self.refresh_display();
                 }

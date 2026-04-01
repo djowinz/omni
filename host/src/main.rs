@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
+use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 
 /// Load and apply a theme CSS file for the given overlay.
 fn reload_theme(
@@ -300,17 +301,17 @@ fn run_stop() {
         }
 
         info!(pid, "Terminating omni-host instance");
-        // SAFETY: Opening with PROCESS_TERMINATE and calling TerminateProcess
-        // on a verified omni-host.exe PID. Handle is closed immediately after.
-        unsafe {
-            use windows::Win32::System::Threading::{
-                OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-            };
-            if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-                let _ = TerminateProcess(handle, 0);
-                let _ = windows::Win32::Foundation::CloseHandle(handle);
+        // SAFETY: Opening with PROCESS_TERMINATE on a verified omni-host.exe PID.
+        match unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) } {
+            Ok(raw) => {
+                let handle = win32::OwnedHandle::new(raw);
+                // SAFETY: Valid handle, process is a known omni-host instance.
+                unsafe {
+                    let _ = TerminateProcess(handle.raw(), 0);
+                }
                 killed += 1;
-            } else {
+            }
+            Err(_) => {
                 error!(pid, "Failed to open process for termination");
             }
         }

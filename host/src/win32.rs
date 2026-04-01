@@ -60,7 +60,7 @@ pub fn iter_processes() -> Result<Vec<PROCESSENTRY32W>, HostError> {
 
     // SAFETY: `entry.dwSize` is set to the correct struct size.
     // `snapshot` is a valid Toolhelp32 handle.
-    unsafe { Process32FirstW(snapshot.raw(), &mut entry) }.map_err(|e| HostError::Win32(e))?;
+    unsafe { Process32FirstW(snapshot.raw(), &mut entry) }?;
 
     entries.push(entry);
 
@@ -149,6 +149,23 @@ pub fn find_remote_module_path(pid: u32, dll_name: &str) -> Result<Option<String
         .iter()
         .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
         .map(|m| wchar_to_string(&m.szExePath)))
+}
+
+/// Find a module's base address and file path in one snapshot (case-insensitive).
+pub fn find_remote_module(
+    pid: u32,
+    dll_name: &str,
+) -> Result<Option<(*const std::ffi::c_void, String)>, HostError> {
+    let modules = iter_modules(pid)?;
+    Ok(modules
+        .iter()
+        .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
+        .map(|m| {
+            (
+                m.modBaseAddr as *const std::ffi::c_void,
+                wchar_to_string(&m.szExePath),
+            )
+        }))
 }
 
 #[cfg(test)]

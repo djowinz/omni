@@ -136,10 +136,6 @@ pub fn inject_dll(pid: u32, dll_path: &str) -> Result<(), HostError> {
         WaitForSingleObject(thread.raw(), 10_000);
     }
 
-    // OwnedHandle closes thread handle on drop.
-    // RemoteAlloc frees remote memory on drop.
-    // OwnedHandle closes process handle on drop.
-
     info!("DLL injection complete");
     Ok(())
 }
@@ -200,13 +196,10 @@ fn find_remote_export(
     dll_name: &str,
     export_name: &str,
 ) -> Result<Option<*const std::ffi::c_void>, HostError> {
-    let remote_base = match win32::find_remote_module_base(pid, dll_name)? {
-        Some(base) => base as usize,
+    let (remote_base, dll_path) = match win32::find_remote_module(pid, dll_name)? {
+        Some((base, path)) => (base as usize, path),
         None => return Ok(None),
     };
-
-    let dll_path = win32::find_remote_module_path(pid, dll_name)?
-        .ok_or_else(|| HostError::Message(format!("Could not get path for '{}'", dll_name)))?;
 
     let rva = find_export_rva_from_file(&dll_path, export_name)?.ok_or_else(|| {
         HostError::Message(format!(

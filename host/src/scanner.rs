@@ -9,6 +9,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
 };
 
+use windows::Win32::System::Diagnostics::ToolHelp::MODULEENTRY32W;
+
 use crate::config::Config;
 use crate::win32;
 
@@ -100,40 +102,37 @@ impl Scanner {
                 continue;
             }
 
-            if is_system_process(pid) {
+            if !has_visible_window(pid) {
+                continue;
+            }
+
+            let modules = match win32::iter_modules(pid) {
+                Ok(m) => m,
+                Err(e) => {
+                    debug!(pid, exe_name, error = %e, "Could not enumerate modules (access denied?)");
+                    continue;
+                }
+            };
+
+            if is_system_process(&modules) {
                 debug!(pid, exe_name, "Skipping system directory process");
                 self.seen.insert(pid);
                 continue;
             }
 
-            if !has_visible_window(pid) {
+            if !has_graphics_dll(&modules) {
                 continue;
             }
 
-            let graphics = match has_graphics_dll(pid) {
-                Ok(v) => v,
-                Err(e) => {
-                    debug!(pid, exe_name, error = %e, "Could not check modules (access denied?)");
-                    continue;
-                }
-            };
-            if !graphics {
+            let overlay_loaded = modules.iter().any(|m| {
+                win32::wchar_to_string(&m.szModule).eq_ignore_ascii_case(&self.dll_filename)
+            });
+            if overlay_loaded {
+                info!(pid, exe_name, "Overlay DLL already loaded — reconnecting");
+                self.injected.insert(pid);
+                self.last_injected_exe = Some(exe_name.clone());
+                self.seen.insert(pid);
                 continue;
-            }
-
-            match win32::has_module(pid, &self.dll_filename) {
-                Ok(true) => {
-                    info!(pid, exe_name, "Overlay DLL already loaded — reconnecting");
-                    self.injected.insert(pid);
-                    self.last_injected_exe = Some(exe_name.clone());
-                    self.seen.insert(pid);
-                    continue;
-                }
-                Ok(false) => {}
-                Err(e) => {
-                    debug!(pid, exe_name, error = %e, "Could not check for overlay DLL");
-                    continue;
-                }
             }
 
             if self.pre_existing.contains(&pid) {
@@ -143,7 +142,9 @@ impl Scanner {
                     .iter()
                     .any(|inc| inc.eq_ignore_ascii_case(&exe_name));
                 if !in_include_list {
-                    let exe_path = win32::get_process_exe_path(pid)
+                    let exe_path = modules
+                        .first()
+                        .map(|m| win32::wchar_to_string(&m.szExePath))
                         .unwrap_or_default()
                         .to_lowercase();
                     let in_game_dir = self
@@ -194,18 +195,17 @@ impl Scanner {
 
 // Scanner-specific helpers (not shared)
 
-fn has_graphics_dll(pid: u32) -> Result<bool, crate::error::HostError> {
-    let modules = win32::iter_modules(pid)?;
-    Ok(modules.iter().any(|m| {
+fn has_graphics_dll(modules: &[MODULEENTRY32W]) -> bool {
+    modules.iter().any(|m| {
         let name = win32::wchar_to_string(&m.szModule).to_ascii_lowercase();
         GRAPHICS_DLLS.iter().any(|&dll| name == dll)
-    }))
+    })
 }
 
-fn is_system_process(pid: u32) -> bool {
-    match win32::get_process_exe_path(pid) {
-        Some(path) => {
-            let lower = path.to_lowercase();
+fn is_system_process(modules: &[MODULEENTRY32W]) -> bool {
+    match modules.first() {
+        Some(m) => {
+            let lower = win32::wchar_to_string(&m.szExePath).to_lowercase();
             lower.starts_with(r"c:\windows\") || lower.starts_with(r"c:\program files\windowsapps\")
         }
         None => false,
