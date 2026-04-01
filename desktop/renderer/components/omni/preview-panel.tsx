@@ -79,6 +79,10 @@ export function PreviewPanel() {
           </div>
 
           {/* Rendered overlay - container for position:absolute elements */}
+          {/* SECURITY: dangerouslySetInnerHTML renders user-authored overlay templates.
+              Safe in this context: contextIsolation is enabled, nodeIntegration is off,
+              and content comes from the user's own files. Before supporting shared/imported
+              overlays, add HTML sanitization to strip <script> and event handlers. */}
           <div
             className="absolute inset-0 pointer-events-none overflow-hidden"
             dangerouslySetInnerHTML={{ __html: scopedPreviewHtml }}

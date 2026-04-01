@@ -3,7 +3,7 @@
 import { useOmniState } from '@/hooks/use-omni-state';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { Activity, Cpu, MemoryStick, Gauge } from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 interface MetricConfig {
   key: string;
@@ -36,13 +36,6 @@ const categoryColors = {
   gpu: '#A855F7',
   cpu: '#3B82F6',
   ram: '#22C55E',
-};
-
-const categoryIcons = {
-  fps: Activity,
-  gpu: Gauge,
-  cpu: Cpu,
-  ram: MemoryStick,
 };
 
 export function MetricSimulator() {

@@ -6,14 +6,17 @@ const isProd = process.env.NODE_ENV === 'production';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let isQuitting = false;
 const hostManager = new HostManager();
 
 function createWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, 'preload.js');
 
   const win = new BrowserWindow({
-    width: 480,
-    height: 360,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     title: 'Omni',
     webPreferences: {
       preload: preloadPath,
@@ -27,7 +30,7 @@ function createWindow(): BrowserWindow {
 
   // Minimize to tray on close
   win.on('close', (e) => {
-    if (!(app as any).isQuitting) {
+    if (!isQuitting) {
       e.preventDefault();
       win.hide();
     }
@@ -66,7 +69,7 @@ function createTray(): void {
     {
       label: 'Quit',
       click: () => {
-        (app as any).isQuitting = true;
+        isQuitting = true;
         app.quit();
       },
     },

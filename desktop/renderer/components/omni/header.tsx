@@ -60,24 +60,8 @@ export function Header() {
         <div className="flex items-center gap-4">
           {/* Logo with gradient glow */}
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <div 
-                className="absolute inset-0 blur-lg opacity-40"
-                style={{ background: 'linear-gradient(135deg, #00D9FF 0%, #A855F7 100%)' }}
-              />
-              <img
-                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/omni-icon-sIEEieEM2LUkzpusxSu15EbauspDQ4.png"
-                alt="Omni"
-                width={32}
-                height={32}
-                className="relative rounded"
-              />
-            </div>
-            <img
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/omni-text-logo-DLoFQbgpMus1Wq0j7WJd1npgqT5IwY.png"
-              alt="Omni"
-              className="relative h-5 w-auto"
-            />
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#00D9FF] to-[#A855F7] flex items-center justify-content-center" />
+            <span className="text-lg font-bold tracking-wider text-[#FAFAFA]">OMNI</span>
           </div>
 
           {/* Divider */}

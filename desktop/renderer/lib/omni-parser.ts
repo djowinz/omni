@@ -12,8 +12,7 @@ export function parseOmniContent(content: string): ParsedWidget[] {
   const widgetCloseRegex = /<\/widget>/gi;
   
   let match;
-  let currentLine = 0;
-  
+
   // Find all widget tags and their line positions
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -269,13 +268,6 @@ function evaluateCondition(condition: string, metrics: MetricValues): boolean {
     case '!=': return value !== threshold;
     default: return false;
   }
-}
-
-/**
- * Generate line numbers for editor display
- */
-export function getLineNumbers(content: string): number {
-  return content.split('\n').length;
 }
 
 /**
