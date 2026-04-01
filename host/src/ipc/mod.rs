@@ -22,11 +22,12 @@ unsafe impl Send for SharedMemoryWriter {}
 
 impl SharedMemoryWriter {
     /// Create a new named shared memory region.
-    pub fn create() -> Result<Self, String> {
+    pub fn create() -> Result<Self, crate::error::HostError> {
         let size = std::mem::size_of::<SharedOverlayState>() as u32;
 
         let name_wide: Vec<u16> = SHARED_MEM_NAME.encode_utf16().chain(std::iter::once(0)).collect();
 
+        // SAFETY: INVALID_HANDLE_VALUE (-1) creates a page-file-backed mapping. name_wide is a valid null-terminated UTF-16 string.
         let handle = unsafe {
             CreateFileMappingW(
                 HANDLE(-1isize as *mut std::ffi::c_void), // INVALID_HANDLE_VALUE = page file backed
@@ -36,21 +37,23 @@ impl SharedMemoryWriter {
                 size,
                 windows::core::PCWSTR(name_wide.as_ptr()),
             )
-            .map_err(|e| format!("CreateFileMappingW failed: {e}"))?
+            .map_err(crate::error::HostError::Win32)?
         };
 
+        // SAFETY: handle was successfully created above. FILE_MAP_ALL_ACCESS grants read/write.
         let ptr = unsafe {
             MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0)
         };
 
         if ptr.Value.is_null() {
             unsafe { let _ = CloseHandle(handle); }
-            return Err("MapViewOfFile returned null".into());
+            return Err(crate::error::HostError::Message("MapViewOfFile returned null".into()));
         }
 
         let state_ptr = ptr.Value as *mut SharedOverlayState;
 
         // Zero-initialize the shared memory
+        // SAFETY: state_ptr points to a freshly mapped region of the correct size. write_bytes zeroes it completely.
         unsafe {
             ptr::write_bytes(state_ptr, 0, 1);
             // Initialize active_slot to 0
@@ -68,6 +71,7 @@ impl SharedMemoryWriter {
 
     /// Write sensor data and widgets to the inactive slot, then flip.
     pub fn write(&mut self, sensor_data: &SensorSnapshot, widgets: &[ComputedWidget], layout_version: u64) {
+        // SAFETY: self.ptr is valid for the lifetime of this writer (mapped in create, unmapped in Drop). Only the host thread calls write.
         let state = unsafe { &*self.ptr };
         let slot_idx = state.writer_slot_index();
         let slot = unsafe { &mut (*self.ptr).slots[slot_idx] };
@@ -93,6 +97,7 @@ impl SharedMemoryWriter {
     /// Returns the DLL's frame stats so the host can use them in
     /// reactive class conditions (e.g., "fps < 30").
     pub fn read_dll_frame_data(&self) -> omni_shared::FrameData {
+        // SAFETY: self.ptr is valid. Reading dll_frame_data is a plain Copy read.
         let state = unsafe { &*self.ptr };
         state.dll_frame_data
     }
@@ -100,6 +105,7 @@ impl SharedMemoryWriter {
 
 impl Drop for SharedMemoryWriter {
     fn drop(&mut self) {
+        // SAFETY: Unmapping and closing the handle we created in create.
         unsafe {
             let _ = UnmapViewOfFile(windows::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS {
                 Value: self.ptr as *mut std::ffi::c_void,

@@ -19,7 +19,23 @@ pub enum ReloadEvent {
 /// emits debounced [`ReloadEvent`]s over the `rx` channel.
 pub struct FileWatcher {
     _watcher: RecommendedWatcher,
-    pub rx: mpsc::Receiver<ReloadEvent>,
+    rx: mpsc::Receiver<ReloadEvent>,
+}
+
+impl FileWatcher {
+    /// Drain all pending events from the channel.
+    pub fn drain_events(&self) -> Vec<ReloadEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = self.rx.try_recv() {
+            events.push(event);
+        }
+        events
+    }
+
+    /// Block until an event arrives or the timeout elapses.
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<ReloadEvent, mpsc::RecvTimeoutError> {
+        self.rx.recv_timeout(timeout)
+    }
 }
 
 impl FileWatcher {
@@ -31,7 +47,7 @@ impl FileWatcher {
         overlay_dir: PathBuf,
         themes_dir: PathBuf,
         config_path: PathBuf,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, crate::error::HostError> {
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<Event>>();
         let (event_tx, event_rx) = mpsc::channel::<ReloadEvent>();
 
@@ -316,7 +332,6 @@ mod tests {
         fs::write(ws.overlay_dir.join("overlay.omni"), "# changed").expect("write overlay.omni");
 
         let event = fw
-            .rx
             .recv_timeout(Duration::from_secs(5))
             .expect("expected ReloadEvent::Overlay within 5s");
         assert_eq!(event, ReloadEvent::Overlay);
@@ -338,7 +353,6 @@ mod tests {
         fs::write(ws.themes_dir.join("dark.css"), "body { color: red; }").expect("write dark.css");
 
         let event = fw
-            .rx
             .recv_timeout(Duration::from_secs(5))
             .expect("expected ReloadEvent::Theme within 5s");
         assert_eq!(event, ReloadEvent::Theme);
@@ -360,7 +374,6 @@ mod tests {
         fs::write(&ws.config_path, r#"{"theme":"dark"}"#).expect("write config.json");
 
         let event = fw
-            .rx
             .recv_timeout(Duration::from_secs(5))
             .expect("expected ReloadEvent::Config within 5s");
         assert_eq!(event, ReloadEvent::Config);
@@ -388,13 +401,12 @@ mod tests {
 
         // Exactly one debounced event should arrive
         let event = fw
-            .rx
             .recv_timeout(Duration::from_secs(5))
             .expect("expected exactly one ReloadEvent::Overlay within 5s");
         assert_eq!(event, ReloadEvent::Overlay);
 
         // No second event should arrive within 300 ms
-        let second = fw.rx.recv_timeout(Duration::from_millis(300));
+        let second = fw.recv_timeout(Duration::from_millis(300));
         assert!(
             second.is_err(),
             "expected no second event within 300ms, got: {second:?}"
