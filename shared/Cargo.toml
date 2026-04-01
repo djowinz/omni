@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# No external dependencies — pure #[repr(C)] types
+ts-rs = { version = "10", features = ["serde-compat"] }
