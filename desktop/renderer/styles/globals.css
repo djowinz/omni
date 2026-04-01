@@ -1,10 +1,206 @@
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-Light.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-LightItalic.otf') format('opentype');
+  font-weight: 300;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-Italic.otf') format('opentype');
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-MediumItalic.otf') format('opentype');
+  font-weight: 500;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Monaspace Krypton';
+  src: url('../../resources/fonts/MonaspaceKryptonNF-BoldItalic.otf') format('opentype');
+  font-weight: 700;
+  font-style: italic;
 }
 
-body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
+/* Omni Color Palette - Dark Theme Only (Desktop App) */
+:root {
+  /* Background: Charcoal Black */
+  --background: #0D0D0F;
+  --foreground: #FAFAFA;
+
+  /* Surface: Slightly lighter */
+  --card: #18181B;
+  --card-foreground: #FAFAFA;
+  --popover: #18181B;
+  --popover-foreground: #FAFAFA;
+
+  /* Primary: Cyan accent from logo */
+  --primary: #00D9FF;
+  --primary-foreground: #0D0D0F;
+
+  /* Secondary */
+  --secondary: #27272A;
+  --secondary-foreground: #FAFAFA;
+
+  /* Muted */
+  --muted: #27272A;
+  --muted-foreground: #A1A1AA;
+
+  /* Accent: Cyan */
+  --accent: #00D9FF;
+  --accent-foreground: #0D0D0F;
+
+  /* Destructive */
+  --destructive: #EF4444;
+  --destructive-foreground: #FAFAFA;
+
+  /* Borders */
+  --border: #27272A;
+  --input: #27272A;
+  --ring: #00D9FF;
+
+  /* Charts - using gradient colors */
+  --chart-1: #00D9FF;
+  --chart-2: #3B82F6;
+  --chart-3: #A855F7;
+  --chart-4: #22C55E;
+  --chart-5: #F59E0B;
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: #18181B;
+  --sidebar-foreground: #FAFAFA;
+  --sidebar-primary: #00D9FF;
+  --sidebar-primary-foreground: #0D0D0F;
+  --sidebar-accent: #27272A;
+  --sidebar-accent-foreground: #FAFAFA;
+  --sidebar-border: #27272A;
+  --sidebar-ring: #00D9FF;
+
+  /* Omni Custom Variables */
+  --omni-cyan: #00D9FF;
+  --omni-blue: #3B82F6;
+  --omni-purple: #A855F7;
+  --omni-success: #22C55E;
+  --omni-warning: #F59E0B;
+  --omni-critical: #EF4444;
+  --omni-surface: #18181B;
+  --omni-surface-hover: #27272A;
+}
+
+/* Dark mode uses same values (app is always dark) */
+.dark {
+  --background: #0D0D0F;
+  --foreground: #FAFAFA;
+  --card: #18181B;
+  --card-foreground: #FAFAFA;
+  --popover: #18181B;
+  --popover-foreground: #FAFAFA;
+  --primary: #00D9FF;
+  --primary-foreground: #0D0D0F;
+  --secondary: #27272A;
+  --secondary-foreground: #FAFAFA;
+  --muted: #27272A;
+  --muted-foreground: #A1A1AA;
+  --accent: #00D9FF;
+  --accent-foreground: #0D0D0F;
+  --destructive: #EF4444;
+  --destructive-foreground: #FAFAFA;
+  --border: #27272A;
+  --input: #27272A;
+  --ring: #00D9FF;
+  --chart-1: #00D9FF;
+  --chart-2: #3B82F6;
+  --chart-3: #A855F7;
+  --chart-4: #22C55E;
+  --chart-5: #F59E0B;
+  --sidebar: #18181B;
+  --sidebar-foreground: #FAFAFA;
+  --sidebar-primary: #00D9FF;
+  --sidebar-primary-foreground: #0D0D0F;
+  --sidebar-accent: #27272A;
+  --sidebar-accent-foreground: #FAFAFA;
+  --sidebar-border: #27272A;
+  --sidebar-ring: #00D9FF;
+}
+
+@theme inline {
+  --font-sans: 'Monaspace Krypton', monospace;
+  --font-mono: 'Monaspace Krypton', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
