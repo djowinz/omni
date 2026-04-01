@@ -17,7 +17,9 @@ use windows::Win32::System::Memory::{
     VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
 };
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, OpenProcess, WaitForSingleObject, PROCESS_ALL_ACCESS,
+    CreateRemoteThread, OpenProcess, WaitForSingleObject,
+    PROCESS_ACCESS_RIGHTS, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
+    PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
 };
 
 use crate::error::HostError;
@@ -70,8 +72,11 @@ pub fn inject_dll(pid: u32, dll_path: &str) -> Result<(), HostError> {
 
     debug!(pid, dll_path, path_byte_size, "Opening target process");
 
-    // SAFETY: OpenProcess with PROCESS_ALL_ACCESS on a valid PID.
-    let process = OwnedHandle::new(unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, pid)? });
+    const INJECT_RIGHTS: PROCESS_ACCESS_RIGHTS = PROCESS_ACCESS_RIGHTS(
+        PROCESS_CREATE_THREAD.0 | PROCESS_VM_OPERATION.0 | PROCESS_VM_WRITE.0 | PROCESS_QUERY_INFORMATION.0,
+    );
+    // SAFETY: OpenProcess with minimum required rights on a valid PID.
+    let process = OwnedHandle::new(unsafe { OpenProcess(INJECT_RIGHTS, false, pid)? });
 
     // SAFETY: Allocating read/write memory in the target process.
     let remote_mem = unsafe {
@@ -160,8 +165,11 @@ pub fn eject_dll(pid: u32, dll_name: &str) -> Result<(), HostError> {
 
     debug!(?shutdown_addr, "Found omni_shutdown address");
 
-    // SAFETY: Opening the target process for thread creation.
-    let process = OwnedHandle::new(unsafe { OpenProcess(PROCESS_ALL_ACCESS, false, pid)? });
+    const EJECT_RIGHTS: PROCESS_ACCESS_RIGHTS = PROCESS_ACCESS_RIGHTS(
+        PROCESS_CREATE_THREAD.0 | PROCESS_QUERY_INFORMATION.0,
+    );
+    // SAFETY: Opening the target process with minimum required rights.
+    let process = OwnedHandle::new(unsafe { OpenProcess(EJECT_RIGHTS, false, pid)? });
 
     // SAFETY: shutdown_addr is the resolved address of omni_shutdown.
     let thread = OwnedHandle::new(unsafe {
@@ -216,74 +224,42 @@ fn find_remote_export(
 fn find_export_rva_from_file(dll_path: &str, export_name: &str) -> Result<Option<u32>, HostError> {
     let data = std::fs::read(dll_path)?;
 
-    // DOS header: e_lfanew at offset 0x3C.
     if data.len() < 0x40 {
         return Err("File too small for DOS header".into());
     }
-    let e_lfanew = u32::from_le_bytes(
-        data[0x3C..0x40]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid DOS header slice".into()))?,
-    ) as usize;
+    let e_lfanew = read_u32(&data, 0x3C)? as usize;
 
-    // PE signature + COFF header (20 bytes) + optional header.
     let coff_start = e_lfanew + 4;
     if data.len() < coff_start + 20 {
         return Err("File too small for COFF header".into());
     }
 
     let optional_hdr_start = coff_start + 20;
-    let magic = u16::from_le_bytes(
-        data[optional_hdr_start..optional_hdr_start + 2]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid optional header slice".into()))?,
-    );
+    let magic = read_u16(&data, optional_hdr_start)?;
 
-    // Export directory is data directory index 0.
     let export_dir_offset = match magic {
-        0x20B => optional_hdr_start + 112, // PE32+ (64-bit)
-        0x10B => optional_hdr_start + 96,  // PE32 (32-bit)
-        _ => return Err(format!("Unknown PE optional header magic: {:#x}", magic).into()),
+        0x20B => optional_hdr_start + 112,
+        0x10B => optional_hdr_start + 96,
+        _ => return Err(format!("Unknown PE optional header magic: {magic:#x}").into()),
     };
 
-    if data.len() < export_dir_offset + 8 {
-        return Err("File too small for export data directory".into());
-    }
-
-    let export_rva = u32::from_le_bytes(
-        data[export_dir_offset..export_dir_offset + 4]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid export RVA slice".into()))?,
-    ) as usize;
-    let export_size = u32::from_le_bytes(
-        data[export_dir_offset + 4..export_dir_offset + 8]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid export size slice".into()))?,
-    ) as usize;
+    let export_rva = read_u32(&data, export_dir_offset)? as usize;
+    let export_size = read_u32(&data, export_dir_offset + 4)? as usize;
 
     if export_rva == 0 || export_size == 0 {
-        return Ok(None); // No export directory.
+        return Ok(None);
     }
 
-    // Convert RVA to file offset using section headers.
-    let num_sections = u16::from_le_bytes(
-        data[coff_start + 2..coff_start + 4]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid section count slice".into()))?,
-    ) as usize;
-    let optional_hdr_size = u16::from_le_bytes(
-        data[coff_start + 16..coff_start + 18]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid optional header size slice".into()))?,
-    ) as usize;
+    let num_sections = read_u16(&data, coff_start + 2)? as usize;
+    let optional_hdr_size = read_u16(&data, coff_start + 16)? as usize;
     let sections_start = optional_hdr_start + optional_hdr_size;
 
     let rva_to_offset = |rva: usize| -> Option<usize> {
         for i in 0..num_sections {
             let s = sections_start + i * 40;
-            let vaddr = u32::from_le_bytes(data[s + 12..s + 16].try_into().ok()?) as usize;
-            let vsize = u32::from_le_bytes(data[s + 8..s + 12].try_into().ok()?) as usize;
-            let raw_ptr = u32::from_le_bytes(data[s + 20..s + 24].try_into().ok()?) as usize;
+            let vaddr = u32::from_le_bytes(data.get(s + 12..s + 16)?.try_into().ok()?) as usize;
+            let vsize = u32::from_le_bytes(data.get(s + 8..s + 12)?.try_into().ok()?) as usize;
+            let raw_ptr = u32::from_le_bytes(data.get(s + 20..s + 24)?.try_into().ok()?) as usize;
             if rva >= vaddr && rva < vaddr + vsize {
                 return Some(rva - vaddr + raw_ptr);
             }
@@ -291,32 +267,13 @@ fn find_export_rva_from_file(dll_path: &str, export_name: &str) -> Result<Option
         None
     };
 
-    let export_offset = rva_to_offset(export_rva).ok_or_else(|| {
-        HostError::Message("Could not map export directory RVA to file offset".into())
-    })?;
+    let export_offset = rva_to_offset(export_rva)
+        .ok_or_else(|| HostError::Message("Could not map export directory RVA".into()))?;
 
-    // Export directory table: NumberOfNames at +24, AddressOfFunctions at +28,
-    // AddressOfNames at +32, AddressOfNameOrdinals at +36.
-    let num_names = u32::from_le_bytes(
-        data[export_offset + 24..export_offset + 28]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid num_names slice".into()))?,
-    ) as usize;
-    let addr_of_functions_rva = u32::from_le_bytes(
-        data[export_offset + 28..export_offset + 32]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid functions RVA slice".into()))?,
-    ) as usize;
-    let addr_of_names_rva = u32::from_le_bytes(
-        data[export_offset + 32..export_offset + 36]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid names RVA slice".into()))?,
-    ) as usize;
-    let addr_of_ordinals_rva = u32::from_le_bytes(
-        data[export_offset + 36..export_offset + 40]
-            .try_into()
-            .map_err(|_| HostError::Message("Invalid ordinals RVA slice".into()))?,
-    ) as usize;
+    let num_names = read_u32(&data, export_offset + 24)? as usize;
+    let addr_of_functions_rva = read_u32(&data, export_offset + 28)? as usize;
+    let addr_of_names_rva = read_u32(&data, export_offset + 32)? as usize;
+    let addr_of_ordinals_rva = read_u32(&data, export_offset + 36)? as usize;
 
     let names_offset = rva_to_offset(addr_of_names_rva)
         .ok_or_else(|| HostError::Message("Could not map names RVA".into()))?;
@@ -326,37 +283,40 @@ fn find_export_rva_from_file(dll_path: &str, export_name: &str) -> Result<Option
         .ok_or_else(|| HostError::Message("Could not map functions RVA".into()))?;
 
     for i in 0..num_names {
-        let name_rva = u32::from_le_bytes(
-            data[names_offset + i * 4..names_offset + i * 4 + 4]
-                .try_into()
-                .map_err(|_| HostError::Message("Invalid export name RVA slice".into()))?,
-        ) as usize;
+        let name_rva = read_u32(&data, names_offset + i * 4)? as usize;
         let name_offset = rva_to_offset(name_rva)
             .ok_or_else(|| HostError::Message("Could not map export name RVA".into()))?;
 
-        // Read null-terminated name.
-        let name_end = data[name_offset..]
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(0)
-            + name_offset;
-        let name = std::str::from_utf8(&data[name_offset..name_end])
+        let name_end = data
+            .get(name_offset..)
+            .and_then(|s| s.iter().position(|&b| b == 0))
+            .map(|pos| name_offset + pos)
+            .unwrap_or(name_offset);
+        let name = std::str::from_utf8(data.get(name_offset..name_end).unwrap_or(&[]))
             .map_err(|e| HostError::Message(format!("Invalid UTF-8 in export name: {e}")))?;
 
         if name == export_name {
-            let ordinal = u16::from_le_bytes(
-                data[ordinals_offset + i * 2..ordinals_offset + i * 2 + 2]
-                    .try_into()
-                    .map_err(|_| HostError::Message("Invalid ordinal slice".into()))?,
-            ) as usize;
-            let func_rva = u32::from_le_bytes(
-                data[functions_offset + ordinal * 4..functions_offset + ordinal * 4 + 4]
-                    .try_into()
-                    .map_err(|_| HostError::Message("Invalid function RVA slice".into()))?,
-            );
+            let ordinal = read_u16(&data, ordinals_offset + i * 2)? as usize;
+            let func_rva = read_u32(&data, functions_offset + ordinal * 4)?;
             return Ok(Some(func_rva));
         }
     }
 
     Ok(None)
+}
+
+/// Read a little-endian u32 from `data` at `offset` with bounds checking.
+fn read_u32(data: &[u8], offset: usize) -> Result<u32, HostError> {
+    data.get(offset..offset + 4)
+        .and_then(|s| s.try_into().ok())
+        .map(u32::from_le_bytes)
+        .ok_or_else(|| HostError::Message(format!("PE read out of bounds at offset {offset:#x}")))
+}
+
+/// Read a little-endian u16 from `data` at `offset` with bounds checking.
+fn read_u16(data: &[u8], offset: usize) -> Result<u16, HostError> {
+    data.get(offset..offset + 2)
+        .and_then(|s| s.try_into().ok())
+        .map(u16::from_le_bytes)
+        .ok_or_else(|| HostError::Message(format!("PE read out of bounds at offset {offset:#x}")))
 }
