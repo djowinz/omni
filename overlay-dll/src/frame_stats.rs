@@ -44,11 +44,15 @@ impl FrameStats {
     /// Create a new FrameStats. Call once during renderer init.
     pub fn new() -> Self {
         let mut freq: i64 = 0;
+        // SAFETY: QueryPerformanceFrequency always succeeds on Windows XP+.
+        // Writes to a stack-local i64.
         unsafe {
             let _ = QueryPerformanceFrequency(&mut freq);
         }
 
         let mut qpc: i64 = 0;
+        // SAFETY: QueryPerformanceCounter always succeeds on Windows XP+.
+        // Writes to a stack-local i64.
         unsafe {
             let _ = QueryPerformanceCounter(&mut qpc);
         }
@@ -93,6 +97,8 @@ impl FrameStats {
     /// Record a frame. Call once per Present hook invocation.
     pub fn record(&mut self) {
         let mut qpc: i64 = 0;
+        // SAFETY: QueryPerformanceCounter always succeeds on Windows XP+.
+        // Writes to a stack-local i64.
         unsafe {
             let _ = QueryPerformanceCounter(&mut qpc);
         }

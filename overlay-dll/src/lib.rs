@@ -13,6 +13,10 @@ mod frame_stats;
 use logging::log_to_file;
 
 /// Module handle for this DLL, saved on attach for use during shutdown.
+///
+/// # Safety
+/// Written once in `DllMain` (DLL_PROCESS_ATTACH), read once in `omni_shutdown`.
+/// Both are serialized by the Windows loader / our own call sequence.
 static mut DLL_MODULE: Option<HINSTANCE> = None;
 
 /// DLL entry point. Called by Windows when the DLL is loaded/unloaded.
@@ -31,6 +35,9 @@ pub unsafe extern "system" fn DllMain(
             DLL_MODULE = Some(hinst);
             log_to_file("omni overlay DLL attached — spawning init thread");
             std::thread::spawn(|| {
+                // SAFETY: install_hooks is called on a dedicated thread (not
+                // under loader lock). It accesses static mut globals that
+                // are not yet initialized, so no data race.
                 if let Err(e) = unsafe { hook::install_hooks() } {
                     log_to_file(&format!("FATAL: hook installation failed: {e}"));
                 }
@@ -74,7 +81,8 @@ pub unsafe extern "system" fn omni_shutdown(_param: *mut c_void) -> u32 {
 
     log_to_file("[shutdown] hooks disabled, resources released, unloading DLL");
 
-    // Get our own module handle to pass to FreeLibraryAndExitThread.
+    // SAFETY: GetModuleHandleA with a known module name returns a valid
+    // HMODULE. FreeLibraryAndExitThread atomically unloads and exits.
     if let Ok(hmod) = GetModuleHandleA(windows::core::s!("omni_overlay.dll")) {
         windows::Win32::System::LibraryLoader::FreeLibraryAndExitThread(hmod, 0);
     }

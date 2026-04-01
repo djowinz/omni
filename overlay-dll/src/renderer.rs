@@ -1,6 +1,7 @@
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 
+use omni_shared::{ComputedWidget, read_fixed_str};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D_POINT_2F, D2D_SIZE_F, D2D1_COLOR_F, D2D1_GRADIENT_STOP,
     D2D1_PIXEL_FORMAT, D2D1_ALPHA_MODE_PREMULTIPLIED,
@@ -33,8 +34,6 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET,
 };
 use windows::core::{w, Interface, IUnknown};
-
-use omni_shared::{ComputedWidget, read_fixed_str};
 
 use crate::logging::log_to_file;
 

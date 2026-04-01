@@ -58,6 +58,12 @@ pub const CREATE_SWAP_CHAIN_FOR_HWND_VTABLE_INDEX: usize = 15;
 //   ID3D12CommandQueue : 8=UpdateTileMappings, 9=CopyTileMappings, 10=ExecuteCommandLists, ...
 pub const EXECUTE_COMMAND_LISTS_VTABLE_INDEX: usize = 10;
 
+// SAFETY (static mut globals): These are written once during `install_hooks`
+// (single init thread) and read from hook callbacks on the render thread.
+// The `HOOKS_INSTALLED` AtomicBool gate ensures hooks are fully installed
+// before any callback fires. On shutdown, hooks are disabled (SeqCst)
+// before any globals are cleared.
+
 /// Captured DX12 command queue (if the game is using DX12).
 /// Set by the CreateSwapChainForHwnd hook or the ExecuteCommandLists hook.
 pub static mut CAPTURED_COMMAND_QUEUE: Option<ID3D12CommandQueue> = None;
@@ -91,13 +97,17 @@ pub struct SwapChainVtable {
     pub resize_buffers: *const c_void,
 }
 
-// SAFETY: we only read these addresses (never dereference them as objects);
-// they are valid for the lifetime of dxgi.dll.
+// SAFETY: SwapChainVtable contains raw pointers to vtable entries in dxgi.dll.
+// We only store and compare these addresses — never dereference them as COM objects.
+// The addresses are valid for the lifetime of dxgi.dll (the entire process).
 unsafe impl Send for SwapChainVtable {}
 unsafe impl Sync for SwapChainVtable {}
 
 // ─── Dummy window helper ───────────────────────────────────────────────────────
 
+/// # Safety
+/// Calls Win32 window registration and creation APIs. The returned HWND
+/// must be destroyed by the caller via `DestroyWindow`.
 unsafe fn create_dummy_window() -> Result<HWND, String> {
     let hinstance: HINSTANCE = GetModuleHandleW(PCWSTR::null())
         .map_err(|e| format!("GetModuleHandleW failed: {e}"))?
@@ -144,6 +154,9 @@ unsafe extern "system" fn dummy_wnd_proc(
 
 /// Read Present, Present1, and ResizeBuffers function pointers from an IDXGISwapChain1.
 /// We read from IDXGISwapChain1 (not base IDXGISwapChain) so we can also get Present1.
+///
+/// # Safety
+/// `swap_chain` must be a valid IDXGISwapChain1 with a live COM reference.
 unsafe fn read_vtable(swap_chain: &IDXGISwapChain1) -> SwapChainVtable {
     let raw_ptr: *mut *const *const c_void = Interface::as_raw(swap_chain) as _;
     let vtable: *const *const c_void = *raw_ptr;
@@ -326,6 +339,8 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
     // For DX11 games, this will fail — that's fine.
     // Always overwrite — games may create multiple swap chains (splash → main game)
     // and the latest one is the one we want.
+    // SAFETY: p_device is a valid IUnknown pointer from the DXGI runtime.
+    // QueryInterface for ID3D12CommandQueue — if DX11, returns E_NOINTERFACE.
     if !p_device.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&p_device);
         match unknown.cast::<ID3D12CommandQueue>() {
@@ -470,6 +485,9 @@ pub unsafe fn hook_execute_command_lists_deferred(
     // Drop the temp queue before hooking
     drop(queue);
 
+    // SAFETY: execute_cl_addr is a valid function pointer read from the
+    // ID3D12CommandQueue vtable. hooked_execute_command_lists has the
+    // matching ExecuteCommandListsFn signature.
     let original_ecl = minhook::MinHook::create_hook(
         execute_cl_addr as *mut c_void,
         hooked_execute_command_lists as *mut c_void,
@@ -511,6 +529,8 @@ pub unsafe fn install_hooks() -> Result<(), String> {
 
     let vtable = discover_swapchain_vtable()?;
 
+    // SAFETY: vtable.present is a valid function pointer read from the
+    // IDXGISwapChain vtable. hooked_present has the matching PresentFn signature.
     // Hook Present
     let original_present = minhook::MinHook::create_hook(
         vtable.present as *mut c_void,
@@ -521,6 +541,8 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     crate::present::ORIGINAL_PRESENT =
         Some(std::mem::transmute::<*mut c_void, crate::present::PresentFn>(original_present));
 
+    // SAFETY: vtable.present1 is a valid function pointer read from the
+    // IDXGISwapChain1 vtable. hooked_present1 has the matching Present1Fn signature.
     // Hook Present1 (IDXGISwapChain1::Present1 — used by SDL and modern games)
     let original_present1 = minhook::MinHook::create_hook(
         vtable.present1 as *mut c_void,
@@ -531,6 +553,8 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     crate::present::ORIGINAL_PRESENT1 =
         Some(std::mem::transmute::<*mut c_void, crate::present::Present1Fn>(original_present1));
 
+    // SAFETY: vtable.resize_buffers is a valid function pointer read from the
+    // IDXGISwapChain vtable. hooked_resize_buffers has the matching ResizeBuffersFn signature.
     // Hook ResizeBuffers
     let original_resize = minhook::MinHook::create_hook(
         vtable.resize_buffers as *mut c_void,
@@ -544,6 +568,9 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     // Hook CreateSwapChainForHwnd (captures DX12 command queue)
     match discover_factory2_vtable() {
         Ok(create_scfh_addr) => {
+            // SAFETY: create_scfh_addr is a valid function pointer read from the
+            // IDXGIFactory2 vtable. hooked_create_swap_chain_for_hwnd has the
+            // matching CreateSwapChainForHwndFn signature.
             let original_create_scfh = minhook::MinHook::create_hook(
                 create_scfh_addr as *mut c_void,
                 hooked_create_swap_chain_for_hwnd as *mut c_void,

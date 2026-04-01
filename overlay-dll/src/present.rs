@@ -11,6 +11,11 @@ pub type PresentFn = unsafe extern "system" fn(*mut c_void, u32, u32) -> HRESULT
 pub type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const c_void) -> HRESULT;
 pub type ResizeBuffersFn = unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> HRESULT;
 
+// SAFETY (static mut globals): All accessed exclusively from the render thread
+// (the thread that calls Present). ensure_renderer and ensure_shm_reader are
+// only called from render_overlay, which only runs from hooked Present/Present1.
+// RENDERER_INIT_DONE (AtomicBool) gates one-time init. destroy_renderer is
+// called from omni_shutdown after hooks are disabled and drained (200ms sleep).
 pub static mut ORIGINAL_PRESENT: Option<PresentFn> = None;
 pub static mut ORIGINAL_PRESENT1: Option<Present1Fn> = None;
 pub static mut ORIGINAL_RESIZE_BUFFERS: Option<ResizeBuffersFn> = None;
@@ -161,6 +166,9 @@ pub unsafe fn destroy_renderer() {
     log_to_file("[present] frame stats destroyed");
 }
 
+/// # Safety
+/// Called by the DXGI runtime via minhook trampoline. `swap_chain` is the
+/// same pointer the game passed to the original Present function.
 pub unsafe extern "system" fn hooked_present(
     swap_chain: *mut c_void,
     sync_interval: u32,
@@ -182,6 +190,9 @@ pub unsafe extern "system" fn hooked_present(
     }
 }
 
+/// # Safety
+/// Called by the DXGI runtime via minhook trampoline. `swap_chain` is the
+/// same pointer the game passed to the original Present function.
 pub unsafe extern "system" fn hooked_present1(
     swap_chain: *mut c_void,
     sync_interval: u32,
@@ -204,6 +215,9 @@ pub unsafe extern "system" fn hooked_present1(
     }
 }
 
+/// # Safety
+/// Called by the DXGI runtime via minhook trampoline. `swap_chain` is the
+/// same pointer the game passed to the original Present function.
 pub unsafe extern "system" fn hooked_resize_buffers(
     swap_chain: *mut c_void,
     buffer_count: u32,
