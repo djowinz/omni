@@ -11,9 +11,6 @@ interface OmniIpcBridge {
 declare global {
   interface Window {
     omni?: OmniIpcBridge;
-    electron: {
-      getResourcePath: (filename: string) => string;
-    };
   }
 }
 

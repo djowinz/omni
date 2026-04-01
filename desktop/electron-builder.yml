@@ -1,5 +1,8 @@
 appId: com.omni.desktop
 productName: Omni
+extraResources:
+  - from: "resources/"
+    to: "resources/"
 directories:
   output: dist
 files:

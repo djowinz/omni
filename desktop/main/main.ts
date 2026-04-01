@@ -1,4 +1,13 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, net } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain,
+  protocol,
+  net,
+} from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { HostManager } from "./host-manager";
@@ -84,14 +93,6 @@ function createTray(): void {
   });
 }
 
-// Get Resource path for frontend components
-ipcMain.on("get-resource-path", (event, filename) => {
-  const resourcesPath = app.isPackaged
-    ? path.join(app.getAppPath(), "resources")
-    : path.join(__dirname, "../../resources");
-  event.returnValue = path.join(resourcesPath, filename);
-});
-
 // Window control IPC handlers
 ipcMain.on("window-minimize", () => mainWindow?.minimize());
 ipcMain.on("window-maximize", () => {
@@ -105,30 +106,52 @@ ipcMain.on("window-close", () => mainWindow?.close());
 
 // Register omni:// protocol for serving local resources
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'omni', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  {
+    scheme: "omni",
+    privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
 ]);
 
 app.on("ready", async () => {
   // Handle omni://resource/<filename> requests by serving from resources/
   // URL format: omni://resource/omni-logo.png
   //   hostname = "resource", pathname = "/omni-logo.png"
-  protocol.handle('omni', (request) => {
+  protocol.handle("omni", (request) => {
     const url = new URL(request.url);
     const resourcesDir = isProd
-      ? path.join(app.getAppPath(), 'resources')
-      : path.join(__dirname, '../../resources');
+      ? path.join(app.getAppPath(), "resources")
+      : path.join(__dirname, "../resources");
 
     // Strip leading slash from pathname
-    const filename = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    const filename = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     const filePath = path.resolve(resourcesDir, filename);
+    const fileUrl = `file:///${filePath.replace(/\\/g, "/")}`;
+
+    // Debug logging in dev
+    if (!isProd) {
+      console.log("[omni://]", {
+        requestUrl: request.url,
+        hostname: url.hostname,
+        pathname: url.pathname,
+        filename,
+        resourcesDir: path.resolve(resourcesDir),
+        filePath,
+        fileUrl,
+        exists: fs.existsSync(filePath),
+      });
+    }
 
     // Prevent path traversal
     const resolvedResourcesDir = path.resolve(resourcesDir);
     if (!filePath.startsWith(resolvedResourcesDir)) {
-      return new Response('Forbidden', { status: 403 });
+      return new Response("Forbidden", { status: 403 });
     }
 
-    return net.fetch(`file:///${filePath.replace(/\\/g, '/')}`);
+    if (!fs.existsSync(filePath)) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    return net.fetch(fileUrl);
   });
   mainWindow = createWindow();
   createTray();
