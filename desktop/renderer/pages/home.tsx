@@ -17,7 +17,7 @@ export default function Home() {
         <Header />
         <main className="flex-1 overflow-hidden flex">
           {/* Widget panel — fixed width, not resizable */}
-          <div className="w-56 flex-shrink-0 border-r border-[#27272A]">
+          <div className="w-72 flex-shrink-0 border-r border-[#27272A]">
             <WidgetPanel />
           </div>
 
