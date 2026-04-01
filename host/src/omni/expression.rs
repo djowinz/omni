@@ -13,15 +13,16 @@
 //! primary  → NUMBER | SENSOR_PATH | "(" expr ")"
 //! ```
 
-use omni_shared::SensorSnapshot;
-use std::sync::Mutex;
 use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
 
-static WARNED_EXPRS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+use omni_shared::SensorSnapshot;
+
+static WARNED_EXPRS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 fn warn_once(expr: &str, reason: &str) {
-    let mut guard = WARNED_EXPRS.lock().unwrap_or_else(|e| e.into_inner());
-    let set = guard.get_or_insert_with(HashSet::new);
+    let mut set = WARNED_EXPRS.lock().unwrap_or_else(|e| e.into_inner());
     if set.insert(expr.to_string()) {
         tracing::warn!("expression eval failed for {:?}: {}", expr, reason);
     }
