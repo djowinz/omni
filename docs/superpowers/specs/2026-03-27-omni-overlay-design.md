@@ -452,15 +452,18 @@ INFO Sensor polling started
 - Live re-parse → re-layout → push to shared memory
 - Host-side preview window
 
-#### Phase 11: Electron App + Installer
+#### Phase 11a: Electron App Shell ✅
+- Nextron (Next.js + Electron) desktop app
+- Host process lifecycle management (spawn/connect)
+- System tray with minimize-to-tray behavior
+- Optional auto-start via scheduled task
+- WebSocket connection with ts-rs generated types
 
-- Visual widget editor with drag/drop
-- Monaco editor with custom IntelliSense for `.omni` format
-- Live HTML/CSS preview (browser-native WYSIWYG)
-- Parser errors piped to Monaco squiggles
-- Electron Builder + NSIS Windows installer
-- Tray icon / background service behavior
-- Built-in themes (dark, cyberpunk, retro)
+#### Phase 11e: Installer + Distribution ✅
+- NSIS Windows installer
+- Start Menu shortcut, Add/Remove Programs
+- Uninstaller with optional user data cleanup
+- build.ps1 orchestration script
 
 #### Phase 12: Polish
 
@@ -468,6 +471,13 @@ INFO Sensor polling started
 - Borderless window fallback for protected games
 - Graph/bar widget types
 - Performance profiling
+
+#### Phase 13: Editor + Advanced UI
+
+- Monaco code editor with .omni IntelliSense
+- Live HTML/CSS preview
+- Visual drag/drop widget editor
+- Built-in themes (dark, cyberpunk, retro)
 
 ---
 
