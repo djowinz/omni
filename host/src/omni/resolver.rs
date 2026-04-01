@@ -98,6 +98,11 @@ impl OmniResolver {
         }
     }
 
+    /// Returns true if any CSS transitions are currently in progress.
+    pub fn has_active_transitions(&self) -> bool {
+        self.transition_manager.has_active()
+    }
+
     /// Load theme variables from a CSS source string.
     pub fn load_theme(&mut self, theme_css: &str) {
         let sheet = css::parse_css(theme_css);

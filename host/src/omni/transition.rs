@@ -44,6 +44,11 @@ impl TransitionManager {
         }
     }
 
+    /// Returns true if there are any active (in-progress) transitions.
+    pub fn has_active(&self) -> bool {
+        !self.active.is_empty()
+    }
+
     /// Parse a CSS `transition` property value into rules.
     /// e.g., "width 0.3s ease, background 0.3s ease-in-out 0.1s"
     pub fn parse_transition(value: &str) -> Vec<TransitionRule> {

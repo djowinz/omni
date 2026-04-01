@@ -340,7 +340,6 @@ fn run_host(dll_path: &str) {
     let mut config = config::load_config(&config_path);
     let data_dir = config::data_dir();
     let scan_interval = Duration::from_millis(2000);
-    let frame_interval = Duration::from_millis(8); // 120Hz for smooth transitions
 
     // Initialize workspace folder structure (overlays/, themes/, Default overlay)
     workspace::structure::init_workspace(&data_dir);
@@ -416,6 +415,7 @@ fn run_host(dll_path: &str) {
         };
 
     let mut last_scan = Instant::now();
+    let mut transitions_active = false;
 
     while RUNNING.load(Ordering::Relaxed) {
         if last_scan.elapsed() >= scan_interval {
@@ -527,7 +527,24 @@ fn run_host(dll_path: &str) {
         // Write to shared memory
         shm_writer.write(&latest_snapshot, &widgets, host.layout_version);
 
-        std::thread::sleep(frame_interval);
+        // Check if transitions need smooth updates
+        transitions_active = host.omni_resolver.has_active_transitions();
+
+        // Adaptive sleep: 120Hz during transitions, relaxed otherwise
+        let timeout = if transitions_active {
+            Duration::from_millis(8) // 120Hz for smooth animation
+        } else {
+            // Wake on scanner poll, watcher events, or sensor data
+            let until_scan = scan_interval.saturating_sub(last_scan.elapsed());
+            until_scan.min(Duration::from_millis(100))
+        };
+
+        // Block until sensor data arrives or timeout expires.
+        // This is the key difference from thread::sleep — we process
+        // sensor data immediately when it arrives instead of waiting.
+        if let Ok(snapshot) = sensor_rx.recv_timeout(timeout) {
+            latest_snapshot = snapshot;
+        }
     }
 
     info!("Shutting down — ejecting DLLs from injected processes");
