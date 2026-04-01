@@ -75,6 +75,12 @@ impl GpuPoller {
         unsafe { Self::init_nvml() }
     }
 
+    /// # Safety
+    ///
+    /// All function pointers are resolved via `GetProcAddress`; a null return
+    /// becomes `None` and causes an early exit via `?`, so no dangling pointer
+    /// is ever stored. The NVML API is documented and stable across NVIDIA
+    /// driver versions.
     unsafe fn init_nvml() -> Option<Self> {
         // Try loading nvml.dll — it's in System32 on modern NVIDIA drivers
         let module = LoadLibraryA(s!("nvml.dll"))
@@ -141,6 +147,10 @@ impl GpuPoller {
     pub fn poll(&self) -> GpuData {
         let mut data = GpuData::default();
 
+        // SAFETY: All function pointers were validated during init_nvml (non-null,
+        // correct signatures). self.device is a valid NVML handle obtained from
+        // nvmlDeviceGetHandleByIndex. Each call writes to a stack-local out-parameter
+        // of the correct type as specified by the NVML documentation.
         unsafe {
             // Utilization (GPU + memory controller)
             let mut util = NvmlUtilization { gpu: 0, memory: 0 };

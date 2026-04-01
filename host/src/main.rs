@@ -290,6 +290,8 @@ fn run_stop() {
         }
 
         info!(pid, "Terminating omni-host instance");
+        // SAFETY: Opening with PROCESS_TERMINATE and calling TerminateProcess
+        // on a verified omni-host.exe PID. Handle is closed immediately after.
         unsafe {
             use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
             if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {

@@ -36,6 +36,8 @@ pub struct OmniResolver {
 
 impl OmniResolver {
     pub fn new() -> Self {
+        // SAFETY: DWriteCreateFactory is safe to call from any thread.
+        // DWRITE_FACTORY_TYPE_SHARED returns a process-wide singleton.
         let dwrite_factory: Option<IDWriteFactory> = unsafe {
             DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED).ok()
         };
