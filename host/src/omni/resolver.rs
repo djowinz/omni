@@ -8,21 +8,21 @@ use std::collections::HashMap;
 
 use omni_shared::{ComputedWidget, SensorSnapshot, WidgetType, SensorSource, write_fixed_str};
 use tracing::warn;
+use windows::core::w;
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory,
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_BOLD,
     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
 };
-use windows::core::w;
 
-use super::types::{OmniFile, ResolvedStyle};
 use super::css;
 use super::flat_tree::{self, FlatNode};
 use super::interpolation;
 use super::layout;
+use super::reactive;
 use super::sensor_map;
 use super::transition;
-use super::reactive;
+use super::types::{OmniFile, ResolvedStyle};
 
 /// Resolves an OmniFile into a flat list of ComputedWidgets.
 pub struct OmniResolver {
