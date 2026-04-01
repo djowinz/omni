@@ -1,8 +1,11 @@
 //! Sensor data types shared between host and overlay DLL.
 //! All structs are #[repr(C)] because they cross process boundaries via shared memory.
 
+use ts_rs::TS;
+
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 pub struct SensorSnapshot {
     pub timestamp_ms: u64,
     pub cpu: CpuData,
@@ -12,21 +15,25 @@ pub struct SensorSnapshot {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 pub struct CpuData {
     /// Overall CPU usage as a percentage (0.0–100.0).
     pub total_usage_percent: f32,
     /// Per-core usage percentages. Unused cores are set to -1.0.
+    #[ts(type = "number[]")]
     pub per_core_usage: [f32; 32],
     pub core_count: u32,
     /// Per-core frequency in MHz. Unused cores are 0.
+    #[ts(type = "number[]")]
     pub per_core_freq_mhz: [u32; 32],
     /// CPU package temperature in Celsius. f32::NAN if unavailable.
     pub package_temp_c: f32,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 pub struct GpuData {
     pub usage_percent: f32,
     pub temp_c: f32,
@@ -39,7 +46,8 @@ pub struct GpuData {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 pub struct RamData {
     pub usage_percent: f32,
     pub used_mb: u64,
@@ -51,7 +59,8 @@ pub struct RamData {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 pub struct FrameData {
     pub fps: f32,
     pub frame_time_ms: f32,
