@@ -59,6 +59,7 @@ impl SharedMemoryWriter {
         // SAFETY: state_ptr points to a freshly mapped region of the correct size. write_bytes zeroes it completely.
         unsafe {
             ptr::write_bytes(state_ptr, 0, 1);
+            (*state_ptr).version = omni_shared::IPC_PROTOCOL_VERSION;
             // Initialize active_slot to 0
             (*state_ptr).active_slot = std::sync::atomic::AtomicU64::new(0);
         }

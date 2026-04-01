@@ -10,8 +10,14 @@ pub const SHARED_MEM_NAME: &str = "OmniOverlay_SharedState";
 pub const CONTROL_PIPE_NAME: &str = r"\\.\pipe\OmniOverlay_Control";
 pub const MAX_WIDGETS: usize = 64;
 
+/// Protocol version. Bump when SharedOverlayState layout changes.
+/// Host writes this on creation; DLL checks it on open.
+pub const IPC_PROTOCOL_VERSION: u32 = 1;
+
 #[repr(C)]
 pub struct SharedOverlayState {
+    /// Protocol version — must match IPC_PROTOCOL_VERSION on both sides.
+    pub version: u32,
     /// 0 or 1 — which slot the DLL should read from.
     pub active_slot: AtomicU64,
     pub slots: [OverlaySlot; 2],
@@ -102,6 +108,7 @@ mod tests {
     #[test]
     fn slot_flip_toggles_between_0_and_1() {
         let state = SharedOverlayState {
+            version: IPC_PROTOCOL_VERSION,
             active_slot: AtomicU64::new(0),
             slots: [OverlaySlot::default(), OverlaySlot::default()],
             dll_frame_data: crate::sensor_types::FrameData::default(),

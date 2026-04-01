@@ -53,11 +53,24 @@ impl SharedMemoryReader {
             return None;
         }
 
+        let state_ptr = ptr.Value as *mut SharedOverlayState;
+
+        // Check protocol version
+        let version = unsafe { (*state_ptr).version };
+        if version != omni_shared::IPC_PROTOCOL_VERSION {
+            log_to_file(&format!(
+                "[ipc] version mismatch: expected {}, found {}",
+                omni_shared::IPC_PROTOCOL_VERSION, version
+            ));
+            unsafe { let _ = CloseHandle(handle); }
+            return None;
+        }
+
         log_to_file("[ipc] shared memory opened successfully");
 
         Some(Self {
             handle,
-            ptr: ptr.Value as *mut SharedOverlayState,
+            ptr: state_ptr,
             last_sequence: 0,
         })
     }
