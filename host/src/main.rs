@@ -397,6 +397,9 @@ fn run_host(dll_path: &str) {
 
     // Load the initial overlay
     host.reload_overlay();
+    if let Ok(mut overlay) = ws_state.active_overlay.lock() {
+        *overlay = host.current_overlay.clone();
+    }
 
     // Start sensor polling on background thread (uses poll_config from .omni file)
     let (mut sensor_poller, sensor_rx) =
@@ -429,6 +432,10 @@ fn run_host(dll_path: &str) {
             scanner_instance.poll();
             last_scan = Instant::now();
 
+            if let Ok(mut game) = ws_state.injected_game.lock() {
+                *game = scanner_instance.last_injected_exe().map(|s| s.to_string());
+            }
+
             // Re-resolve overlay based on current game
             let new_overlay = workspace::overlay_resolver::resolve_overlay_name(
                 scanner_instance.last_injected_exe(),
@@ -445,6 +452,9 @@ fn run_host(dll_path: &str) {
                     "Game-specific overlay switch"
                 );
                 host.switch_overlay(&new_overlay);
+                if let Ok(mut overlay) = ws_state.active_overlay.lock() {
+                    *overlay = host.current_overlay.clone();
+                }
             }
         }
 
@@ -519,6 +529,9 @@ fn run_host(dll_path: &str) {
                             "Active overlay changed — switching"
                         );
                         host.switch_overlay(&new_overlay);
+                        if let Ok(mut overlay) = ws_state.active_overlay.lock() {
+                            *overlay = host.current_overlay.clone();
+                        }
                     }
 
                     config = new_config;

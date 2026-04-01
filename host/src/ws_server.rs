@@ -21,6 +21,8 @@ pub const WS_PORT: u16 = 9473;
 pub struct WsSharedState {
     pub latest_snapshot: Mutex<SensorSnapshot>,
     pub active_omni_file: Mutex<Option<crate::omni::types::OmniFile>>,
+    pub active_overlay: Mutex<String>,
+    pub injected_game: Mutex<Option<String>>,
     pub data_dir: std::path::PathBuf,
     pub running: AtomicBool,
 }
@@ -30,6 +32,8 @@ impl WsSharedState {
         Self {
             latest_snapshot: Mutex::new(SensorSnapshot::default()),
             active_omni_file: Mutex::new(None),
+            active_overlay: Mutex::new("Default".to_string()),
+            injected_game: Mutex::new(None),
             data_dir,
             running: AtomicBool::new(true),
         }
@@ -186,14 +190,21 @@ fn handle_message(
             info!("Client subscribed to sensor data");
             Some(json!({"type": "sensors.subscribed"}).to_string())
         }
-        "status" => Some(
-            json!({
+        "status" => {
+            let active_overlay = state.active_overlay.lock()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+            let injected_game = state.injected_game.lock()
+                .ok()
+                .and_then(|s| s.clone());
+            Some(json!({
                 "type": "status.data",
                 "ws_port": WS_PORT,
                 "running": true,
-            })
-            .to_string(),
-        ),
+                "active_overlay": active_overlay,
+                "injected_game": injected_game,
+            }).to_string())
+        },
         "widget.parse" => {
             let source = msg.get("source")?.as_str()?;
             let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
@@ -332,6 +343,8 @@ mod tests {
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "status.data");
         assert_eq!(resp["ws_port"], WS_PORT);
+        assert_eq!(resp["active_overlay"], "Default");
+        assert!(resp["injected_game"].is_null());
     }
 
     #[test]
