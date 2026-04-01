@@ -57,7 +57,7 @@ export function Header() {
   return (
     <>
       <header
-        className="flex h-10 items-center justify-between border-b border-[#27272A] bg-[#18181B] pl-4 select-none"
+        className="flex h-14 items-center justify-between border-b border-[#27272A] bg-[#18181B] px-4 select-none"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <div className="flex items-center gap-4" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
@@ -162,22 +162,22 @@ export function Header() {
           </div>
 
           {/* Window controls */}
-          <div className="flex h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="flex items-center gap-1.5 ml-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <button
               onClick={() => (window as any).omni?.minimizeWindow()}
-              className="flex items-center justify-center w-11 h-full text-[#71717A] hover:bg-[#27272A] hover:text-[#FAFAFA] transition-colors"
+              className="flex items-center justify-center w-8 h-8 rounded text-[#71717A] hover:bg-[#27272A] hover:text-[#FAFAFA] transition-colors"
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => (window as any).omni?.maximizeWindow()}
-              className="flex items-center justify-center w-11 h-full text-[#71717A] hover:bg-[#27272A] hover:text-[#FAFAFA] transition-colors"
+              className="flex items-center justify-center w-8 h-8 rounded text-[#71717A] hover:bg-[#27272A] hover:text-[#FAFAFA] transition-colors"
             >
               <Square className="h-3 w-3" />
             </button>
             <button
               onClick={() => (window as any).omni?.closeWindow()}
-              className="flex items-center justify-center w-11 h-full text-[#71717A] hover:bg-[#EF4444] hover:text-[#FAFAFA] transition-colors"
+              className="flex items-center justify-center w-8 h-8 rounded text-[#71717A] hover:bg-[#EF4444] hover:text-[#FAFAFA] transition-colors"
             >
               <X className="h-3.5 w-3.5" />
             </button>
