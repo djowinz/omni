@@ -125,15 +125,16 @@ export class HostManager extends EventEmitter {
       fs.mkdirSync(logDir, { recursive: true });
     }
 
-    const logStream = fs.createWriteStream(
-      path.join(logDir, 'omni-host.log'),
-      { flags: 'a' }
-    );
+    const logPath = path.join(logDir, 'omni-host.log');
+    const logFd = fs.openSync(logPath, 'a');
 
     this.hostProcess = spawn(hostPath, ['--service'], {
       detached: true,
-      stdio: ['ignore', logStream, logStream],
+      stdio: ['ignore', logFd, logFd],
     });
+
+    // Close the fd after spawn — the child process has its own copy
+    fs.closeSync(logFd);
 
     this.hostProcess.on('exit', (code) => {
       if (!this.intentionalClose) {
