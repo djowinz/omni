@@ -1,5 +1,6 @@
 
 
+import { useMemo } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useOmniState } from '@/hooks/use-omni-state';
@@ -11,8 +12,14 @@ export function WidgetPanel() {
   const { state, dispatch, getCurrentOverlay, openThemeTab } = useOmniState();
   const currentOverlay = getCurrentOverlay();
 
-  const widgets = currentOverlay ? parseOmniContent(currentOverlay.content) : [];
-  const themes = currentOverlay ? parseThemeImports(currentOverlay.content) : [];
+  const widgets = useMemo(
+    () => currentOverlay ? parseOmniContent(currentOverlay.content) : [],
+    [currentOverlay?.content]
+  );
+  const themes = useMemo(
+    () => currentOverlay ? parseThemeImports(currentOverlay.content) : [],
+    [currentOverlay?.content]
+  );
 
   const handleToggleWidget = (widgetId: string, enabled: boolean) => {
     if (!currentOverlay) return;

@@ -1,5 +1,6 @@
 
 
+import { useMemo } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { renderOmniPreview } from '@/lib/omni-parser';
 import { MetricSimulator } from './metric-simulator';
@@ -10,9 +11,12 @@ export function PreviewPanel() {
   const { state, getCurrentOverlay } = useOmniState();
   const currentOverlay = getCurrentOverlay();
 
-  const previewHtml = currentOverlay
-    ? renderOmniPreview(currentOverlay.content, state.previewMetrics)
-    : '';
+  const previewHtml = useMemo(
+    () => currentOverlay
+      ? renderOmniPreview(currentOverlay.content, state.previewMetrics)
+      : '',
+    [currentOverlay?.content, state.previewMetrics]
+  );
 
   // Transform CSS to work within the preview container (convert fixed to absolute)
   const scopedPreviewHtml = previewHtml.replace(

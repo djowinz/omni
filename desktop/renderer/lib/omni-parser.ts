@@ -192,52 +192,32 @@ function getMetricValue(path: string, metrics: MetricValues): number | null {
  * Supports: class:className="{metric} operator value"
  */
 function evaluateClassBindings(template: string, metrics: MetricValues): string {
-  // Match class:name="condition" patterns
   const bindingRegex = /class:([a-zA-Z0-9_-]+)=["']([^"']+)["']/g;
-  
-  let result = template;
-  const classesToAdd: Map<string, string[]> = new Map();
-  
-  // Find all bindings and evaluate them
+
+  // Collect classes whose conditions evaluate to true
+  const classesToAdd: string[] = [];
   let match;
   while ((match = bindingRegex.exec(template)) !== null) {
     const className = match[1];
     const condition = match[2];
-    
-    // Find the parent element to get its existing classes
-    // We'll collect classes to add and process them after
-    const shouldApply = evaluateCondition(condition, metrics);
-    
-    if (shouldApply) {
-      // Store binding position and class to add
-      // We'll add these classes to the nearest class attribute
-      const beforeBinding = template.slice(0, match.index);
-      const lastClassAttr = beforeBinding.lastIndexOf('class="');
-      
-      if (lastClassAttr !== -1) {
-        const key = String(lastClassAttr);
-        if (!classesToAdd.has(key)) {
-          classesToAdd.set(key, []);
-        }
-        classesToAdd.get(key)!.push(className);
-      }
+    if (evaluateCondition(condition, metrics)) {
+      classesToAdd.push(className);
     }
   }
-  
-  // Remove class binding attributes
-  result = result.replace(/\s*class:[a-zA-Z0-9_-]+=["'][^"']+["']/g, '');
-  
-  // Add conditional classes to existing class attributes
-  for (const [posStr, classes] of classesToAdd.entries()) {
-    const pos = parseInt(posStr, 10);
-    const classEndPos = result.indexOf('"', pos + 7);
-    if (classEndPos !== -1) {
-      const existingClasses = result.slice(pos + 7, classEndPos);
-      const newClasses = `${existingClasses} ${classes.join(' ')}`.trim();
-      result = result.slice(0, pos + 7) + newClasses + result.slice(classEndPos);
+
+  // Remove all class binding attributes first (before position-dependent work)
+  let result = template.replace(/\s*class:[a-zA-Z0-9_-]+=["'][^"']+["']/g, '');
+
+  // Add collected classes to the first class="" attribute in the cleaned result
+  if (classesToAdd.length > 0) {
+    const classAttrMatch = result.match(/class="([^"]*)"/);
+    if (classAttrMatch) {
+      const existingClasses = classAttrMatch[1];
+      const newClasses = `${existingClasses} ${classesToAdd.join(' ')}`.trim();
+      result = result.replace(`class="${existingClasses}"`, `class="${newClasses}"`);
     }
   }
-  
+
   return result;
 }
 

@@ -1,5 +1,6 @@
 
 
+import { useMemo } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { parseOmniContent } from '@/lib/omni-parser';
 import { Layers, Gamepad2, Circle } from 'lucide-react';
@@ -8,7 +9,10 @@ export function StatusBar() {
   const { state, getCurrentOverlay } = useOmniState();
   const currentOverlay = getCurrentOverlay();
 
-  const widgets = currentOverlay ? parseOmniContent(currentOverlay.content) : [];
+  const widgets = useMemo(
+    () => currentOverlay ? parseOmniContent(currentOverlay.content) : [],
+    [currentOverlay?.content]
+  );
   const enabledCount = widgets.filter(w => w.enabled).length;
 
   // Determine overlay type for current context
