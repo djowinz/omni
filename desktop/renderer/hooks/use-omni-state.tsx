@@ -1,5 +1,3 @@
-'use client';
-
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import type { AppState, AppAction, Overlay, GameAssignment, EditorTab } from '@/types/omni';
 import { DEFAULT_METRICS, SAMPLE_DEFAULT_OVERLAY } from '@/types/omni';

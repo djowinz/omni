@@ -56,7 +56,7 @@ export function MetricSimulator() {
   };
 
   const getMetricValue = (key: string): number => {
-    const metrics = state.previewMetrics as Record<string, unknown>;
+    const metrics = state.previewMetrics as unknown as Record<string, unknown>;
     const value = metrics[key];
     return typeof value === 'number' ? value : 0;
   };

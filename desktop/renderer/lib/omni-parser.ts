@@ -182,7 +182,7 @@ function getMetricValue(path: string, metrics: MetricValues): number | null {
   }
   
   // Direct property access
-  const value = (metrics as Record<string, unknown>)[path];
+  const value = (metrics as unknown as Record<string, unknown>)[path];
   if (typeof value === 'number') return value;
   
   return null;

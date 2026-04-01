@@ -124,7 +124,7 @@ export type AppAction =
   | { type: 'UPDATE_OVERLAY_CONTENT'; payload: { id: string; content: string } }
   | { type: 'OPEN_TAB'; payload: EditorTab }
   | { type: 'CLOSE_TAB'; payload: string }
-  | { type: 'SET_ACTIVE_TAB'; payload: string }
+  | { type: 'SET_ACTIVE_TAB'; payload: string | null }
   | { type: 'UPDATE_TAB_CONTENT'; payload: { id: string; content: string } }
   | { type: 'SET_THEME_FILE'; payload: { path: string; content: string } };
 
