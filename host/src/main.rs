@@ -238,7 +238,7 @@ fn run_stop() {
     let my_pid = std::process::id();
     let dll_name = "omni_overlay.dll";
 
-    let processes = match scanner::enumerate_processes() {
+    let processes = match win32::iter_processes() {
         Ok(p) => p,
         Err(e) => {
             error!(error = %e, "Failed to enumerate processes");
@@ -254,7 +254,7 @@ fn run_stop() {
             continue;
         }
 
-        match scanner::has_module(pid, dll_name) {
+        match win32::has_module(pid, dll_name) {
             Ok(true) => {
                 info!(pid, "Ejecting overlay DLL");
                 match injector::eject_dll(pid, dll_name) {
@@ -284,7 +284,7 @@ fn run_stop() {
             continue;
         }
 
-        let name = scanner::wchar_to_string(&entry.szExeFile);
+        let name = win32::wchar_to_string(&entry.szExeFile);
         if !name.eq_ignore_ascii_case("omni-host.exe") {
             continue;
         }

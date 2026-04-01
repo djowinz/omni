@@ -44,7 +44,7 @@ pub fn inject_dll(pid: u32, dll_path: &str) -> Result<(), Box<dyn std::error::Er
         .and_then(|f| f.to_str())
         .unwrap_or("omni_overlay.dll");
 
-    if crate::scanner::has_module(pid, dll_filename).unwrap_or(false) {
+    if crate::win32::has_module(pid, dll_filename).unwrap_or(false) {
         info!(pid, dll_filename, "DLL already loaded in target — skipping injection");
         return Ok(());
     }
@@ -259,9 +259,9 @@ fn find_remote_module_path(
     }
 
     loop {
-        let name = crate::scanner::wchar_to_string(&entry.szModule);
+        let name = crate::win32::wchar_to_string(&entry.szModule);
         if name.eq_ignore_ascii_case(dll_name) {
-            let path = crate::scanner::wchar_to_string(&entry.szExePath);
+            let path = crate::win32::wchar_to_string(&entry.szExePath);
             unsafe { let _ = CloseHandle(snapshot); }
             return Ok(Some(path));
         }
@@ -396,7 +396,7 @@ fn find_remote_module(
     }
 
     loop {
-        let name = crate::scanner::wchar_to_string(&entry.szModule);
+        let name = crate::win32::wchar_to_string(&entry.szModule);
         if name.eq_ignore_ascii_case(dll_name) {
             let base = entry.modBaseAddr as *const std::ffi::c_void;
             unsafe { let _ = CloseHandle(snapshot); }
