@@ -88,9 +88,16 @@ export function EditorPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
 
-  // Scroll to selected widget in editor
+  // Scroll to selected widget in editor — only when selection changes,
+  // not when content changes (which would steal cursor on every keystroke)
+  const lastScrolledWidgetRef = useRef<string | null>(null);
   useEffect(() => {
-    if (state.selectedWidgetId && currentOverlay && editorRef.current) {
+    if (
+      state.selectedWidgetId &&
+      state.selectedWidgetId !== lastScrolledWidgetRef.current &&
+      currentOverlay &&
+      editorRef.current
+    ) {
       const widgets = parseOmniContent(currentOverlay.content);
       const widget = widgets.find(w => w.id === state.selectedWidgetId);
       if (widget) {
@@ -98,8 +105,9 @@ export function EditorPanel() {
         editorRef.current.setPosition({ lineNumber: widget.startLine + 1, column: 1 });
         editorRef.current.focus();
       }
+      lastScrolledWidgetRef.current = state.selectedWidgetId;
     }
-  }, [state.selectedWidgetId, currentOverlay]);
+  }, [state.selectedWidgetId]);
 
   // Handle closing a tab
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {

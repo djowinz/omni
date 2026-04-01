@@ -1,177 +1,272 @@
 /**
  * Custom Monaco editor theme and language definitions for Omni.
  *
- * - "omni-dark" theme: matches the app's dark color palette with Monaspace Krypton font
- * - "omni" language: syntax highlighting for .omni files (XML + {sensor.path} interpolation)
+ * - "omni-dark" theme: comprehensive dark theme using the full Omni accent palette
+ * - "omni" language: Monarch tokenizer for .omni files (XML with embedded CSS + {sensor.path})
+ *
+ * Color assignments:
+ *   Cyan    #00D9FF  — XML/HTML element tags, CSS selectors
+ *   Purple  #A855F7  — attribute names, CSS functions, keywords
+ *   Green   #22C55E  — string values (attribute values, CSS strings, hex colors)
+ *   Yellow  #F59E0B  — sensor interpolation variables {cpu.usage}
+ *   Orange  #F97316  — numbers and numeric values
+ *   Pink    #EC4899  — class bindings (class:name), special Omni attributes
+ *   Blue    #3B82F6  — CSS property names
+ *   Red     #EF4444  — !important, errors
+ *   Gray    #71717A  — punctuation, delimiters, operators
+ *   Muted   #52525B  — comments
+ *   White   #FAFAFA  — default text, content
  */
 
 import type { editor } from 'monaco-editor';
 
-/** Omni dark theme matching the app's color palette */
 export const omniDarkTheme: editor.IStandaloneThemeData = {
   base: 'vs-dark',
-  inherit: true,
+  inherit: false,
   rules: [
-    // General
+    // Base
     { token: '', foreground: 'FAFAFA', background: '0D0D0F' },
-    { token: 'comment', foreground: '52525B', fontStyle: 'italic' },
 
-    // XML/HTML tags
+    // Comments
+    { token: 'comment.xml', foreground: '52525B', fontStyle: 'italic' },
+    { token: 'comment.css', foreground: '52525B', fontStyle: 'italic' },
+
+    // XML/HTML element tags
     { token: 'tag', foreground: '00D9FF' },
-    { token: 'tag.attribute.name', foreground: 'A855F7' },
-    { token: 'tag.attribute.value', foreground: '22C55E' },
-    { token: 'delimiter.html', foreground: '71717A' },
-    { token: 'metatag', foreground: '71717A' },
+    { token: 'tag.open', foreground: '71717A' },
+    { token: 'tag.close', foreground: '71717A' },
+    { token: 'tag.self-close', foreground: '71717A' },
 
-    // Omni-specific: sensor interpolation {cpu.usage}
-    { token: 'omni-variable', foreground: 'F59E0B', fontStyle: 'bold' },
-    { token: 'omni-class-binding', foreground: 'EC4899' },
+    // XML/HTML attributes
+    { token: 'attribute.name', foreground: 'A855F7' },
+    { token: 'attribute.value', foreground: '22C55E' },
+    { token: 'delimiter.equals', foreground: '71717A' },
 
-    // CSS tokens
-    { token: 'selector', foreground: '00D9FF' },
-    { token: 'attribute.name.css', foreground: '3B82F6' },
-    { token: 'attribute.value.css', foreground: '22C55E' },
-    { token: 'number', foreground: 'F97316' },
-    { token: 'number.css', foreground: 'F97316' },
-    { token: 'unit.css', foreground: 'F59E0B' },
-    { token: 'keyword', foreground: 'A855F7' },
-    { token: 'string', foreground: '22C55E' },
-    { token: 'string.css', foreground: '22C55E' },
-    { token: 'variable.css', foreground: 'F59E0B' },
+    // Omni-specific
+    { token: 'omni.variable', foreground: 'F59E0B', fontStyle: 'bold' },
+    { token: 'omni.class-binding', foreground: 'EC4899' },
+    { token: 'omni.class-binding-attr', foreground: 'EC4899' },
 
-    // CSS function names
-    { token: 'function.css', foreground: 'A855F7' },
+    // Text content
+    { token: 'text.content', foreground: 'FAFAFA' },
 
-    // Punctuation
-    { token: 'delimiter', foreground: '71717A' },
-    { token: 'delimiter.bracket', foreground: '71717A' },
-    { token: 'delimiter.curly', foreground: '71717A' },
+    // CSS selectors
+    { token: 'css.selector.class', foreground: '00D9FF' },
+    { token: 'css.selector.id', foreground: '00D9FF', fontStyle: 'bold' },
+    { token: 'css.selector.element', foreground: '00D9FF' },
+    { token: 'css.selector.pseudo', foreground: '00D9FF', fontStyle: 'italic' },
+
+    // CSS properties & values
+    { token: 'css.property', foreground: '3B82F6' },
+    { token: 'css.value.string', foreground: '22C55E' },
+    { token: 'css.value.color', foreground: '22C55E' },
+    { token: 'css.value.number', foreground: 'F97316' },
+    { token: 'css.value.unit', foreground: 'F59E0B' },
+    { token: 'css.value.keyword', foreground: 'A855F7' },
+    { token: 'css.value.important', foreground: 'EF4444', fontStyle: 'bold' },
+
+    // CSS functions & variables
+    { token: 'css.function', foreground: 'A855F7' },
+    { token: 'css.variable', foreground: 'F59E0B' },
+    { token: 'css.custom-property', foreground: 'F59E0B' },
+
+    // CSS punctuation
+    { token: 'css.brace.open', foreground: '71717A' },
+    { token: 'css.brace.close', foreground: '71717A' },
+    { token: 'css.colon', foreground: '71717A' },
+    { token: 'css.semicolon', foreground: '71717A' },
+    { token: 'css.paren', foreground: '71717A' },
+    { token: 'css.comma', foreground: '71717A' },
   ],
   colors: {
     'editor.background': '#0D0D0F',
     'editor.foreground': '#FAFAFA',
     'editor.lineHighlightBackground': '#18181B',
+    'editor.lineHighlightBorder': '#00000000',
+    'editorCursor.foreground': '#00D9FF',
     'editor.selectionBackground': '#00D9FF30',
     'editor.inactiveSelectionBackground': '#00D9FF15',
-    'editorCursor.foreground': '#00D9FF',
+    'editor.selectionHighlightBackground': '#00D9FF15',
     'editorLineNumber.foreground': '#52525B',
     'editorLineNumber.activeForeground': '#A1A1AA',
+    'editorGutter.background': '#0a0a0c',
+    'editorGutter.addedBackground': '#22C55E',
+    'editorGutter.modifiedBackground': '#3B82F6',
+    'editorGutter.deletedBackground': '#EF4444',
     'editorIndentGuide.background': '#27272A',
     'editorIndentGuide.activeBackground': '#52525B',
-    'editor.selectionHighlightBackground': '#00D9FF15',
     'editorBracketMatch.background': '#00D9FF20',
     'editorBracketMatch.border': '#00D9FF50',
-    'editorGutter.background': '#0a0a0c',
+    'editor.findMatchBackground': '#F59E0B40',
+    'editor.findMatchHighlightBackground': '#F59E0B20',
+    'editor.findMatchBorder': '#F59E0B',
     'editorWidget.background': '#18181B',
     'editorWidget.border': '#27272A',
+    'editorWidget.foreground': '#FAFAFA',
     'editorSuggestWidget.background': '#18181B',
     'editorSuggestWidget.border': '#27272A',
     'editorSuggestWidget.foreground': '#FAFAFA',
     'editorSuggestWidget.selectedBackground': '#27272A',
+    'editorSuggestWidget.highlightForeground': '#00D9FF',
     'editorHoverWidget.background': '#18181B',
     'editorHoverWidget.border': '#27272A',
     'input.background': '#0D0D0F',
     'input.border': '#27272A',
     'input.foreground': '#FAFAFA',
+    'input.placeholderForeground': '#52525B',
+    'inputOption.activeBorder': '#00D9FF',
     'scrollbar.shadow': '#00000000',
     'scrollbarSlider.background': '#27272A80',
     'scrollbarSlider.hoverBackground': '#52525B80',
     'scrollbarSlider.activeBackground': '#71717A80',
     'minimap.background': '#0D0D0F',
-    'editor.findMatchBackground': '#F59E0B30',
-    'editor.findMatchHighlightBackground': '#F59E0B15',
+    'editorError.foreground': '#EF4444',
+    'editorWarning.foreground': '#F59E0B',
+    'editorInfo.foreground': '#3B82F6',
+    'editorOverviewRuler.border': '#00000000',
+    'editorOverviewRuler.errorForeground': '#EF4444',
+    'editorOverviewRuler.warningForeground': '#F59E0B',
   },
 };
 
 /** Register the custom Omni language for .omni files */
 export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
-  // Register the language
   monaco.languages.register({ id: 'omni' });
 
-  // Set tokenizer rules
   monaco.languages.setMonarchTokensProvider('omni', {
-    defaultToken: '',
+    defaultToken: 'text.content',
     tokenPostfix: '',
+    ignoreCase: false,
 
     tokenizer: {
       root: [
-        // Comments <!-- -->
-        [/<!--/, 'comment', '@comment'],
+        // XML comments
+        [/<!--/, 'comment.xml', '@xmlComment'],
 
-        // Sensor interpolation variables {cpu.usage}
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni-variable'],
+        // Sensor interpolation
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
 
-        // Class bindings class:name="expr"
-        [/class:[a-zA-Z][a-zA-Z0-9-]*/, 'omni-class-binding'],
+        // Class bindings class:name
+        [/(class:)([a-zA-Z][a-zA-Z0-9-]*)/, ['omni.class-binding', 'omni.class-binding-attr']],
 
-        // Style blocks - switch to CSS mode
-        [/(<)(style)(>)/, ['delimiter.html', 'tag', 'delimiter.html', '@css']],
+        // <style> tag — enters CSS mode
+        [/(<)(style)(\s*>)/, ['tag.open', 'tag', { token: 'tag.close', next: '@cssBlock' }]],
+        [/(<)(style)(\s)/, ['tag.open', 'tag', { token: '', next: '@styleTagAttrs' }]],
 
-        // Opening tags
-        [/(<)(\/?)(\w+)/, ['delimiter.html', 'delimiter.html', 'tag']],
-        [/(>)/, 'delimiter.html'],
-        [/(\/)(>)/, ['delimiter.html', 'delimiter.html']],
+        // </style> closing (shouldn't hit this in root, but safety)
+        [/(<)(\/)(style)(>)/, ['tag.open', 'tag.open', 'tag', 'tag.close']],
 
-        // Tag attributes
-        [/[a-zA-Z-]+(?=\s*=)/, 'tag.attribute.name'],
-        [/=/, 'delimiter'],
-        [/"[^"]*"/, 'tag.attribute.value'],
-        [/'[^']*'/, 'tag.attribute.value'],
+        // Any other opening/closing tag
+        [/(<)(\/?)([a-zA-Z][a-zA-Z0-9-]*)/, ['tag.open', 'tag.open', { token: 'tag', next: '@tagAttrs' }]],
 
         // Text content
-        [/[^<{]+/, ''],
+        [/[^<{]+/, 'text.content'],
       ],
 
-      comment: [
-        [/-->/, 'comment', '@pop'],
-        [/./, 'comment'],
+      // <style ...> attributes before entering CSS
+      styleTagAttrs: [
+        [/>/, { token: 'tag.close', next: '@cssBlock' }],
+        [/(\/)(>)/, ['tag.self-close', { token: 'tag.close', next: '@pop' }]],
+        [/[a-zA-Z_:-][a-zA-Z0-9_:.-]*(?=\s*=)/, 'attribute.name'],
+        [/=/, 'delimiter.equals'],
+        [/"[^"]*"/, 'attribute.value'],
+        [/'[^']*'/, 'attribute.value'],
+        [/\s+/, ''],
       ],
 
-      css: [
-        // End of style block
-        [/(<)(\/)(style)(>)/, ['delimiter.html', 'delimiter.html', 'tag', 'delimiter.html', '@pop']],
+      // Generic tag attributes
+      tagAttrs: [
+        [/(\/)(>)/, ['tag.self-close', { token: 'tag.close', next: '@pop' }]],
+        [/>/, { token: 'tag.close', next: '@pop' }],
+        [/(class:)([a-zA-Z][a-zA-Z0-9-]*)/, ['omni.class-binding', 'omni.class-binding-attr']],
+        [/[a-zA-Z_:-][a-zA-Z0-9_:.-]*(?=\s*=)/, 'attribute.name'],
+        [/=/, 'delimiter.equals'],
+        [/"/, { token: 'attribute.value', next: '@attrValueDQ' }],
+        [/'/, { token: 'attribute.value', next: '@attrValueSQ' }],
+        [/[a-zA-Z_:-][a-zA-Z0-9_:.-]*/, 'attribute.name'],
+        [/\s+/, ''],
+      ],
 
-        // Sensor variables inside CSS
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni-variable'],
+      // Double-quoted attribute value (with variable support)
+      attrValueDQ: [
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        [/[^"{}]+/, 'attribute.value'],
+        [/"/, { token: 'attribute.value', next: '@pop' }],
+      ],
 
-        // CSS comments
-        [/\/\*/, 'comment', '@cssComment'],
+      // Single-quoted attribute value
+      attrValueSQ: [
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        [/[^'{}]+/, 'attribute.value'],
+        [/'/, { token: 'attribute.value', next: '@pop' }],
+      ],
 
-        // Selectors (before {)
-        [/[.#]?[a-zA-Z][a-zA-Z0-9_-]*(?=\s*[,{])/, 'selector'],
-        [/:root/, 'selector'],
+      xmlComment: [
+        [/-->/, 'comment.xml', '@pop'],
+        [/./, 'comment.xml'],
+      ],
 
-        // Property names
-        [/[a-zA-Z-]+(?=\s*:)/, 'attribute.name.css'],
+      // ── CSS states ─────────────────────────────────────────
 
-        // var() references
-        [/var\(--[a-zA-Z0-9-]+\)/, 'variable.css'],
+      cssBlock: [
+        [/(<)(\/)(style)(>)/, ['tag.open', 'tag.open', 'tag', { token: 'tag.close', next: '@pop' }]],
+        [/\/\*/, 'comment.css', '@cssComment'],
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        [/:root\b/, 'css.selector.pseudo'],
+        [/\.[a-zA-Z][a-zA-Z0-9_-]*/, 'css.selector.class'],
+        [/#[a-zA-Z][a-zA-Z0-9_-]*/, 'css.selector.id'],
+        [/[a-zA-Z][a-zA-Z0-9-]*(?=\s*[,{])/, 'css.selector.element'],
+        [/:[a-zA-Z][a-zA-Z0-9-]*/, 'css.selector.pseudo'],
+        [/\{/, 'css.brace.open', '@cssProperties'],
+        [/\}/, 'css.brace.close'],
+        [/,/, 'css.comma'],
+        [/\s+/, ''],
+      ],
 
-        // Custom properties
-        [/--[a-zA-Z0-9-]+/, 'variable.css'],
+      cssProperties: [
+        [/\}/, { token: 'css.brace.close', next: '@pop' }],
+        [/(<)(\/)(style)(>)/, ['tag.open', 'tag.open', 'tag', { token: 'tag.close', next: '@popall' }]],
+        [/\/\*/, 'comment.css', '@cssComment'],
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        [/--[a-zA-Z][a-zA-Z0-9-]*(?=\s*:)/, 'css.custom-property'],
+        [/[a-zA-Z-]+(?=\s*:)/, 'css.property'],
+        [/:/, 'css.colon', '@cssValue'],
+        [/;/, 'css.semicolon'],
+        [/\s+/, ''],
+      ],
 
-        // Numbers with units
-        [/\d+(\.\d+)?(px|%|em|rem|vh|vw|deg|s|ms)\b/, 'number.css'],
-        [/\d+(\.\d+)?/, 'number'],
+      cssValue: [
+        [/;/, { token: 'css.semicolon', next: '@pop' }],
+        [/(?=\})/, '', '@pop'],
+        [/(<)(\/)(style)(>)/, ['tag.open', 'tag.open', 'tag', { token: 'tag.close', next: '@popall' }]],
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        [/!important\b/, 'css.value.important'],
+        [/(var)(\()/, ['css.function', 'css.paren'], '@cssVarArgs'],
+        [/(rgba?|hsla?|linear-gradient|radial-gradient|url|calc|min|max|clamp)(\()/, ['css.function', 'css.paren']],
+        [/--[a-zA-Z][a-zA-Z0-9-]*/, 'css.custom-property'],
+        [/#[a-fA-F0-9]{3,8}\b/, 'css.value.color'],
+        [/(\d+\.?\d*)(px|%|em|rem|vh|vw|vmin|vmax|deg|s|ms|fr)\b/, ['css.value.number', 'css.value.unit']],
+        [/\d+\.?\d*/, 'css.value.number'],
+        [/"[^"]*"/, 'css.value.string'],
+        [/'[^']*'/, 'css.value.string'],
+        [/\b(none|auto|inherit|initial|unset|flex|grid|block|inline|inline-block|column|row|wrap|nowrap|center|start|end|stretch|space-between|space-around|space-evenly|fixed|relative|absolute|sticky|static|bold|normal|italic|hidden|visible|scroll|solid|dashed|dotted|transparent|currentColor)\b/, 'css.value.keyword'],
+        [/,/, 'css.comma'],
+        [/[()]/, 'css.paren'],
+        [/\s+/, ''],
+        [/[^\s;}{(),"']+/, 'css.value.keyword'],
+      ],
 
-        // Hex colors
-        [/#[a-fA-F0-9]{3,8}\b/, 'string.css'],
-
-        // Functions
-        [/(rgba?|hsla?|linear-gradient|radial-gradient|url)\(/, 'function.css'],
-
-        // Strings
-        [/"[^"]*"/, 'string.css'],
-        [/'[^']*'/, 'string.css'],
-
-        // Punctuation
-        [/[{}]/, 'delimiter.curly'],
-        [/[;:]/, 'delimiter'],
+      cssVarArgs: [
+        [/--[a-zA-Z][a-zA-Z0-9-]*/, 'css.variable'],
+        [/,/, 'css.comma'],
+        [/\)/, { token: 'css.paren', next: '@pop' }],
+        [/\s+/, ''],
+        [/./, ''],
       ],
 
       cssComment: [
-        [/\*\//, 'comment', '@pop'],
-        [/./, 'comment'],
+        [/\*\//, 'comment.css', '@pop'],
+        [/./, 'comment.css'],
       ],
     },
   });
