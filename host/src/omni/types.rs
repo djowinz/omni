@@ -58,7 +58,7 @@ pub enum HtmlNode {
 }
 
 /// A resolved CSS property value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResolvedStyle {
     // Position
     pub position: Option<String>, // "fixed", "relative"
@@ -102,45 +102,6 @@ pub struct ResolvedStyle {
     pub flex_wrap: Option<String>,
     // Transitions
     pub transition: Option<String>,
-}
-
-impl Default for ResolvedStyle {
-    fn default() -> Self {
-        Self {
-            position: None,
-            top: None,
-            right: None,
-            bottom: None,
-            left: None,
-            width: None,
-            height: None,
-            background: None,
-            color: None,
-            opacity: None,
-            border_radius: None,
-            font_size: None,
-            font_weight: None,
-            font_family: None,
-            display: None,
-            flex_direction: None,
-            justify_content: None,
-            align_items: None,
-            gap: None,
-            padding: None,
-            margin: None,
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: None,
-            background_color: None,
-            box_shadow: None,
-            align_self: None,
-            flex_grow: None,
-            flex_shrink: None,
-            flex_wrap: None,
-            transition: None,
-        }
-    }
 }
 
 impl OmniFile {

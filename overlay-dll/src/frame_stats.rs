@@ -126,12 +126,19 @@ impl FrameStats {
                 self.total_frames += 1;
 
                 // Recalculate percentiles periodically
-                if self.total_frames % PERCENTILE_RECALC_INTERVAL as u64 == 0 && self.count >= 10 {
+                if self
+                    .total_frames
+                    .is_multiple_of(PERCENTILE_RECALC_INTERVAL as u64)
+                    && self.count >= 10
+                {
                     self.recalc_percentiles();
                 }
 
                 // Refresh display snapshot periodically (prevents jittery text)
-                if self.total_frames % DISPLAY_UPDATE_INTERVAL as u64 == 0 {
+                if self
+                    .total_frames
+                    .is_multiple_of(DISPLAY_UPDATE_INTERVAL as u64)
+                {
                     self.refresh_display();
                 }
             }

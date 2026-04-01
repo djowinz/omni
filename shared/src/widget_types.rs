@@ -1,5 +1,5 @@
-/// Widget types shared between host and overlay DLL.
-/// All types are #[repr(C)] for shared memory safety.
+//! Widget types shared between host and overlay DLL.
+//! All types are #[repr(C)] for shared memory safety.
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]

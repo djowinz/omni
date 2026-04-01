@@ -10,10 +10,9 @@ pub fn resolve_active_classes(node: &FlatNode, snapshot: &SensorSnapshot) -> Vec
     let mut active = node.classes.clone();
 
     for cc in &node.conditional_classes {
-        if expression::eval_condition(&cc.expression, snapshot) {
-            if !active.contains(&cc.class_name) {
-                active.push(cc.class_name.clone());
-            }
+        if expression::eval_condition(&cc.expression, snapshot) && !active.contains(&cc.class_name)
+        {
+            active.push(cc.class_name.clone());
         }
         // If condition is false, the class is NOT in the list
         // (it was only in `active` if it was also a static class)

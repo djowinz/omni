@@ -81,9 +81,9 @@ unsafe fn fill_rounded_rect_per_corner(
                 radiusX: r_tl,
                 radiusY: r_tl,
             };
-            let _ = rt.FillRoundedRectangle(&rounded, brush);
+            rt.FillRoundedRectangle(&rounded, brush);
         } else {
-            let _ = rt.FillRectangle(rect, brush);
+            rt.FillRectangle(rect, brush);
         }
         return;
     }
@@ -93,7 +93,7 @@ unsafe fn fill_rounded_rect_per_corner(
         Ok(g) => g,
         Err(_) => {
             // Fallback: fill plain rectangle
-            let _ = rt.FillRectangle(rect, brush);
+            rt.FillRectangle(rect, brush);
             return;
         }
     };
@@ -101,7 +101,7 @@ unsafe fn fill_rounded_rect_per_corner(
     let sink = match geometry.Open() {
         Ok(s) => s,
         Err(_) => {
-            let _ = rt.FillRectangle(rect, brush);
+            rt.FillRectangle(rect, brush);
             return;
         }
     };
@@ -223,7 +223,7 @@ unsafe fn fill_rounded_rect_per_corner(
     sink.EndFigure(D2D1_FIGURE_END_CLOSED);
     let _ = sink.Close();
 
-    let _ = rt.FillGeometry(&geometry, brush, None::<&ID2D1Brush>);
+    rt.FillGeometry(&geometry, brush, None::<&ID2D1Brush>);
 }
 
 /// Which graphics API the swap chain belongs to.
@@ -662,7 +662,7 @@ impl OverlayRenderer {
                                     &self.d2d_factory,
                                     &pass_rect,
                                     pass_radii,
-                                    &*shadow_brush,
+                                    &shadow_brush,
                                 );
                             }
                         }
@@ -680,7 +680,7 @@ impl OverlayRenderer {
                                 &self.d2d_factory,
                                 &shadow_rect,
                                 radii,
-                                &*shadow_brush,
+                                &shadow_brush,
                             );
                         }
                     }
@@ -727,7 +727,7 @@ impl OverlayRenderer {
                     if let Ok(brush) =
                         rt.CreateLinearGradientBrush(&grad_props, None, &stop_collection)
                     {
-                        fill_rounded_rect_per_corner(rt, &self.d2d_factory, &rect, radii, &*brush);
+                        fill_rounded_rect_per_corner(rt, &self.d2d_factory, &rect, radii, &brush);
                     }
                 }
             } else {
@@ -742,7 +742,7 @@ impl OverlayRenderer {
                     };
 
                     if let Ok(brush) = rt.CreateSolidColorBrush(&bg_color, None) {
-                        fill_rounded_rect_per_corner(rt, &self.d2d_factory, &rect, radii, &*brush);
+                        fill_rounded_rect_per_corner(rt, &self.d2d_factory, &rect, radii, &brush);
                     }
                 }
             }

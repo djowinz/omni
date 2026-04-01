@@ -22,6 +22,7 @@ pub struct FlatNode {
     /// Index of parent in the flat list. None for root.
     pub parent_index: Option<usize>,
     /// Nesting depth (0 for root).
+    #[allow(dead_code)]
     pub depth: usize,
     /// True if this is a text node.
     pub is_text: bool,
@@ -115,42 +116,6 @@ pub fn ancestor_chain(nodes: &[FlatNode], index: usize) -> Vec<usize> {
         current = nodes[idx].parent_index;
     }
     chain
-}
-
-/// Check if any ancestor of the node at `index` has the given class.
-pub fn has_ancestor_with_class(nodes: &[FlatNode], index: usize, class: &str) -> bool {
-    let mut current = nodes[index].parent_index;
-    while let Some(idx) = current {
-        if nodes[idx].classes.iter().any(|c| c == class) {
-            return true;
-        }
-        current = nodes[idx].parent_index;
-    }
-    false
-}
-
-/// Check if any ancestor of the node at `index` has the given ID.
-pub fn has_ancestor_with_id(nodes: &[FlatNode], index: usize, id: &str) -> bool {
-    let mut current = nodes[index].parent_index;
-    while let Some(idx) = current {
-        if nodes[idx].id.as_deref() == Some(id) {
-            return true;
-        }
-        current = nodes[idx].parent_index;
-    }
-    false
-}
-
-/// Check if any ancestor of the node at `index` has the given tag.
-pub fn has_ancestor_with_tag(nodes: &[FlatNode], index: usize, tag: &str) -> bool {
-    let mut current = nodes[index].parent_index;
-    while let Some(idx) = current {
-        if nodes[idx].tag == tag {
-            return true;
-        }
-        current = nodes[idx].parent_index;
-    }
-    false
 }
 
 #[cfg(test)]
@@ -248,10 +213,20 @@ mod tests {
         let tree = make_tree();
         let flat = flatten_tree(&tree);
 
-        // span#cpu (index 2) has ancestor with class "panel"
-        assert!(has_ancestor_with_class(&flat, 2, "panel"));
-        assert!(has_ancestor_with_class(&flat, 2, "row"));
-        assert!(!has_ancestor_with_class(&flat, 2, "nonexistent"));
+        // span#cpu (index 2) ancestors: div.row (1), div.panel (0)
+        let chain = ancestor_chain(&flat, 2);
+        let has_panel = chain
+            .iter()
+            .any(|&i| flat[i].classes.iter().any(|c| c == "panel"));
+        let has_row = chain
+            .iter()
+            .any(|&i| flat[i].classes.iter().any(|c| c == "row"));
+        let has_nonexistent = chain
+            .iter()
+            .any(|&i| flat[i].classes.iter().any(|c| c == "nonexistent"));
+        assert!(has_panel);
+        assert!(has_row);
+        assert!(!has_nonexistent);
     }
 
     #[test]

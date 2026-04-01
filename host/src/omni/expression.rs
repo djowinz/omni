@@ -416,18 +416,6 @@ pub fn eval_condition(expr: &str, snapshot: &SensorSnapshot) -> bool {
     }
 }
 
-/// Evaluate an expression to a numeric value.
-/// Used for interpolation targets (e.g., computing percentages).
-pub fn eval_numeric(expr: &str, snapshot: &SensorSnapshot) -> Option<f64> {
-    match eval_inner(expr, snapshot) {
-        Ok(val) => Some(val.as_f64()),
-        Err(reason) => {
-            warn_once(expr, &reason);
-            None
-        }
-    }
-}
-
 fn eval_inner(expr: &str, snapshot: &SensorSnapshot) -> Result<Value, String> {
     let tokens = tokenize(expr)?;
     if tokens.is_empty() {
@@ -586,19 +574,5 @@ mod tests {
     fn division_by_zero_no_panic() {
         let snap = SensorSnapshot::default();
         assert!(!eval_condition("100 / 0 > 1", &snap));
-        assert_eq!(eval_numeric("100 / 0", &snap), None);
-    }
-
-    #[test]
-    fn eval_numeric_basic() {
-        let snap = make_snapshot(75.0, 0.0, 0.0, 0, 0);
-        let val = eval_numeric("gpu.temp + 5", &snap).unwrap();
-        assert!((val - 80.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn eval_numeric_invalid() {
-        let snap = SensorSnapshot::default();
-        assert_eq!(eval_numeric("", &snap), None);
     }
 }

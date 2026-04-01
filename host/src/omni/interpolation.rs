@@ -40,19 +40,6 @@ pub fn interpolate(input: &str, snapshot: &SensorSnapshot) -> String {
     result
 }
 
-/// Check if a string contains any `{...}` interpolation expressions.
-pub fn has_interpolation(input: &str) -> bool {
-    let mut in_brace = false;
-    for ch in input.chars() {
-        if ch == '{' {
-            in_brace = true;
-        } else if ch == '}' && in_brace {
-            return true;
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,12 +84,5 @@ mod tests {
         let snapshot = SensorSnapshot::default();
         let result = interpolate("plain text", &snapshot);
         assert_eq!(result, "plain text");
-    }
-
-    #[test]
-    fn has_interpolation_works() {
-        assert!(has_interpolation("CPU: {cpu.usage}%"));
-        assert!(!has_interpolation("plain text"));
-        assert!(!has_interpolation("{ unclosed"));
     }
 }

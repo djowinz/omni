@@ -19,6 +19,7 @@ use super::types::ResolvedStyle;
 #[derive(Debug, Clone)]
 pub struct CssRule {
     /// Original selector text (for debugging).
+    #[allow(dead_code)]
     pub selector_text: String,
     /// Parsed selector for matching against FlatNodes.
     pub selector: ParsedSelector,
@@ -224,9 +225,7 @@ fn parse_simple_selector(text: &str) -> SimpleSelector {
 
     // Extract element name (starts at beginning, before any . or #).
     if !current.is_empty() && !current.starts_with('.') && !current.starts_with('#') {
-        let end = current
-            .find(|c: char| c == '.' || c == '#')
-            .unwrap_or(current.len());
+        let end = current.find(['.', '#']).unwrap_or(current.len());
         let el = &current[..end];
         if !el.is_empty() {
             element = Some(el.to_lowercase());
@@ -238,9 +237,7 @@ fn parse_simple_selector(text: &str) -> SimpleSelector {
     while !current.is_empty() {
         if current.starts_with('#') {
             current = &current[1..];
-            let end = current
-                .find(|c: char| c == '.' || c == '#')
-                .unwrap_or(current.len());
+            let end = current.find(['.', '#']).unwrap_or(current.len());
             let id_str = &current[..end];
             if !id_str.is_empty() {
                 id = Some(id_str.to_string());
@@ -248,9 +245,7 @@ fn parse_simple_selector(text: &str) -> SimpleSelector {
             current = &current[end..];
         } else if current.starts_with('.') {
             current = &current[1..];
-            let end = current
-                .find(|c: char| c == '.' || c == '#')
-                .unwrap_or(current.len());
+            let end = current.find(['.', '#']).unwrap_or(current.len());
             let cls = &current[..end];
             if !cls.is_empty() {
                 classes.push(cls.to_string());

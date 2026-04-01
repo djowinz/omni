@@ -132,7 +132,7 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
 
         // Push sensor data if subscribed (every 1 second)
         if sensor_subscribed && last_sensor_send.elapsed() >= Duration::from_secs(1) {
-            let snapshot = state.latest_snapshot.lock().unwrap().clone();
+            let snapshot = *state.latest_snapshot.lock().unwrap();
             let msg = json!({
                 "type": "sensors.data",
                 "snapshot": {

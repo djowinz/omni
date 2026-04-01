@@ -33,6 +33,7 @@ impl FileWatcher {
     }
 
     /// Block until an event arrives or the timeout elapses.
+    #[allow(dead_code)]
     pub fn recv_timeout(&self, timeout: Duration) -> Result<ReloadEvent, mpsc::RecvTimeoutError> {
         self.rx.recv_timeout(timeout)
     }

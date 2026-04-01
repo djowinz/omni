@@ -300,13 +300,11 @@ impl OmniResolver {
 
                         widgets.push(cw);
                     }
-                } else {
-                    if height > 0.0 || parse_color(style.background.as_deref())[3] > 0 {
-                        let mut cw = style_to_computed_widget(style, x, y, width);
-                        cw.widget_type = WidgetType::Spacer;
-                        cw.height = height;
-                        widgets.push(cw);
-                    }
+                } else if height > 0.0 || parse_color(style.background.as_deref())[3] > 0 {
+                    let mut cw = style_to_computed_widget(style, x, y, width);
+                    cw.widget_type = WidgetType::Spacer;
+                    cw.height = height;
+                    widgets.push(cw);
                 }
             }
         }
@@ -322,22 +320,24 @@ fn style_to_computed_widget(
     y: f32,
     default_width: f32,
 ) -> ComputedWidget {
-    let mut cw = ComputedWidget::default();
-    cw.x = x;
-    cw.y = y;
-    cw.width = parse_px(style.width.as_deref()).unwrap_or(default_width);
-    cw.opacity = style.opacity.unwrap_or(1.0);
-    cw.font_size = parse_px(style.font_size.as_deref()).unwrap_or(14.0);
-    cw.font_weight = style
-        .font_weight
-        .as_deref()
-        .and_then(|w| match w {
-            "bold" => Some(700),
-            "normal" => Some(400),
-            _ => w.parse().ok(),
-        })
-        .unwrap_or(400);
-    cw.color_rgba = parse_color(style.color.as_deref());
+    let mut cw = ComputedWidget {
+        x,
+        y,
+        width: parse_px(style.width.as_deref()).unwrap_or(default_width),
+        opacity: style.opacity.unwrap_or(1.0),
+        font_size: parse_px(style.font_size.as_deref()).unwrap_or(14.0),
+        font_weight: style
+            .font_weight
+            .as_deref()
+            .and_then(|w| match w {
+                "bold" => Some(700),
+                "normal" => Some(400),
+                _ => w.parse().ok(),
+            })
+            .unwrap_or(400),
+        color_rgba: parse_color(style.color.as_deref()),
+        ..Default::default()
+    };
 
     // Parse background: gradient takes priority, otherwise solid color
     if let Some(bg) = &style.background {
@@ -426,7 +426,7 @@ fn parse_linear_gradient(value: &str) -> Option<omni_shared::GradientDef> {
     let color1_str = if has_angle {
         parts.get(1).map(|s| s.trim()).unwrap_or("")
     } else {
-        parts.get(0).map(|s| s.trim()).unwrap_or("")
+        parts.first().map(|s| s.trim()).unwrap_or("")
     };
     let color2_str = parts.last().map(|s| s.trim()).unwrap_or("");
 

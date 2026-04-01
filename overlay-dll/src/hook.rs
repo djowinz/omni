@@ -385,14 +385,11 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
     let state = &mut *HOOK_STATE.0.get();
     if !p_device.is_null() {
         let unknown: &windows::core::IUnknown = std::mem::transmute(&p_device);
-        match unknown.cast::<ID3D12CommandQueue>() {
-            Ok(queue) => {
-                crate::logging::log_to_file(
-                    "[hook] captured ID3D12CommandQueue from CreateSwapChainForHwnd",
-                );
-                state.captured_command_queue = Some(queue);
-            }
-            Err(_) => {}
+        if let Ok(queue) = unknown.cast::<ID3D12CommandQueue>() {
+            crate::logging::log_to_file(
+                "[hook] captured ID3D12CommandQueue from CreateSwapChainForHwnd",
+            );
+            state.captured_command_queue = Some(queue);
         }
     }
 

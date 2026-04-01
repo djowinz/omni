@@ -154,11 +154,13 @@ mod tests {
             ..Default::default()
         };
 
-        let mut widget = ComputedWidget::default();
-        widget.widget_type = WidgetType::SensorValue;
-        widget.source = SensorSource::CpuUsage;
-        widget.x = 10.0;
-        widget.y = 10.0;
+        let mut widget = ComputedWidget {
+            widget_type: WidgetType::SensorValue,
+            source: SensorSource::CpuUsage,
+            x: 10.0,
+            y: 10.0,
+            ..Default::default()
+        };
         write_fixed_str(&mut widget.format_pattern, "CPU: 42.5%");
 
         writer.write(&snapshot, &[widget], 1);

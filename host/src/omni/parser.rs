@@ -51,22 +51,6 @@ fn make_error(source: &str, offset: usize, message: String) -> ParseError {
     }
 }
 
-fn make_warning(
-    source: &str,
-    offset: usize,
-    message: String,
-    suggestion: Option<String>,
-) -> ParseError {
-    let (line, column) = offset_to_line_col(source, offset);
-    ParseError {
-        message,
-        severity: Severity::Warning,
-        line,
-        column,
-        suggestion,
-    }
-}
-
 /// Parse a .omni source string into an OmniFile with full diagnostics (errors + warnings).
 ///
 /// Returns `(Option<OmniFile>, Vec<ParseError>)`. The file is `Some` if parsing succeeded
@@ -148,6 +132,24 @@ pub fn parse_omni_with_diagnostics(source: &str) -> (Option<OmniFile>, Vec<Parse
     }
 }
 
+/// Parse a .omni source string into an OmniFile.
+///
+/// Backward-compatible wrapper around `parse_omni_with_diagnostics`.
+/// Returns `Ok(file)` if no errors (warnings are discarded), `Err(errors)` otherwise.
+#[cfg(test)]
+pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
+    let (file, diagnostics) = parse_omni_with_diagnostics(source);
+    let errors: Vec<ParseError> = diagnostics
+        .into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+    if errors.is_empty() {
+        Ok(file.unwrap_or_else(OmniFile::empty))
+    } else {
+        Err(errors)
+    }
+}
+
 /// Recursively walk an HtmlNode tree to validate element names and sensor paths.
 fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<ParseError>) {
     match node {
@@ -177,23 +179,6 @@ fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<Pars
             let path_warnings = validation::validate_sensor_paths(content, source, text_offset);
             warnings.extend(path_warnings);
         }
-    }
-}
-
-/// Parse a .omni source string into an OmniFile.
-///
-/// Backward-compatible wrapper around `parse_omni_with_diagnostics`.
-/// Returns `Ok(file)` if no errors (warnings are discarded), `Err(errors)` otherwise.
-pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
-    let (file, diagnostics) = parse_omni_with_diagnostics(source);
-    let errors: Vec<ParseError> = diagnostics
-        .into_iter()
-        .filter(|d| d.severity == Severity::Error)
-        .collect();
-    if errors.is_empty() {
-        Ok(file.unwrap_or_else(OmniFile::empty))
-    } else {
-        Err(errors)
     }
 }
 

@@ -27,8 +27,8 @@ impl RamPoller {
 
         RamData {
             usage_percent,
-            used_mb: used_mb,
-            total_mb: total_mb,
+            used_mb,
+            total_mb,
             frequency_mhz: 0, // requires LHM/WMI — deferred
             timing_cl: 0,     // requires LHM/WMI — deferred
             temp_c: f32::NAN, // requires LHM/WMI — deferred

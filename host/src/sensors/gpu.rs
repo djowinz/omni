@@ -27,7 +27,6 @@ const NVML_CLOCK_MEM: u32 = 2;
 type NvmlDevice = *mut c_void;
 
 type NvmlInit = unsafe extern "C" fn() -> u32;
-type NvmlShutdown = unsafe extern "C" fn() -> u32;
 type NvmlDeviceGetCount = unsafe extern "C" fn(count: *mut u32) -> u32;
 type NvmlDeviceGetHandleByIndex = unsafe extern "C" fn(index: u32, device: *mut NvmlDevice) -> u32;
 type NvmlDeviceGetUtilizationRates =

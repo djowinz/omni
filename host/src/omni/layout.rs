@@ -793,14 +793,16 @@ mod position_debug_test {
             },
         ];
 
-        let mut root_style = ResolvedStyle::default();
-        root_style.position = Some("fixed".to_string());
-        root_style.top = Some("100px".to_string());
-        root_style.left = Some("200px".to_string());
-        root_style.width = Some("300px".to_string());
-        root_style.display = Some("flex".to_string());
-        root_style.flex_direction = Some("column".to_string());
-        root_style.padding = Some("10px".to_string());
+        let root_style = ResolvedStyle {
+            position: Some("fixed".to_string()),
+            top: Some("100px".to_string()),
+            left: Some("200px".to_string()),
+            width: Some("300px".to_string()),
+            display: Some("flex".to_string()),
+            flex_direction: Some("column".to_string()),
+            padding: Some("10px".to_string()),
+            ..Default::default()
+        };
 
         let span_style = ResolvedStyle::default();
         let text_style = ResolvedStyle::default();

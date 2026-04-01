@@ -218,7 +218,7 @@ pub unsafe extern "system" fn hooked_present(
     let state = &mut *RENDER_STATE.0.get();
 
     let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-    if count % 300 == 0 {
+    if count.is_multiple_of(300) {
         log_to_file(&format!(
             "[present] frame {count}, sync_interval={sync_interval}, flags={flags:#010x}"
         ));
@@ -246,7 +246,7 @@ pub unsafe extern "system" fn hooked_present1(
     let state = &mut *RENDER_STATE.0.get();
 
     let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-    if count % 300 == 0 {
+    if count.is_multiple_of(300) {
         log_to_file(&format!(
             "[present1] frame {count}, sync_interval={sync_interval}, flags={present_flags:#010x}"
         ));

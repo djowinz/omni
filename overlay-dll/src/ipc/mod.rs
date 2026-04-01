@@ -9,6 +9,7 @@ use crate::logging::log_to_file;
 pub struct SharedMemoryReader {
     handle: HANDLE,
     ptr: *mut SharedOverlayState,
+    #[allow(dead_code)]
     last_sequence: u64,
 }
 
@@ -79,6 +80,7 @@ impl SharedMemoryReader {
     }
 
     /// Read the active slot. Returns None if data hasn't changed since last read.
+    #[allow(dead_code)]
     pub fn read(&mut self) -> Option<&OverlaySlot> {
         // SAFETY: self.ptr points to valid shared memory mapped in open.
         // The host writes to the inactive slot and atomically flips.
@@ -108,6 +110,7 @@ impl SharedMemoryReader {
     }
 
     /// Returns true if the host appears to be writing (sequence > 0).
+    #[allow(dead_code)]
     pub fn is_connected(&self) -> bool {
         let state = unsafe { &*self.ptr };
         let slot = &state.slots[state.reader_slot_index()];

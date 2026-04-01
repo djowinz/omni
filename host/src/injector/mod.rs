@@ -129,7 +129,10 @@ pub fn inject_dll(pid: u32, dll_path: &str) -> Result<(), HostError> {
             process.raw(),
             None,
             0,
-            Some(std::mem::transmute(load_library_addr)),
+            Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                unsafe extern "system" fn(*mut std::ffi::c_void) -> u32,
+            >(load_library_addr)),
             Some(remote_mem),
             0,
             None,
@@ -178,7 +181,10 @@ pub fn eject_dll(pid: u32, dll_name: &str) -> Result<(), HostError> {
             process.raw(),
             None,
             0,
-            Some(std::mem::transmute(shutdown_addr)),
+            Some(std::mem::transmute::<
+                *const std::ffi::c_void,
+                unsafe extern "system" fn(*mut std::ffi::c_void) -> u32,
+            >(shutdown_addr)),
             None,
             0,
             None,

@@ -52,7 +52,7 @@ pub fn wchar_eq_ignore_ascii_case(buf: &[u16], ascii: &str) -> bool {
                 if w > 127 || !a.is_ascii() {
                     return false;
                 }
-                if (w as u8).to_ascii_lowercase() != a.to_ascii_lowercase() {
+                if !(w as u8).eq_ignore_ascii_case(&a) {
                     return false;
                 }
             }
@@ -142,35 +142,6 @@ pub fn has_module(pid: u32, dll_name: &str) -> Result<bool, HostError> {
     Ok(modules
         .iter()
         .any(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name)))
-}
-
-/// Get the full executable path for the first module of a process (the exe itself).
-pub fn get_process_exe_path(pid: u32) -> Option<String> {
-    iter_modules(pid)
-        .ok()?
-        .first()
-        .map(|m| wchar_to_string(&m.szExePath))
-}
-
-/// Find a module's base address in a remote process by name (case-insensitive).
-pub fn find_remote_module_base(
-    pid: u32,
-    dll_name: &str,
-) -> Result<Option<*const std::ffi::c_void>, HostError> {
-    let modules = iter_modules(pid)?;
-    Ok(modules
-        .iter()
-        .find(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name))
-        .map(|m| m.modBaseAddr as *const std::ffi::c_void))
-}
-
-/// Find a module's file path in a remote process by name (case-insensitive).
-pub fn find_remote_module_path(pid: u32, dll_name: &str) -> Result<Option<String>, HostError> {
-    let modules = iter_modules(pid)?;
-    Ok(modules
-        .iter()
-        .find(|m| wchar_eq_ignore_ascii_case(&m.szModule, dll_name))
-        .map(|m| wchar_to_string(&m.szExePath)))
 }
 
 /// Find a module's base address and file path in one snapshot (case-insensitive).

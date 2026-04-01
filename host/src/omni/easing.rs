@@ -213,7 +213,7 @@ mod tests {
         // A custom cubic-bezier should produce a value between 0 and 1
         let easing = EasingFunction::CubicBezier(0.1, 0.7, 0.9, 0.3);
         let val = easing.apply(0.5);
-        assert!(val >= 0.0 && val <= 1.0, "custom bezier at 0.5 = {}", val);
+        assert!((0.0..=1.0).contains(&val), "custom bezier at 0.5 = {}", val);
         assert!((easing.apply(0.0) - 0.0).abs() < 1e-6);
         assert!((easing.apply(1.0) - 1.0).abs() < 1e-6);
     }

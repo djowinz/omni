@@ -70,6 +70,7 @@ pub const KNOWN_SENSOR_PATHS: &[&str] = &[
 ];
 
 /// Compute the Levenshtein edit distance between two strings.
+#[allow(clippy::needless_range_loop)]
 pub fn edit_distance(a: &str, b: &str) -> usize {
     let a_len = a.len();
     let b_len = b.len();
@@ -109,10 +110,8 @@ pub fn suggest(input: &str, known: &[&str], max_distance: usize) -> Option<Strin
 
     for &candidate in known {
         let dist = edit_distance(&input_lower, &candidate.to_lowercase());
-        if dist <= max_distance {
-            if best.is_none() || dist < best.unwrap().0 {
-                best = Some((dist, candidate));
-            }
+        if dist <= max_distance && (best.is_none() || dist < best.unwrap().0) {
+            best = Some((dist, candidate));
         }
     }
 

@@ -422,7 +422,7 @@ fn run_host(dll_path: &str) {
     };
 
     let mut last_scan = Instant::now();
-    let mut transitions_active = false;
+    let mut transitions_active;
 
     while RUNNING.load(Ordering::Relaxed) {
         if last_scan.elapsed() >= scan_interval {

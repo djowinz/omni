@@ -1,8 +1,8 @@
-/// Sensor data types shared between host and overlay DLL.
-/// All structs are #[repr(C)] because they cross process boundaries via shared memory.
+//! Sensor data types shared between host and overlay DLL.
+//! All structs are #[repr(C)] because they cross process boundaries via shared memory.
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SensorSnapshot {
     pub timestamp_ms: u64,
     pub cpu: CpuData,
@@ -60,18 +60,6 @@ pub struct FrameData {
     pub frame_time_01percent_ms: f32,
     /// false if no frame data source is active.
     pub available: bool,
-}
-
-impl Default for SensorSnapshot {
-    fn default() -> Self {
-        Self {
-            timestamp_ms: 0,
-            cpu: CpuData::default(),
-            gpu: GpuData::default(),
-            ram: RamData::default(),
-            frame: FrameData::default(),
-        }
-    }
 }
 
 impl Default for CpuData {
