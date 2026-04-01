@@ -4,3 +4,5 @@
 *.exe
 *.log
 .worktrees/
+.claude/settings.local.*
+.superpowers

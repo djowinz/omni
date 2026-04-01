@@ -54,7 +54,13 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(wc -l /c/Users/DyllenOwens/Projects/omni/host/src/omni/*.rs /c/Users/DyllenOwens/Projects/omni/overlay-dll/src/*.rs /c/Users/DyllenOwens/Projects/omni/host/src/sensors/*.rs)",
       "Bash(cargo clippy:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "Bash(bash \"C:/Users/DyllenOwens/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.6/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/Users/DyllenOwens/Projects/omni\")",
+      "Bash(cargo install:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls app/*.js)"
     ]
   }
 }
