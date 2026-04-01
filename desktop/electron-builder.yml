@@ -1,0 +1,8 @@
+appId: com.omni.desktop
+productName: Omni
+directories:
+  output: dist
+files:
+  - app/**/*
+  - main/**/*
+  - package.json

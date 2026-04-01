@@ -1,0 +1,23 @@
+{
+  "private": true,
+  "name": "omni-desktop",
+  "version": "0.1.0",
+  "description": "Omni game overlay desktop app",
+  "main": "app/main.js",
+  "scripts": {
+    "dev": "nextron",
+    "build": "nextron build --win --no-pack"
+  },
+  "dependencies": {
+    "electron": "^41.1.1",
+    "next": "^16.2.2",
+    "nextron": "^10.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "typescript": "^6.0.2"
+  }
+}
