@@ -1,6 +1,6 @@
 
 
-import { Settings, Star, Copy, Trash2, Plus, Gamepad2 } from 'lucide-react';
+import { Settings, Star, Copy, Trash2, Plus, Gamepad2, Minus, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -56,8 +56,11 @@ export function Header() {
 
   return (
     <>
-      <header className="flex h-14 items-center justify-between border-b border-[#27272A] bg-[#18181B] px-4">
-        <div className="flex items-center gap-4">
+      <header
+        className="flex h-10 items-center justify-between border-b border-[#27272A] bg-[#18181B] pl-4 select-none"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <div className="flex items-center gap-4" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {/* Logo with gradient glow */}
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#00D9FF] to-[#A855F7] flex items-center justify-content-center" />
@@ -138,23 +141,47 @@ export function Header() {
           </div>
         </div>
 
-        {/* Right side status badges */}
-        <div className="flex items-center gap-2">
-          {isDefault && (
-            <Badge variant="outline" className="border-[#3B82F6]/50 text-[#3B82F6] bg-[#3B82F6]/10">
-              Default Overlay
-            </Badge>
-          )}
-          {isActive && !isDefault && (
-            <Badge className="bg-[#00D9FF] text-[#0D0D0F] hover:bg-[#00D9FF]">
-              Active Overlay
-            </Badge>
-          )}
-          {state.isDirty && (
-            <Badge className="bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/30">
-              Unsaved
-            </Badge>
-          )}
+        {/* Right side: status badges + window controls */}
+        <div className="flex items-center h-full">
+          <div className="flex items-center gap-2 pr-3" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            {isDefault && (
+              <Badge variant="outline" className="border-[#3B82F6]/50 text-[#3B82F6] bg-[#3B82F6]/10">
+                Default Overlay
+              </Badge>
+            )}
+            {isActive && !isDefault && (
+              <Badge className="bg-[#00D9FF] text-[#0D0D0F] hover:bg-[#00D9FF]">
+                Active Overlay
+              </Badge>
+            )}
+            {state.isDirty && (
+              <Badge className="bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/30">
+                Unsaved
+              </Badge>
+            )}
+          </div>
+
+          {/* Window controls */}
+          <div className="flex h-full" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <button
+              onClick={() => (window as any).omni?.minimizeWindow()}
+              className="flex items-center justify-center w-11 h-full text-[#71717A] hover:bg-[#27272A] hover:text-[#FAFAFA] transition-colors"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => (window as any).omni?.maximizeWindow()}
+              className="flex items-center justify-center w-11 h-full text-[#71717A] hover:bg-[#27272A] hover:text-[#FAFAFA] transition-colors"
+            >
+              <Square className="h-3 w-3" />
+            </button>
+            <button
+              onClick={() => (window as any).omni?.closeWindow()}
+              className="flex items-center justify-center w-11 h-full text-[#71717A] hover:bg-[#EF4444] hover:text-[#FAFAFA] transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </header>
 
