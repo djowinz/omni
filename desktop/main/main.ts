@@ -110,19 +110,25 @@ protocol.registerSchemesAsPrivileged([
 
 app.on("ready", async () => {
   // Handle omni://resource/<filename> requests by serving from resources/
+  // URL format: omni://resource/omni-logo.png
+  //   hostname = "resource", pathname = "/omni-logo.png"
   protocol.handle('omni', (request) => {
     const url = new URL(request.url);
     const resourcesDir = isProd
       ? path.join(app.getAppPath(), 'resources')
       : path.join(__dirname, '../../resources');
-    const filePath = path.join(resourcesDir, url.pathname);
+
+    // Strip leading slash from pathname
+    const filename = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    const filePath = path.resolve(resourcesDir, filename);
 
     // Prevent path traversal
-    if (!filePath.startsWith(resourcesDir)) {
+    const resolvedResourcesDir = path.resolve(resourcesDir);
+    if (!filePath.startsWith(resolvedResourcesDir)) {
       return new Response('Forbidden', { status: 403 });
     }
 
-    return net.fetch(`file://${filePath}`);
+    return net.fetch(`file:///${filePath.replace(/\\/g, '/')}`);
   });
   mainWindow = createWindow();
   createTray();
