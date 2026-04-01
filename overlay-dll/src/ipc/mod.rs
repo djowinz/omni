@@ -68,6 +68,8 @@ impl SharedMemoryReader {
         // The host writes to the inactive slot and atomically flips.
         let state = unsafe { &*self.ptr };
         let slot_idx = state.reader_slot_index();
+        // Pairs with the Release fence in the host's write() method.
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         let slot = &state.slots[slot_idx];
 
         if slot.write_sequence == self.last_sequence {
@@ -84,6 +86,8 @@ impl SharedMemoryReader {
         // The host writes to the inactive slot and atomically flips.
         let state = unsafe { &*self.ptr };
         let slot_idx = state.reader_slot_index();
+        // Pairs with the Release fence in the host's write() method.
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         &state.slots[slot_idx]
     }
 

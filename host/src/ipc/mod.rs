@@ -98,6 +98,11 @@ impl SharedMemoryWriter {
             *w = ComputedWidget::default();
         }
 
+        // Ensure all slot writes are visible before the index flip.
+        // On x86 this compiles to nothing (strong memory model), but
+        // is required for correctness under the C++ memory model and on ARM.
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+
         state.flip_slot();
     }
 
