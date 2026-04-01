@@ -36,17 +36,23 @@ pub struct OverlaySlot {
 impl SharedOverlayState {
     /// Returns the index (0 or 1) of the slot the DLL should read.
     pub fn reader_slot_index(&self) -> usize {
+        // Acquire ensures all host writes to the slot are visible before the DLL reads it.
+        // `& 1` masks to a valid slot index regardless of counter wrap.
         self.active_slot.load(Ordering::Acquire) as usize & 1
     }
 
     /// Returns the index (0 or 1) of the slot the host should write to.
     pub fn writer_slot_index(&self) -> usize {
-        // Writer uses the opposite slot from the reader
+        // Acquire ordering mirrors reader_slot_index; XOR flips to the opposite slot
+        // so the host always writes to the slot the DLL is not currently reading.
         (self.active_slot.load(Ordering::Acquire) as usize & 1) ^ 1
     }
 
     /// Host calls this after writing to the writer slot to make it active.
     pub fn flip_slot(&self) {
+        // Release ordering ensures all writes to the new slot are visible to the DLL
+        // before the index change is published. Only the host thread calls this, so
+        // no compare-exchange is needed.
         let current = self.active_slot.load(Ordering::Acquire);
         let next = current ^ 1;
         self.active_slot.store(next, Ordering::Release);

@@ -193,11 +193,8 @@ pub fn write_fixed_str(dest: &mut [u8], src: &str) {
     let max_len = dest.len() - 1; // reserve last byte for null terminator
     let copy_len = bytes.len().min(max_len);
     dest[..copy_len].copy_from_slice(&bytes[..copy_len]);
-    dest[copy_len] = 0;
-    // Zero the rest
-    for byte in &mut dest[copy_len + 1..] {
-        *byte = 0;
-    }
+    // Null-terminate and zero remaining bytes
+    dest[copy_len..].fill(0);
 }
 
 /// Helper to read a null-terminated UTF-8 string from a fixed-size byte array.
