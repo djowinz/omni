@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Settings,
   Star,
@@ -47,8 +49,8 @@ export function Header() {
   const isActive = currentOverlay?.id === state.activeOverlayId;
   const isDefault = currentOverlay?.isDefault;
 
-  const logoPath = typeof window !== 'undefined' ? window.electron?.getResourcePath("omni-logo.png") : '';
-  const logoTextPath = typeof window !== 'undefined' ? window.electron?.getResourcePath("omni-text-logo.png") : '';
+  const logoSrc = "omni://resource/omni-logo.png";
+  const logoTextSrc = "omni://resource/omni-text-logo.png";
 
   const handleSelectOverlay = (id: string) => {
     dispatch({ type: "SELECT_OVERLAY", payload: id });
@@ -92,16 +94,14 @@ export function Header() {
                     "linear-gradient(135deg, #00D9FF 0%, #A855F7 100%",
                 }}
               >
-                <Image
-                  src={`file://${logoPath}`}
+                <img
+                  src={logoSrc}
                   alt="Omni"
-                  width={32}
-                  height={32}
-                  className="relative rounded"
+                  className="relative w-8 h-8 rounded"
                 />
               </div>
               <img
-                src={`file://${logoTextPath}`}
+                src={logoTextSrc}
                 alt="Omni"
                 className="relative h-5 w-auto"
               />
