@@ -95,10 +95,8 @@ pub fn parse_css(source: &str) -> ParsedStylesheet {
             // Serialize the full selector list via Display (which is implemented
             // on SelectorList), then split by comma to get individual selectors.
             let selector_list_text = format!("{}", style_rule.selectors);
-            let selector_texts: Vec<&str> = selector_list_text
-                .split(',')
-                .map(|s| s.trim())
-                .collect();
+            let selector_texts: Vec<&str> =
+                selector_list_text.split(',').map(|s| s.trim()).collect();
 
             // Each selector in the SelectorList has its own specificity.
             for (i, selector) in style_rule.selectors.0.iter().enumerate() {
@@ -167,9 +165,7 @@ fn extract_properties(
 }
 
 /// Convert a single lightningcss Property into a (name, value) pair.
-fn property_to_kv(
-    prop: &lightningcss::properties::Property,
-) -> Option<(String, String)> {
+fn property_to_kv(prop: &lightningcss::properties::Property) -> Option<(String, String)> {
     use lightningcss::printer::PrinterOptions;
 
     let name = prop.property_id().name().to_string();
@@ -209,7 +205,11 @@ fn parse_selector_text(text: &str) -> ParsedSelector {
     }
 
     // Descendant selector: store right-to-left (target first, then ancestors).
-    let selectors: Vec<SimpleSelector> = parts.iter().rev().map(|p| parse_simple_selector(p)).collect();
+    let selectors: Vec<SimpleSelector> = parts
+        .iter()
+        .rev()
+        .map(|p| parse_simple_selector(p))
+        .collect();
     ParsedSelector::Descendant(selectors)
 }
 
@@ -642,9 +642,9 @@ fn props_to_resolved_style(props: &HashMap<String, String>) -> ResolvedStyle {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::flat_tree::flatten_tree;
     use super::super::types::HtmlNode;
+    use super::*;
 
     /// Helper: build a flat tree from an HtmlNode and return (flat_tree, index_map).
     fn make_test_tree() -> (Vec<FlatNode>, HtmlNode) {
@@ -847,7 +847,10 @@ mod tests {
         let bg = sheet.variables.get("--bg").unwrap();
         assert!(!bg.is_empty(), "Expected --bg to have a value, got empty");
         let text = sheet.variables.get("--text").unwrap();
-        assert!(!text.is_empty(), "Expected --text to have a value, got empty");
+        assert!(
+            !text.is_empty(),
+            "Expected --text to have a value, got empty"
+        );
         // The exact format depends on lightningcss version, but both should be present.
         assert_eq!(sheet.variables.len(), 2);
     }

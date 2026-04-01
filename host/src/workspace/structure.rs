@@ -3,8 +3,8 @@
 //! Handles creation of the overlay workspace at %APPDATA%\Omni/,
 //! migration from the old flat layout, and path resolution.
 
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// Initialize the workspace folder structure.
@@ -180,9 +180,7 @@ mod tests {
 
     fn temp_dir() -> PathBuf {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "omni_test_ws_{}_{}", std::process::id(), id
-        ));
+        let dir = std::env::temp_dir().join(format!("omni_test_ws_{}_{}", std::process::id(), id));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).ok();
         dir

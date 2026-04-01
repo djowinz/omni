@@ -50,8 +50,8 @@ pub const DEFAULT_THEME_CSS: &str = r#":root {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::parser;
+    use super::*;
 
     #[test]
     fn default_omni_parses() {

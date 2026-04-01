@@ -51,9 +51,8 @@ impl FileWatcher {
         let (raw_tx, raw_rx) = mpsc::channel::<notify::Result<Event>>();
         let (event_tx, event_rx) = mpsc::channel::<ReloadEvent>();
 
-        let mut watcher =
-            RecommendedWatcher::new(raw_tx, notify::Config::default())
-                .map_err(|e| format!("Failed to create file watcher: {e}"))?;
+        let mut watcher = RecommendedWatcher::new(raw_tx, notify::Config::default())
+            .map_err(|e| format!("Failed to create file watcher: {e}"))?;
 
         watcher
             .watch(&overlay_dir, RecursiveMode::Recursive)
@@ -69,7 +68,12 @@ impl FileWatcher {
             .unwrap_or_else(|| PathBuf::from("."));
         watcher
             .watch(&config_parent, RecursiveMode::NonRecursive)
-            .map_err(|e| format!("Failed to watch config parent {}: {e}", config_parent.display()))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to watch config parent {}: {e}",
+                    config_parent.display()
+                )
+            })?;
 
         // Canonicalize reference paths once so debounce_loop never pays a syscall per event.
         let overlay_dir_c = canon(&overlay_dir);
@@ -80,13 +84,7 @@ impl FileWatcher {
         std::thread::Builder::new()
             .name("file-watcher-debounce".to_string())
             .spawn(move || {
-                debounce_loop(
-                    raw_rx,
-                    event_tx,
-                    overlay_dir_c,
-                    themes_dir_c,
-                    config_path_c,
-                );
+                debounce_loop(raw_rx, event_tx, overlay_dir_c, themes_dir_c, config_path_c);
             })
             .map_err(|e| format!("Failed to spawn debounce thread: {e}"))?;
 
@@ -206,7 +204,6 @@ fn debounce_loop(
                 true // keep waiting
             }
         });
-
     }
 }
 
@@ -305,7 +302,12 @@ mod tests {
             // Seed a file so the overlay dir isn't empty
             fs::write(overlay_dir.join("overlay.omni"), "# initial").expect("seed overlay.omni");
 
-            Self { root, overlay_dir, themes_dir, config_path }
+            Self {
+                root,
+                overlay_dir,
+                themes_dir,
+                config_path,
+            }
         }
     }
 

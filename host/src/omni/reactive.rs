@@ -1,8 +1,8 @@
 //! Reactive class evaluation — computes active classes per element each frame.
 
-use omni_shared::SensorSnapshot;
 use super::expression;
 use super::flat_tree::FlatNode;
+use omni_shared::SensorSnapshot;
 
 /// Evaluate all conditional classes for a flat node and return the full active class list
 /// (static classes + conditionally active classes).
@@ -24,8 +24,8 @@ pub fn resolve_active_classes(node: &FlatNode, snapshot: &SensorSnapshot) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::ConditionalClass;
+    use super::*;
     use omni_shared::SensorSnapshot;
 
     fn make_snapshot_with_gpu_temp(temp: f32) -> SensorSnapshot {
@@ -34,7 +34,11 @@ mod tests {
         s
     }
 
-    fn make_snapshot_with_gpu_and_cpu(gpu_temp: f32, gpu_usage: f32, cpu_usage: f32) -> SensorSnapshot {
+    fn make_snapshot_with_gpu_and_cpu(
+        gpu_temp: f32,
+        gpu_usage: f32,
+        cpu_usage: f32,
+    ) -> SensorSnapshot {
         let mut s = SensorSnapshot::default();
         s.gpu.temp_c = gpu_temp;
         s.gpu.usage_percent = gpu_usage;
@@ -77,10 +81,7 @@ mod tests {
     #[test]
     fn condition_true_adds_class() {
         let snapshot = make_snapshot_with_gpu_temp(90.0);
-        let node = make_node(
-            vec!["panel"],
-            vec![cc("warning", "gpu.temp > 80")],
-        );
+        let node = make_node(vec!["panel"], vec![cc("warning", "gpu.temp > 80")]);
         let result = resolve_active_classes(&node, &snapshot);
         assert!(result.contains(&"panel".to_string()));
         assert!(result.contains(&"warning".to_string()));
@@ -91,10 +92,7 @@ mod tests {
     #[test]
     fn condition_false_does_not_add_class() {
         let snapshot = make_snapshot_with_gpu_temp(70.0);
-        let node = make_node(
-            vec!["panel"],
-            vec![cc("warning", "gpu.temp > 80")],
-        );
+        let node = make_node(vec!["panel"], vec![cc("warning", "gpu.temp > 80")]);
         let result = resolve_active_classes(&node, &snapshot);
         assert_eq!(result, vec!["panel".to_string()]);
         assert!(!result.contains(&"warning".to_string()));
@@ -125,8 +123,8 @@ mod tests {
     fn no_duplicates_when_static_and_conditional_match() {
         let snapshot = make_snapshot_with_gpu_temp(90.0);
         let node = make_node(
-            vec!["panel", "warning"],  // "warning" already static
-            vec![cc("warning", "gpu.temp > 80")],  // condition also true
+            vec!["panel", "warning"],             // "warning" already static
+            vec![cc("warning", "gpu.temp > 80")], // condition also true
         );
         let result = resolve_active_classes(&node, &snapshot);
         // "warning" should appear exactly once

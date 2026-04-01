@@ -26,7 +26,7 @@ pub struct ParseError {
     pub message: String,
     pub severity: Severity,
     pub line: usize,   // 1-based
-    pub column: usize,  // 1-based
+    pub column: usize, // 1-based
     pub suggestion: Option<String>,
 }
 
@@ -51,7 +51,12 @@ fn make_error(source: &str, offset: usize, message: String) -> ParseError {
     }
 }
 
-fn make_warning(source: &str, offset: usize, message: String, suggestion: Option<String>) -> ParseError {
+fn make_warning(
+    source: &str,
+    offset: usize,
+    message: String,
+    suggestion: Option<String>,
+) -> ParseError {
     let (line, column) = offset_to_line_col(source, offset);
     ParseError {
         message,
@@ -83,12 +88,10 @@ pub fn parse_omni_with_diagnostics(source: &str) -> (Option<OmniFile>, Vec<Parse
                     Ok(widget) => widgets.push(widget),
                     Err(e) => errors.push(e),
                 },
-                b"config" => {
-                    match parse_config_block(source, &mut reader) {
-                        Ok(config) => poll_config = config,
-                        Err(e) => errors.push(e),
-                    }
-                }
+                b"config" => match parse_config_block(source, &mut reader) {
+                    Ok(config) => poll_config = config,
+                    Err(e) => errors.push(e),
+                },
                 b"theme" => {
                     theme_src = get_attr(e, "src");
                 }
@@ -124,15 +127,17 @@ pub fn parse_omni_with_diagnostics(source: &str) -> (Option<OmniFile>, Vec<Parse
     if has_errors {
         (None, errors)
     } else {
-        let file = OmniFile { theme_src, poll_config, widgets };
+        let file = OmniFile {
+            theme_src,
+            poll_config,
+            widgets,
+        };
 
         // Run validation on successfully parsed file
         let mut warnings = errors; // may contain warnings from parsing phase
         for widget in &file.widgets {
             // Validate CSS properties
-            let css_warnings = validation::validate_css_properties(
-                &widget.style_source, source, 0,
-            );
+            let css_warnings = validation::validate_css_properties(&widget.style_source, source, 0);
             warnings.extend(css_warnings);
 
             // Walk template tree for element names and sensor paths
@@ -169,9 +174,7 @@ fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<Pars
         HtmlNode::Text { content } => {
             // Find approximate offset of this text in source
             let text_offset = source.find(content.as_str()).unwrap_or(0);
-            let path_warnings = validation::validate_sensor_paths(
-                content, source, text_offset,
-            );
+            let path_warnings = validation::validate_sensor_paths(content, source, text_offset);
             warnings.extend(path_warnings);
         }
     }
@@ -183,7 +186,8 @@ fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<Pars
 /// Returns `Ok(file)` if no errors (warnings are discarded), `Err(errors)` otherwise.
 pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
     let (file, diagnostics) = parse_omni_with_diagnostics(source);
-    let errors: Vec<ParseError> = diagnostics.into_iter()
+    let errors: Vec<ParseError> = diagnostics
+        .into_iter()
         .filter(|d| d.severity == Severity::Error)
         .collect();
     if errors.is_empty() {
@@ -194,18 +198,26 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
 }
 
 /// Parse a `<widget>` element and its children (`<template>` and `<style>`).
-fn parse_widget(source: &str, reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Widget, ParseError> {
-    let id = get_attr(start, "id").ok_or_else(|| make_error(
-        source,
-        reader.buffer_position() as usize,
-        "Widget missing required 'id' attribute".to_string(),
-    ))?;
+fn parse_widget(
+    source: &str,
+    reader: &mut Reader<&[u8]>,
+    start: &BytesStart,
+) -> Result<Widget, ParseError> {
+    let id = get_attr(start, "id").ok_or_else(|| {
+        make_error(
+            source,
+            reader.buffer_position() as usize,
+            "Widget missing required 'id' attribute".to_string(),
+        )
+    })?;
 
-    let name = get_attr(start, "name").ok_or_else(|| make_error(
-        source,
-        reader.buffer_position() as usize,
-        format!("Widget '{}' missing required 'name' attribute", id),
-    ))?;
+    let name = get_attr(start, "name").ok_or_else(|| {
+        make_error(
+            source,
+            reader.buffer_position() as usize,
+            format!("Widget '{}' missing required 'name' attribute", id),
+        )
+    })?;
 
     let enabled = get_attr(start, "enabled")
         .map(|v| v != "false")
@@ -264,7 +276,10 @@ fn parse_widget(source: &str, reader: &mut Reader<&[u8]>, start: &BytesStart) ->
 
 /// Parse the children of a `<template>` element into an HtmlNode tree.
 /// Wraps multiple root elements in a synthetic `<div>`.
-fn parse_template_children(source: &str, reader: &mut Reader<&[u8]>) -> Result<HtmlNode, ParseError> {
+fn parse_template_children(
+    source: &str,
+    reader: &mut Reader<&[u8]>,
+) -> Result<HtmlNode, ParseError> {
     let mut children = Vec::new();
 
     loop {
@@ -403,7 +418,11 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
 }
 
 /// Read all text content until the closing tag is found.
-fn read_text_content(source: &str, reader: &mut Reader<&[u8]>, tag: &str) -> Result<String, ParseError> {
+fn read_text_content(
+    source: &str,
+    reader: &mut Reader<&[u8]>,
+    tag: &str,
+) -> Result<String, ParseError> {
     let mut content = String::new();
 
     loop {
@@ -442,15 +461,17 @@ fn read_text_content(source: &str, reader: &mut Reader<&[u8]>, tag: &str) -> Res
 }
 
 /// Parse a `<config>` block containing `<poll sensor="..." interval="..." />` entries.
-fn parse_config_block(source: &str, reader: &mut Reader<&[u8]>) -> Result<HashMap<String, u64>, ParseError> {
+fn parse_config_block(
+    source: &str,
+    reader: &mut Reader<&[u8]>,
+) -> Result<HashMap<String, u64>, ParseError> {
     let mut config = HashMap::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Empty(ref e)) if e.name().as_ref() == b"poll" => {
                 let sensor = get_attr(e, "sensor");
-                let interval = get_attr(e, "interval")
-                    .and_then(|v| v.parse::<u64>().ok());
+                let interval = get_attr(e, "interval").and_then(|v| v.parse::<u64>().ok());
 
                 if let (Some(sensor), Some(interval)) = (sensor, interval) {
                     config.insert(sensor, interval);
@@ -491,7 +512,10 @@ fn get_conditional_classes(start: &BytesStart) -> Vec<ConditionalClass> {
             if key.starts_with(prefix) && key.len() > prefix.len() {
                 let class_name = String::from_utf8_lossy(&key[prefix.len()..]).to_string();
                 let expression = String::from_utf8_lossy(&a.value).to_string();
-                Some(ConditionalClass { class_name, expression })
+                Some(ConditionalClass {
+                    class_name,
+                    expression,
+                })
             } else {
                 None
             }
@@ -701,9 +725,9 @@ mod tests {
     #[test]
     fn offset_to_line_col_basic() {
         let source = "line1\nline2\nline3";
-        assert_eq!(offset_to_line_col(source, 0), (1, 1));  // start of line1
-        assert_eq!(offset_to_line_col(source, 5), (1, 6));  // newline at end of line1
-        assert_eq!(offset_to_line_col(source, 6), (2, 1));  // start of line2
+        assert_eq!(offset_to_line_col(source, 0), (1, 1)); // start of line1
+        assert_eq!(offset_to_line_col(source, 5), (1, 6)); // newline at end of line1
+        assert_eq!(offset_to_line_col(source, 6), (2, 1)); // start of line2
         assert_eq!(offset_to_line_col(source, 12), (3, 1)); // start of line3
     }
 

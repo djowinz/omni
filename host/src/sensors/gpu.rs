@@ -11,8 +11,8 @@ use std::mem;
 
 use omni_shared::GpuData;
 use tracing::{info, warn};
-use windows::Win32::System::LibraryLoader::{LoadLibraryA, GetProcAddress};
 use windows::core::s;
+use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
 // ─── NVML constants ──────────────────────────────────────────────────────────
 
@@ -30,13 +30,18 @@ type NvmlInit = unsafe extern "C" fn() -> u32;
 type NvmlShutdown = unsafe extern "C" fn() -> u32;
 type NvmlDeviceGetCount = unsafe extern "C" fn(count: *mut u32) -> u32;
 type NvmlDeviceGetHandleByIndex = unsafe extern "C" fn(index: u32, device: *mut NvmlDevice) -> u32;
-type NvmlDeviceGetUtilizationRates = unsafe extern "C" fn(device: NvmlDevice, utilization: *mut NvmlUtilization) -> u32;
-type NvmlDeviceGetTemperature = unsafe extern "C" fn(device: NvmlDevice, sensor_type: u32, temp: *mut u32) -> u32;
-type NvmlDeviceGetClockInfo = unsafe extern "C" fn(device: NvmlDevice, clock_type: u32, clock_mhz: *mut u32) -> u32;
-type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(device: NvmlDevice, memory: *mut NvmlMemory) -> u32;
+type NvmlDeviceGetUtilizationRates =
+    unsafe extern "C" fn(device: NvmlDevice, utilization: *mut NvmlUtilization) -> u32;
+type NvmlDeviceGetTemperature =
+    unsafe extern "C" fn(device: NvmlDevice, sensor_type: u32, temp: *mut u32) -> u32;
+type NvmlDeviceGetClockInfo =
+    unsafe extern "C" fn(device: NvmlDevice, clock_type: u32, clock_mhz: *mut u32) -> u32;
+type NvmlDeviceGetMemoryInfo =
+    unsafe extern "C" fn(device: NvmlDevice, memory: *mut NvmlMemory) -> u32;
 type NvmlDeviceGetFanSpeed = unsafe extern "C" fn(device: NvmlDevice, speed: *mut u32) -> u32;
 type NvmlDeviceGetPowerUsage = unsafe extern "C" fn(device: NvmlDevice, power_mw: *mut u32) -> u32;
-type NvmlDeviceGetName = unsafe extern "C" fn(device: NvmlDevice, name: *mut u8, length: u32) -> u32;
+type NvmlDeviceGetName =
+    unsafe extern "C" fn(device: NvmlDevice, name: *mut u8, length: u32) -> u32;
 
 // ─── NVML structs ────────────────────────────────────────────────────────────
 
@@ -48,9 +53,9 @@ struct NvmlUtilization {
 
 #[repr(C)]
 struct NvmlMemory {
-    total: u64,  // Total VRAM in bytes
-    free: u64,   // Free VRAM in bytes
-    used: u64,   // Used VRAM in bytes
+    total: u64, // Total VRAM in bytes
+    free: u64,  // Free VRAM in bytes
+    used: u64,  // Used VRAM in bytes
 }
 
 // ─── GpuPoller ───────────────────────────────────────────────────────────────
@@ -89,15 +94,24 @@ impl GpuPoller {
 
         // Resolve all functions
         let fn_init: NvmlInit = mem::transmute(GetProcAddress(module, s!("nvmlInit_v2"))?);
-        let fn_get_count: NvmlDeviceGetCount = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetCount_v2"))?);
-        let fn_get_handle: NvmlDeviceGetHandleByIndex = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetHandleByIndex_v2"))?);
-        let fn_get_utilization: NvmlDeviceGetUtilizationRates = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetUtilizationRates"))?);
-        let fn_get_temperature: NvmlDeviceGetTemperature = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetTemperature"))?);
-        let fn_get_clock: NvmlDeviceGetClockInfo = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetClockInfo"))?);
-        let fn_get_memory: NvmlDeviceGetMemoryInfo = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetMemoryInfo"))?);
-        let fn_get_fan_speed: NvmlDeviceGetFanSpeed = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetFanSpeed"))?);
-        let fn_get_power: NvmlDeviceGetPowerUsage = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetPowerUsage"))?);
-        let fn_get_name: NvmlDeviceGetName = mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetName"))?);
+        let fn_get_count: NvmlDeviceGetCount =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetCount_v2"))?);
+        let fn_get_handle: NvmlDeviceGetHandleByIndex =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetHandleByIndex_v2"))?);
+        let fn_get_utilization: NvmlDeviceGetUtilizationRates =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetUtilizationRates"))?);
+        let fn_get_temperature: NvmlDeviceGetTemperature =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetTemperature"))?);
+        let fn_get_clock: NvmlDeviceGetClockInfo =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetClockInfo"))?);
+        let fn_get_memory: NvmlDeviceGetMemoryInfo =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetMemoryInfo"))?);
+        let fn_get_fan_speed: NvmlDeviceGetFanSpeed =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetFanSpeed"))?);
+        let fn_get_power: NvmlDeviceGetPowerUsage =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetPowerUsage"))?);
+        let fn_get_name: NvmlDeviceGetName =
+            mem::transmute(GetProcAddress(module, s!("nvmlDeviceGetName"))?);
 
         // Initialize NVML
         let result = fn_init();
@@ -125,7 +139,10 @@ impl GpuPoller {
         // Log GPU name
         let mut name_buf = [0u8; 256];
         if fn_get_name(device, name_buf.as_mut_ptr(), 256) == NVML_SUCCESS {
-            let name_end = name_buf.iter().position(|&b| b == 0).unwrap_or(name_buf.len());
+            let name_end = name_buf
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(name_buf.len());
             let name = String::from_utf8_lossy(&name_buf[..name_end]);
             info!(gpu_name = %name, gpu_count = count, "NVML: initialized");
         } else {
@@ -160,7 +177,9 @@ impl GpuPoller {
 
             // Temperature
             let mut temp = 0u32;
-            if (self.fn_get_temperature)(self.device, NVML_TEMPERATURE_GPU, &mut temp) == NVML_SUCCESS {
+            if (self.fn_get_temperature)(self.device, NVML_TEMPERATURE_GPU, &mut temp)
+                == NVML_SUCCESS
+            {
                 data.temp_c = temp as f32;
             }
 
@@ -177,7 +196,11 @@ impl GpuPoller {
             }
 
             // VRAM
-            let mut memory = NvmlMemory { total: 0, free: 0, used: 0 };
+            let mut memory = NvmlMemory {
+                total: 0,
+                free: 0,
+                used: 0,
+            };
             if (self.fn_get_memory)(self.device, &mut memory) == NVML_SUCCESS {
                 data.vram_total_mb = (memory.total / (1024 * 1024)) as u32;
                 data.vram_used_mb = (memory.used / (1024 * 1024)) as u32;
@@ -210,11 +233,13 @@ mod tests {
         if let Some(poller) = poller {
             let data = poller.poll();
             // Temperature should be reasonable if GPU is present
-            assert!(data.temp_c > 0.0 && data.temp_c < 120.0,
-                "GPU temp should be 0-120°C, got {}", data.temp_c);
+            assert!(
+                data.temp_c > 0.0 && data.temp_c < 120.0,
+                "GPU temp should be 0-120°C, got {}",
+                data.temp_c
+            );
             // Should have some VRAM
-            assert!(data.vram_total_mb > 0,
-                "GPU should report VRAM total");
+            assert!(data.vram_total_mb > 0, "GPU should report VRAM total");
         }
         // If None, that's fine — no NVIDIA GPU or nvml.dll not found
     }
@@ -222,6 +247,6 @@ mod tests {
     #[test]
     fn nvml_structs_are_correct_size() {
         assert_eq!(mem::size_of::<NvmlUtilization>(), 8); // two u32
-        assert_eq!(mem::size_of::<NvmlMemory>(), 24);     // three u64
+        assert_eq!(mem::size_of::<NvmlMemory>(), 24); // three u64
     }
 }

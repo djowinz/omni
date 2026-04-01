@@ -35,7 +35,10 @@ pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
         "gpu.temp" => format_temp(snapshot.gpu.temp_c),
         "gpu.clock" => format!("{}", snapshot.gpu.core_clock_mhz),
         "gpu.mem-clock" => format!("{}", snapshot.gpu.mem_clock_mhz),
-        "gpu.vram" => format!("{}/{}", snapshot.gpu.vram_used_mb, snapshot.gpu.vram_total_mb),
+        "gpu.vram" => format!(
+            "{}/{}",
+            snapshot.gpu.vram_used_mb, snapshot.gpu.vram_total_mb
+        ),
         "gpu.vram.used" => format!("{}", snapshot.gpu.vram_used_mb),
         "gpu.vram.total" => format!("{}", snapshot.gpu.vram_total_mb),
         "gpu.power" => format!("{:.0}", snapshot.gpu.power_draw_w),
@@ -43,11 +46,41 @@ pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
         "ram.usage" => format!("{:.0}", snapshot.ram.usage_percent),
         "ram.used" => format!("{}", snapshot.ram.used_mb),
         "ram.total" => format!("{}", snapshot.ram.total_mb),
-        "fps" => if snapshot.frame.available { format!("{:.0}", snapshot.frame.fps) } else { "N/A".to_string() },
-        "frame-time" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_ms) } else { "N/A".to_string() },
-        "frame-time.avg" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_avg_ms) } else { "N/A".to_string() },
-        "frame-time.1pct" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_1percent_ms) } else { "N/A".to_string() },
-        "frame-time.01pct" => if snapshot.frame.available { format!("{:.1}", snapshot.frame.frame_time_01percent_ms) } else { "N/A".to_string() },
+        "fps" => {
+            if snapshot.frame.available {
+                format!("{:.0}", snapshot.frame.fps)
+            } else {
+                "N/A".to_string()
+            }
+        }
+        "frame-time" => {
+            if snapshot.frame.available {
+                format!("{:.1}", snapshot.frame.frame_time_ms)
+            } else {
+                "N/A".to_string()
+            }
+        }
+        "frame-time.avg" => {
+            if snapshot.frame.available {
+                format!("{:.1}", snapshot.frame.frame_time_avg_ms)
+            } else {
+                "N/A".to_string()
+            }
+        }
+        "frame-time.1pct" => {
+            if snapshot.frame.available {
+                format!("{:.1}", snapshot.frame.frame_time_1percent_ms)
+            } else {
+                "N/A".to_string()
+            }
+        }
+        "frame-time.01pct" => {
+            if snapshot.frame.available {
+                format!("{:.1}", snapshot.frame.frame_time_01percent_ms)
+            } else {
+                "N/A".to_string()
+            }
+        }
         _ => "N/A".to_string(),
     }
 }

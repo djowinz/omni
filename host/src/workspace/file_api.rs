@@ -3,8 +3,8 @@
 //! All paths are relative to the Omni data directory.
 //! Path traversal is rejected for security.
 
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 use serde_json::{json, Value};
 use tracing::info;
@@ -97,7 +97,8 @@ pub fn handle_create(data_dir: &Path, create_type: &str, name: &str) -> Value {
             }
 
             // Write starter .omni file
-            let starter = format!(r#"<widget id="main" name="{}" enabled="true">
+            let starter = format!(
+                r#"<widget id="main" name="{}" enabled="true">
   <template>
     <div style="position: fixed; top: 20px; left: 20px;">
       <span style="color: white; font-size: 16px;">{{fps}} FPS</span>
@@ -105,7 +106,9 @@ pub fn handle_create(data_dir: &Path, create_type: &str, name: &str) -> Value {
   </template>
   <style></style>
 </widget>
-"#, name);
+"#,
+                name
+            );
 
             let omni_path = overlay_dir.join("overlay.omni");
             if let Err(e) = fs::write(&omni_path, &starter) {
@@ -199,9 +202,7 @@ mod tests {
 
     fn temp_dir() -> std::path::PathBuf {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "omni_test_fa_{}_{}", std::process::id(), id
-        ));
+        let dir = std::env::temp_dir().join(format!("omni_test_fa_{}_{}", std::process::id(), id));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("overlays/Default")).ok();
         fs::create_dir_all(dir.join("themes")).ok();

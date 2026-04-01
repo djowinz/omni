@@ -47,7 +47,14 @@ fn flatten_recursive(
     let my_index = nodes.len();
 
     match node {
-        HtmlNode::Element { tag, id, classes, inline_style, conditional_classes, children } => {
+        HtmlNode::Element {
+            tag,
+            id,
+            classes,
+            inline_style,
+            conditional_classes,
+            children,
+        } => {
             nodes.push(FlatNode {
                 tag: tag.clone(),
                 id: id.clone(),
@@ -170,18 +177,16 @@ mod tests {
                     classes: vec!["row".to_string()],
                     inline_style: None,
                     conditional_classes: vec![],
-                    children: vec![
-                        HtmlNode::Element {
-                            tag: "span".to_string(),
-                            id: Some("cpu".to_string()),
-                            classes: vec!["value".to_string(), "critical".to_string()],
-                            inline_style: Some("color: red;".to_string()),
-                            conditional_classes: vec![],
-                            children: vec![
-                                HtmlNode::Text { content: "text".to_string() },
-                            ],
-                        },
-                    ],
+                    children: vec![HtmlNode::Element {
+                        tag: "span".to_string(),
+                        id: Some("cpu".to_string()),
+                        classes: vec!["value".to_string(), "critical".to_string()],
+                        inline_style: Some("color: red;".to_string()),
+                        conditional_classes: vec![],
+                        children: vec![HtmlNode::Text {
+                            content: "text".to_string(),
+                        }],
+                    }],
                 },
                 HtmlNode::Element {
                     tag: "span".to_string(),
@@ -189,9 +194,9 @@ mod tests {
                     classes: vec!["label".to_string()],
                     inline_style: None,
                     conditional_classes: vec![],
-                    children: vec![
-                        HtmlNode::Text { content: "label".to_string() },
-                    ],
+                    children: vec![HtmlNode::Text {
+                        content: "label".to_string(),
+                    }],
                 },
             ],
         }
@@ -252,7 +257,9 @@ mod tests {
     #[test]
     fn deeply_nested_tree() {
         // Create a 20-level deep tree
-        let mut node = HtmlNode::Text { content: "deep".to_string() };
+        let mut node = HtmlNode::Text {
+            content: "deep".to_string(),
+        };
         for i in 0..20 {
             node = HtmlNode::Element {
                 tag: "div".to_string(),

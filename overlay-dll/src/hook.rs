@@ -3,28 +3,25 @@
 
 use std::ffi::c_void;
 
+use windows::core::s;
+use windows::core::{w, Interface, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, ID3D11Device,
-};
-use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC,
+    D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::Direct3D12::ID3D12CommandQueue;
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{
-    IDXGIDevice, IDXGIFactory2, IDXGISwapChain, IDXGISwapChain1,
-    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
-    DXGI_SWAP_EFFECT_FLIP_DISCARD,
-    DXGI_USAGE_RENDER_TARGET_OUTPUT, DXGI_SCALING_STRETCH,
+    IDXGIDevice, IDXGIFactory2, IDXGISwapChain, IDXGISwapChain1, DXGI_SCALING_STRETCH,
+    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FULLSCREEN_DESC, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+    DXGI_USAGE_RENDER_TARGET_OUTPUT,
 };
-use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetModuleHandleA};
-use windows::core::s;
+use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetModuleHandleW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassExW, HMENU, WNDCLASSEXW,
-    WS_OVERLAPPEDWINDOW, WINDOW_EX_STYLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassExW, HMENU, WINDOW_EX_STYLE,
+    WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
-use windows::core::{w, Interface, PCWSTR};
 
 // ─── Vtable indices ────────────────────────────────────────────────────────────
 // IDXGISwapChain vtable layout (0-based):
@@ -70,12 +67,12 @@ pub static mut CAPTURED_COMMAND_QUEUE: Option<ID3D12CommandQueue> = None;
 
 /// Type alias for the original CreateSwapChainForHwnd function pointer.
 pub type CreateSwapChainForHwndFn = unsafe extern "system" fn(
-    *mut c_void,    // this (IDXGIFactory2)
-    *mut c_void,    // pDevice (IUnknown — for DX12 this is ID3D12CommandQueue)
-    HWND,           // hWnd
+    *mut c_void, // this (IDXGIFactory2)
+    *mut c_void, // pDevice (IUnknown — for DX12 this is ID3D12CommandQueue)
+    HWND,        // hWnd
     *const DXGI_SWAP_CHAIN_DESC1,
     *const DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
-    *mut c_void,    // pRestrictToOutput (IDXGIOutput)
+    *mut c_void,      // pRestrictToOutput (IDXGIOutput)
     *mut *mut c_void, // ppSwapChain (IDXGISwapChain1**)
 ) -> windows::core::HRESULT;
 
@@ -83,8 +80,8 @@ pub static mut ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND: Option<CreateSwapChainForHwn
 
 /// Type alias for the original ExecuteCommandLists function pointer.
 pub type ExecuteCommandListsFn = unsafe extern "system" fn(
-    *mut c_void,    // this (ID3D12CommandQueue)
-    u32,            // NumCommandLists
+    *mut c_void,        // this (ID3D12CommandQueue)
+    u32,                // NumCommandLists
     *const *mut c_void, // ppCommandLists
 );
 
@@ -130,7 +127,10 @@ unsafe fn create_dummy_window() -> Result<HWND, String> {
         class_name,
         w!("OmniDummy"),
         WS_OVERLAPPEDWINDOW,
-        0, 0, 1, 1,
+        0,
+        0,
+        1,
+        1,
         HWND::default(),
         HMENU::default(),
         hinstance,
@@ -198,7 +198,9 @@ pub unsafe fn discover_swapchain_vtable() -> Result<SwapChainVtable, String> {
 
     let vtable = match result {
         Ok(vt) => {
-            crate::logging::log_to_file("[hook] vtable discovered via DXGI 1.2 (CreateSwapChainForHwnd)");
+            crate::logging::log_to_file(
+                "[hook] vtable discovered via DXGI 1.2 (CreateSwapChainForHwnd)",
+            );
             vt
         }
         Err(e) => {
@@ -221,7 +223,10 @@ pub unsafe fn discover_swapchain_vtable() -> Result<SwapChainVtable, String> {
 }
 
 /// DXGI 1.2 path: CreateSwapChainForHwnd with flip model.
-unsafe fn discover_via_factory2(device: &ID3D11Device, hwnd: HWND) -> Result<SwapChainVtable, String> {
+unsafe fn discover_via_factory2(
+    device: &ID3D11Device,
+    hwnd: HWND,
+) -> Result<SwapChainVtable, String> {
     let dxgi_device: IDXGIDevice = device
         .cast()
         .map_err(|e| format!("device.cast::<IDXGIDevice>(): {e}"))?;
@@ -238,7 +243,10 @@ unsafe fn discover_via_factory2(device: &ID3D11Device, hwnd: HWND) -> Result<Swa
         Width: 2,
         Height: 2,
         Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: 2, // flip model requires ≥ 2
         SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
@@ -261,8 +269,8 @@ unsafe fn discover_via_factory2(device: &ID3D11Device, hwnd: HWND) -> Result<Swa
 unsafe fn discover_via_legacy(hwnd: HWND) -> Result<SwapChainVtable, String> {
     use windows::Win32::Foundation::BOOL;
     use windows::Win32::Graphics::Direct3D11::D3D11CreateDeviceAndSwapChain;
-    use windows::Win32::Graphics::Dxgi::{DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD};
     use windows::Win32::Graphics::Dxgi::Common::DXGI_MODE_DESC;
+    use windows::Win32::Graphics::Dxgi::{DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD};
 
     let desc = DXGI_SWAP_CHAIN_DESC {
         BufferDesc: DXGI_MODE_DESC {
@@ -271,7 +279,10 @@ unsafe fn discover_via_legacy(hwnd: HWND) -> Result<SwapChainVtable, String> {
             Format: DXGI_FORMAT_R8G8B8A8_UNORM,
             ..Default::default()
         },
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: 1,
         OutputWindow: hwnd,
@@ -283,10 +294,17 @@ unsafe fn discover_via_legacy(hwnd: HWND) -> Result<SwapChainVtable, String> {
     let mut swap_chain: Option<IDXGISwapChain> = None;
 
     D3D11CreateDeviceAndSwapChain(
-        None, D3D_DRIVER_TYPE_HARDWARE, None,
-        D3D11_CREATE_DEVICE_FLAG(0), None, D3D11_SDK_VERSION,
-        Some(&desc), Some(&mut swap_chain),
-        None, None, None,
+        None,
+        D3D_DRIVER_TYPE_HARDWARE,
+        None,
+        D3D11_CREATE_DEVICE_FLAG(0),
+        None,
+        D3D11_SDK_VERSION,
+        Some(&desc),
+        Some(&mut swap_chain),
+        None,
+        None,
+        None,
     )
     .map_err(|e| format!("D3D11CreateDeviceAndSwapChain failed: {e}"))?;
 
@@ -310,16 +328,32 @@ unsafe fn discover_via_legacy(hwnd: HWND) -> Result<SwapChainVtable, String> {
 unsafe fn log_loaded_graphics_modules() {
     let mut found = Vec::new();
 
-    if GetModuleHandleA(s!("d3d11.dll")).is_ok()    { found.push("Direct3D 11"); }
-    if GetModuleHandleA(s!("d3d12.dll")).is_ok()    { found.push("Direct3D 12"); }
-    if GetModuleHandleA(s!("dxgi.dll")).is_ok()      { found.push("DXGI"); }
-    if GetModuleHandleA(s!("opengl32.dll")).is_ok()  { found.push("OpenGL"); }
-    if GetModuleHandleA(s!("vulkan-1.dll")).is_ok()  { found.push("Vulkan"); }
-    if GetModuleHandleA(s!("d3d9.dll")).is_ok()      { found.push("Direct3D 9"); }
+    if GetModuleHandleA(s!("d3d11.dll")).is_ok() {
+        found.push("Direct3D 11");
+    }
+    if GetModuleHandleA(s!("d3d12.dll")).is_ok() {
+        found.push("Direct3D 12");
+    }
+    if GetModuleHandleA(s!("dxgi.dll")).is_ok() {
+        found.push("DXGI");
+    }
+    if GetModuleHandleA(s!("opengl32.dll")).is_ok() {
+        found.push("OpenGL");
+    }
+    if GetModuleHandleA(s!("vulkan-1.dll")).is_ok() {
+        found.push("Vulkan");
+    }
+    if GetModuleHandleA(s!("d3d9.dll")).is_ok() {
+        found.push("Direct3D 9");
+    }
 
     crate::logging::log_to_file(&format!(
         "[hook] loaded graphics modules: {}",
-        if found.is_empty() { "NONE".to_string() } else { found.join(", ") }
+        if found.is_empty() {
+            "NONE".to_string()
+        } else {
+            found.join(", ")
+        }
     ));
 }
 
@@ -355,7 +389,15 @@ pub unsafe extern "system" fn hooked_create_swap_chain_for_hwnd(
     }
 
     if let Some(original) = ORIGINAL_CREATE_SWAP_CHAIN_FOR_HWND {
-        original(this, p_device, hwnd, p_desc, p_fullscreen_desc, p_restrict_to_output, pp_swap_chain)
+        original(
+            this,
+            p_device,
+            hwnd,
+            p_desc,
+            p_fullscreen_desc,
+            p_restrict_to_output,
+            pp_swap_chain,
+        )
     } else {
         windows::core::HRESULT(-1)
     }
@@ -494,10 +536,9 @@ pub unsafe fn hook_execute_command_lists_deferred(
     )
     .map_err(|s| format!("MinHook::create_hook(ExecuteCommandLists) failed: {s:?}"))?;
 
-    ORIGINAL_EXECUTE_COMMAND_LISTS = Some(std::mem::transmute::<
-        *mut c_void,
-        ExecuteCommandListsFn,
-    >(original_ecl));
+    ORIGINAL_EXECUTE_COMMAND_LISTS = Some(
+        std::mem::transmute::<*mut c_void, ExecuteCommandListsFn>(original_ecl),
+    );
 
     minhook::MinHook::enable_all_hooks()
         .map_err(|s| format!("MinHook::enable_all_hooks (ECL) failed: {s:?}"))?;
@@ -562,8 +603,10 @@ pub unsafe fn install_hooks() -> Result<(), String> {
     )
     .map_err(|s| format!("MinHook::create_hook(ResizeBuffers) failed: {s:?}"))?;
 
-    crate::present::ORIGINAL_RESIZE_BUFFERS =
-        Some(std::mem::transmute::<*mut c_void, crate::present::ResizeBuffersFn>(original_resize));
+    crate::present::ORIGINAL_RESIZE_BUFFERS = Some(std::mem::transmute::<
+        *mut c_void,
+        crate::present::ResizeBuffersFn,
+    >(original_resize));
 
     // Hook CreateSwapChainForHwnd (captures DX12 command queue)
     match discover_factory2_vtable() {

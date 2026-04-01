@@ -69,7 +69,13 @@ impl TransitionManager {
         transition_rules: &[TransitionRule],
         current_values: &HashMap<String, String>,
     ) -> HashMap<String, String> {
-        self.update_at(widget_id, element_idx, transition_rules, current_values, Instant::now())
+        self.update_at(
+            widget_id,
+            element_idx,
+            transition_rules,
+            current_values,
+            Instant::now(),
+        )
     }
 
     /// Update transitions with an explicit timestamp (for testability).
@@ -96,7 +102,8 @@ impl TransitionManager {
                         // If there's already an active transition for this property,
                         // use its current interpolated value as the new from_value
                         let from_value = if let Some(existing) = self.active.get(&active_key) {
-                            let elapsed_ms = now.duration_since(existing.start_time).as_secs_f64() * 1000.0;
+                            let elapsed_ms =
+                                now.duration_since(existing.start_time).as_secs_f64() * 1000.0;
                             if elapsed_ms < existing.delay_ms {
                                 existing.from_value.clone()
                             } else {
@@ -109,15 +116,18 @@ impl TransitionManager {
                             prev_val.clone()
                         };
 
-                        self.active.insert(active_key, ActiveTransition {
-                            property: prop.clone(),
-                            from_value,
-                            to_value: current_val.clone(),
-                            start_time: now,
-                            duration_ms: rule.duration_ms,
-                            delay_ms: rule.delay_ms,
-                            easing: rule.easing.clone(),
-                        });
+                        self.active.insert(
+                            active_key,
+                            ActiveTransition {
+                                property: prop.clone(),
+                                from_value,
+                                to_value: current_val.clone(),
+                                start_time: now,
+                                duration_ms: rule.duration_ms,
+                                delay_ms: rule.delay_ms,
+                                easing: rule.easing.clone(),
+                            },
+                        );
                     }
                 }
             }
@@ -146,7 +156,8 @@ impl TransitionManager {
                 let t_raw = (elapsed_ms - transition.delay_ms) / transition.duration_ms;
                 let t = t_raw.clamp(0.0, 1.0);
                 let eased = transition.easing.apply(t);
-                let interpolated = interpolate_value(&transition.from_value, &transition.to_value, eased);
+                let interpolated =
+                    interpolate_value(&transition.from_value, &transition.to_value, eased);
                 overrides.insert(transition.property.clone(), interpolated);
             }
         }
@@ -165,7 +176,10 @@ impl TransitionManager {
 
 /// Find a matching transition rule for the given property name.
 /// Matches by exact name or the "all" keyword.
-fn find_matching_rule<'a>(rules: &'a [TransitionRule], property: &str) -> Option<&'a TransitionRule> {
+fn find_matching_rule<'a>(
+    rules: &'a [TransitionRule],
+    property: &str,
+) -> Option<&'a TransitionRule> {
     // First try exact match
     if let Some(rule) = rules.iter().find(|r| r.property == property) {
         return Some(rule);
@@ -241,7 +255,9 @@ pub fn interpolate_value(from: &str, to: &str, t: f64) -> String {
     }
 
     // Try numeric with unit (e.g., "60px", "12rem", "45deg")
-    if let (Some((from_n, from_u)), Some((to_n, to_u))) = (parse_numeric_unit(from), parse_numeric_unit(to)) {
+    if let (Some((from_n, from_u)), Some((to_n, to_u))) =
+        (parse_numeric_unit(from), parse_numeric_unit(to))
+    {
         if from_u == to_u {
             let val = lerp(from_n, to_n, t);
             // Format cleanly: avoid unnecessary decimals
@@ -475,8 +491,15 @@ mod tests {
         let result = interpolate_value("rgba(0,0,0,1)", "rgba(255,0,0,1)", 0.5);
         // Should be approximately rgba(128,0,0,1) — rounding may give 127 or 128
         assert!(result.starts_with("rgba("));
-        let inner = result.strip_prefix("rgba(").unwrap().strip_suffix(')').unwrap();
-        let parts: Vec<f64> = inner.split(',').map(|p| p.trim().parse().unwrap()).collect();
+        let inner = result
+            .strip_prefix("rgba(")
+            .unwrap()
+            .strip_suffix(')')
+            .unwrap();
+        let parts: Vec<f64> = inner
+            .split(',')
+            .map(|p| p.trim().parse().unwrap())
+            .collect();
         assert!((parts[0] - 128.0).abs() <= 1.0, "red channel: {}", parts[0]);
         assert!((parts[1] - 0.0).abs() < 0.01);
         assert!((parts[2] - 0.0).abs() < 0.01);
@@ -486,8 +509,15 @@ mod tests {
     #[test]
     fn interpolate_rgba_alpha() {
         let result = interpolate_value("rgba(20,30,40,0.5)", "rgba(20,30,40,1)", 0.5);
-        let inner = result.strip_prefix("rgba(").unwrap().strip_suffix(')').unwrap();
-        let parts: Vec<f64> = inner.split(',').map(|p| p.trim().parse().unwrap()).collect();
+        let inner = result
+            .strip_prefix("rgba(")
+            .unwrap()
+            .strip_suffix(')')
+            .unwrap();
+        let parts: Vec<f64> = inner
+            .split(',')
+            .map(|p| p.trim().parse().unwrap())
+            .collect();
         assert!((parts[3] - 0.75).abs() < 0.01, "alpha: {}", parts[3]);
     }
 
@@ -528,7 +558,10 @@ mod tests {
         vals2.insert("width".to_string(), "200px".to_string());
         let later = now + Duration::from_millis(16);
         let overrides = tm.update_at("w1", 0, &rules, &vals2, later);
-        assert!(overrides.contains_key("width"), "should start transition for width");
+        assert!(
+            overrides.contains_key("width"),
+            "should start transition for width"
+        );
         // The override should be the from_value since almost no time has passed
         // (only 0ms into the transition since it just started)
     }
@@ -554,7 +587,11 @@ mod tests {
         let t2 = t1 + Duration::from_millis(500);
         let overrides = tm.update_at("w1", 0, &rules, &vals2, t2);
         let width = overrides.get("width").expect("should have width override");
-        assert_eq!(width, "50px", "at 50% linear, should be 50px, got {}", width);
+        assert_eq!(
+            width, "50px",
+            "at 50% linear, should be 50px, got {}",
+            width
+        );
     }
 
     #[test]
@@ -620,7 +657,10 @@ mod tests {
         vals2.insert("width".to_string(), "200px".to_string());
         let t1 = now + Duration::from_millis(16);
         let overrides = tm.update_at("w1", 0, &rules, &vals2, t1);
-        assert!(!overrides.contains_key("width"), "width has no matching rule");
+        assert!(
+            !overrides.contains_key("width"),
+            "width has no matching rule"
+        );
     }
 
     #[test]
@@ -640,6 +680,9 @@ mod tests {
         let t1 = now + Duration::from_millis(16);
         let overrides = tm.update_at("w1", 0, &rules, &vals2, t1);
         assert!(overrides.contains_key("width"), "all should match width");
-        assert!(overrides.contains_key("opacity"), "all should match opacity");
+        assert!(
+            overrides.contains_key("opacity"),
+            "all should match opacity"
+        );
     }
 }

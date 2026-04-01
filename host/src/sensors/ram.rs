@@ -29,9 +29,9 @@ impl RamPoller {
             usage_percent,
             used_mb: used_mb,
             total_mb: total_mb,
-            frequency_mhz: 0,   // requires LHM/WMI — deferred
-            timing_cl: 0,        // requires LHM/WMI — deferred
-            temp_c: f32::NAN,    // requires LHM/WMI — deferred
+            frequency_mhz: 0, // requires LHM/WMI — deferred
+            timing_cl: 0,     // requires LHM/WMI — deferred
+            temp_c: f32::NAN, // requires LHM/WMI — deferred
         }
     }
 }
@@ -49,8 +49,11 @@ mod tests {
 
         assert!(data.total_mb > 0, "System should have some RAM");
         assert!(data.used_mb > 0, "Some RAM should be in use");
-        assert!(data.usage_percent > 0.0 && data.usage_percent <= 100.0,
-            "Usage should be 0-100%, got {}", data.usage_percent);
+        assert!(
+            data.usage_percent > 0.0 && data.usage_percent <= 100.0,
+            "Usage should be 0-100%, got {}",
+            data.usage_percent
+        );
     }
 
     #[test]

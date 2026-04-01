@@ -49,7 +49,12 @@
       "Read(//c/Users/DyllenOwens/Projects/omni/.worktrees/phase9a2b/$PSEL/**)",
       "Bash(ls target/doc/taffy/struct.*)",
       "Bash(grep -n \"\"\"position\"\"\" host/src/omni/css.rs)",
-      "Bash(find /c/Users/DyllenOwens/Projects/omni/docs -name *phase* -o -name *hot*)"
+      "Bash(find /c/Users/DyllenOwens/Projects/omni/docs -name *phase* -o -name *hot*)",
+      "Bash(xargs wc:*)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(wc -l /c/Users/DyllenOwens/Projects/omni/host/src/omni/*.rs /c/Users/DyllenOwens/Projects/omni/overlay-dll/src/*.rs /c/Users/DyllenOwens/Projects/omni/host/src/sensors/*.rs)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)"
     ]
   }
 }

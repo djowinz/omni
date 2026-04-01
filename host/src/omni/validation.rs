@@ -10,25 +10,63 @@ pub const KNOWN_ELEMENTS: &[&str] = &["div", "span"];
 
 /// Known CSS properties supported by the resolver.
 pub const KNOWN_CSS_PROPERTIES: &[&str] = &[
-    "position", "top", "right", "bottom", "left",
-    "width", "height", "min-width", "max-width", "min-height", "max-height",
-    "background", "background-color", "color", "opacity", "border-radius",
-    "box-shadow", "border-width", "border-color",
-    "font-size", "font-weight", "font-family",
-    "display", "flex-direction", "justify-content", "align-items",
-    "align-self", "flex-grow", "flex-shrink", "flex-wrap", "gap",
-    "padding", "margin", "transition",
+    "position",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "background",
+    "background-color",
+    "color",
+    "opacity",
+    "border-radius",
+    "box-shadow",
+    "border-width",
+    "border-color",
+    "font-size",
+    "font-weight",
+    "font-family",
+    "display",
+    "flex-direction",
+    "justify-content",
+    "align-items",
+    "align-self",
+    "flex-grow",
+    "flex-shrink",
+    "flex-wrap",
+    "gap",
+    "padding",
+    "margin",
+    "transition",
 ];
 
 /// Known sensor paths for interpolation expressions.
 pub const KNOWN_SENSOR_PATHS: &[&str] = &[
-    "cpu.usage", "cpu.temp",
-    "gpu.usage", "gpu.temp", "gpu.clock", "gpu.mem-clock",
-    "gpu.vram", "gpu.vram.used", "gpu.vram.total",
-    "gpu.power", "gpu.fan",
-    "ram.usage", "ram.used", "ram.total",
-    "fps", "frame-time", "frame-time.avg",
-    "frame-time.1pct", "frame-time.01pct",
+    "cpu.usage",
+    "cpu.temp",
+    "gpu.usage",
+    "gpu.temp",
+    "gpu.clock",
+    "gpu.mem-clock",
+    "gpu.vram",
+    "gpu.vram.used",
+    "gpu.vram.total",
+    "gpu.power",
+    "gpu.fan",
+    "ram.usage",
+    "ram.used",
+    "ram.total",
+    "fps",
+    "frame-time",
+    "frame-time.avg",
+    "frame-time.1pct",
+    "frame-time.01pct",
 ];
 
 /// Compute the Levenshtein edit distance between two strings.
@@ -49,10 +87,14 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
 
     for i in 1..=a_len {
         for j in 1..=b_len {
-            let cost = if a_bytes[i - 1] == b_bytes[j - 1] { 0 } else { 1 };
-            matrix[i][j] = (matrix[i - 1][j] + 1)           // deletion
-                .min(matrix[i][j - 1] + 1)                    // insertion
-                .min(matrix[i - 1][j - 1] + cost);            // substitution
+            let cost = if a_bytes[i - 1] == b_bytes[j - 1] {
+                0
+            } else {
+                1
+            };
+            matrix[i][j] = (matrix[i - 1][j] + 1) // deletion
+                .min(matrix[i][j - 1] + 1) // insertion
+                .min(matrix[i - 1][j - 1] + cost); // substitution
         }
     }
 
@@ -79,20 +121,17 @@ pub fn suggest(input: &str, known: &[&str], max_distance: usize) -> Option<Strin
 
 /// Suggest an element name. Returns e.g., "did you mean <div>?"
 pub fn suggest_element(unknown: &str) -> Option<String> {
-    suggest(unknown, KNOWN_ELEMENTS, 2)
-        .map(|s| format!("did you mean <{}>?", s))
+    suggest(unknown, KNOWN_ELEMENTS, 2).map(|s| format!("did you mean <{}>?", s))
 }
 
 /// Suggest a CSS property. Returns e.g., "did you mean \"color\"?"
 pub fn suggest_css_property(unknown: &str) -> Option<String> {
-    suggest(unknown, KNOWN_CSS_PROPERTIES, 2)
-        .map(|s| format!("did you mean \"{}\"?", s))
+    suggest(unknown, KNOWN_CSS_PROPERTIES, 2).map(|s| format!("did you mean \"{}\"?", s))
 }
 
 /// Suggest a sensor path. Returns e.g., "did you mean \"gpu.temp\"?"
 pub fn suggest_sensor_path(unknown: &str) -> Option<String> {
-    suggest(unknown, KNOWN_SENSOR_PATHS, 3)
-        .map(|s| format!("did you mean \"{}\"?", s))
+    suggest(unknown, KNOWN_SENSOR_PATHS, 3).map(|s| format!("did you mean \"{}\"?", s))
 }
 
 /// Validate CSS properties in a style source and return warnings for unknown ones.
@@ -130,18 +169,19 @@ pub fn validate_css_properties(
                     } else {
                         base_offset
                     };
-                let msg = match suggestion {
-                    Some(ref s) => format!("unsupported CSS property \"{}\"; {}", prop_name, s),
-                    None => format!("unsupported CSS property \"{}\"", prop_name),
-                };
-                let (line, column) = super::parser::offset_to_line_col(omni_source, prop_offset);
-                warnings.push(ParseError {
-                    message: msg,
-                    severity: super::parser::Severity::Warning,
-                    line,
-                    column,
-                    suggestion,
-                });
+                    let msg = match suggestion {
+                        Some(ref s) => format!("unsupported CSS property \"{}\"; {}", prop_name, s),
+                        None => format!("unsupported CSS property \"{}\"", prop_name),
+                    };
+                    let (line, column) =
+                        super::parser::offset_to_line_col(omni_source, prop_offset);
+                    warnings.push(ParseError {
+                        message: msg,
+                        severity: super::parser::Severity::Warning,
+                        line,
+                        column,
+                        suggestion,
+                    });
                 }
             }
         }
@@ -218,9 +258,9 @@ mod tests {
     #[test]
     fn edit_distance_one_char() {
         assert_eq!(edit_distance("div", "dvi"), 2); // transposition = 2 edits
-        assert_eq!(edit_distance("div", "di"), 1);   // deletion
-        assert_eq!(edit_distance("div", "divv"), 1);  // insertion
-        assert_eq!(edit_distance("div", "dib"), 1);   // substitution
+        assert_eq!(edit_distance("div", "di"), 1); // deletion
+        assert_eq!(edit_distance("div", "divv"), 1); // insertion
+        assert_eq!(edit_distance("div", "dib"), 1); // substitution
     }
 
     #[test]
@@ -236,34 +276,61 @@ mod tests {
 
     #[test]
     fn suggest_finds_best_match() {
-        assert_eq!(suggest("colr", KNOWN_CSS_PROPERTIES, 2), Some("color".to_string()));
+        assert_eq!(
+            suggest("colr", KNOWN_CSS_PROPERTIES, 2),
+            Some("color".to_string())
+        );
         assert_eq!(suggest("zzzzzzzzzzz", KNOWN_CSS_PROPERTIES, 2), None);
     }
 
     #[test]
     fn suggest_case_insensitive() {
-        assert_eq!(suggest("COLOR", KNOWN_CSS_PROPERTIES, 2), Some("color".to_string()));
+        assert_eq!(
+            suggest("COLOR", KNOWN_CSS_PROPERTIES, 2),
+            Some("color".to_string())
+        );
         assert_eq!(suggest("DIV", KNOWN_ELEMENTS, 2), Some("div".to_string()));
     }
 
     #[test]
     fn suggest_element_typo() {
-        assert_eq!(suggest_element("dvi"), Some("did you mean <div>?".to_string()));
-        assert_eq!(suggest_element("sapn"), Some("did you mean <span>?".to_string()));
+        assert_eq!(
+            suggest_element("dvi"),
+            Some("did you mean <div>?".to_string())
+        );
+        assert_eq!(
+            suggest_element("sapn"),
+            Some("did you mean <span>?".to_string())
+        );
         assert_eq!(suggest_element("completely_wrong"), None);
     }
 
     #[test]
     fn suggest_css_property_typo() {
-        assert_eq!(suggest_css_property("colr"), Some("did you mean \"color\"?".to_string()));
-        assert_eq!(suggest_css_property("backgroud"), Some("did you mean \"background\"?".to_string()));
-        assert_eq!(suggest_css_property("font-sie"), Some("did you mean \"font-size\"?".to_string()));
+        assert_eq!(
+            suggest_css_property("colr"),
+            Some("did you mean \"color\"?".to_string())
+        );
+        assert_eq!(
+            suggest_css_property("backgroud"),
+            Some("did you mean \"background\"?".to_string())
+        );
+        assert_eq!(
+            suggest_css_property("font-sie"),
+            Some("did you mean \"font-size\"?".to_string())
+        );
     }
 
     #[test]
     fn suggest_sensor_path_typo() {
-        assert_eq!(suggest_sensor_path("gpu.tamp"), Some("did you mean \"gpu.temp\"?".to_string()));
-        assert_eq!(suggest_sensor_path("cpu.usag"), Some("did you mean \"cpu.usage\"?".to_string()));
+        assert_eq!(
+            suggest_sensor_path("gpu.tamp"),
+            Some("did you mean \"gpu.temp\"?".to_string())
+        );
+        assert_eq!(
+            suggest_sensor_path("cpu.usag"),
+            Some("did you mean \"cpu.usage\"?".to_string())
+        );
         assert_eq!(suggest_sensor_path("totally.fake.path"), None);
     }
 

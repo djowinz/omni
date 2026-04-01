@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use omni_shared::SensorSnapshot;
 use serde_json::{json, Value};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 use tungstenite::{accept, Message};
 
 pub const WS_PORT: u16 = 9473;
@@ -65,7 +65,9 @@ fn run_server(state: Arc<WsSharedState>) {
             Ok((stream, addr)) => {
                 info!(client = %addr, "WebSocket client connected");
                 stream.set_nonblocking(false).ok();
-                stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
+                stream
+                    .set_read_timeout(Some(Duration::from_millis(100)))
+                    .ok();
                 handle_client(stream, &state);
                 info!("WebSocket client disconnected");
             }
@@ -102,7 +104,9 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                 match msg {
                     Message::Text(text) => {
                         let text_str: &str = &text;
-                        if let Some(response) = handle_message(text_str, state, &mut sensor_subscribed) {
+                        if let Some(response) =
+                            handle_message(text_str, state, &mut sensor_subscribed)
+                        {
                             if ws.send(Message::Text(response.into())).is_err() {
                                 break; // Client disconnected
                             }
@@ -182,24 +186,29 @@ fn handle_message(
             info!("Client subscribed to sensor data");
             Some(json!({"type": "sensors.subscribed"}).to_string())
         }
-        "status" => {
-            Some(json!({
+        "status" => Some(
+            json!({
                 "type": "status.data",
                 "ws_port": WS_PORT,
                 "running": true,
-            }).to_string())
-        }
+            })
+            .to_string(),
+        ),
         "widget.parse" => {
             let source = msg.get("source")?.as_str()?;
             let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
-            let diag_json: Vec<Value> = diagnostics.iter()
+            let diag_json: Vec<Value> = diagnostics
+                .iter()
                 .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
                 .collect();
-            Some(json!({
-                "type": "widget.parsed",
-                "file": file.as_ref().map(|f| serde_json::to_value(f).unwrap_or(json!(null))),
-                "diagnostics": diag_json,
-            }).to_string())
+            Some(
+                json!({
+                    "type": "widget.parsed",
+                    "file": file.as_ref().map(|f| serde_json::to_value(f).unwrap_or(json!(null))),
+                    "diagnostics": diag_json,
+                })
+                .to_string(),
+            )
         }
         "widget.update" => {
             let file_value = msg.get("file")?;
@@ -213,16 +222,17 @@ fn handle_message(
                 }
                 Err(e) => {
                     warn!(error = %e, "Failed to deserialize widget file");
-                    Some(json!({
-                        "type": "error",
-                        "message": format!("Invalid widget file: {}", e),
-                    }).to_string())
+                    Some(
+                        json!({
+                            "type": "error",
+                            "message": format!("Invalid widget file: {}", e),
+                        })
+                        .to_string(),
+                    )
                 }
             }
         }
-        "file.list" => {
-            Some(crate::workspace::file_api::handle_list(&state.data_dir).to_string())
-        }
+        "file.list" => Some(crate::workspace::file_api::handle_list(&state.data_dir).to_string()),
         "file.read" => {
             let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
             Some(crate::workspace::file_api::handle_read(&state.data_dir, path).to_string())
@@ -230,12 +240,18 @@ fn handle_message(
         "file.write" => {
             let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            Some(crate::workspace::file_api::handle_write(&state.data_dir, path, content).to_string())
+            Some(
+                crate::workspace::file_api::handle_write(&state.data_dir, path, content)
+                    .to_string(),
+            )
         }
         "file.create" => {
             let create_type = msg.get("createType").and_then(|v| v.as_str()).unwrap_or("");
             let name = msg.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            Some(crate::workspace::file_api::handle_create(&state.data_dir, create_type, name).to_string())
+            Some(
+                crate::workspace::file_api::handle_create(&state.data_dir, create_type, name)
+                    .to_string(),
+            )
         }
         "file.delete" => {
             let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
@@ -244,12 +260,13 @@ fn handle_message(
         "widget.apply" => {
             let source = msg.get("source").and_then(|v| v.as_str()).unwrap_or("");
             let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
-            let diag_json: Vec<Value> = diagnostics.iter()
+            let diag_json: Vec<Value> = diagnostics
+                .iter()
                 .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
                 .collect();
-            let has_errors = diagnostics.iter().any(|d| {
-                d.severity == crate::omni::parser::Severity::Error
-            });
+            let has_errors = diagnostics
+                .iter()
+                .any(|d| d.severity == crate::omni::parser::Severity::Error);
             // Only apply if no errors
             if !has_errors {
                 if let Some(ref f) = file {
@@ -258,18 +275,24 @@ fn handle_message(
                     }
                 }
             }
-            Some(json!({
-                "type": "widget.applied",
-                "file": file.as_ref().map(|f| serde_json::to_value(f).unwrap_or(json!(null))),
-                "diagnostics": diag_json,
-            }).to_string())
+            Some(
+                json!({
+                    "type": "widget.applied",
+                    "file": file.as_ref().map(|f| serde_json::to_value(f).unwrap_or(json!(null))),
+                    "diagnostics": diag_json,
+                })
+                .to_string(),
+            )
         }
         _ => {
             debug!(msg_type, "Unknown WebSocket message type");
-            Some(json!({
-                "type": "error",
-                "message": format!("Unknown message type: {}", msg_type),
-            }).to_string())
+            Some(
+                json!({
+                    "type": "error",
+                    "message": format!("Unknown message type: {}", msg_type),
+                })
+                .to_string(),
+            )
         }
     }
 }
@@ -292,11 +315,7 @@ mod tests {
         let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
-        let response = handle_message(
-            r#"{"type": "sensors.subscribe"}"#,
-            &state,
-            &mut subscribed,
-        );
+        let response = handle_message(r#"{"type": "sensors.subscribe"}"#, &state, &mut subscribed);
 
         assert!(subscribed, "Should be subscribed after message");
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -308,11 +327,7 @@ mod tests {
         let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
-        let response = handle_message(
-            r#"{"type": "status"}"#,
-            &state,
-            &mut subscribed,
-        );
+        let response = handle_message(r#"{"type": "status"}"#, &state, &mut subscribed);
 
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "status.data");
@@ -324,11 +339,7 @@ mod tests {
         let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
         let mut subscribed = false;
 
-        let response = handle_message(
-            r#"{"type": "foo.bar"}"#,
-            &state,
-            &mut subscribed,
-        );
+        let response = handle_message(r#"{"type": "foo.bar"}"#, &state, &mut subscribed);
 
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "error");
@@ -349,13 +360,17 @@ mod tests {
         let msg = serde_json::to_string(&json!({
             "type": "widget.parse",
             "source": source,
-        })).unwrap();
+        }))
+        .unwrap();
 
         let response = handle_message(&msg, &state, &mut subscribed);
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "widget.parsed");
         assert!(resp["file"].is_object(), "Should return parsed file");
-        assert!(resp["diagnostics"].is_array(), "Should return diagnostics array");
+        assert!(
+            resp["diagnostics"].is_array(),
+            "Should return diagnostics array"
+        );
     }
 
     #[test]
@@ -366,7 +381,8 @@ mod tests {
         let msg = serde_json::to_string(&json!({
             "type": "widget.parse",
             "source": "",
-        })).unwrap();
+        }))
+        .unwrap();
 
         let response = handle_message(&msg, &state, &mut subscribed);
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -387,7 +403,8 @@ mod tests {
         let msg = serde_json::to_string(&json!({
             "type": "widget.update",
             "file": file,
-        })).unwrap();
+        }))
+        .unwrap();
 
         let response = handle_message(&msg, &state, &mut subscribed);
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -406,12 +423,16 @@ mod tests {
         let msg = serde_json::to_string(&json!({
             "type": "widget.update",
             "file": "not a valid file",
-        })).unwrap();
+        }))
+        .unwrap();
 
         let response = handle_message(&msg, &state, &mut subscribed);
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "error");
-        assert!(resp["message"].as_str().unwrap().contains("Invalid widget file"));
+        assert!(resp["message"]
+            .as_str()
+            .unwrap()
+            .contains("Invalid widget file"));
     }
 
     #[test]
@@ -424,7 +445,10 @@ mod tests {
 
         // Connect as a TCP client (don't do full WebSocket handshake — just verify port is open)
         let result = TcpStream::connect(format!("127.0.0.1:{}", WS_PORT));
-        assert!(result.is_ok(), "Should be able to connect to WebSocket port");
+        assert!(
+            result.is_ok(),
+            "Should be able to connect to WebSocket port"
+        );
 
         // Shutdown
         state.running.store(false, Ordering::Relaxed);

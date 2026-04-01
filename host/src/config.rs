@@ -172,8 +172,8 @@ fn default_game_directories() -> Vec<String> {
 
     // Detect Steam library folders from the default Steam install.
     if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
-        let libraryfolders = PathBuf::from(&program_files_x86)
-            .join(r"Steam\steamapps\libraryfolders.vdf");
+        let libraryfolders =
+            PathBuf::from(&program_files_x86).join(r"Steam\steamapps\libraryfolders.vdf");
         if let Ok(text) = std::fs::read_to_string(&libraryfolders) {
             for line in text.lines() {
                 let trimmed = line.trim();
@@ -273,7 +273,10 @@ mod tests {
         let restored: Config = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original.active_overlay, restored.active_overlay);
         assert_eq!(original.exclude, restored.exclude);
-        assert_eq!(original.keybinds.toggle_overlay, restored.keybinds.toggle_overlay);
+        assert_eq!(
+            original.keybinds.toggle_overlay,
+            restored.keybinds.toggle_overlay
+        );
     }
 
     #[test]

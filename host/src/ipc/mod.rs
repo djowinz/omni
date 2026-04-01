@@ -1,14 +1,12 @@
 use std::ptr;
 
 use omni_shared::{
-    SharedOverlayState, SensorSnapshot, ComputedWidget,
-    SHARED_MEM_NAME, MAX_WIDGETS,
+    ComputedWidget, SensorSnapshot, SharedOverlayState, MAX_WIDGETS, SHARED_MEM_NAME,
 };
 use tracing::info;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
-    CreateFileMappingW, MapViewOfFile, UnmapViewOfFile,
-    FILE_MAP_ALL_ACCESS, PAGE_READWRITE,
+    CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_ALL_ACCESS, PAGE_READWRITE,
 };
 
 pub struct SharedMemoryWriter {
@@ -25,13 +23,16 @@ impl SharedMemoryWriter {
     pub fn create() -> Result<Self, crate::error::HostError> {
         let size = std::mem::size_of::<SharedOverlayState>() as u32;
 
-        let name_wide: Vec<u16> = SHARED_MEM_NAME.encode_utf16().chain(std::iter::once(0)).collect();
+        let name_wide: Vec<u16> = SHARED_MEM_NAME
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
 
         // SAFETY: INVALID_HANDLE_VALUE (-1) creates a page-file-backed mapping. name_wide is a valid null-terminated UTF-16 string.
         let handle = unsafe {
             CreateFileMappingW(
                 HANDLE(-1isize as *mut std::ffi::c_void), // INVALID_HANDLE_VALUE = page file backed
-                None,                                      // default security
+                None,                                     // default security
                 PAGE_READWRITE,
                 0,
                 size,
@@ -41,13 +42,15 @@ impl SharedMemoryWriter {
         };
 
         // SAFETY: handle was successfully created above. FILE_MAP_ALL_ACCESS grants read/write.
-        let ptr = unsafe {
-            MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0)
-        };
+        let ptr = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0) };
 
         if ptr.Value.is_null() {
-            unsafe { let _ = CloseHandle(handle); }
-            return Err(crate::error::HostError::Message("MapViewOfFile returned null".into()));
+            unsafe {
+                let _ = CloseHandle(handle);
+            }
+            return Err(crate::error::HostError::Message(
+                "MapViewOfFile returned null".into(),
+            ));
         }
 
         let state_ptr = ptr.Value as *mut SharedOverlayState;
@@ -70,7 +73,12 @@ impl SharedMemoryWriter {
     }
 
     /// Write sensor data and widgets to the inactive slot, then flip.
-    pub fn write(&mut self, sensor_data: &SensorSnapshot, widgets: &[ComputedWidget], layout_version: u64) {
+    pub fn write(
+        &mut self,
+        sensor_data: &SensorSnapshot,
+        widgets: &[ComputedWidget],
+        layout_version: u64,
+    ) {
         // SAFETY: self.ptr is valid for the lifetime of this writer (mapped in create, unmapped in Drop). Only the host thread calls write.
         let state = unsafe { &*self.ptr };
         let slot_idx = state.writer_slot_index();
@@ -158,7 +166,10 @@ mod tests {
         assert_eq!(slot.sensor_data.cpu.total_usage_percent, 42.5);
         assert_eq!(slot.widget_count, 1);
         assert_eq!(slot.widgets[0].source, SensorSource::CpuUsage);
-        assert_eq!(read_fixed_str(&slot.widgets[0].format_pattern), "CPU: 42.5%");
+        assert_eq!(
+            read_fixed_str(&slot.widgets[0].format_pattern),
+            "CPU: 42.5%"
+        );
     }
 
     #[test]

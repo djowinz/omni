@@ -55,9 +55,7 @@ mod tests {
 
     fn temp_dir() -> std::path::PathBuf {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "omni_test_or_{}_{}", std::process::id(), id
-        ));
+        let dir = std::env::temp_dir().join(format!("omni_test_or_{}_{}", std::process::id(), id));
         fs::create_dir_all(dir.join("overlays/Default")).ok();
         dir
     }
@@ -74,12 +72,7 @@ mod tests {
         let mut by_game = HashMap::new();
         by_game.insert("valorant.exe".to_string(), "Valorant".to_string());
 
-        let result = resolve_overlay_name(
-            Some("VALORANT.exe"),
-            &by_game,
-            "Default",
-            &dir,
-        );
+        let result = resolve_overlay_name(Some("VALORANT.exe"), &by_game, "Default", &dir);
         assert_eq!(result, "Valorant");
 
         cleanup(&dir);
@@ -90,12 +83,8 @@ mod tests {
         let dir = temp_dir();
         fs::create_dir_all(dir.join("overlays/MySetup")).ok();
 
-        let result = resolve_overlay_name(
-            Some("unknowngame.exe"),
-            &HashMap::new(),
-            "MySetup",
-            &dir,
-        );
+        let result =
+            resolve_overlay_name(Some("unknowngame.exe"), &HashMap::new(), "MySetup", &dir);
         assert_eq!(result, "MySetup");
 
         cleanup(&dir);
@@ -105,12 +94,7 @@ mod tests {
     fn falls_back_to_default() {
         let dir = temp_dir();
 
-        let result = resolve_overlay_name(
-            None,
-            &HashMap::new(),
-            "NonExistent",
-            &dir,
-        );
+        let result = resolve_overlay_name(None, &HashMap::new(), "NonExistent", &dir);
         assert_eq!(result, "Default");
 
         cleanup(&dir);
@@ -124,12 +108,7 @@ mod tests {
         let mut by_game = HashMap::new();
         by_game.insert("cs2.exe".to_string(), "CS2".to_string());
 
-        let result = resolve_overlay_name(
-            Some("CS2.EXE"),
-            &by_game,
-            "Default",
-            &dir,
-        );
+        let result = resolve_overlay_name(Some("CS2.EXE"), &by_game, "Default", &dir);
         assert_eq!(result, "CS2");
 
         cleanup(&dir);

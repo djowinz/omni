@@ -1,7 +1,6 @@
 /// IPC protocol types for shared memory between host and overlay DLL.
 /// Uses a lock-free double buffer: host writes to inactive slot,
 /// atomically flips active_slot, DLL reads from active slot.
-
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::sensor_types::SensorSnapshot;
@@ -94,7 +93,10 @@ mod tests {
     fn shared_state_size_is_stable() {
         let size = mem::size_of::<SharedOverlayState>();
         // Two OverlaySlots + AtomicU64 — should be substantial
-        assert!(size > 1000, "SharedOverlayState is unexpectedly small: {size}");
+        assert!(
+            size > 1000,
+            "SharedOverlayState is unexpectedly small: {size}"
+        );
     }
 
     #[test]

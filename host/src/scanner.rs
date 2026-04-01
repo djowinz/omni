@@ -1,7 +1,6 @@
 /// Process scanner: enumerates running processes and injects the overlay DLL
 /// into any new process that loads a graphics API (D3D11, D3D12, Vulkan) and
 /// has at least one visible window.
-
 use std::collections::HashSet;
 
 use tracing::{debug, error, info, warn};
@@ -72,18 +71,28 @@ impl Scanner {
                 self.pre_existing.insert(pid);
             }
             self.first_poll_done = true;
-            info!(count = alive.len(), "First poll — recorded pre-existing processes");
+            info!(
+                count = alive.len(),
+                "First poll — recorded pre-existing processes"
+            );
         }
 
         for entry in &processes {
             let pid = entry.th32ProcessID;
 
-            if pid <= 4 { continue; }
-            if self.seen.contains(&pid) { continue; }
+            if pid <= 4 {
+                continue;
+            }
+            if self.seen.contains(&pid) {
+                continue;
+            }
 
             let exe_name = win32::wchar_to_string(&entry.szExeFile);
 
-            let excluded = self.config.exclude.iter()
+            let excluded = self
+                .config
+                .exclude
+                .iter()
                 .any(|ex| ex.eq_ignore_ascii_case(&exe_name));
             if excluded {
                 debug!(pid, exe_name, "Skipping excluded process");
@@ -97,7 +106,9 @@ impl Scanner {
                 continue;
             }
 
-            if !has_visible_window(pid) { continue; }
+            if !has_visible_window(pid) {
+                continue;
+            }
 
             let graphics = match has_graphics_dll(pid) {
                 Ok(v) => v,
@@ -106,7 +117,9 @@ impl Scanner {
                     continue;
                 }
             };
-            if !graphics { continue; }
+            if !graphics {
+                continue;
+            }
 
             match win32::has_module(pid, &self.dll_filename) {
                 Ok(true) => {
@@ -124,14 +137,25 @@ impl Scanner {
             }
 
             if self.pre_existing.contains(&pid) {
-                let in_include_list = self.config.include.iter()
+                let in_include_list = self
+                    .config
+                    .include
+                    .iter()
                     .any(|inc| inc.eq_ignore_ascii_case(&exe_name));
                 if !in_include_list {
-                    let exe_path = win32::get_process_exe_path(pid).unwrap_or_default().to_lowercase();
-                    let in_game_dir = self.config.game_directories.iter()
+                    let exe_path = win32::get_process_exe_path(pid)
+                        .unwrap_or_default()
+                        .to_lowercase();
+                    let in_game_dir = self
+                        .config
+                        .game_directories
+                        .iter()
                         .any(|dir| exe_path.contains(&dir.to_lowercase()));
                     if !in_game_dir {
-                        debug!(pid, exe_name, "Pre-existing process not in game directory — skipping");
+                        debug!(
+                            pid,
+                            exe_name, "Pre-existing process not in game directory — skipping"
+                        );
                         self.seen.insert(pid);
                         continue;
                     }
@@ -182,8 +206,7 @@ fn is_system_process(pid: u32) -> bool {
     match win32::get_process_exe_path(pid) {
         Some(path) => {
             let lower = path.to_lowercase();
-            lower.starts_with(r"c:\windows\")
-                || lower.starts_with(r"c:\program files\windowsapps\")
+            lower.starts_with(r"c:\windows\") || lower.starts_with(r"c:\program files\windowsapps\")
         }
         None => false,
     }
@@ -209,13 +232,14 @@ fn has_visible_window(pid: u32) -> bool {
         BOOL(1)
     }
 
-    let mut data = CallbackData { target_pid: pid, found: false };
+    let mut data = CallbackData {
+        target_pid: pid,
+        found: false,
+    };
 
     // SAFETY: `data` lives on the stack and is valid for the duration of
     // EnumWindows. The callback receives a pointer to it via LPARAM.
-    let _ = unsafe {
-        EnumWindows(Some(enum_windows_cb), LPARAM(&mut data as *mut _ as isize))
-    };
+    let _ = unsafe { EnumWindows(Some(enum_windows_cb), LPARAM(&mut data as *mut _ as isize)) };
 
     data.found
 }

@@ -6,13 +6,12 @@
 
 use std::collections::HashMap;
 
-use omni_shared::{ComputedWidget, SensorSnapshot, WidgetType, SensorSource, write_fixed_str};
+use omni_shared::{write_fixed_str, ComputedWidget, SensorSnapshot, SensorSource, WidgetType};
 use tracing::warn;
 use windows::core::w;
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory,
-    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_BOLD,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+    DWriteCreateFactory, IDWriteFactory, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_WEIGHT_NORMAL,
 };
 
 use super::css;
@@ -38,9 +37,8 @@ impl OmniResolver {
     pub fn new() -> Self {
         // SAFETY: DWriteCreateFactory is safe to call from any thread.
         // DWRITE_FACTORY_TYPE_SHARED returns a process-wide singleton.
-        let dwrite_factory: Option<IDWriteFactory> = unsafe {
-            DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED).ok()
-        };
+        let dwrite_factory: Option<IDWriteFactory> =
+            unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED).ok() };
         if dwrite_factory.is_none() {
             warn!("Failed to create IDWriteFactory — text measurement will use fallback estimates");
         }
@@ -91,14 +89,10 @@ impl OmniResolver {
 
             let text_wide: Vec<u16> = text.encode_utf16().collect();
 
-            let layout = factory.CreateTextLayout(
-                &text_wide,
-                &format,
-                10000.0,
-                10000.0,
-            )?;
+            let layout = factory.CreateTextLayout(&text_wide, &format, 10000.0, 10000.0)?;
 
-            let mut metrics = std::mem::zeroed::<windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_METRICS>();
+            let mut metrics =
+                std::mem::zeroed::<windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_METRICS>();
             layout.GetMetrics(&mut metrics)?;
             Ok((metrics.width, metrics.height))
         }
@@ -130,7 +124,9 @@ impl OmniResolver {
             // updated classes on ancestors during CSS resolution.
             let mut reactive_flat_nodes = flat_nodes.clone();
             for (i, node) in reactive_flat_nodes.iter_mut().enumerate() {
-                if node.is_text { continue; }
+                if node.is_text {
+                    continue;
+                }
                 node.classes = reactive::resolve_active_classes(&flat_nodes[i], snapshot);
             }
 
@@ -139,14 +135,20 @@ impl OmniResolver {
                     continue;
                 }
 
-                let interpolated_inline = flat_nodes[i].inline_style.as_ref()
+                let interpolated_inline = flat_nodes[i]
+                    .inline_style
+                    .as_ref()
                     .map(|s| interpolation::interpolate(s, snapshot));
 
                 let mut resolve_node = node.clone();
                 resolve_node.inline_style = interpolated_inline;
 
                 let mut style = css::resolve_styles(
-                    &resolve_node, i, &reactive_flat_nodes, &stylesheet, &self.theme_vars,
+                    &resolve_node,
+                    i,
+                    &reactive_flat_nodes,
+                    &stylesheet,
+                    &self.theme_vars,
                 );
 
                 // Apply transitions: if the style declares a transition property,
@@ -155,9 +157,9 @@ impl OmniResolver {
                     let rules = transition::TransitionManager::parse_transition(transition_str);
                     let current_props = style_to_property_map(&style);
 
-                    let overrides = self.transition_manager.update(
-                        &widget_def.id, i, &rules, &current_props,
-                    );
+                    let overrides =
+                        self.transition_manager
+                            .update(&widget_def.id, i, &rules, &current_props);
                     apply_property_overrides(&mut style, &overrides);
                 }
 
@@ -167,10 +169,17 @@ impl OmniResolver {
             // Step 3: Measure text for text-bearing elements
             let mut text_sizes: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
             for (i, node) in flat_nodes.iter().enumerate() {
-                if node.is_text { continue; }
-                let has_text = node.child_indices.iter().any(|&idx| flat_nodes[idx].is_text);
+                if node.is_text {
+                    continue;
+                }
+                let has_text = node
+                    .child_indices
+                    .iter()
+                    .any(|&idx| flat_nodes[idx].is_text);
                 if has_text {
-                    let raw_template: String = node.child_indices.iter()
+                    let raw_template: String = node
+                        .child_indices
+                        .iter()
                         .filter_map(|&idx| {
                             if flat_nodes[idx].is_text {
                                 flat_nodes[idx].text_content.as_deref()
@@ -202,18 +211,24 @@ impl OmniResolver {
             }
 
             // Step 4: Compute layout with taffy
-            let styles_for_layout: Vec<ResolvedStyle> = resolved_styles.iter()
+            let styles_for_layout: Vec<ResolvedStyle> = resolved_styles
+                .iter()
                 .map(|s| s.clone().unwrap_or_default())
                 .collect();
 
             let layouts = layout::compute_layout(
-                &flat_nodes, &styles_for_layout, &text_sizes,
-                1920.0, 1080.0,
+                &flat_nodes,
+                &styles_for_layout,
+                &text_sizes,
+                1920.0,
+                1080.0,
             );
 
             // Step 5: Emit ComputedWidgets using layout positions
             for (i, node) in flat_nodes.iter().enumerate() {
-                if node.is_text { continue; }
+                if node.is_text {
+                    continue;
+                }
 
                 let lo = &layouts[i];
                 let style = resolved_styles[i].as_ref();
@@ -225,11 +240,15 @@ impl OmniResolver {
                 let width = lo.width;
                 let height = lo.height;
 
-                let has_text_children = node.child_indices.iter()
+                let has_text_children = node
+                    .child_indices
+                    .iter()
                     .any(|&idx| flat_nodes[idx].is_text);
 
                 if has_text_children {
-                    let raw_template: String = node.child_indices.iter()
+                    let raw_template: String = node
+                        .child_indices
+                        .iter()
                         .filter_map(|&idx| {
                             if flat_nodes[idx].is_text {
                                 flat_nodes[idx].text_content.as_deref()
@@ -248,7 +267,8 @@ impl OmniResolver {
                     // flex children to their content (min_size), but the D2D DrawText
                     // rect needs to be wide enough for the text not to clip.
                     // Left-aligned text renders correctly with extra width.
-                    let text_draw_width = node.parent_index
+                    let text_draw_width = node
+                        .parent_index
                         .map(|pi| {
                             let parent_lo = &layouts[pi];
                             // Width from the element's left edge to the parent's right edge
@@ -291,14 +311,21 @@ impl OmniResolver {
 }
 
 /// Convert a ResolvedStyle into a ComputedWidget with position and visual properties.
-fn style_to_computed_widget(style: &ResolvedStyle, x: f32, y: f32, default_width: f32) -> ComputedWidget {
+fn style_to_computed_widget(
+    style: &ResolvedStyle,
+    x: f32,
+    y: f32,
+    default_width: f32,
+) -> ComputedWidget {
     let mut cw = ComputedWidget::default();
     cw.x = x;
     cw.y = y;
     cw.width = parse_px(style.width.as_deref()).unwrap_or(default_width);
     cw.opacity = style.opacity.unwrap_or(1.0);
     cw.font_size = parse_px(style.font_size.as_deref()).unwrap_or(14.0);
-    cw.font_weight = style.font_weight.as_deref()
+    cw.font_weight = style
+        .font_weight
+        .as_deref()
         .and_then(|w| match w {
             "bold" => Some(700),
             "normal" => Some(400),
@@ -347,9 +374,11 @@ fn split_at_depth_0(s: &str, delim: char) -> Vec<&str> {
     let mut depth = 0;
     let mut start = 0;
     for (i, ch) in s.char_indices() {
-        if ch == '(' { depth += 1; }
-        else if ch == ')' { depth -= 1; }
-        else if ch == delim && depth == 0 {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth -= 1;
+        } else if ch == delim && depth == 0 {
             parts.push(&s[start..i]);
             start = i + ch.len_utf8();
         }
@@ -362,13 +391,18 @@ fn split_at_depth_0(s: &str, delim: char) -> Vec<&str> {
 fn parse_linear_gradient(value: &str) -> Option<omni_shared::GradientDef> {
     let inner = value.strip_prefix("linear-gradient(")?.strip_suffix(')')?;
     let parts = split_at_depth_0(inner, ',');
-    if parts.len() < 2 { return None; }
+    if parts.len() < 2 {
+        return None;
+    }
 
     let angle_str = parts[0].trim();
     let has_angle = angle_str.ends_with("deg") || angle_str.starts_with("to ");
 
     let angle_deg = if angle_str.ends_with("deg") {
-        angle_str.trim_end_matches("deg").parse::<f32>().unwrap_or(180.0)
+        angle_str
+            .trim_end_matches("deg")
+            .parse::<f32>()
+            .unwrap_or(180.0)
     } else if angle_str.starts_with("to ") {
         match angle_str {
             "to right" => 90.0,
@@ -417,7 +451,11 @@ fn parse_box_shadow(value: &str) -> Option<omni_shared::ShadowDef> {
     while nums.len() < 3 {
         // Skip whitespace
         while let Some(&(_, ch)) = chars.peek() {
-            if ch.is_whitespace() { chars.next(); } else { break; }
+            if ch.is_whitespace() {
+                chars.next();
+            } else {
+                break;
+            }
         }
 
         let start = match chars.peek() {
@@ -428,7 +466,9 @@ fn parse_box_shadow(value: &str) -> Option<omni_shared::ShadowDef> {
         // Collect until whitespace or paren (start of color)
         let mut end = start;
         while let Some(&(i, ch)) = chars.peek() {
-            if ch.is_whitespace() || ch == '(' { break; }
+            if ch.is_whitespace() || ch == '(' {
+                break;
+            }
             end = i + ch.len_utf8();
             chars.next();
         }
@@ -445,7 +485,9 @@ fn parse_box_shadow(value: &str) -> Option<omni_shared::ShadowDef> {
         }
     }
 
-    if nums.len() < 3 { return None; }
+    if nums.len() < 3 {
+        return None;
+    }
 
     let offset_x = nums[0];
     let offset_y = nums[1];
@@ -470,7 +512,8 @@ fn parse_box_shadow(value: &str) -> Option<omni_shared::ShadowDef> {
 /// Parse a CSS `border-radius` shorthand with 1-4 values.
 /// Returns `[top-left, top-right, bottom-right, bottom-left]`.
 fn parse_border_radius(value: &str) -> [f32; 4] {
-    let parts: Vec<f32> = value.split_whitespace()
+    let parts: Vec<f32> = value
+        .split_whitespace()
         .filter_map(|s| parse_px(Some(s)))
         .collect();
 
@@ -497,7 +540,10 @@ fn parse_color(value: Option<&str>) -> [u8; 4] {
 
     // rgba(r, g, b, a)
     if value.starts_with("rgba(") {
-        if let Some(inner) = value.strip_prefix("rgba(").and_then(|s| s.strip_suffix(')')) {
+        if let Some(inner) = value
+            .strip_prefix("rgba(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
             let parts: Vec<&str> = inner.split(',').collect();
             if parts.len() == 4 {
                 let r = parts[0].trim().parse::<f32>().unwrap_or(0.0) as u8;
@@ -656,8 +702,8 @@ fn detect_sensor_source_flat(flat_nodes: &[FlatNode], node: &FlatNode) -> Sensor
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::parser;
+    use super::*;
 
     #[test]
     fn resolve_simple_widget() {
@@ -685,11 +731,15 @@ mod tests {
         assert!(!widgets.is_empty(), "Should produce at least one widget");
 
         // Check that the text was interpolated
-        let text_widget = widgets.iter()
+        let text_widget = widgets
+            .iter()
             .find(|w| w.widget_type == WidgetType::SensorValue)
             .expect("Should have a SensorValue widget");
         let text = omni_shared::read_fixed_str(&text_widget.format_pattern);
-        assert!(text.contains("42"), "Should contain interpolated CPU value, got: {text}");
+        assert!(
+            text.contains("42"),
+            "Should contain interpolated CPU value, got: {text}"
+        );
     }
 
     #[test]
@@ -722,7 +772,11 @@ mod tests {
 
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
         let w = &widgets[0];
-        assert_eq!(w.color_rgba, [255, 0, 0, 255], "Should resolve theme variable to red");
+        assert_eq!(
+            w.color_rgba,
+            [255, 0, 0, 255],
+            "Should resolve theme variable to red"
+        );
     }
 
     #[test]
@@ -755,10 +809,15 @@ mod tests {
         let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
 
-        let text_widget = widgets.iter()
+        let text_widget = widgets
+            .iter()
             .find(|w| w.widget_type == WidgetType::SensorValue)
             .expect("Should have a SensorValue widget");
-        assert_eq!(text_widget.color_rgba, [255, 0, 0, 255], "Descendant selector should apply red color");
+        assert_eq!(
+            text_widget.color_rgba,
+            [255, 0, 0, 255],
+            "Descendant selector should apply red color"
+        );
     }
 
     #[test]
@@ -783,17 +842,24 @@ mod tests {
         let mut resolver = OmniResolver::new();
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
 
-        let sensor_widgets: Vec<_> = widgets.iter()
+        let sensor_widgets: Vec<_> = widgets
+            .iter()
             .filter(|w| w.widget_type == WidgetType::SensorValue)
             .collect();
         assert_eq!(sensor_widgets.len(), 2, "Should have 2 SensorValue widgets");
 
         // First widget (value critical) should be red
-        assert_eq!(sensor_widgets[0].color_rgba, [255, 0, 0, 255],
-            "Compound selector .value.critical should apply red");
+        assert_eq!(
+            sensor_widgets[0].color_rgba,
+            [255, 0, 0, 255],
+            "Compound selector .value.critical should apply red"
+        );
         // Second widget (value only) should be white
-        assert_eq!(sensor_widgets[1].color_rgba, [255, 255, 255, 255],
-            "Simple .value should apply white");
+        assert_eq!(
+            sensor_widgets[1].color_rgba,
+            [255, 255, 255, 255],
+            "Simple .value should apply white"
+        );
     }
 
     #[test]
@@ -816,7 +882,10 @@ mod tests {
         let widgets = resolver.resolve(&file, &SensorSnapshot::default());
 
         let w = &widgets[0];
-        assert_eq!(w.font_size, 24.0, "ID selector should win over class selector");
+        assert_eq!(
+            w.font_size, 24.0,
+            "ID selector should win over class selector"
+        );
     }
 
     // --- Gradient parsing tests ---

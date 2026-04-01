@@ -143,7 +143,7 @@ impl Default for ComputedWidget {
             font_size: 13.0,
             font_weight: 400,
             color_rgba: [204, 204, 204, 255], // #cccccc
-            bg_color_rgba: [0, 0, 0, 0],       // transparent
+            bg_color_rgba: [0, 0, 0, 0],      // transparent
             bg_gradient: GradientDef::default(),
             border_color_rgba: [0, 0, 0, 0],
             border_width: 0.0,

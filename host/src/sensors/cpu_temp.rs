@@ -54,11 +54,13 @@ impl CpuTempPoller {
             None => return f32::NAN,
         };
 
-        match conn.raw_query::<ThermalZone>("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature") {
+        match conn.raw_query::<ThermalZone>(
+            "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature",
+        ) {
             Ok(results) if !results.is_empty() => {
                 tenths_kelvin_to_celsius(results[0].current_temperature)
             }
-            Ok(_) => f32::NAN, // Query succeeded but no results
+            Ok(_) => f32::NAN,  // Query succeeded but no results
             Err(_) => f32::NAN, // Query failed
         }
     }
@@ -72,14 +74,20 @@ mod tests {
     fn tenths_kelvin_conversion() {
         // 3000 tenths of Kelvin = 300K = 26.85°C
         let celsius = tenths_kelvin_to_celsius(3000);
-        assert!((celsius - 26.85).abs() < 0.01, "Expected ~26.85°C, got {celsius}");
+        assert!(
+            (celsius - 26.85).abs() < 0.01,
+            "Expected ~26.85°C, got {celsius}"
+        );
     }
 
     #[test]
     fn boiling_point_conversion() {
         // 3731 tenths of Kelvin = 373.1K = 99.95°C
         let celsius = tenths_kelvin_to_celsius(3731);
-        assert!((celsius - 99.95).abs() < 0.01, "Expected ~99.95°C, got {celsius}");
+        assert!(
+            (celsius - 99.95).abs() < 0.01,
+            "Expected ~99.95°C, got {celsius}"
+        );
     }
 
     #[test]
@@ -88,7 +96,9 @@ mod tests {
         let poller = CpuTempPoller::new();
         let temp = poller.poll();
         // temp is either a valid number or NaN — both are fine
-        assert!(temp.is_nan() || (temp > -50.0 && temp < 150.0),
-            "Temperature should be NaN or reasonable, got {temp}");
+        assert!(
+            temp.is_nan() || (temp > -50.0 && temp < 150.0),
+            "Temperature should be NaN or reasonable, got {temp}"
+        );
     }
 }

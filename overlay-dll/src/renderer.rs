@@ -1,39 +1,37 @@
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 
-use omni_shared::{ComputedWidget, read_fixed_str};
+use omni_shared::{read_fixed_str, ComputedWidget};
+use windows::core::{w, IUnknown, Interface};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D_RECT_F, D2D_POINT_2F, D2D_SIZE_F, D2D1_COLOR_F, D2D1_GRADIENT_STOP,
-    D2D1_PIXEL_FORMAT, D2D1_ALPHA_MODE_PREMULTIPLIED,
-    D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED, D2D1_FILL_MODE_WINDING,
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED,
+    D2D1_FILL_MODE_WINDING, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F,
+    D2D_SIZE_F,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, ID2D1Factory1, ID2D1RenderTarget, ID2D1Brush,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_RENDER_TARGET_PROPERTIES,
-    D2D1_ROUNDED_RECT, D2D1_DRAW_TEXT_OPTIONS_NONE,
-    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
-    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL, D2D1_SWEEP_DIRECTION_CLOCKWISE,
+    D2D1CreateFactory, ID2D1Brush, ID2D1Factory1, ID2D1RenderTarget, D2D1_ARC_SEGMENT,
+    D2D1_ARC_SIZE_SMALL, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_EXTEND_MODE_CLAMP,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_GAMMA_2_2, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_ROUNDED_RECT, D2D1_SWEEP_DIRECTION_CLOCKWISE,
 };
-use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory,
-    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_BOLD,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-    DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_MEASURING_MODE_NATURAL,
-};
-use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, IDXGISwapChain3};
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Device, ID3D11DeviceContext, ID3D11Resource,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_BIND_RENDER_TARGET,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Resource, D3D11_BIND_RENDER_TARGET,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
 };
 use windows::Win32::Graphics::Direct3D11on12::{
     D3D11On12CreateDevice, ID3D11On12Device, D3D11_RESOURCE_FLAGS,
 };
 use windows::Win32::Graphics::Direct3D12::{
-    ID3D12Device, ID3D12Resource,
-    D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET,
+    ID3D12Device, ID3D12Resource, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET,
 };
-use windows::core::{w, Interface, IUnknown};
+use windows::Win32::Graphics::DirectWrite::{
+    DWriteCreateFactory, IDWriteFactory, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_WEIGHT_NORMAL,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+    DWRITE_TEXT_ALIGNMENT_LEADING,
+};
+use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN;
+use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, IDXGISwapChain3};
 
 use crate::logging::log_to_file;
 
@@ -50,8 +48,14 @@ fn gradient_points(rect: &D2D_RECT_F, angle_deg: f32) -> (D2D_POINT_2F, D2D_POIN
     let dx = rad.cos() * w / 2.0;
     let dy = rad.sin() * h / 2.0;
 
-    let start = D2D_POINT_2F { x: cx - dx, y: cy - dy };
-    let end = D2D_POINT_2F { x: cx + dx, y: cy + dy };
+    let start = D2D_POINT_2F {
+        x: cx - dx,
+        y: cy - dy,
+    };
+    let end = D2D_POINT_2F {
+        x: cx + dx,
+        y: cy + dy,
+    };
     (start, end)
 }
 
@@ -111,15 +115,24 @@ unsafe fn fill_rounded_rect_per_corner(
 
     // Start at (left, top + r_tl) — left edge just below the top-left corner
     sink.BeginFigure(
-        D2D_POINT_2F { x: left, y: top + r_tl },
+        D2D_POINT_2F {
+            x: left,
+            y: top + r_tl,
+        },
         D2D1_FIGURE_BEGIN_FILLED,
     );
 
     // Top-left corner arc: from (left, top+r_tl) to (left+r_tl, top)
     if r_tl > 0.0 {
         sink.AddArc(&D2D1_ARC_SEGMENT {
-            point: D2D_POINT_2F { x: left + r_tl, y: top },
-            size: D2D_SIZE_F { width: r_tl, height: r_tl },
+            point: D2D_POINT_2F {
+                x: left + r_tl,
+                y: top,
+            },
+            size: D2D_SIZE_F {
+                width: r_tl,
+                height: r_tl,
+            },
             rotationAngle: 0.0,
             sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
             arcSize: D2D1_ARC_SIZE_SMALL,
@@ -129,13 +142,22 @@ unsafe fn fill_rounded_rect_per_corner(
     }
 
     // Top edge to (right - r_tr, top)
-    sink.AddLine(D2D_POINT_2F { x: right - r_tr, y: top });
+    sink.AddLine(D2D_POINT_2F {
+        x: right - r_tr,
+        y: top,
+    });
 
     // Top-right corner arc: from (right-r_tr, top) to (right, top+r_tr)
     if r_tr > 0.0 {
         sink.AddArc(&D2D1_ARC_SEGMENT {
-            point: D2D_POINT_2F { x: right, y: top + r_tr },
-            size: D2D_SIZE_F { width: r_tr, height: r_tr },
+            point: D2D_POINT_2F {
+                x: right,
+                y: top + r_tr,
+            },
+            size: D2D_SIZE_F {
+                width: r_tr,
+                height: r_tr,
+            },
             rotationAngle: 0.0,
             sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
             arcSize: D2D1_ARC_SIZE_SMALL,
@@ -145,29 +167,50 @@ unsafe fn fill_rounded_rect_per_corner(
     }
 
     // Right edge to (right, bottom - r_br)
-    sink.AddLine(D2D_POINT_2F { x: right, y: bottom - r_br });
+    sink.AddLine(D2D_POINT_2F {
+        x: right,
+        y: bottom - r_br,
+    });
 
     // Bottom-right corner arc: from (right, bottom-r_br) to (right-r_br, bottom)
     if r_br > 0.0 {
         sink.AddArc(&D2D1_ARC_SEGMENT {
-            point: D2D_POINT_2F { x: right - r_br, y: bottom },
-            size: D2D_SIZE_F { width: r_br, height: r_br },
+            point: D2D_POINT_2F {
+                x: right - r_br,
+                y: bottom,
+            },
+            size: D2D_SIZE_F {
+                width: r_br,
+                height: r_br,
+            },
             rotationAngle: 0.0,
             sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
             arcSize: D2D1_ARC_SIZE_SMALL,
         });
     } else {
-        sink.AddLine(D2D_POINT_2F { x: right, y: bottom });
+        sink.AddLine(D2D_POINT_2F {
+            x: right,
+            y: bottom,
+        });
     }
 
     // Bottom edge to (left + r_bl, bottom)
-    sink.AddLine(D2D_POINT_2F { x: left + r_bl, y: bottom });
+    sink.AddLine(D2D_POINT_2F {
+        x: left + r_bl,
+        y: bottom,
+    });
 
     // Bottom-left corner arc: from (left+r_bl, bottom) to (left, bottom-r_bl)
     if r_bl > 0.0 {
         sink.AddArc(&D2D1_ARC_SEGMENT {
-            point: D2D_POINT_2F { x: left, y: bottom - r_bl },
-            size: D2D_SIZE_F { width: r_bl, height: r_bl },
+            point: D2D_POINT_2F {
+                x: left,
+                y: bottom - r_bl,
+            },
+            size: D2D_SIZE_F {
+                width: r_bl,
+                height: r_bl,
+            },
             rotationAngle: 0.0,
             sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
             arcSize: D2D1_ARC_SIZE_SMALL,
@@ -258,7 +301,9 @@ impl OverlayRenderer {
             // Set up ExecuteCommandLists hook now that we have the game's D3D12 device.
             // This is deferred from install_hooks to avoid racing with game's D3D12 init.
             if let Err(e) = crate::hook::hook_execute_command_lists_deferred(&dx12_device) {
-                log_to_file(&format!("[renderer] WARNING: failed to hook ExecuteCommandLists: {e}"));
+                log_to_file(&format!(
+                    "[renderer] WARNING: failed to hook ExecuteCommandLists: {e}"
+                ));
             }
 
             return GraphicsApi::DX12;
@@ -290,11 +335,14 @@ impl OverlayRenderer {
             self.create_d3d11on12_device(sc)?;
         }
 
-        let d3d11on12 = self.d3d11on12_device.as_ref()
+        let d3d11on12 = self
+            .d3d11on12_device
+            .as_ref()
             .ok_or_else(|| "D3D11On12 device not available".to_string())?;
 
         // Get the CURRENT back buffer index — this changes each frame in flip model
-        let sc3: IDXGISwapChain3 = sc.cast()
+        let sc3: IDXGISwapChain3 = sc
+            .cast()
             .map_err(|e| format!("cast to IDXGISwapChain3: {e}"))?;
         let buffer_idx = sc3.GetCurrentBackBufferIndex();
 
@@ -312,18 +360,21 @@ impl OverlayRenderer {
         };
 
         let mut wrapped: Option<ID3D11Resource> = None;
-        d3d11on12.CreateWrappedResource(
-            &back_buffer,
-            &flags,
-            D3D12_RESOURCE_STATE_RENDER_TARGET,
-            D3D12_RESOURCE_STATE_PRESENT,
-            &mut wrapped,
-        ).map_err(|e| format!("CreateWrappedResource failed: {e}"))?;
+        d3d11on12
+            .CreateWrappedResource(
+                &back_buffer,
+                &flags,
+                D3D12_RESOURCE_STATE_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_PRESENT,
+                &mut wrapped,
+            )
+            .map_err(|e| format!("CreateWrappedResource failed: {e}"))?;
 
         let wrapped = wrapped.ok_or_else(|| "CreateWrappedResource returned None".to_string())?;
 
         // Cast wrapped resource to IDXGISurface
-        let surface: windows::Win32::Graphics::Dxgi::IDXGISurface = wrapped.cast()
+        let surface: windows::Win32::Graphics::Dxgi::IDXGISurface = wrapped
+            .cast()
             .map_err(|e| format!("Cast wrapped resource to IDXGISurface failed: {e}"))?;
 
         let rt = self.create_d2d_render_target(&surface)?;
@@ -337,11 +388,16 @@ impl OverlayRenderer {
     /// The queue is captured by the ExecuteCommandLists hook (fires every frame)
     /// or the CreateSwapChainForHwnd hook (fires on swap chain creation).
     unsafe fn create_d3d11on12_device(&mut self, sc: &IDXGISwapChain) -> Result<(), String> {
-        let dx12_device: ID3D12Device = sc.GetDevice()
+        let dx12_device: ID3D12Device = sc
+            .GetDevice()
             .map_err(|e| format!("GetDevice::<ID3D12Device> failed: {e}"))?;
 
-        let cmd_queue = crate::hook::CAPTURED_COMMAND_QUEUE.as_ref()
-            .ok_or_else(|| "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook".to_string())?;
+        let cmd_queue = crate::hook::CAPTURED_COMMAND_QUEUE
+            .as_ref()
+            .ok_or_else(|| {
+                "DX12 command queue not yet captured — waiting for ExecuteCommandLists hook"
+                    .to_string()
+            })?;
 
         // Verify the captured queue is from the same device as the swap chain
         let mut queue_device: Option<ID3D12Device> = None;
@@ -355,14 +411,17 @@ impl OverlayRenderer {
                     // will overwrite with the correct queue shortly.
                     return Err("Queue device mismatch — waiting for correct queue".into());
                 }
-                log_to_file("[renderer] using captured command queue for D3D11On12 (device verified)");
+                log_to_file(
+                    "[renderer] using captured command queue for D3D11On12 (device verified)",
+                );
             }
             _ => {
                 log_to_file("[renderer] WARNING: could not verify queue device, proceeding anyway");
             }
         }
 
-        let queue_unknown: IUnknown = cmd_queue.cast()
+        let queue_unknown: IUnknown = cmd_queue
+            .cast()
             .map_err(|e| format!("Cast captured command queue to IUnknown: {e}"))?;
 
         let queues: [Option<IUnknown>; 1] = [Some(queue_unknown)];
@@ -373,18 +432,20 @@ impl OverlayRenderer {
         D3D11On12CreateDevice(
             &dx12_device,
             D3D11_CREATE_DEVICE_BGRA_SUPPORT.0,
-            None,                   // feature levels (use default)
-            Some(&queues),          // command queues
-            0,                      // node mask
+            None,          // feature levels (use default)
+            Some(&queues), // command queues
+            0,             // node mask
             Some(&mut d3d11_device),
             Some(&mut d3d11_context),
-            None,                   // chosen feature level
-        ).map_err(|e| format!("D3D11On12CreateDevice failed: {e}"))?;
+            None, // chosen feature level
+        )
+        .map_err(|e| format!("D3D11On12CreateDevice failed: {e}"))?;
 
-        let d3d11_device = d3d11_device
-            .ok_or_else(|| "D3D11On12CreateDevice returned no device".to_string())?;
+        let d3d11_device =
+            d3d11_device.ok_or_else(|| "D3D11On12CreateDevice returned no device".to_string())?;
 
-        let d3d11on12: ID3D11On12Device = d3d11_device.cast()
+        let d3d11on12: ID3D11On12Device = d3d11_device
+            .cast()
             .map_err(|e| format!("Cast ID3D11Device to ID3D11On12Device failed: {e}"))?;
 
         self.d3d11on12_device = Some(d3d11on12);
@@ -465,7 +526,9 @@ impl OverlayRenderer {
                 self.wrapped_back_buffer = None;
                 self.ensure_render_target_dx12(&sc)
             }
-            GraphicsApi::Unknown => Err("Unknown graphics API — cannot create render target".to_string()),
+            GraphicsApi::Unknown => {
+                Err("Unknown graphics API — cannot create render target".to_string())
+            }
         }
     }
 
@@ -593,9 +656,14 @@ impl OverlayRenderer {
                                 radii[3] + expand,
                             ];
 
-                            if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None) {
+                            if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None)
+                            {
                                 fill_rounded_rect_per_corner(
-                                    rt, &self.d2d_factory, &pass_rect, pass_radii, &*shadow_brush,
+                                    rt,
+                                    &self.d2d_factory,
+                                    &pass_rect,
+                                    pass_radii,
+                                    &*shadow_brush,
                                 );
                             }
                         }
@@ -609,7 +677,11 @@ impl OverlayRenderer {
                         };
                         if let Ok(shadow_brush) = rt.CreateSolidColorBrush(&shadow_color, None) {
                             fill_rounded_rect_per_corner(
-                                rt, &self.d2d_factory, &shadow_rect, radii, &*shadow_brush,
+                                rt,
+                                &self.d2d_factory,
+                                &shadow_rect,
+                                radii,
+                                &*shadow_brush,
                             );
                         }
                     }
@@ -634,29 +706,29 @@ impl OverlayRenderer {
                 };
 
                 let stops = [
-                    D2D1_GRADIENT_STOP { position: 0.0, color: start_color },
-                    D2D1_GRADIENT_STOP { position: 1.0, color: end_color },
+                    D2D1_GRADIENT_STOP {
+                        position: 0.0,
+                        color: start_color,
+                    },
+                    D2D1_GRADIENT_STOP {
+                        position: 1.0,
+                        color: end_color,
+                    },
                 ];
 
-                if let Ok(stop_collection) = rt.CreateGradientStopCollection(
-                    &stops,
-                    D2D1_GAMMA_2_2,
-                    D2D1_EXTEND_MODE_CLAMP,
-                ) {
+                if let Ok(stop_collection) =
+                    rt.CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
+                {
                     let (start_pt, end_pt) = gradient_points(&rect, grad.angle_deg);
                     let grad_props = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
                         startPoint: start_pt,
                         endPoint: end_pt,
                     };
 
-                    if let Ok(brush) = rt.CreateLinearGradientBrush(
-                        &grad_props,
-                        None,
-                        &stop_collection,
-                    ) {
-                        fill_rounded_rect_per_corner(
-                            rt, &self.d2d_factory, &rect, radii, &*brush,
-                        );
+                    if let Ok(brush) =
+                        rt.CreateLinearGradientBrush(&grad_props, None, &stop_collection)
+                    {
+                        fill_rounded_rect_per_corner(rt, &self.d2d_factory, &rect, radii, &*brush);
                     }
                 }
             } else {
@@ -671,9 +743,7 @@ impl OverlayRenderer {
                     };
 
                     if let Ok(brush) = rt.CreateSolidColorBrush(&bg_color, None) {
-                        fill_rounded_rect_per_corner(
-                            rt, &self.d2d_factory, &rect, radii, &*brush,
-                        );
+                        fill_rounded_rect_per_corner(rt, &self.d2d_factory, &rect, radii, &*brush);
                     }
                 }
             }
@@ -749,7 +819,10 @@ impl OverlayRenderer {
     }
 
     /// Recreate render target after ResizeBuffers.
-    pub unsafe fn recreate_render_target(&mut self, swap_chain_ptr: *mut c_void) -> Result<(), String> {
+    pub unsafe fn recreate_render_target(
+        &mut self,
+        swap_chain_ptr: *mut c_void,
+    ) -> Result<(), String> {
         self.render_target = None;
         self.wrapped_back_buffer = None;
         self.ensure_render_target(swap_chain_ptr)

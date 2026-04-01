@@ -51,7 +51,8 @@ pub fn compute_layout(
     for i in 0..n {
         let effective_text_size = if flat_nodes[i].is_text {
             // Text node: use parent's measured text size
-            flat_nodes[i].parent_index
+            flat_nodes[i]
+                .parent_index
                 .map(|pi| text_sizes[pi])
                 .unwrap_or((0.0, 0.0))
         } else {
@@ -89,19 +90,20 @@ pub fn compute_layout(
     // absolute elements relative to their containing block (parent), so without
     // a viewport wrapper, absolute positioning has no reference frame.
     let wrapper_children: Vec<NodeId> = root_indices.iter().map(|&i| taffy_ids[i]).collect();
-    let layout_root = tree.new_with_children(
-        Style {
-            display: Display::Flex,
-            flex_direction: FlexDirection::Column,
-            size: Size {
-                width: Dimension::Length(available_width),
-                height: Dimension::Length(available_height),
+    let layout_root = tree
+        .new_with_children(
+            Style {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                size: Size {
+                    width: Dimension::Length(available_width),
+                    height: Dimension::Length(available_height),
+                },
+                ..Style::DEFAULT
             },
-            ..Style::DEFAULT
-        },
-        &wrapper_children,
-    )
-    .expect("taffy viewport wrapper node failed");
+            &wrapper_children,
+        )
+        .expect("taffy viewport wrapper node failed");
 
     // Phase 4: Compute layout.
     tree.compute_layout(
@@ -159,11 +161,7 @@ fn parse_px(val: Option<&str>) -> Option<f32> {
 }
 
 /// Build a taffy `Style` from a `ResolvedStyle` + flat node info + text size.
-fn build_taffy_style(
-    style: &ResolvedStyle,
-    node: &FlatNode,
-    text_size: (f32, f32),
-) -> Style {
+fn build_taffy_style(style: &ResolvedStyle, node: &FlatNode, text_size: (f32, f32)) -> Style {
     let mut ts = Style {
         display: Display::Flex,
         ..Style::DEFAULT
@@ -385,11 +383,7 @@ mod tests {
     use super::*;
 
     /// Helper: create a non-text FlatNode element.
-    fn elem(
-        tag: &str,
-        parent_index: Option<usize>,
-        child_indices: Vec<usize>,
-    ) -> FlatNode {
+    fn elem(tag: &str, parent_index: Option<usize>, child_indices: Vec<usize>) -> FlatNode {
         FlatNode {
             tag: tag.to_string(),
             id: None,
@@ -585,10 +579,7 @@ mod tests {
     #[test]
     fn position_fixed_absolute_coords() {
         // A root container + a fixed-position child
-        let nodes = vec![
-            elem("div", None, vec![1]),
-            elem("div", Some(0), vec![]),
-        ];
+        let nodes = vec![elem("div", None, vec![1]), elem("div", Some(0), vec![])];
         let styles = vec![
             style_with(|s| {
                 s.display = Some("flex".into());
@@ -618,10 +609,7 @@ mod tests {
     fn text_sizing_respected() {
         // Parent span with a text child. Text measurement is on the parent
         // (the resolver measures at the span level, not the text node level).
-        let nodes = vec![
-            elem("span", None, vec![1]),
-            text_node(Some(0)),
-        ];
+        let nodes = vec![elem("span", None, vec![1]), text_node(Some(0))];
         let styles = vec![
             style_with(|s| {
                 s.display = Some("flex".into());
@@ -629,15 +617,23 @@ mod tests {
             ResolvedStyle::default(),
         ];
         let text_sizes = vec![
-            (80.0, 16.0),  // parent span — measured text dimensions
-            (0.0, 0.0),    // text node — inherits parent's measurement
+            (80.0, 16.0), // parent span — measured text dimensions
+            (0.0, 0.0),   // text node — inherits parent's measurement
         ];
 
         let results = compute_layout(&nodes, &styles, &text_sizes, 1920.0, 1080.0);
 
         // Parent span should be at least as wide as its text content
-        assert!(results[0].width >= 80.0, "Span should be >= 80px wide, got {}", results[0].width);
-        assert!(results[0].height >= 16.0, "Span should be >= 16px tall, got {}", results[0].height);
+        assert!(
+            results[0].width >= 80.0,
+            "Span should be >= 80px wide, got {}",
+            results[0].width
+        );
+        assert!(
+            results[0].height >= 16.0,
+            "Span should be >= 16px tall, got {}",
+            results[0].height
+        );
         // Text node inherits parent's measured size
         assert_eq!(results[1].width, 80.0);
         assert_eq!(results[1].height, 16.0);
@@ -682,10 +678,7 @@ mod tests {
     #[test]
     fn padding_affects_children_position() {
         // Parent with padding=12, child at (0,0) relative to content area
-        let nodes = vec![
-            elem("div", None, vec![1]),
-            elem("div", Some(0), vec![]),
-        ];
+        let nodes = vec![elem("div", None, vec![1]), elem("div", Some(0), vec![])];
         let styles = vec![
             style_with(|s| {
                 s.display = Some("flex".into());
@@ -756,8 +749,8 @@ mod tests {
 #[cfg(test)]
 mod position_debug_test {
     use super::*;
-    use crate::omni::types::ResolvedStyle;
     use crate::omni::flat_tree::FlatNode;
+    use crate::omni::types::ResolvedStyle;
 
     #[test]
     fn fixed_position_with_left_top() {
@@ -817,10 +810,24 @@ mod position_debug_test {
 
         let results = compute_layout(&nodes, &styles, &text_sizes, 1920.0, 1080.0);
 
-        eprintln!("Root: x={}, y={}, w={}, h={}", results[0].x, results[0].y, results[0].width, results[0].height);
-        eprintln!("Span: x={}, y={}, w={}, h={}", results[1].x, results[1].y, results[1].width, results[1].height);
+        eprintln!(
+            "Root: x={}, y={}, w={}, h={}",
+            results[0].x, results[0].y, results[0].width, results[0].height
+        );
+        eprintln!(
+            "Span: x={}, y={}, w={}, h={}",
+            results[1].x, results[1].y, results[1].width, results[1].height
+        );
 
-        assert!(results[0].x > 100.0, "Root x should be ~200, got {}", results[0].x);
-        assert!(results[0].y > 50.0, "Root y should be ~100, got {}", results[0].y);
+        assert!(
+            results[0].x > 100.0,
+            "Root x should be ~200, got {}",
+            results[0].x
+        );
+        assert!(
+            results[0].y > 50.0,
+            "Root y should be ~100, got {}",
+            results[0].y
+        );
     }
 }

@@ -3,8 +3,8 @@
 //! Scans a string for `{...}` patterns, looks up each path in the sensor map,
 //! and replaces it with the current value.
 
-use omni_shared::SensorSnapshot;
 use super::sensor_map;
+use omni_shared::SensorSnapshot;
 
 /// Replace all `{sensor.path}` expressions in the input string with current values.
 pub fn interpolate(input: &str, snapshot: &SensorSnapshot) -> String {

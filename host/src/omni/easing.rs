@@ -21,8 +21,12 @@ impl EasingFunction {
             "ease-out" => Self::EaseOut,
             "ease-in-out" => Self::EaseInOut,
             s if s.starts_with("cubic-bezier(") => {
-                if let Some(inner) = s.strip_prefix("cubic-bezier(").and_then(|s| s.strip_suffix(')')) {
-                    let parts: Vec<f64> = inner.split(',')
+                if let Some(inner) = s
+                    .strip_prefix("cubic-bezier(")
+                    .and_then(|s| s.strip_suffix(')'))
+                {
+                    let parts: Vec<f64> = inner
+                        .split(',')
                         .filter_map(|p| p.trim().parse().ok())
                         .collect();
                     if parts.len() == 4 {
@@ -89,7 +93,9 @@ fn bezier_component(p1: f64, p2: f64, u: f64) -> f64 {
 /// B'(u) = 3(1-u)^2 * p1 + 6(1-u)*u*(p2 - p1) + 3*u^2*(1 - p2)
 fn bezier_derivative(p1: f64, p2: f64, u: f64) -> f64 {
     let one_minus_u = 1.0 - u;
-    3.0 * one_minus_u * one_minus_u * p1 + 6.0 * one_minus_u * u * (p2 - p1) + 3.0 * u * u * (1.0 - p2)
+    3.0 * one_minus_u * one_minus_u * p1
+        + 6.0 * one_minus_u * u * (p2 - p1)
+        + 3.0 * u * u * (1.0 - p2)
 }
 
 #[cfg(test)]
@@ -132,22 +138,14 @@ mod tests {
     fn ease_in_slow_start() {
         // EaseIn at t=0.5 should be less than 0.5 (slow start)
         let val = EasingFunction::EaseIn.apply(0.5);
-        assert!(
-            val < 0.5,
-            "ease-in at 0.5 should be < 0.5, got {}",
-            val
-        );
+        assert!(val < 0.5, "ease-in at 0.5 should be < 0.5, got {}", val);
     }
 
     #[test]
     fn ease_out_fast_start() {
         // EaseOut at t=0.5 should be greater than 0.5 (fast start)
         let val = EasingFunction::EaseOut.apply(0.5);
-        assert!(
-            val > 0.5,
-            "ease-out at 0.5 should be > 0.5, got {}",
-            val
-        );
+        assert!(val > 0.5, "ease-out at 0.5 should be > 0.5, got {}", val);
     }
 
     #[test]
@@ -192,10 +190,22 @@ mod tests {
 
     #[test]
     fn parse_all_named_variants() {
-        assert!(matches!(EasingFunction::parse("linear"), EasingFunction::Linear));
-        assert!(matches!(EasingFunction::parse("ease-in"), EasingFunction::EaseIn));
-        assert!(matches!(EasingFunction::parse("ease-out"), EasingFunction::EaseOut));
-        assert!(matches!(EasingFunction::parse("ease-in-out"), EasingFunction::EaseInOut));
+        assert!(matches!(
+            EasingFunction::parse("linear"),
+            EasingFunction::Linear
+        ));
+        assert!(matches!(
+            EasingFunction::parse("ease-in"),
+            EasingFunction::EaseIn
+        ));
+        assert!(matches!(
+            EasingFunction::parse("ease-out"),
+            EasingFunction::EaseOut
+        ));
+        assert!(matches!(
+            EasingFunction::parse("ease-in-out"),
+            EasingFunction::EaseInOut
+        ));
     }
 
     #[test]

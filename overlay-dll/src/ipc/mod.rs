@@ -1,8 +1,7 @@
-use omni_shared::{SharedOverlayState, OverlaySlot, SHARED_MEM_NAME};
+use omni_shared::{OverlaySlot, SharedOverlayState, SHARED_MEM_NAME};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
-    OpenFileMappingW, MapViewOfFile, UnmapViewOfFile,
-    FILE_MAP_ALL_ACCESS,
+    MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_ALL_ACCESS,
 };
 
 use crate::logging::log_to_file;
@@ -23,7 +22,10 @@ impl SharedMemoryReader {
     /// Try to open the existing named shared memory created by the host.
     /// Returns None if the shared memory doesn't exist yet (host not running).
     pub fn open() -> Option<Self> {
-        let name_wide: Vec<u16> = SHARED_MEM_NAME.encode_utf16().chain(std::iter::once(0)).collect();
+        let name_wide: Vec<u16> = SHARED_MEM_NAME
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
 
         // SAFETY: Opening an existing named file mapping created by the host.
         // name_wide is a valid null-terminated UTF-16 string on the stack.
@@ -42,12 +44,12 @@ impl SharedMemoryReader {
 
         // SAFETY: handle was successfully opened. FILE_MAP_ALL_ACCESS matches
         // the host's PAGE_READWRITE protection.
-        let ptr = unsafe {
-            MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0)
-        };
+        let ptr = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0) };
 
         if ptr.Value.is_null() {
-            unsafe { let _ = CloseHandle(handle); }
+            unsafe {
+                let _ = CloseHandle(handle);
+            }
             return None;
         }
 

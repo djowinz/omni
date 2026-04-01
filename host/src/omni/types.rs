@@ -61,7 +61,7 @@ pub enum HtmlNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedStyle {
     // Position
-    pub position: Option<String>,      // "fixed", "relative"
+    pub position: Option<String>, // "fixed", "relative"
     pub top: Option<String>,
     pub right: Option<String>,
     pub bottom: Option<String>,

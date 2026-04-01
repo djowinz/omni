@@ -4,9 +4,7 @@
 //! maintains a ring buffer of frame times, and computes FPS,
 //! frame time, rolling average, and 1%/0.1% low percentiles.
 
-use windows::Win32::System::Performance::{
-    QueryPerformanceCounter, QueryPerformanceFrequency,
-};
+use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
 const RING_BUFFER_SIZE: usize = 1000;
 const FPS_SMOOTHING_FRAMES: usize = 100;
@@ -302,15 +300,21 @@ mod tests {
     #[test]
     fn frame_time_latest() {
         let stats = make_stats_with_frames(&[16.0, 17.0, 15.0, 20.0]);
-        assert!((stats.frame_time_ms() - 20.0).abs() < 0.1,
-            "Latest frame time should be ~20ms, got {}", stats.frame_time_ms());
+        assert!(
+            (stats.frame_time_ms() - 20.0).abs() < 0.1,
+            "Latest frame time should be ~20ms, got {}",
+            stats.frame_time_ms()
+        );
     }
 
     #[test]
     fn frame_time_average() {
         let stats = make_stats_with_frames(&[10.0, 20.0, 30.0, 40.0]);
         let avg = stats.frame_time_avg_ms();
-        assert!((avg - 25.0).abs() < 0.1, "Average should be 25ms, got {avg}");
+        assert!(
+            (avg - 25.0).abs() < 0.1,
+            "Average should be 25ms, got {avg}"
+        );
     }
 
     #[test]
@@ -320,7 +324,10 @@ mod tests {
         let stats = make_stats_with_frames(&frames);
         assert_eq!(stats.count, RING_BUFFER_SIZE);
         let fps = stats.fps();
-        assert!((fps - 60.0).abs() < 1.0, "FPS should be ~60 after wrap, got {fps}");
+        assert!(
+            (fps - 60.0).abs() < 1.0,
+            "FPS should be ~60 after wrap, got {fps}"
+        );
     }
 
     #[test]
@@ -330,8 +337,11 @@ mod tests {
         frames.extend(vec![50.0; 10]);
         let stats = make_stats_with_frames(&frames);
         // 1% low should be the slow frames (~50ms)
-        assert!(stats.frame_time_1pct_ms() >= 40.0,
-            "1% low should be >=40ms, got {}", stats.frame_time_1pct_ms());
+        assert!(
+            stats.frame_time_1pct_ms() >= 40.0,
+            "1% low should be >=40ms, got {}",
+            stats.frame_time_1pct_ms()
+        );
     }
 
     #[test]

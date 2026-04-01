@@ -72,6 +72,9 @@ mod tests {
         system.refresh_cpu_all();
         let poller = CpuPoller::new(&system);
         let data = poller.poll(&system);
-        assert!(data.package_temp_c.is_nan(), "Temp should be NaN (set by CpuTempPoller)");
+        assert!(
+            data.package_temp_c.is_nan(),
+            "Temp should be NaN (set by CpuTempPoller)"
+        );
     }
 }

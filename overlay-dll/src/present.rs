@@ -3,13 +3,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use windows::core::HRESULT;
 
+use crate::ipc::SharedMemoryReader;
 use crate::logging::log_to_file;
 use crate::renderer::OverlayRenderer;
-use crate::ipc::SharedMemoryReader;
 
 pub type PresentFn = unsafe extern "system" fn(*mut c_void, u32, u32) -> HRESULT;
 pub type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const c_void) -> HRESULT;
-pub type ResizeBuffersFn = unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> HRESULT;
+pub type ResizeBuffersFn =
+    unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> HRESULT;
 
 // SAFETY (static mut globals): All accessed exclusively from the render thread
 // (the thread that calls Present). ensure_renderer and ensure_shm_reader are
@@ -131,16 +132,28 @@ unsafe fn render_overlay(swap_chain: *mut c_void) {
                         text = text.replace("{fps}", &format!("{:.0}", frame_stats.fps()));
                     }
                     if has_ft {
-                        text = text.replace("{frame-time}", &format!("{:.1}", frame_stats.frame_time_ms()));
+                        text = text.replace(
+                            "{frame-time}",
+                            &format!("{:.1}", frame_stats.frame_time_ms()),
+                        );
                     }
                     if has_ft_avg {
-                        text = text.replace("{frame-time.avg}", &format!("{:.1}", frame_stats.frame_time_avg_ms()));
+                        text = text.replace(
+                            "{frame-time.avg}",
+                            &format!("{:.1}", frame_stats.frame_time_avg_ms()),
+                        );
                     }
                     if has_ft_1pct {
-                        text = text.replace("{frame-time.1pct}", &format!("{:.1}", frame_stats.frame_time_1pct_ms()));
+                        text = text.replace(
+                            "{frame-time.1pct}",
+                            &format!("{:.1}", frame_stats.frame_time_1pct_ms()),
+                        );
                     }
                     if has_ft_01pct {
-                        text = text.replace("{frame-time.01pct}", &format!("{:.1}", frame_stats.frame_time_01pct_ms()));
+                        text = text.replace(
+                            "{frame-time.01pct}",
+                            &format!("{:.1}", frame_stats.frame_time_01pct_ms()),
+                        );
                     }
                     omni_shared::write_fixed_str(&mut widget.format_pattern, &text);
                 }
@@ -237,7 +250,14 @@ pub unsafe extern "system" fn hooked_resize_buffers(
 
     // Call original ResizeBuffers
     let result = if let Some(original) = ORIGINAL_RESIZE_BUFFERS {
-        original(swap_chain, buffer_count, width, height, new_format, swap_chain_flags)
+        original(
+            swap_chain,
+            buffer_count,
+            width,
+            height,
+            new_format,
+            swap_chain_flags,
+        )
     } else {
         HRESULT(0)
     };
@@ -246,7 +266,9 @@ pub unsafe extern "system" fn hooked_resize_buffers(
     if result.is_ok() {
         if let Some(renderer) = &mut RENDERER {
             if let Err(e) = renderer.recreate_render_target(swap_chain) {
-                log_to_file(&format!("[resize_buffers] failed to recreate render target: {e}"));
+                log_to_file(&format!(
+                    "[resize_buffers] failed to recreate render target: {e}"
+                ));
             }
         }
     }

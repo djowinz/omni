@@ -5,11 +5,10 @@
 
 use std::mem::size_of;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, ERROR_NO_MORE_FILES};
+use windows::Win32::Foundation::{CloseHandle, ERROR_NO_MORE_FILES, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, Process32FirstW,
-    Process32NextW, MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE,
-    TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, Process32FirstW, Process32NextW,
+    MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 
 use crate::error::HostError;
@@ -51,9 +50,7 @@ pub fn wchar_to_string(buf: &[u16]) -> String {
 pub fn iter_processes() -> Result<Vec<PROCESSENTRY32W>, HostError> {
     // SAFETY: TH32CS_SNAPPROCESS with pid 0 captures all processes.
     // The returned handle is valid on success (checked via `?`).
-    let snapshot = OwnedHandle::new(unsafe {
-        CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)?
-    });
+    let snapshot = OwnedHandle::new(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)? });
 
     let mut entries = Vec::new();
     let mut entry = PROCESSENTRY32W {
@@ -63,8 +60,7 @@ pub fn iter_processes() -> Result<Vec<PROCESSENTRY32W>, HostError> {
 
     // SAFETY: `entry.dwSize` is set to the correct struct size.
     // `snapshot` is a valid Toolhelp32 handle.
-    unsafe { Process32FirstW(snapshot.raw(), &mut entry) }
-        .map_err(|e| HostError::Win32(e))?;
+    unsafe { Process32FirstW(snapshot.raw(), &mut entry) }.map_err(|e| HostError::Win32(e))?;
 
     entries.push(entry);
 
@@ -121,30 +117,38 @@ pub fn iter_modules(pid: u32) -> Result<Vec<MODULEENTRY32W>, HostError> {
 /// Check whether a process has a module with the given name loaded (case-insensitive).
 pub fn has_module(pid: u32, dll_name: &str) -> Result<bool, HostError> {
     let modules = iter_modules(pid)?;
-    Ok(modules.iter().any(|m| {
-        wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name)
-    }))
+    Ok(modules
+        .iter()
+        .any(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name)))
 }
 
 /// Get the full executable path for the first module of a process (the exe itself).
 pub fn get_process_exe_path(pid: u32) -> Option<String> {
-    iter_modules(pid).ok()?.first().map(|m| wchar_to_string(&m.szExePath))
+    iter_modules(pid)
+        .ok()?
+        .first()
+        .map(|m| wchar_to_string(&m.szExePath))
 }
 
 /// Find a module's base address in a remote process by name (case-insensitive).
-pub fn find_remote_module_base(pid: u32, dll_name: &str) -> Result<Option<*const std::ffi::c_void>, HostError> {
+pub fn find_remote_module_base(
+    pid: u32,
+    dll_name: &str,
+) -> Result<Option<*const std::ffi::c_void>, HostError> {
     let modules = iter_modules(pid)?;
-    Ok(modules.iter().find(|m| {
-        wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name)
-    }).map(|m| m.modBaseAddr as *const std::ffi::c_void))
+    Ok(modules
+        .iter()
+        .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
+        .map(|m| m.modBaseAddr as *const std::ffi::c_void))
 }
 
 /// Find a module's file path in a remote process by name (case-insensitive).
 pub fn find_remote_module_path(pid: u32, dll_name: &str) -> Result<Option<String>, HostError> {
     let modules = iter_modules(pid)?;
-    Ok(modules.iter().find(|m| {
-        wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name)
-    }).map(|m| wchar_to_string(&m.szExePath)))
+    Ok(modules
+        .iter()
+        .find(|m| wchar_to_string(&m.szModule).eq_ignore_ascii_case(dll_name))
+        .map(|m| wchar_to_string(&m.szExePath)))
 }
 
 #[cfg(test)]
@@ -166,7 +170,10 @@ mod tests {
     #[test]
     fn iter_processes_returns_nonempty() {
         let processes = iter_processes().expect("iter_processes failed");
-        assert!(!processes.is_empty(), "Expected at least one running process");
+        assert!(
+            !processes.is_empty(),
+            "Expected at least one running process"
+        );
     }
 
     #[test]

@@ -3,12 +3,12 @@ use windows::Win32::Foundation::{BOOL, HINSTANCE, TRUE};
 use windows::Win32::System::LibraryLoader::GetModuleHandleA;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 
-mod logging;
+mod frame_stats;
 mod hook;
+mod ipc;
+mod logging;
 mod present;
 mod renderer;
-mod ipc;
-mod frame_stats;
 
 use logging::log_to_file;
 
@@ -65,7 +65,9 @@ pub unsafe extern "system" fn omni_shutdown(_param: *mut c_void) -> u32 {
     log_to_file("[shutdown] disabling all hooks");
 
     if let Err(e) = minhook::MinHook::disable_all_hooks() {
-        log_to_file(&format!("[shutdown] WARNING: disable_all_hooks failed: {e:?}"));
+        log_to_file(&format!(
+            "[shutdown] WARNING: disable_all_hooks failed: {e:?}"
+        ));
     }
 
     // Give the render thread time to finish any in-flight hook call.

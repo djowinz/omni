@@ -4,8 +4,8 @@ pub mod gpu;
 pub mod ram;
 
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -66,24 +66,34 @@ impl SensorPoller {
             }
 
             // Determine per-group intervals
-            let cpu_interval = *["cpu.usage", "cpu.temp"].iter()
+            let cpu_interval = *["cpu.usage", "cpu.temp"]
+                .iter()
                 .filter_map(|k| poll_config.get(*k))
                 .min()
                 .unwrap_or(&DEFAULT_POLL_MS);
 
-            let gpu_interval = *["gpu.usage", "gpu.temp", "gpu.clock", "gpu.mem-clock",
-                                  "gpu.vram", "gpu.power", "gpu.fan"].iter()
+            let gpu_interval = *[
+                "gpu.usage",
+                "gpu.temp",
+                "gpu.clock",
+                "gpu.mem-clock",
+                "gpu.vram",
+                "gpu.power",
+                "gpu.fan",
+            ]
+            .iter()
+            .filter_map(|k| poll_config.get(*k))
+            .min()
+            .unwrap_or(&DEFAULT_POLL_MS);
+
+            let ram_interval = *["ram.usage"]
+                .iter()
                 .filter_map(|k| poll_config.get(*k))
                 .min()
                 .unwrap_or(&DEFAULT_POLL_MS);
 
-            let ram_interval = *["ram.usage"].iter()
-                .filter_map(|k| poll_config.get(*k))
-                .min()
-                .unwrap_or(&DEFAULT_POLL_MS);
-
-            let base_tick = gcd(gcd(cpu_interval, gpu_interval), ram_interval)
-                .max(MIN_BASE_TICK_MS);
+            let base_tick =
+                gcd(gcd(cpu_interval, gpu_interval), ram_interval).max(MIN_BASE_TICK_MS);
 
             info!(
                 cpu_ms = cpu_interval,
@@ -94,9 +104,18 @@ impl SensorPoller {
             );
 
             let now = Instant::now();
-            let mut cpu_group = SensorGroup { interval_ms: cpu_interval, last_poll: now };
-            let mut gpu_group = SensorGroup { interval_ms: gpu_interval, last_poll: now };
-            let mut ram_group = SensorGroup { interval_ms: ram_interval, last_poll: now };
+            let mut cpu_group = SensorGroup {
+                interval_ms: cpu_interval,
+                last_poll: now,
+            };
+            let mut gpu_group = SensorGroup {
+                interval_ms: gpu_interval,
+                last_poll: now,
+            };
+            let mut ram_group = SensorGroup {
+                interval_ms: ram_interval,
+                last_poll: now,
+            };
 
             // sysinfo needs two samples to compute CPU usage
             thread::sleep(Duration::from_millis(500));
@@ -109,7 +128,9 @@ impl SensorPoller {
                 let mut any_updated = false;
 
                 // CPU group
-                if now.duration_since(cpu_group.last_poll).as_millis() >= cpu_group.interval_ms as u128 {
+                if now.duration_since(cpu_group.last_poll).as_millis()
+                    >= cpu_group.interval_ms as u128
+                {
                     system.refresh_cpu_all();
                     let mut cpu_data = cpu.poll(&system);
                     cpu_data.package_temp_c = cpu_temp.poll();
@@ -119,7 +140,9 @@ impl SensorPoller {
                 }
 
                 // GPU group
-                if now.duration_since(gpu_group.last_poll).as_millis() >= gpu_group.interval_ms as u128 {
+                if now.duration_since(gpu_group.last_poll).as_millis()
+                    >= gpu_group.interval_ms as u128
+                {
                     snapshot.gpu = match &gpu {
                         Some(g) => g.poll(),
                         None => omni_shared::GpuData::default(),
@@ -129,7 +152,9 @@ impl SensorPoller {
                 }
 
                 // RAM group
-                if now.duration_since(ram_group.last_poll).as_millis() >= ram_group.interval_ms as u128 {
+                if now.duration_since(ram_group.last_poll).as_millis()
+                    >= ram_group.interval_ms as u128
+                {
                     system.refresh_memory();
                     snapshot.ram = ram.poll(&system);
                     ram_group.last_poll = now;
@@ -151,7 +176,13 @@ impl SensorPoller {
             }
         });
 
-        (Self { handle: Some(handle), running }, rx)
+        (
+            Self {
+                handle: Some(handle),
+                running,
+            },
+            rx,
+        )
     }
 
     /// Signal the polling thread to stop and wait for it to finish.
@@ -171,7 +202,11 @@ impl Drop for SensorPoller {
 
 /// Greatest common divisor.
 fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 { a } else { gcd(b, a % b) }
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
 }
 
 #[cfg(test)]
