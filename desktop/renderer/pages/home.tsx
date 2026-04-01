@@ -1,5 +1,4 @@
 import { OmniProvider } from "@/hooks/use-omni-state";
-import { Titlebar } from "@/components/omni/titlebar";
 import { Header } from "@/components/omni/header";
 import { StatusBar } from "@/components/omni/status-bar";
 import { WidgetPanel } from "@/components/omni/widget-panel";
@@ -15,7 +14,6 @@ export default function Home() {
   return (
     <OmniProvider>
       <div className="flex h-screen flex-col bg-[#0D0D0F] text-[#FAFAFA]">
-        <Titlebar />
         <Header />
         <main className="flex-1 overflow-hidden flex">
           {/* Widget panel — fixed width, not resizable */}
