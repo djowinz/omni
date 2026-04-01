@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
 import * as path from "path";
 import { HostManager } from "./host-manager";
 
@@ -82,6 +82,17 @@ function createTray(): void {
     mainWindow?.focus();
   });
 }
+
+// Window control IPC handlers
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+});
+ipcMain.on('window-close', () => mainWindow?.close());
 
 app.on('ready', async () => {
   mainWindow = createWindow();
