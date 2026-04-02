@@ -4,9 +4,11 @@ import type { editor } from 'monaco-editor';
 import { Button } from '@/components/ui/button';
 import { Code, Save, RotateCcw, X, Palette } from 'lucide-react';
 import { useOmniState } from '@/hooks/use-omni-state';
+import { useBackend } from '@/hooks/use-backend';
 import { parseOmniContent } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
 import { omniDarkTheme, registerOmniLanguage } from '@/lib/monaco-omni';
+import type { ParseError } from '@/src/generated/ParseError';
 
 export function EditorPanel() {
   const { state, dispatch, getCurrentOverlay, saveCurrentOverlay, closeTab, getActiveTab } = useOmniState();
@@ -21,6 +23,7 @@ export function EditorPanel() {
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const [lineCount, setLineCount] = useState(1);
 
   // Determine Monaco language based on file type
@@ -30,6 +33,7 @@ export function EditorPanel() {
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme('omni-dark', omniDarkTheme);
     registerOmniLanguage(monaco);
+    monacoRef.current = monaco;
   }, []);
 
   // Capture editor reference on mount
@@ -63,12 +67,62 @@ export function EditorPanel() {
     }
   }, [isShowingTab, activeTab, currentOverlay, dispatch]);
 
-  // Handle save
+  const backend = useBackend();
+
+  // Debounced parse: send content to backend every 400ms and set Monaco markers
+  useEffect(() => {
+    const content = displayContent ?? '';
+    if (!content || !editorRef.current || !monacoRef.current) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const { diagnostics } = await backend.parseOverlay(content);
+        const model = editorRef.current?.getModel();
+        if (model && monacoRef.current) {
+          const markers = diagnostics.map((d: ParseError) => ({
+            startLineNumber: d.line,
+            startColumn: d.column,
+            endLineNumber: d.line,
+            endColumn: d.column + 10,
+            severity: d.severity === 'Error'
+              ? monacoRef.current!.MarkerSeverity.Error
+              : monacoRef.current!.MarkerSeverity.Warning,
+            message: d.message + (d.suggestion ? ` — ${d.suggestion}` : ''),
+          }));
+          monacoRef.current.editor.setModelMarkers(model, 'omni', markers);
+        }
+      } catch {
+        // Host not connected — clear markers silently
+        const model = editorRef.current?.getModel();
+        if (model && monacoRef.current) {
+          monacoRef.current.editor.setModelMarkers(model, 'omni', []);
+        }
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [displayContent, backend]);
+
+  // Handle save — write file and auto-apply if it's the active overlay
   const handleSave = useCallback(async () => {
-    if (currentOverlay && state.isDirty) {
-      await saveCurrentOverlay();
+    const overlay = getCurrentOverlay();
+    if (!overlay || !overlay.content) return;
+
+    const overlayPath = `overlays/${overlay.name}/overlay.omni`;
+    try {
+      await backend.writeFile(overlayPath, overlay.content);
+
+      // If editing the active overlay, also push to live game
+      const isActiveOverlay = state.config?.active_overlay === overlay.name;
+      if (isActiveOverlay) {
+        await backend.applyOverlay(overlay.content);
+      }
+
+      dispatch({ type: 'SET_DIRTY', payload: false });
+    } catch (e) {
+      console.error('Save failed:', e);
     }
-  }, [currentOverlay, state.isDirty, saveCurrentOverlay]);
+  }, [getCurrentOverlay, state.config, backend, dispatch]);
 
   // Handle revert
   const handleRevert = useCallback(() => {
