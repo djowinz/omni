@@ -110,7 +110,7 @@ export function Header() {
           <div className="h-6 w-px bg-[#27272A]" />
 
           {/* Overlay Selector */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Select
               value={state.selectedOverlayName}
               onValueChange={handleSelectOverlay}
@@ -146,37 +146,33 @@ export function Header() {
               </SelectContent>
             </Select>
 
-            {/* Overlay Actions */}
+            {/* New Overlay — clearly visible next to selector */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setCreateDialogOpen(true)}
+              className="h-9 w-9 text-[#71717A] hover:text-[#00D9FF] hover:bg-[#27272A] transition-colors"
+              title="New Overlay"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+
+            {/* Overlay Settings — actions for the selected overlay */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9 text-[#71717A] hover:text-[#00D9FF] hover:bg-[#27272A] transition-colors"
+                  title="Overlay settings"
                 >
                   <Settings className="h-4 w-4" />
-                  <span className="sr-only">Overlay options</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
                 className="bg-[#18181B] border-[#27272A]"
               >
-                <DropdownMenuItem
-                  onClick={() => setCreateDialogOpen(true)}
-                  className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#00D9FF]"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Overlay
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDuplicate}
-                  className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#00D9FF]"
-                >
-                  <Copy className="mr-2 h-4 w-4" />
-                  Duplicate
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-[#27272A]" />
                 <DropdownMenuItem
                   onClick={handleSetActive}
                   className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#00D9FF]"
@@ -192,6 +188,13 @@ export function Header() {
                 >
                   <Gamepad2 className="mr-2 h-4 w-4" />
                   Assign to Games
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleDuplicate}
+                  className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#00D9FF]"
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Duplicate
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-[#27272A]" />
                 <DropdownMenuItem

@@ -45,7 +45,7 @@ export function StatusBar() {
             }}
           />
           <span className="text-[#71717A] uppercase tracking-wider">
-            {state.connected ? 'CONNECTED' : 'DISCONNECTED'}
+            {state.connected ? 'READY' : 'HOST OFFLINE'}
           </span>
         </div>
 
