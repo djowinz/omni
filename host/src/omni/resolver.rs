@@ -422,7 +422,11 @@ fn style_to_computed_widget(
                 _ => w.parse().ok(),
             })
             .unwrap_or(400),
-        color_rgba: parse_color(style.color.as_deref()),
+        color_rgba: if style.color.is_some() {
+            parse_color(style.color.as_deref())
+        } else {
+            [204, 204, 204, 255] // default: light gray, fully opaque
+        },
         ..Default::default()
     };
 
