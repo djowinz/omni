@@ -118,7 +118,7 @@ export function EditorPanel() {
   return (
     <div className="flex h-full flex-col bg-[#0D0D0F]">
       {/* Tab bar */}
-      <div className="flex h-9 items-center border-b border-[#27272A] bg-[#18181B] overflow-x-auto">
+      <div className="flex h-10 items-center border-b border-[#27272A] bg-[#18181B] overflow-x-auto">
         {/* Main overlay tab */}
         <button
           onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: null })}

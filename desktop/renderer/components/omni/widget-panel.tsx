@@ -8,7 +8,7 @@ import {
   parseThemeImports,
 } from "@/lib/omni-parser";
 import { cn } from "@/lib/utils";
-import { Layers, Eye, EyeOff, Palette, FileCode } from "lucide-react";
+import { Layers, Eye, EyeOff, Palette, FileCode, Puzzle } from "lucide-react";
 
 export function WidgetPanel() {
   const { state, dispatch, getCurrentOverlay, openThemeTab } = useOmniState();
@@ -99,7 +99,7 @@ export function WidgetPanel() {
           <div>
             <div className="flex items-center justify-between px-2 py-1.5 mb-1">
               <div className="flex items-center gap-2">
-                <Layers className="h-3.5 w-3.5 text-[#A855F7]" />
+                <Puzzle className="h-3.5 w-3.5 text-[#A855F7]" />
                 <span className="text-xs font-medium text-[#71717A] uppercase tracking-wider">
                   Widgets
                 </span>

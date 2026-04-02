@@ -28,7 +28,7 @@ export default function Home() {
             </ResizablePanel>
             <ResizableHandle
               withHandle
-              className="w-1 bg-[#0D0D0F] hover:bg-[#00D9FF]/30 transition-colors data-[resize-handle-active]:bg-[#00D9FF]/50"
+              className="max-w-px bg-[#27272a] hover:bg-[#00D9FF]/30 transition-colors data-[resize-handle-active]:bg-[#00D9FF]/50"
             />
             <ResizablePanel defaultSize={45} minSize={25}>
               <PreviewPanel />
