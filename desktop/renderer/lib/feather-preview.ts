@@ -7,10 +7,6 @@
  */
 
 export const FEATHER_PREVIEW_CSS = `
-@font-face {
-  font-family: "feather";
-  src: url("omni://resource/feather.ttf") format("truetype");
-}
 .icon, .feather {
   font-family: "feather" !important;
   font-size: 16px;
