@@ -37,9 +37,15 @@ export function StatusBar() {
       <div className="flex items-center gap-4">
         {/* Connection Status */}
         <div className="flex items-center gap-1.5">
-          <Circle className={`h-2 w-2 ${state.connected ? 'fill-[#22C55E] text-[#22C55E]' : 'fill-[#EF4444] text-[#EF4444]'}`} />
+          <Circle
+            className="h-2 w-2"
+            style={{
+              fill: state.connected ? '#22C55E' : '#EF4444',
+              color: state.connected ? '#22C55E' : '#EF4444',
+            }}
+          />
           <span className="text-[#71717A] uppercase tracking-wider">
-            {state.connected ? 'Connected' : 'Disconnected'}
+            {state.connected ? 'CONNECTED' : 'DISCONNECTED'}
           </span>
         </div>
 
