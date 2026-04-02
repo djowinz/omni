@@ -57,6 +57,7 @@ export function WidgetPanel() {
   };
 
   const handleThemeClick = (themeSrc: string) => {
+    dispatch({ type: "SELECT_WIDGET", payload: null });
     openThemeTab(themeSrc);
   };
 
