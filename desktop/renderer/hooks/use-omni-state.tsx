@@ -154,7 +154,7 @@ interface OmniContextValue {
   removeGameAssignment: (executable: string) => Promise<void>;
   getOverlayForGame: (executable: string) => Overlay | undefined;
   // Tab functions
-  openThemeTab: (themePath: string) => void;
+  openThemeTab: (themePath: string) => Promise<void>;
   openOverlayTab: (overlayName: string) => void;
   closeTab: (tabId: string) => void;
   getActiveTab: () => EditorTab | undefined;
@@ -192,9 +192,12 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
         if (selectedName) {
           try {
             const content = await loadOverlayContent(selectedName);
+            console.log('[use-omni-state] loaded content for', selectedName, 'length:', content?.length, 'first 100 chars:', content?.substring(0, 100));
             dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name: selectedName, content } });
             dispatch({ type: 'SET_DIRTY', payload: false }); // Loading isn't a user edit
-          } catch { /* overlay file may not exist yet */ }
+          } catch (e) {
+            console.error('[use-omni-state] failed to load content for', selectedName, e);
+          }
         }
       } catch {
         // Backend not available — graceful fallback
@@ -384,9 +387,16 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     return state.overlays.find(o => o.name === 'Default');
   }, [state.config, state.overlays]);
 
-  const openThemeTab = useCallback((themePath: string): void => {
-    const content = state.themeFiles[themePath] || `/* Theme: ${themePath} */\n/* File not found */`;
+  const openThemeTab = useCallback(async (themePath: string): Promise<void> => {
     const name = themePath.split('/').pop()?.replace(/\.css$/i, '') || themePath;
+
+    // Load content from backend
+    let content = '';
+    try {
+      content = await backend.readFile(themePath);
+    } catch {
+      content = `/* Theme: ${name} */\n`;
+    }
 
     const tab: EditorTab = {
       id: `theme:${themePath}`,
@@ -397,7 +407,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     };
 
     dispatch({ type: 'OPEN_TAB', payload: tab });
-  }, [state.themeFiles]);
+  }, []);
 
   const openOverlayTab = useCallback((overlayName: string): void => {
     const overlay = state.overlays.find(o => o.name === overlayName);
