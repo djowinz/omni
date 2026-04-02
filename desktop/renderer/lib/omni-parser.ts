@@ -246,9 +246,10 @@ export function updatePreviewDOM(container: HTMLElement, metrics: MetricValues):
     }
 
     const template = parent.getAttribute('data-omni-text') ?? original;
-    const updated = template.replace(/\{([^}]+)\}/g, (match, metric) => {
-      const value = getMetricValue(metric.trim(), metrics);
-      return value !== null ? String(value) : match;
+    const updated = template.replace(/\{([^}]+)\}/g, (_, metric) => {
+      const path = metric.trim();
+      const value = getMetricValue(path, metrics);
+      return formatMetricValue(path, value);
     });
 
     if (textNode.textContent !== updated) {
@@ -258,17 +259,67 @@ export function updatePreviewDOM(container: HTMLElement, metrics: MetricValues):
 }
 
 /**
- * Replace metric placeholders with actual values
+ * Format a metric value for display, matching the Rust backend's formatting.
+ * - Percentages (cpu.usage, gpu.usage, ram.usage): rounded integer
+ * - Temperatures: rounded integer, "N/A" if NaN
+ * - Power (gpu.power): rounded integer
+ * - Frame times: one decimal place
+ * - FPS: rounded integer
+ * - Integer values (clocks, VRAM, fan): no decimals
+ * - Unknown/unavailable: "N/A"
+ */
+function formatMetricValue(path: string, value: number | null): string {
+  if (value === null || (typeof value === 'number' && isNaN(value))) return 'N/A';
+
+  switch (path) {
+    // Rounded integer (no decimals)
+    case 'cpu.usage':
+    case 'gpu.usage':
+    case 'ram.usage':
+    case 'gpu.power':
+    case 'gpu.temp':
+    case 'cpu.temp':
+    case 'fps':
+      return Math.round(value).toString();
+
+    // One decimal place
+    case 'frametime':
+    case 'frame-time':
+    case 'frame-time.avg':
+    case 'frame-time.1pct':
+    case 'frame-time.01pct':
+    case 'frame.1pct':
+      return value.toFixed(1);
+
+    // Integer values
+    case 'gpu.clock':
+    case 'gpu.mem-clock':
+    case 'gpu.fan':
+    case 'gpu.vram.used':
+    case 'gpu.vram.total':
+    case 'ram.used':
+    case 'ram.total':
+      return Math.round(value).toString();
+
+    default:
+      // For any unrecognized path, use reasonable formatting
+      return Number.isInteger(value) ? value.toString() : value.toFixed(1);
+  }
+}
+
+/**
+ * Replace metric placeholders with formatted values
  */
 function replacePlaceholders(template: string, metrics: MetricValues): string {
   let result = template;
-  
+
   // Replace all {metric} patterns
   const placeholderRegex = /\{([^}]+)\}/g;
-  
+
   result = result.replace(placeholderRegex, (match, metric) => {
-    const value = getMetricValue(metric.trim(), metrics);
-    return value !== null ? String(value) : match;
+    const path = metric.trim();
+    const value = getMetricValue(path, metrics);
+    return formatMetricValue(path, value);
   });
   
   return result;
