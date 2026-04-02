@@ -15,16 +15,16 @@ export function WidgetPanel() {
   const currentOverlay = getCurrentOverlay();
 
   const widgets = useMemo(
-    () => (currentOverlay ? parseOmniContent(currentOverlay.content) : []),
+    () => (currentOverlay?.content ? parseOmniContent(currentOverlay.content) : []),
     [currentOverlay?.content],
   );
   const themes = useMemo(
-    () => (currentOverlay ? parseThemeImports(currentOverlay.content) : []),
+    () => (currentOverlay?.content ? parseThemeImports(currentOverlay.content) : []),
     [currentOverlay?.content],
   );
 
   const handleToggleWidget = (widgetId: string, enabled: boolean) => {
-    if (!currentOverlay) return;
+    if (!currentOverlay || currentOverlay.content === null) return;
 
     const newContent = toggleWidgetEnabled(
       currentOverlay.content,
@@ -33,7 +33,7 @@ export function WidgetPanel() {
     );
     dispatch({
       type: "UPDATE_OVERLAY_CONTENT",
-      payload: { id: currentOverlay.id, content: newContent },
+      payload: { name: currentOverlay.name, content: newContent },
     });
   };
 

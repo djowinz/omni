@@ -1,41 +1,20 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import type { AppState, AppAction, Overlay, GameAssignment, EditorTab } from '@/types/omni';
-import { DEFAULT_METRICS, SAMPLE_DEFAULT_OVERLAY } from '@/types/omni';
-import { getStorageAdapter } from '@/lib/storage-adapter';
+import type { AppState, AppAction, Overlay, EditorTab } from '@/types/omni';
+import { DEFAULT_METRICS } from '@/types/omni';
+import type { Config } from '@/src/generated/Config';
+import { BackendApi } from '@/lib/backend-api';
+
+const backend = new BackendApi();
 
 const initialState: AppState = {
   overlays: [],
-  activeOverlayId: null,
-  gameAssignments: [],
-  selectedOverlayId: 'default',
+  config: null,
+  connected: false,
+  selectedOverlayName: 'Default',
   selectedWidgetId: null,
   openTabs: [],
   activeTabId: null,
-  themeFiles: {
-    // Sample theme files for demonstration
-    'themes/neon.css': `.panel {
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.2), rgba(168, 85, 247, 0.2));
-  border: 1px solid rgba(0, 217, 255, 0.5);
-  box-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
-}
-.val {
-  color: #00D9FF;
-  text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
-}
-.val.critical {
-  color: #EF4444;
-  text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
-}`,
-    'themes/minimal.css': `.panel {
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
-  padding: 4px;
-}
-.val {
-  color: #FAFAFA;
-  font-size: 12px;
-}`,
-  },
+  themeFiles: {},
   previewMetrics: DEFAULT_METRICS,
   isDirty: false,
 };
@@ -48,20 +27,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'ADD_OVERLAY':
       return { ...state, overlays: [...state.overlays, action.payload] };
 
-    case 'UPDATE_OVERLAY':
-      return {
-        ...state,
-        overlays: state.overlays.map(o =>
-          o.id === action.payload.id ? { ...o, ...action.payload.updates } : o
-        ),
-      };
-
     case 'UPDATE_OVERLAY_CONTENT':
       return {
         ...state,
         overlays: state.overlays.map(o =>
-          o.id === action.payload.id
-            ? { ...o, content: action.payload.content, updatedAt: new Date().toISOString() }
+          o.name === action.payload.name
+            ? { ...o, content: action.payload.content }
             : o
         ),
         isDirty: true,
@@ -70,39 +41,24 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'DELETE_OVERLAY':
       return {
         ...state,
-        overlays: state.overlays.filter(o => o.id !== action.payload),
-        selectedOverlayId:
-          state.selectedOverlayId === action.payload
-            ? state.overlays.find(o => o.id !== action.payload)?.id || 'default'
-            : state.selectedOverlayId,
-        activeOverlayId:
-          state.activeOverlayId === action.payload ? null : state.activeOverlayId,
+        overlays: state.overlays.filter(o => o.name !== action.payload),
+        selectedOverlayName:
+          state.selectedOverlayName === action.payload
+            ? state.overlays.find(o => o.name !== action.payload)?.name || 'Default'
+            : state.selectedOverlayName,
       };
 
-    case 'SET_ACTIVE_OVERLAY':
-      return { ...state, activeOverlayId: action.payload };
-
     case 'SELECT_OVERLAY':
-      return { ...state, selectedOverlayId: action.payload, selectedWidgetId: null };
+      return { ...state, selectedOverlayName: action.payload, selectedWidgetId: null };
 
     case 'SELECT_WIDGET':
       return { ...state, selectedWidgetId: action.payload };
 
-    case 'SET_GAME_ASSIGNMENTS':
-      return { ...state, gameAssignments: action.payload };
+    case 'SET_CONFIG':
+      return { ...state, config: action.payload };
 
-    case 'ADD_GAME_ASSIGNMENT':
-      // Remove any existing assignment for this executable first
-      const filtered = state.gameAssignments.filter(
-        a => a.executable !== action.payload.executable
-      );
-      return { ...state, gameAssignments: [...filtered, action.payload] };
-
-    case 'REMOVE_GAME_ASSIGNMENT':
-      return {
-        ...state,
-        gameAssignments: state.gameAssignments.filter(a => a.executable !== action.payload),
-      };
+    case 'SET_CONNECTED':
+      return { ...state, connected: action.payload };
 
     case 'UPDATE_PREVIEW_METRIC':
       return {
@@ -117,7 +73,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, isDirty: action.payload };
 
     case 'OPEN_TAB': {
-      // Check if tab already exists
       const existingTab = state.openTabs.find(t => t.id === action.payload.id);
       if (existingTab) {
         return { ...state, activeTabId: action.payload.id };
@@ -132,8 +87,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'CLOSE_TAB': {
       const newTabs = state.openTabs.filter(t => t.id !== action.payload);
       let newActiveTabId = state.activeTabId;
-      
-      // If closing active tab, select another
+
       if (state.activeTabId === action.payload) {
         const closedIndex = state.openTabs.findIndex(t => t.id === action.payload);
         if (newTabs.length > 0) {
@@ -142,7 +96,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           newActiveTabId = null;
         }
       }
-      
+
       return { ...state, openTabs: newTabs, activeTabId: newActiveTabId };
     }
 
@@ -173,22 +127,35 @@ function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
+/** Load the list of overlay names from the backend, creating Overlay stubs with null content. */
+async function loadOverlayList(): Promise<Overlay[]> {
+  const res = await backend.listFiles();
+  const names: string[] = res.overlays ?? [];
+  return names.map(name => ({ name, content: null }));
+}
+
+/** Load a single overlay's content from the backend. */
+async function loadOverlayContent(name: string): Promise<string> {
+  return backend.readFile(`overlays/${name}/overlay.omni`);
+}
+
 interface OmniContextValue {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
   // Helper functions
   getCurrentOverlay: () => Overlay | undefined;
-  createOverlay: (name: string) => Promise<Overlay>;
-  duplicateOverlay: (id: string) => Promise<Overlay | null>;
-  deleteOverlay: (id: string) => Promise<void>;
+  ensureOverlayLoaded: (name: string) => Promise<void>;
+  createOverlay: (name: string) => Promise<void>;
+  duplicateOverlay: (name: string) => Promise<void>;
+  deleteOverlay: (name: string) => Promise<void>;
   saveCurrentOverlay: () => Promise<void>;
-  setAsActive: (id: string | null) => Promise<void>;
-  assignToGame: (overlayId: string, executable: string) => Promise<void>;
+  setAsActive: (name: string) => Promise<void>;
+  assignToGame: (overlayName: string, executable: string) => Promise<void>;
   removeGameAssignment: (executable: string) => Promise<void>;
   getOverlayForGame: (executable: string) => Overlay | undefined;
   // Tab functions
   openThemeTab: (themePath: string) => void;
-  openOverlayTab: (overlayId: string) => void;
+  openOverlayTab: (overlayName: string) => void;
   closeTab: (tabId: string) => void;
   getActiveTab: () => EditorTab | undefined;
 }
@@ -197,146 +164,202 @@ const OmniContext = createContext<OmniContextValue | null>(null);
 
 export function OmniProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
-  const storage = getStorageAdapter();
 
-  // Load initial data
+  // Load initial data from backend
   useEffect(() => {
     async function loadData() {
-      const [overlays, assignments, activeId] = await Promise.all([
-        storage.loadOverlays(),
-        storage.loadGameAssignments(),
-        storage.getActiveOverlayId(),
-      ]);
+      try {
+        const [overlays, config] = await Promise.all([
+          loadOverlayList(),
+          backend.getConfig(),
+        ]);
 
-      dispatch({ type: 'SET_OVERLAYS', payload: overlays });
-      dispatch({ type: 'SET_GAME_ASSIGNMENTS', payload: assignments });
-      dispatch({ type: 'SET_ACTIVE_OVERLAY', payload: activeId });
+        dispatch({ type: 'SET_OVERLAYS', payload: overlays });
+        dispatch({ type: 'SET_CONFIG', payload: config });
+        dispatch({ type: 'SET_CONNECTED', payload: true });
 
-      // Select first overlay if available
-      if (overlays.length > 0 && !overlays.find(o => o.id === 'default')) {
-        dispatch({ type: 'SELECT_OVERLAY', payload: overlays[0].id });
+        // Select the active overlay or first available
+        if (config.active_overlay && overlays.find(o => o.name === config.active_overlay)) {
+          dispatch({ type: 'SELECT_OVERLAY', payload: config.active_overlay });
+        } else if (overlays.length > 0) {
+          dispatch({ type: 'SELECT_OVERLAY', payload: overlays[0].name });
+        }
+
+        // Eagerly load the selected overlay's content
+        const selectedName = config.active_overlay && overlays.find(o => o.name === config.active_overlay)
+          ? config.active_overlay
+          : overlays[0]?.name;
+        if (selectedName) {
+          try {
+            const content = await loadOverlayContent(selectedName);
+            dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name: selectedName, content } });
+            dispatch({ type: 'SET_DIRTY', payload: false }); // Loading isn't a user edit
+          } catch { /* overlay file may not exist yet */ }
+        }
+      } catch {
+        // Backend not available — graceful fallback
+        dispatch({ type: 'SET_CONNECTED', payload: false });
       }
     }
 
     loadData();
   }, []);
 
+  // Listen for host connection status changes
+  useEffect(() => {
+    const unsub = window.omni?.onHostStatus?.((status: any) => {
+      dispatch({ type: 'SET_CONNECTED', payload: !!status?.connected });
+    });
+    return () => { unsub?.(); };
+  }, []);
+
+  /** Ensure an overlay's content is loaded (lazy loading). */
+  const ensureOverlayLoaded = useCallback(async (name: string) => {
+    const overlay = state.overlays.find(o => o.name === name);
+    if (overlay && overlay.content !== null) return; // Already loaded
+
+    try {
+      const content = await loadOverlayContent(name);
+      dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name, content } });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+    } catch {
+      // File may not exist; set empty content
+      dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name, content: '' } });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+    }
+  }, [state.overlays]);
+
   const getCurrentOverlay = useCallback(() => {
-    return state.overlays.find(o => o.id === state.selectedOverlayId);
-  }, [state.overlays, state.selectedOverlayId]);
+    return state.overlays.find(o => o.name === state.selectedOverlayName);
+  }, [state.overlays, state.selectedOverlayName]);
 
-  const createOverlay = useCallback(async (name: string): Promise<Overlay> => {
-    const overlay: Overlay = {
-      id: `overlay-${Date.now()}`,
-      name,
-      isDefault: false,
-      content: `<widget id="new-widget" name="New Widget" enabled="true">
-  <template>
-    <div class="panel" style="position: fixed; top: 20px; left: 20px;">
-      <span class="val">FPS: {fps}</span>
-    </div>
-  </template>
-  <style>
-    .panel {
-      background: rgba(20, 20, 20, 0.7);
-      border-radius: 4px;
-      padding: 6px;
+  const createOverlay = useCallback(async (name: string): Promise<void> => {
+    try {
+      await backend.createOverlay(name);
+      // Reload the overlay list from backend
+      const overlays = await loadOverlayList();
+      dispatch({ type: 'SET_OVERLAYS', payload: overlays });
+      dispatch({ type: 'SELECT_OVERLAY', payload: name });
+      // Load the newly created overlay's content
+      try {
+        const content = await loadOverlayContent(name);
+        dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name, content } });
+        dispatch({ type: 'SET_DIRTY', payload: false });
+      } catch { /* new overlay may have no content yet */ }
+    } catch (err) {
+      console.error('Failed to create overlay:', err);
     }
-    .val {
-      color: #ffffff;
-      font-size: 16px;
+  }, []);
+
+  const duplicateOverlay = useCallback(async (name: string): Promise<void> => {
+    const source = state.overlays.find(o => o.name === name);
+    if (!source) return;
+
+    // Ensure source content is loaded
+    let content = source.content;
+    if (content === null) {
+      try {
+        content = await loadOverlayContent(name);
+      } catch {
+        return;
+      }
     }
-  </style>
-</widget>`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
 
-    await storage.saveOverlay(overlay);
-    dispatch({ type: 'ADD_OVERLAY', payload: overlay });
-    dispatch({ type: 'SELECT_OVERLAY', payload: overlay.id });
+    const newName = `${name} (Copy)`;
+    try {
+      await backend.createOverlay(newName);
+      await backend.writeFile(`overlays/${newName}/overlay.omni`, content);
+      // Reload overlay list
+      const overlays = await loadOverlayList();
+      dispatch({ type: 'SET_OVERLAYS', payload: overlays });
+      dispatch({ type: 'SELECT_OVERLAY', payload: newName });
+      dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name: newName, content } });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+    } catch (err) {
+      console.error('Failed to duplicate overlay:', err);
+    }
+  }, [state.overlays]);
 
-    return overlay;
-  }, [storage]);
+  const deleteOverlay = useCallback(async (name: string): Promise<void> => {
+    if (name === 'Default') return; // Can't delete default
 
-  const duplicateOverlay = useCallback(async (id: string): Promise<Overlay | null> => {
-    const source = state.overlays.find(o => o.id === id);
-    if (!source) return null;
-
-    const overlay: Overlay = {
-      id: `overlay-${Date.now()}`,
-      name: `${source.name} (Copy)`,
-      isDefault: false,
-      content: source.content,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    await storage.saveOverlay(overlay);
-    dispatch({ type: 'ADD_OVERLAY', payload: overlay });
-    dispatch({ type: 'SELECT_OVERLAY', payload: overlay.id });
-
-    return overlay;
-  }, [state.overlays, storage]);
-
-  const deleteOverlay = useCallback(async (id: string): Promise<void> => {
-    const overlay = state.overlays.find(o => o.id === id);
-    if (!overlay || overlay.isDefault) return; // Can't delete default
-
-    await storage.deleteOverlay(id);
-    dispatch({ type: 'DELETE_OVERLAY', payload: id });
-  }, [state.overlays, storage]);
+    try {
+      await backend.deleteFile(`overlays/${name}`);
+      dispatch({ type: 'DELETE_OVERLAY', payload: name });
+    } catch (err) {
+      console.error('Failed to delete overlay:', err);
+    }
+  }, []);
 
   const saveCurrentOverlay = useCallback(async (): Promise<void> => {
-    const overlay = getCurrentOverlay();
-    if (!overlay) return;
+    const overlay = state.overlays.find(o => o.name === state.selectedOverlayName);
+    if (!overlay || overlay.content === null) return;
 
-    await storage.saveOverlay(overlay);
-    dispatch({ type: 'SET_DIRTY', payload: false });
-  }, [getCurrentOverlay, storage]);
+    try {
+      await backend.writeFile(`overlays/${overlay.name}/overlay.omni`, overlay.content);
+      dispatch({ type: 'SET_DIRTY', payload: false });
 
-  const setAsActive = useCallback(async (id: string | null): Promise<void> => {
-    await storage.setActiveOverlayId(id);
-    dispatch({ type: 'SET_ACTIVE_OVERLAY', payload: id });
-  }, [storage]);
+      // If this is the active overlay, also apply it to the host
+      if (state.config?.active_overlay === overlay.name) {
+        await backend.applyOverlay(overlay.content);
+      }
+    } catch (err) {
+      console.error('Failed to save overlay:', err);
+    }
+  }, [state.overlays, state.selectedOverlayName, state.config]);
 
-  const assignToGame = useCallback(async (overlayId: string, executable: string): Promise<void> => {
-    const assignment: GameAssignment = { overlayId, executable };
-    dispatch({ type: 'ADD_GAME_ASSIGNMENT', payload: assignment });
-    
-    // Save all assignments
-    const newAssignments = [
-      ...state.gameAssignments.filter(a => a.executable !== executable),
-      assignment,
-    ];
-    await storage.saveGameAssignments(newAssignments);
-  }, [state.gameAssignments, storage]);
+  const setAsActive = useCallback(async (name: string): Promise<void> => {
+    try {
+      const config = await backend.getConfig();
+      config.active_overlay = name;
+      await backend.updateConfig(config);
+      dispatch({ type: 'SET_CONFIG', payload: config });
+    } catch (err) {
+      console.error('Failed to set active overlay:', err);
+    }
+  }, []);
+
+  const assignToGame = useCallback(async (overlayName: string, executable: string): Promise<void> => {
+    try {
+      const config = await backend.getConfig();
+      config.overlay_by_game[executable] = overlayName;
+      await backend.updateConfig(config);
+      dispatch({ type: 'SET_CONFIG', payload: config });
+    } catch (err) {
+      console.error('Failed to assign overlay to game:', err);
+    }
+  }, []);
 
   const removeGameAssignment = useCallback(async (executable: string): Promise<void> => {
-    dispatch({ type: 'REMOVE_GAME_ASSIGNMENT', payload: executable });
-    
-    const newAssignments = state.gameAssignments.filter(a => a.executable !== executable);
-    await storage.saveGameAssignments(newAssignments);
-  }, [state.gameAssignments, storage]);
+    try {
+      const config = await backend.getConfig();
+      delete config.overlay_by_game[executable];
+      await backend.updateConfig(config);
+      dispatch({ type: 'SET_CONFIG', payload: config });
+    } catch (err) {
+      console.error('Failed to remove game assignment:', err);
+    }
+  }, []);
 
   const getOverlayForGame = useCallback((executable: string): Overlay | undefined => {
     // Priority: Per-game -> Active -> Default
-    const assignment = state.gameAssignments.find(a => a.executable === executable);
-    if (assignment) {
-      return state.overlays.find(o => o.id === assignment.overlayId);
+    const gameOverlay = state.config?.overlay_by_game[executable];
+    if (gameOverlay) {
+      return state.overlays.find(o => o.name === gameOverlay);
     }
 
-    if (state.activeOverlayId) {
-      return state.overlays.find(o => o.id === state.activeOverlayId);
+    const activeOverlay = state.config?.active_overlay;
+    if (activeOverlay) {
+      return state.overlays.find(o => o.name === activeOverlay);
     }
 
-    return state.overlays.find(o => o.isDefault);
-  }, [state.gameAssignments, state.overlays, state.activeOverlayId]);
+    return state.overlays.find(o => o.name === 'Default');
+  }, [state.config, state.overlays]);
 
   const openThemeTab = useCallback((themePath: string): void => {
     const content = state.themeFiles[themePath] || `/* Theme: ${themePath} */\n/* File not found */`;
     const name = themePath.split('/').pop()?.replace(/\.css$/i, '') || themePath;
-    
+
     const tab: EditorTab = {
       id: `theme:${themePath}`,
       name: `${name}.css`,
@@ -344,22 +367,22 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
       content,
       isDirty: false,
     };
-    
+
     dispatch({ type: 'OPEN_TAB', payload: tab });
   }, [state.themeFiles]);
 
-  const openOverlayTab = useCallback((overlayId: string): void => {
-    const overlay = state.overlays.find(o => o.id === overlayId);
+  const openOverlayTab = useCallback((overlayName: string): void => {
+    const overlay = state.overlays.find(o => o.name === overlayName);
     if (!overlay) return;
-    
+
     const tab: EditorTab = {
-      id: `overlay:${overlayId}`,
+      id: `overlay:${overlayName}`,
       name: `${overlay.name}.omni`,
       type: 'overlay',
-      content: overlay.content,
+      content: overlay.content ?? '',
       isDirty: false,
     };
-    
+
     dispatch({ type: 'OPEN_TAB', payload: tab });
   }, [state.overlays]);
 
@@ -375,6 +398,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     state,
     dispatch,
     getCurrentOverlay,
+    ensureOverlayLoaded,
     createOverlay,
     duplicateOverlay,
     deleteOverlay,

@@ -4,14 +4,11 @@ import type { editor } from 'monaco-editor';
 import { Button } from '@/components/ui/button';
 import { Code, Save, RotateCcw, X, Palette } from 'lucide-react';
 import { useOmniState } from '@/hooks/use-omni-state';
+import { useBackend } from '@/hooks/use-backend';
 import { parseOmniContent } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
 import { omniDarkTheme, registerOmniLanguage } from '@/lib/monaco-omni';
-
-const RE_SELF_CLOSE = /\/>$/;
-const RE_COMMENT_CLOSE = /-->$/;
-const RE_CLOSING_TAG = /<\/[a-zA-Z][a-zA-Z0-9-]*\s*>$/;
-const RE_OPEN_TAG = /<([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>$/;
+import type { ParseError } from '@/src/generated/ParseError';
 
 export function EditorPanel() {
   const { state, dispatch, getCurrentOverlay, saveCurrentOverlay, closeTab, getActiveTab } = useOmniState();
@@ -19,22 +16,15 @@ export function EditorPanel() {
   const activeTab = getActiveTab();
 
   const isShowingTab = activeTab !== null;
-  const displayContent = isShowingTab ? activeTab?.content : currentOverlay?.content;
+  const displayContent = isShowingTab ? activeTab?.content : (currentOverlay?.content ?? '');
   const displayName = isShowingTab
     ? activeTab?.name
     : currentOverlay ? `${currentOverlay.name}.omni` : '';
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const autoCloseDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const [lineCount, setLineCount] = useState(1);
-
-  // Dispose auto-close listener on unmount to prevent listener stacking on remount
-  useEffect(() => {
-    return () => {
-      autoCloseDisposableRef.current?.dispose();
-    };
-  }, []);
 
   // Determine Monaco language based on file type
   const language = displayType === 'theme' ? 'css' : 'omni';
@@ -43,57 +33,13 @@ export function EditorPanel() {
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme('omni-dark', omniDarkTheme);
     registerOmniLanguage(monaco);
+    monacoRef.current = monaco;
   }, []);
 
   // Capture editor reference on mount
-  const handleMount: OnMount = useCallback((editor, _monaco) => {
-    autoCloseDisposableRef.current?.dispose();
+  const handleMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
     setLineCount(editor.getModel()?.getLineCount() ?? 1);
-
-    autoCloseDisposableRef.current = editor.onDidChangeModelContent((e) => {
-      if (e.changes.length !== 1) return;
-      const change = e.changes[0];
-      if (change.text !== '>') return;
-
-      const model = editor.getModel();
-      if (!model) return;
-
-      const position = {
-        lineNumber: change.range.startLineNumber,
-        column: change.range.startColumn + 1,
-      };
-
-      const lineContent = model.getLineContent(position.lineNumber);
-      const textBeforeCursor = lineContent.substring(0, position.column);
-
-      if (RE_SELF_CLOSE.test(textBeforeCursor) || RE_COMMENT_CLOSE.test(textBeforeCursor)) return;
-      if (RE_CLOSING_TAG.test(textBeforeCursor)) return;
-
-      const openTagMatch = textBeforeCursor.match(RE_OPEN_TAG);
-      if (!openTagMatch) return;
-
-      const tagName = openTagMatch[1];
-      const textAfterCursor = lineContent.substring(position.column);
-      const closingPrefix = `</${tagName}`;
-      const trimmed = textAfterCursor.trimStart();
-      if (trimmed.startsWith(closingPrefix) && /^\s*>/.test(trimmed.slice(closingPrefix.length))) return;
-
-      const closingTag = `</${tagName}>`;
-      editor.executeEdits('auto-close-tag', [
-        {
-          range: {
-            startLineNumber: position.lineNumber,
-            startColumn: position.column,
-            endLineNumber: position.lineNumber,
-            endColumn: position.column,
-          },
-          text: closingTag,
-        },
-      ]);
-
-      editor.setPosition(position);
-    });
   }, []);
 
   // Handle content changes from Monaco
@@ -107,26 +53,60 @@ export function EditorPanel() {
         payload: { id: activeTab.id, content: code },
       });
       if (activeTab.type === 'overlay') {
-        const overlayId = activeTab.id.replace('overlay:', '');
+        const overlayName = activeTab.id.replace('overlay:', '');
         dispatch({
           type: 'UPDATE_OVERLAY_CONTENT',
-          payload: { id: overlayId, content: code },
+          payload: { name: overlayName, content: code },
         });
       }
     } else if (currentOverlay) {
       dispatch({
         type: 'UPDATE_OVERLAY_CONTENT',
-        payload: { id: currentOverlay.id, content: code },
+        payload: { name: currentOverlay.name, content: code },
       });
     }
   }, [isShowingTab, activeTab, currentOverlay, dispatch]);
 
-  // Handle save
+  const backend = useBackend();
+
+  // Debounced parse: send content to backend every 400ms and set Monaco markers
+  useEffect(() => {
+    const content = displayContent ?? '';
+    if (!content || !editorRef.current || !monacoRef.current) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const { diagnostics } = await backend.parseOverlay(content);
+        const model = editorRef.current?.getModel();
+        if (model && monacoRef.current) {
+          const markers = diagnostics.map((d: ParseError) => ({
+            startLineNumber: d.line,
+            startColumn: d.column,
+            endLineNumber: d.line,
+            endColumn: d.column + 10,
+            severity: d.severity === 'Error'
+              ? monacoRef.current!.MarkerSeverity.Error
+              : monacoRef.current!.MarkerSeverity.Warning,
+            message: d.message + (d.suggestion ? ` — ${d.suggestion}` : ''),
+          }));
+          monacoRef.current.editor.setModelMarkers(model, 'omni', markers);
+        }
+      } catch {
+        // Host not connected — clear markers silently
+        const model = editorRef.current?.getModel();
+        if (model && monacoRef.current) {
+          monacoRef.current.editor.setModelMarkers(model, 'omni', []);
+        }
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [displayContent, backend]);
+
+  // Handle save — delegates to state hook which handles file write + auto-apply
   const handleSave = useCallback(async () => {
-    if (currentOverlay && state.isDirty) {
-      await saveCurrentOverlay();
-    }
-  }, [currentOverlay, state.isDirty, saveCurrentOverlay]);
+    await saveCurrentOverlay();
+  }, [saveCurrentOverlay]);
 
   // Handle revert
   const handleRevert = useCallback(() => {
@@ -156,7 +136,7 @@ export function EditorPanel() {
       currentOverlay &&
       editorRef.current
     ) {
-      const widgets = parseOmniContent(currentOverlay.content);
+      const widgets = parseOmniContent(currentOverlay.content ?? '');
       const widget = widgets.find(w => w.id === state.selectedWidgetId);
       if (widget) {
         editorRef.current.revealLineInCenter(widget.startLine + 1);

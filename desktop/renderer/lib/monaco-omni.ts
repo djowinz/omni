@@ -301,7 +301,6 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
       decreaseIndentPattern: /^\s*(<\/[a-zA-Z][a-zA-Z0-9-]*\s*>|\})/,
     },
     onEnterRules: [
-      // Between open and close XML tags: <foo>|</foo>
       {
         beforeText: /<([a-zA-Z][a-zA-Z0-9-]*)\b[^/>]*>$/,
         afterText: /^<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>$/,
@@ -309,14 +308,12 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
           indentAction: monaco.languages.IndentAction.IndentOutdent,
         },
       },
-      // After opening XML tag with no close on same line
       {
         beforeText: /<([a-zA-Z][a-zA-Z0-9-]*)\b[^/>]*>$/,
         action: {
           indentAction: monaco.languages.IndentAction.Indent,
         },
       },
-      // Between CSS braces: {|}
       {
         beforeText: /\{[^}]*$/,
         afterText: /^\s*\}/,
@@ -324,7 +321,6 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
           indentAction: monaco.languages.IndentAction.IndentOutdent,
         },
       },
-      // After opening CSS brace with no close on same line
       {
         beforeText: /\{[^}]*$/,
         action: {

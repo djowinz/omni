@@ -298,6 +298,45 @@ fn handle_message(
                 .to_string(),
             )
         }
+        "config.get" => {
+            let config_path = crate::config::config_path();
+            let config = crate::config::load_config(&config_path);
+            Some(
+                json!({
+                    "type": "config.data",
+                    "config": serde_json::to_value(&config).unwrap_or(json!(null)),
+                })
+                .to_string(),
+            )
+        }
+        "config.update" => {
+            let config_value = msg.get("config")?;
+            match serde_json::from_value::<crate::config::Config>(config_value.clone()) {
+                Ok(new_config) => {
+                    let config_path = crate::config::config_path();
+                    match crate::config::save_config(&config_path, &new_config) {
+                        Ok(()) => {
+                            info!("Config updated via WebSocket");
+                            Some(json!({"type": "config.updated"}).to_string())
+                        }
+                        Err(e) => Some(
+                            json!({
+                                "type": "error",
+                                "message": format!("Failed to save config: {}", e),
+                            })
+                            .to_string(),
+                        ),
+                    }
+                }
+                Err(e) => Some(
+                    json!({
+                        "type": "error",
+                        "message": format!("Invalid config: {}", e),
+                    })
+                    .to_string(),
+                ),
+            }
+        }
         _ => {
             debug!(msg_type, "Unknown WebSocket message type");
             Some(
@@ -449,6 +488,17 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Invalid widget file"));
+    }
+
+    #[test]
+    fn handle_config_get() {
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
+        let mut subscribed = false;
+        let response = handle_message(r#"{"type": "config.get"}"#, &state, &mut subscribed);
+        let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+        assert_eq!(resp["type"], "config.data");
+        assert!(resp["config"].is_object());
+        assert!(resp["config"]["active_overlay"].is_string());
     }
 
     #[test]

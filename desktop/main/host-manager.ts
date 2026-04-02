@@ -102,6 +102,62 @@ export class HostManager extends EventEmitter {
     }
   }
 
+  private sendQueue: Array<{ msg: object; expectedType: string; resolve: (v: any) => void; reject: (e: any) => void; timeoutMs: number }> = [];
+  private sending = false;
+
+  /** Send a message and wait for a response with the matching type. Serialized to avoid race conditions. */
+  sendAndWait(msg: object, expectedType: string, timeoutMs = 5000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.sendQueue.push({ msg, expectedType, resolve, reject, timeoutMs });
+      this.processQueue();
+    });
+  }
+
+  private processQueue(): void {
+    if (this.sending || this.sendQueue.length === 0) return;
+    this.sending = true;
+
+    const { msg, expectedType, resolve, reject, timeoutMs } = this.sendQueue.shift()!;
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.sending = false;
+      reject(new Error('WebSocket not connected'));
+      this.processQueue();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      cleanup();
+      this.sending = false;
+      reject(new Error(`Timeout waiting for ${expectedType}`));
+      this.processQueue();
+    }, timeoutMs);
+
+    const handler = (data: Buffer) => {
+      try {
+        const response = JSON.parse(data.toString());
+        if (response.type === expectedType || response.type === 'error') {
+          cleanup();
+          this.sending = false;
+          if (response.type === 'error') {
+            reject(new Error(response.message));
+          } else {
+            resolve(response);
+          }
+          this.processQueue();
+        }
+      } catch { /* ignore malformed */ }
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      this.ws?.removeListener('message', handler);
+    };
+
+    this.ws.on('message', handler);
+    this.ws.send(JSON.stringify(msg));
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     this.reconnectTimer = setInterval(async () => {

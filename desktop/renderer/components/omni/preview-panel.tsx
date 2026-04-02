@@ -1,21 +1,41 @@
 
 
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { renderOmniPreview } from '@/lib/omni-parser';
 import { MetricSimulator } from './metric-simulator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Monitor } from 'lucide-react';
+import { useSensorData } from '@/hooks/use-sensor-data';
+import { sensorSnapshotToMetrics } from '@/lib/sensor-mapping';
+import { DEFAULT_METRICS } from '@/types/omni';
+import type { MetricValues } from '@/types/omni';
+import { cn } from '@/lib/utils';
 
 export function PreviewPanel() {
   const { state, getCurrentOverlay } = useOmniState();
   const currentOverlay = getCurrentOverlay();
 
+  const [mode, setMode] = useState<'live' | 'simulate'>('live');
+  const sensorData = useSensorData();
+  const isConnected = sensorData !== null;
+
+  // Force simulate when disconnected
+  const effectiveMode = isConnected ? mode : 'simulate';
+
+  // Determine which metrics to use for preview
+  const activeMetrics: MetricValues = useMemo(() => {
+    if (effectiveMode === 'live' && sensorData) {
+      return { ...DEFAULT_METRICS, ...sensorSnapshotToMetrics(sensorData) };
+    }
+    return state.previewMetrics;
+  }, [effectiveMode, sensorData, state.previewMetrics]);
+
   const previewHtml = useMemo(
-    () => currentOverlay
-      ? renderOmniPreview(currentOverlay.content, state.previewMetrics)
+    () => currentOverlay?.content
+      ? renderOmniPreview(currentOverlay.content, activeMetrics)
       : '',
-    [currentOverlay?.content, state.previewMetrics]
+    [currentOverlay?.content, activeMetrics]
   );
 
   // Transform CSS to work within the preview container (convert fixed to absolute)
@@ -32,7 +52,20 @@ export function PreviewPanel() {
           <Monitor className="h-4 w-4 text-[#00D9FF]" />
           <h2 className="text-sm font-medium text-[#FAFAFA]">Preview</h2>
         </div>
-        <span className="text-xs text-[#71717A]">Live</span>
+        <button
+          onClick={() => setMode(m => m === 'live' ? 'simulate' : 'live')}
+          disabled={!isConnected}
+          className={cn(
+            "text-xs px-2 py-0.5 rounded transition-colors",
+            effectiveMode === 'live'
+              ? "bg-[#22C55E]/20 text-[#22C55E]"
+              : "bg-[#A855F7]/20 text-[#A855F7]",
+            !isConnected && "opacity-50 cursor-not-allowed"
+          )}
+          title={!isConnected ? "Connect to host for live data" : undefined}
+        >
+          {effectiveMode === 'live' ? '● Live' : '◆ Simulate'}
+        </button>
       </div>
 
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -93,12 +126,14 @@ export function PreviewPanel() {
           />
         </div>
 
-        {/* Metric simulator */}
-        <div className="border-t border-[#27272A] bg-[#18181B]">
-          <ScrollArea className="h-[180px]">
-            <MetricSimulator />
-          </ScrollArea>
-        </div>
+        {/* Metric simulator — only shown in Simulate mode */}
+        {effectiveMode === 'simulate' && (
+          <div className="border-t border-[#27272A] bg-[#18181B]">
+            <ScrollArea className="h-[180px]">
+              <MetricSimulator />
+            </ScrollArea>
+          </div>
+        )}
       </div>
     </div>
   );

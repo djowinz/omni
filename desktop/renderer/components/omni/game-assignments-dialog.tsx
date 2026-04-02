@@ -1,5 +1,6 @@
 
 
+
 import { useState } from 'react';
 import { Trash2, Plus, Gamepad2 } from 'lucide-react';
 import {
@@ -17,19 +18,21 @@ import { useOmniState } from '@/hooks/use-omni-state';
 interface GameAssignmentsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  overlayId: string;
+  overlayName: string;
 }
 
 export function GameAssignmentsDialog({
   open,
   onOpenChange,
-  overlayId,
+  overlayName,
 }: GameAssignmentsDialogProps) {
   const { state, assignToGame, removeGameAssignment } = useOmniState();
   const [newExecutable, setNewExecutable] = useState('');
 
-  // Get assignments for this overlay
-  const assignments = state.gameAssignments.filter(a => a.overlayId === overlayId);
+  // Get assignments for this overlay from config
+  const assignments = Object.entries(state.config?.overlay_by_game ?? {})
+    .filter(([, name]) => name === overlayName)
+    .map(([executable]) => executable);
 
   const handleAddGame = async () => {
     if (!newExecutable.trim()) return;
@@ -37,7 +40,7 @@ export function GameAssignmentsDialog({
     const executable = newExecutable.trim().toLowerCase();
     const normalizedExe = executable.endsWith('.exe') ? executable : `${executable}.exe`;
 
-    await assignToGame(overlayId, normalizedExe);
+    await assignToGame(overlayName, normalizedExe);
     setNewExecutable('');
   };
 
@@ -74,8 +77,8 @@ export function GameAssignmentsDialog({
               placeholder="game.exe"
               className="flex-1 bg-[#0D0D0F] border-[#27272A] text-[#FAFAFA] placeholder:text-[#52525B] focus:ring-[#A855F7] focus:border-[#A855F7] font-mono"
             />
-            <Button 
-              onClick={handleAddGame} 
+            <Button
+              onClick={handleAddGame}
               disabled={!newExecutable.trim()}
               className="bg-[#A855F7] text-white hover:bg-[#A855F7]/90 disabled:bg-[#27272A] disabled:text-[#52525B]"
             >
@@ -98,20 +101,20 @@ export function GameAssignmentsDialog({
             ) : (
               <ScrollArea className="h-[200px]">
                 <div className="space-y-1">
-                  {assignments.map(assignment => (
+                  {assignments.map(executable => (
                     <div
-                      key={assignment.executable}
+                      key={executable}
                       className="flex items-center justify-between rounded-lg bg-[#0D0D0F] border border-[#27272A] px-3 py-2 group hover:border-[#A855F7]/30 transition-colors"
                     >
-                      <span className="font-mono text-sm text-[#FAFAFA]">{assignment.executable}</span>
+                      <span className="font-mono text-sm text-[#FAFAFA]">{executable}</span>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-[#52525B] hover:text-[#EF4444] hover:bg-[#EF4444]/10"
-                        onClick={() => handleRemoveGame(assignment.executable)}
+                        onClick={() => handleRemoveGame(executable)}
                       >
                         <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Remove {assignment.executable}</span>
+                        <span className="sr-only">Remove {executable}</span>
                       </Button>
                     </div>
                   ))}
