@@ -143,19 +143,28 @@ export function EditorPanel() {
     if (
       state.selectedWidgetId &&
       state.selectedWidgetId !== lastScrolledWidgetRef.current &&
-      currentOverlay &&
-      editorRef.current
+      currentOverlay
     ) {
-      const widgets = parseOmniContent(currentOverlay.content ?? '');
-      const widget = widgets.find(w => w.id === state.selectedWidgetId);
-      if (widget) {
-        editorRef.current.revealLineInCenter(widget.startLine + 1);
-        editorRef.current.setPosition({ lineNumber: widget.startLine + 1, column: 1 });
-        editorRef.current.focus();
+      // Switch back to the main overlay tab if a theme tab is active
+      if (isShowingTab) {
+        dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
       }
+
+      // Defer scroll until after Monaco remounts with the overlay content
+      setTimeout(() => {
+        if (!editorRef.current || !currentOverlay.content) return;
+        const widgets = parseOmniContent(currentOverlay.content);
+        const widget = widgets.find(w => w.id === state.selectedWidgetId);
+        if (widget) {
+          editorRef.current.revealLineInCenter(widget.startLine + 1);
+          editorRef.current.setPosition({ lineNumber: widget.startLine + 1, column: 1 });
+          editorRef.current.focus();
+        }
+      }, 100);
+
       lastScrolledWidgetRef.current = state.selectedWidgetId;
     }
-  }, [state.selectedWidgetId]);
+  }, [state.selectedWidgetId, isShowingTab, dispatch]);
 
   // Handle closing a tab
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
