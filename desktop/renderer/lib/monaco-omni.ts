@@ -270,4 +270,67 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
       ],
     },
   });
+
+  monaco.languages.setLanguageConfiguration('omni', {
+    comments: {
+      blockComment: ['<!--', '-->'],
+    },
+    brackets: [
+      ['{', '}'],
+      ['[', ']'],
+      ['(', ')'],
+    ],
+    autoClosingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+      { open: '<!--', close: '-->' },
+    ],
+    surroundingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+      { open: '<', close: '>' },
+    ],
+    indentationRules: {
+      increaseIndentPattern: /(<(?!\/|!--|area|base|br|col|hr|img|input|link|meta|param)[a-zA-Z][a-zA-Z0-9-]*\b[^/>]*>(?!.*<\/\1>)\s*$)|\{[^}]*$/,
+      decreaseIndentPattern: /^\s*(<\/[a-zA-Z][a-zA-Z0-9-]*\s*>|\})/,
+    },
+    onEnterRules: [
+      // Between open and close XML tags: <foo>|</foo>
+      {
+        beforeText: /<([a-zA-Z][a-zA-Z0-9-]*)\b[^/>]*>$/,
+        afterText: /^<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>$/,
+        action: {
+          indentAction: monaco.languages.IndentAction.IndentOutdent,
+        },
+      },
+      // After opening XML tag with no close on same line
+      {
+        beforeText: /<([a-zA-Z][a-zA-Z0-9-]*)\b[^/>]*>$/,
+        action: {
+          indentAction: monaco.languages.IndentAction.Indent,
+        },
+      },
+      // Between CSS braces: {|}
+      {
+        beforeText: /\{[^}]*$/,
+        afterText: /^\s*\}/,
+        action: {
+          indentAction: monaco.languages.IndentAction.IndentOutdent,
+        },
+      },
+      // After opening CSS brace with no close on same line
+      {
+        beforeText: /\{[^}]*$/,
+        action: {
+          indentAction: monaco.languages.IndentAction.Indent,
+        },
+      },
+    ],
+  });
 }

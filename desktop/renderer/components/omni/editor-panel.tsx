@@ -8,6 +8,11 @@ import { parseOmniContent } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
 import { omniDarkTheme, registerOmniLanguage } from '@/lib/monaco-omni';
 
+const RE_SELF_CLOSE = /\/>$/;
+const RE_COMMENT_CLOSE = /-->$/;
+const RE_CLOSING_TAG = /<\/[a-zA-Z][a-zA-Z0-9-]*\s*>$/;
+const RE_OPEN_TAG = /<([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>$/;
+
 export function EditorPanel() {
   const { state, dispatch, getCurrentOverlay, saveCurrentOverlay, closeTab, getActiveTab } = useOmniState();
   const currentOverlay = getCurrentOverlay();
@@ -21,7 +26,15 @@ export function EditorPanel() {
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const autoCloseDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [lineCount, setLineCount] = useState(1);
+
+  // Dispose auto-close listener on unmount to prevent listener stacking on remount
+  useEffect(() => {
+    return () => {
+      autoCloseDisposableRef.current?.dispose();
+    };
+  }, []);
 
   // Determine Monaco language based on file type
   const language = displayType === 'theme' ? 'css' : 'omni';
@@ -33,9 +46,54 @@ export function EditorPanel() {
   }, []);
 
   // Capture editor reference on mount
-  const handleMount: OnMount = useCallback((editor) => {
+  const handleMount: OnMount = useCallback((editor, _monaco) => {
+    autoCloseDisposableRef.current?.dispose();
     editorRef.current = editor;
     setLineCount(editor.getModel()?.getLineCount() ?? 1);
+
+    autoCloseDisposableRef.current = editor.onDidChangeModelContent((e) => {
+      if (e.changes.length !== 1) return;
+      const change = e.changes[0];
+      if (change.text !== '>') return;
+
+      const model = editor.getModel();
+      if (!model) return;
+
+      const position = {
+        lineNumber: change.range.startLineNumber,
+        column: change.range.startColumn + 1,
+      };
+
+      const lineContent = model.getLineContent(position.lineNumber);
+      const textBeforeCursor = lineContent.substring(0, position.column);
+
+      if (RE_SELF_CLOSE.test(textBeforeCursor) || RE_COMMENT_CLOSE.test(textBeforeCursor)) return;
+      if (RE_CLOSING_TAG.test(textBeforeCursor)) return;
+
+      const openTagMatch = textBeforeCursor.match(RE_OPEN_TAG);
+      if (!openTagMatch) return;
+
+      const tagName = openTagMatch[1];
+      const textAfterCursor = lineContent.substring(position.column);
+      const closingPrefix = `</${tagName}`;
+      const trimmed = textAfterCursor.trimStart();
+      if (trimmed.startsWith(closingPrefix) && /^\s*>/.test(trimmed.slice(closingPrefix.length))) return;
+
+      const closingTag = `</${tagName}>`;
+      editor.executeEdits('auto-close-tag', [
+        {
+          range: {
+            startLineNumber: position.lineNumber,
+            startColumn: position.column,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          },
+          text: closingTag,
+        },
+      ]);
+
+      editor.setPosition(position);
+    });
   }, []);
 
   // Handle content changes from Monaco
