@@ -58,7 +58,39 @@ export function WidgetPanel() {
 
   const backend = useBackend();
   const [createThemeOpen, setCreateThemeOpen] = useState(false);
+  const [browseThemesOpen, setBrowseThemesOpen] = useState(false);
   const [newThemeName, setNewThemeName] = useState('');
+  const [availableThemes, setAvailableThemes] = useState<string[]>([]);
+
+  /** Insert a <theme src="..."> tag at the top of the current overlay content. */
+  const addThemeToOverlay = (themePath: string) => {
+    if (!currentOverlay || currentOverlay.content === null) return;
+
+    // Check if this theme is already imported
+    const existingThemes = parseThemeImports(currentOverlay.content);
+    if (existingThemes.some(t => t.src === themePath)) return;
+
+    // Insert <theme src="..." /> at the top of the file (before first line or after existing theme tags)
+    const themeTag = `<theme src="${themePath}" />\n`;
+    const lines = currentOverlay.content.split('\n');
+
+    // Find the last existing <theme> line to insert after, or insert at line 0
+    let insertIndex = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (/<theme\s+/.test(lines[i])) {
+        insertIndex = i + 1;
+      }
+    }
+
+    lines.splice(insertIndex, 0, themeTag.trimEnd());
+    const newContent = lines.join('\n');
+
+    dispatch({
+      type: 'UPDATE_OVERLAY_CONTENT',
+      payload: { name: currentOverlay.name, content: newContent },
+    });
+    dispatch({ type: 'SET_DIRTY', payload: true });
+  };
 
   const handleCreateTheme = async () => {
     const name = newThemeName.trim();
@@ -68,11 +100,29 @@ export function WidgetPanel() {
       await backend.createTheme(filename);
       setCreateThemeOpen(false);
       setNewThemeName('');
-      // Open the new theme in a tab
+      // Add to current overlay and open in editor
+      addThemeToOverlay(`themes/${filename}`);
       openThemeTab(`themes/${filename}`);
     } catch (e) {
       console.error('Failed to create theme:', e);
     }
+  };
+
+  const handleBrowseThemes = async () => {
+    try {
+      const res = await backend.listFiles();
+      setAvailableThemes(res.themes ?? []);
+      setBrowseThemesOpen(true);
+    } catch (e) {
+      console.error('Failed to list themes:', e);
+    }
+  };
+
+  const handleAddExistingTheme = (themeFilename: string) => {
+    const themePath = `themes/${themeFilename}`;
+    addThemeToOverlay(themePath);
+    setBrowseThemesOpen(false);
+    openThemeTab(themePath);
   };
 
   const enabledCount = widgets.filter((w) => w.enabled).length;
@@ -98,13 +148,23 @@ export function WidgetPanel() {
                   Themes
                 </span>
               </div>
-              <button
-                onClick={() => setCreateThemeOpen(true)}
-                className="flex items-center gap-1 text-[10px] text-[#00D9FF] hover:text-[#00D9FF]/80 transition-colors"
-              >
-                <Plus className="h-3 w-3" />
-                New
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBrowseThemes}
+                  className="text-[10px] text-[#71717A] hover:text-[#FAFAFA] transition-colors"
+                  title="Add existing theme"
+                >
+                  Browse
+                </button>
+                <button
+                  onClick={() => setCreateThemeOpen(true)}
+                  className="flex items-center gap-1 text-[10px] text-[#00D9FF] hover:text-[#00D9FF]/80 transition-colors"
+                  title="Create new theme"
+                >
+                  <Plus className="h-3 w-3" />
+                  New
+                </button>
+              </div>
             </div>
             {themes.length > 0 ? (
               <div className="flex flex-col gap-1">
@@ -272,6 +332,53 @@ export function WidgetPanel() {
               Create
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Browse Themes Dialog */}
+      <Dialog open={browseThemesOpen} onOpenChange={setBrowseThemesOpen}>
+        <DialogContent className="bg-[#18181B] border-[#27272A]">
+          <DialogHeader>
+            <DialogTitle className="text-[#FAFAFA]">Add Theme</DialogTitle>
+            <DialogDescription className="text-[#71717A]">
+              Select an existing theme to add to the current overlay.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
+            {availableThemes.length === 0 ? (
+              <p className="text-sm text-[#52525B] text-center py-4">
+                No themes available. Create one first.
+              </p>
+            ) : (
+              availableThemes
+                .filter(t => !themes.some(imported => imported.src === `themes/${t}`))
+                .map((themeFile) => (
+                  <button
+                    key={themeFile}
+                    onClick={() => handleAddExistingTheme(themeFile)}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[#27272A] transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded flex items-center justify-center bg-[#00D9FF]/10 text-[#00D9FF]">
+                      <FileCode className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-[#FAFAFA]">
+                        {themeFile.replace(/\.css$/i, '')}
+                      </span>
+                      <span className="text-[10px] text-[#52525B] font-mono">
+                        themes/{themeFile}
+                      </span>
+                    </div>
+                  </button>
+                ))
+            )}
+            {availableThemes.length > 0 &&
+              availableThemes.filter(t => !themes.some(imported => imported.src === `themes/${t}`)).length === 0 && (
+              <p className="text-sm text-[#52525B] text-center py-4">
+                All available themes are already imported.
+              </p>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
