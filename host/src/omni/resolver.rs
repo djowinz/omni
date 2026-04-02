@@ -354,7 +354,8 @@ impl OmniResolver {
                     let icon_text = icon_char.to_string();
                     write_fixed_str(&mut cw.format_pattern, &icon_text);
                     write_fixed_str(&mut cw.label_text, &icon_text);
-                    write_fixed_str(&mut cw.font_family, "feather");
+                    // The feather.ttf font registers as "icomoon" internally in DirectWrite
+                    write_fixed_str(&mut cw.font_family, "icomoon");
 
                     widgets.push(cw);
                 } else if !node.child_indices.is_empty() {

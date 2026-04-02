@@ -3,13 +3,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Feather icon font — always available for overlay preview */
-@font-face {
-  font-family: "feather";
-  src: url("omni://resource/feather.ttf") format("truetype");
-  font-weight: normal;
-  font-style: normal;
-}
+/* Feather icon font is loaded at runtime via _app.tsx (omni:// protocol requires runtime) */
 
 /* Geist — UI text */
 @font-face {
