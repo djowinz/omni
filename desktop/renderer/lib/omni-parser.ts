@@ -198,10 +198,10 @@ function getMetricValue(path: string, metrics: MetricValues): number | null {
  *   <div class="panel warning">
  */
 function evaluateClassBindings(template: string, metrics: MetricValues): string {
-  // Match each opening tag that might contain class bindings
-  // Process one element at a time so classes go to the right element
+  // Match each opening tag — must handle > inside quoted attribute values.
+  // This regex matches: < tagName (attributes including quoted values with >) >
   return template.replace(
-    /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g,
+    /<([a-zA-Z][a-zA-Z0-9-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g,
     (fullMatch, tagName, attrs) => {
       // Find all class:name="condition" bindings on this element
       const bindingRegex = /\s*class:([a-zA-Z0-9_-]+)=["']([^"']+)["']/g;
