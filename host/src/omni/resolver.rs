@@ -203,27 +203,13 @@ impl OmniResolver {
                 resolved_styles[i] = Some(style);
             }
 
-            // Step 2b: Propagate opacity from parent to children.
-            // CSS opacity creates a stacking context — children visually render
-            // at the parent's opacity. Since the D2D renderer draws each widget
-            // independently, we multiply ancestor opacities into each child.
-            for i in 0..reactive_flat_nodes.len() {
-                if reactive_flat_nodes[i].is_text {
-                    continue;
-                }
-                if let Some(parent_idx) = reactive_flat_nodes[i].parent_index {
-                    let parent_opacity = resolved_styles[parent_idx]
-                        .as_ref()
-                        .and_then(|s| s.opacity)
-                        .unwrap_or(1.0);
-                    if parent_opacity < 1.0 {
-                        if let Some(ref mut style) = resolved_styles[i] {
-                            let child_opacity = style.opacity.unwrap_or(1.0);
-                            style.opacity = Some(child_opacity * parent_opacity);
-                        }
-                    }
-                }
-            }
+            // Note: opacity is NOT propagated from parent to children.
+            // CSS opacity creates a compositing group — the browser renders the
+            // subtree at full opacity, then fades the whole group. Our D2D renderer
+            // draws each widget independently, so propagating opacity would cause
+            // overlapping children to show through each other. Instead, only the
+            // declaring element gets its opacity applied. Children render at their
+            // own opacity (defaulting to 1.0).
 
             // Step 3: Measure text for text-bearing elements
             let mut text_sizes: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
@@ -1022,14 +1008,16 @@ mod tests {
             group_widget.opacity
         );
 
-        // The text span should also inherit the context
+        // The text span should NOT inherit parent opacity — D2D renders widgets
+        // independently, so children render at their own opacity (default 1.0).
+        // This avoids overlapping-child transparency artifacts.
         let text_widget = widgets
             .iter()
             .find(|w| w.widget_type == WidgetType::SensorValue)
             .expect("Should have a SensorValue widget");
         assert!(
-            text_widget.opacity < 0.01,
-            "Text opacity should be ~0, got: {}",
+            (text_widget.opacity - 1.0).abs() < 0.01,
+            "Text should have its own opacity (1.0), got: {}",
             text_widget.opacity
         );
     }
