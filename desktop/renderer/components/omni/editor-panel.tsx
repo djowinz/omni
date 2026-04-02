@@ -148,32 +148,25 @@ export function EditorPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
 
-  // Scroll to selected widget in editor — only when selection changes
-  const lastScrolledWidgetRef = useRef<string | null>(null);
+  // Scroll to selected widget in editor when widget is clicked
   useEffect(() => {
-    if (
-      state.selectedWidgetId &&
-      state.selectedWidgetId !== lastScrolledWidgetRef.current &&
-      currentOverlay?.content
-    ) {
-      const widgets = parseOmniContent(currentOverlay.content);
-      const widget = widgets.find(w => w.id === state.selectedWidgetId);
-      if (!widget) return;
+    if (!state.selectedWidgetId || !currentOverlay?.content) return;
 
-      const targetLine = widget.startLine + 1;
+    const widgets = parseOmniContent(currentOverlay.content);
+    const widget = widgets.find(w => w.id === state.selectedWidgetId);
+    if (!widget) return;
 
-      if (isShowingTab) {
-        // Switch to overlay tab — Monaco will remount, so store pending scroll
-        pendingScrollRef.current = targetLine;
-        dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
-      } else if (editorRef.current) {
-        // Already on overlay tab — scroll directly
-        editorRef.current.revealLineInCenter(targetLine);
-        editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
-        editorRef.current.focus();
-      }
+    const targetLine = widget.startLine + 1;
 
-      lastScrolledWidgetRef.current = state.selectedWidgetId;
+    if (isShowingTab) {
+      // Switch to overlay tab — Monaco will remount, so store pending scroll
+      pendingScrollRef.current = targetLine;
+      dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
+    } else if (editorRef.current) {
+      // Already on overlay tab — scroll directly
+      editorRef.current.revealLineInCenter(targetLine);
+      editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+      editorRef.current.focus();
     }
   }, [state.selectedWidgetId, isShowingTab, currentOverlay?.content, dispatch]);
 
