@@ -1,8 +1,8 @@
 
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
-import { renderOmniPreview } from '@/lib/omni-parser';
+import { buildPreviewStructure, updatePreviewDOM } from '@/lib/omni-parser';
 import { MetricSimulator } from './metric-simulator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Monitor } from 'lucide-react';
@@ -31,18 +31,27 @@ export function PreviewPanel() {
     return state.previewMetrics;
   }, [effectiveMode, sensorData, state.previewMetrics]);
 
-  const previewHtml = useMemo(
-    () => currentOverlay?.content
-      ? renderOmniPreview(currentOverlay.content, activeMetrics)
-      : '',
-    [currentOverlay?.content, activeMetrics]
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Build the overlay structure once when content changes (preserves DOM for transitions)
+  const structure = useMemo(
+    () => currentOverlay?.content ? buildPreviewStructure(currentOverlay.content) : null,
+    [currentOverlay?.content]
   );
 
-  // Transform CSS to work within the preview container (convert fixed to absolute)
-  const scopedPreviewHtml = previewHtml.replace(
-    /position:\s*fixed/gi,
-    'position: absolute'
-  );
+  // Set the static HTML structure when it changes
+  useEffect(() => {
+    if (!overlayRef.current || !structure) return;
+    const scopedCss = structure.css.replace(/position:\s*fixed/gi, 'position: absolute');
+    const scopedHtml = structure.html.replace(/position:\s*fixed/gi, 'position: absolute');
+    overlayRef.current.innerHTML = `<style>${scopedCss}</style>${scopedHtml}`;
+  }, [structure]);
+
+  // Update metrics in place (class toggling + text replacement) — no DOM recreation
+  useEffect(() => {
+    if (!overlayRef.current || !structure) return;
+    updatePreviewDOM(overlayRef.current, activeMetrics);
+  }, [activeMetrics, structure]);
 
   return (
     <div className="flex h-full flex-col bg-[#0D0D0F]">
@@ -115,14 +124,14 @@ export function PreviewPanel() {
             </div>
           </div>
 
-          {/* Rendered overlay - container for position:absolute elements */}
-          {/* SECURITY: dangerouslySetInnerHTML renders user-authored overlay templates.
+          {/* Rendered overlay — DOM is created once and updated in place for CSS transitions.
+              SECURITY: innerHTML renders user-authored overlay templates.
               Safe in this context: contextIsolation is enabled, nodeIntegration is off,
               and content comes from the user's own files. Before supporting shared/imported
               overlays, add HTML sanitization to strip <script> and event handlers. */}
           <div
+            ref={overlayRef}
             className="absolute inset-0 pointer-events-none overflow-hidden"
-            dangerouslySetInnerHTML={{ __html: scopedPreviewHtml }}
           />
         </div>
 

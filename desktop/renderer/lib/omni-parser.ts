@@ -153,6 +153,111 @@ function renderWidgetTemplate(template: string, metrics: MetricValues): string {
 }
 
 /**
+ * Build the initial overlay HTML structure for preview.
+ * Metric placeholders are left as data attributes for in-place updates.
+ * Class bindings are stored as data attributes for in-place toggling.
+ * Returns { html, css } where html has data-omni-* markers for dynamic updates.
+ */
+export function buildPreviewStructure(content: string): { html: string; css: string } {
+  const widgets = parseOmniContent(content);
+  const enabledWidgets = widgets.filter(w => w.enabled);
+
+  let html = '';
+  let css = '';
+
+  for (const widget of enabledWidgets) {
+    const widgetContent = extractWidgetContent(content, widget);
+    if (!widgetContent) continue;
+
+    // Process template: preserve class bindings as data attrs, mark text placeholders
+    let template = widgetContent.template;
+
+    // Convert class:name="condition" to data attributes and remove from attrs
+    template = template.replace(
+      /<([a-zA-Z][a-zA-Z0-9-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g,
+      (_, tagName, attrs) => {
+        const bindings: Array<{ className: string; condition: string }> = [];
+        const bindingRegex = /\s*class:([a-zA-Z0-9_-]+)=["']([^"']+)["']/g;
+        let bMatch;
+        while ((bMatch = bindingRegex.exec(attrs)) !== null) {
+          bindings.push({ className: bMatch[1], condition: bMatch[2] });
+        }
+
+        let cleanAttrs = attrs.replace(/\s*class:[a-zA-Z0-9_-]+=["'][^"']+["']/g, '');
+
+        if (bindings.length > 0) {
+          const encoded = bindings.map(b => `${b.className}:${b.condition}`).join('|');
+          cleanAttrs += ` data-omni-bindings="${encodeURIComponent(encoded)}"`;
+        }
+
+        return `<${tagName}${cleanAttrs}>`;
+      }
+    );
+
+    html += template;
+    css += widgetContent.style;
+  }
+
+  return { html, css };
+}
+
+/**
+ * Update an existing preview DOM container in place:
+ * - Toggle conditional classes based on current metric values
+ * - Replace {metric} text content with current values
+ * This avoids destroying/recreating DOM elements, preserving CSS transitions.
+ */
+export function updatePreviewDOM(container: HTMLElement, metrics: MetricValues): void {
+  // 1. Update class bindings on elements with data-omni-bindings
+  const boundElements = container.querySelectorAll('[data-omni-bindings]');
+  boundElements.forEach(el => {
+    const encoded = el.getAttribute('data-omni-bindings');
+    if (!encoded) return;
+
+    const bindings = decodeURIComponent(encoded).split('|').map(b => {
+      const colonIdx = b.indexOf(':');
+      return { className: b.slice(0, colonIdx), condition: b.slice(colonIdx + 1) };
+    });
+
+    for (const { className, condition } of bindings) {
+      if (evaluateCondition(condition, metrics)) {
+        el.classList.add(className);
+      } else {
+        el.classList.remove(className);
+      }
+    }
+  });
+
+  // 2. Update text content — walk text nodes and replace {metric} placeholders
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const textNode = node as Text;
+    const parent = textNode.parentElement;
+    if (!parent) continue;
+
+    // Retrieve or store the original template text
+    const original = parent.getAttribute('data-omni-text') ?? textNode.textContent;
+    if (!original || !original.includes('{')) continue;
+
+    // Store the original template on first visit
+    if (!parent.hasAttribute('data-omni-text')) {
+      parent.setAttribute('data-omni-text', original);
+    }
+
+    const template = parent.getAttribute('data-omni-text') ?? original;
+    const updated = template.replace(/\{([^}]+)\}/g, (match, metric) => {
+      const value = getMetricValue(metric.trim(), metrics);
+      return value !== null ? String(value) : match;
+    });
+
+    if (textNode.textContent !== updated) {
+      textNode.textContent = updated;
+    }
+  }
+}
+
+/**
  * Replace metric placeholders with actual values
  */
 function replacePlaceholders(template: string, metrics: MetricValues): string {
