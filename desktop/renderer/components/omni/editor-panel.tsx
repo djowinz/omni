@@ -103,26 +103,10 @@ export function EditorPanel() {
     return () => clearTimeout(timer);
   }, [displayContent, backend]);
 
-  // Handle save — write file and auto-apply if it's the active overlay
+  // Handle save — delegates to state hook which handles file write + auto-apply
   const handleSave = useCallback(async () => {
-    const overlay = getCurrentOverlay();
-    if (!overlay || !overlay.content) return;
-
-    const overlayPath = `overlays/${overlay.name}/overlay.omni`;
-    try {
-      await backend.writeFile(overlayPath, overlay.content);
-
-      // If editing the active overlay, also push to live game
-      const isActiveOverlay = state.config?.active_overlay === overlay.name;
-      if (isActiveOverlay) {
-        await backend.applyOverlay(overlay.content);
-      }
-
-      dispatch({ type: 'SET_DIRTY', payload: false });
-    } catch (e) {
-      console.error('Save failed:', e);
-    }
-  }, [getCurrentOverlay, state.config, backend, dispatch]);
+    await saveCurrentOverlay();
+  }, [saveCurrentOverlay]);
 
   // Handle revert
   const handleRevert = useCallback(() => {
