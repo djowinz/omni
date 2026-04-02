@@ -171,6 +171,28 @@ impl OmniResolver {
                 resolved_styles[i] = Some(style);
             }
 
+            // Step 2b: Propagate opacity from parent to children.
+            // CSS opacity creates a stacking context — children visually render
+            // at the parent's opacity. Since the D2D renderer draws each widget
+            // independently, we multiply ancestor opacities into each child.
+            for i in 0..reactive_flat_nodes.len() {
+                if reactive_flat_nodes[i].is_text {
+                    continue;
+                }
+                if let Some(parent_idx) = reactive_flat_nodes[i].parent_index {
+                    let parent_opacity = resolved_styles[parent_idx]
+                        .as_ref()
+                        .and_then(|s| s.opacity)
+                        .unwrap_or(1.0);
+                    if parent_opacity < 1.0 {
+                        if let Some(ref mut style) = resolved_styles[i] {
+                            let child_opacity = style.opacity.unwrap_or(1.0);
+                            style.opacity = Some(child_opacity * parent_opacity);
+                        }
+                    }
+                }
+            }
+
             // Step 3: Measure text for text-bearing elements
             let mut text_sizes: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
             for (i, node) in flat_nodes.iter().enumerate() {
@@ -864,6 +886,53 @@ mod tests {
             sensor_widgets[1].color_rgba,
             [255, 255, 255, 255],
             "Simple .value should apply white"
+        );
+    }
+
+    #[test]
+    fn opacity_from_compound_class_selector() {
+        // .panel.right.hidden { opacity: 0; } should set opacity to 0
+        let source = r#"
+            <widget id="test" name="Test" enabled="true">
+                <template>
+                    <div class="panel right hidden">
+                        <span class="val">test</span>
+                    </div>
+                </template>
+                <style>
+                    .panel { background: rgba(20,20,20,0.7); padding: 6px; position: fixed; }
+                    .panel.right { right: 20px; top: 20px; }
+                    .panel.right.hidden { opacity: 0; }
+                    .panel.right.hidden.display { opacity: 1; }
+                    .val { color: white; font-size: 16px; }
+                </style>
+            </widget>
+        "#;
+
+        let file = parser::parse_omni(source).unwrap();
+        let mut resolver = OmniResolver::new();
+        let widgets = resolver.resolve(&file, &SensorSnapshot::default());
+
+        // The div should be emitted (has background)
+        let group_widget = widgets
+            .iter()
+            .find(|w| w.widget_type == WidgetType::Group)
+            .expect("Should have a Group widget for the div");
+        assert!(
+            group_widget.opacity < 0.01,
+            "Opacity should be ~0 from .panel.right.hidden, got: {}",
+            group_widget.opacity
+        );
+
+        // The text span should also inherit the context
+        let text_widget = widgets
+            .iter()
+            .find(|w| w.widget_type == WidgetType::SensorValue)
+            .expect("Should have a SensorValue widget");
+        assert!(
+            text_widget.opacity < 0.01,
+            "Text opacity should be ~0, got: {}",
+            text_widget.opacity
         );
     }
 
