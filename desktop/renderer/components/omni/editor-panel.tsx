@@ -234,7 +234,7 @@ export function EditorPanel() {
       {/* Monaco editor */}
       <div className="flex-1 overflow-hidden">
         <Editor
-          key={`${currentOverlay?.name ?? 'none'}-${activeTab?.id ?? 'main'}`}
+          key={`${currentOverlay?.name ?? 'none'}-${activeTab?.id ?? 'main'}-${displayContent ? 'loaded' : 'empty'}`}
           theme="omni-dark"
           language={language}
           value={displayContent ?? ''}

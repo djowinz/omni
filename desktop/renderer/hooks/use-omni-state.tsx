@@ -35,7 +35,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
             ? { ...o, content: action.payload.content }
             : o
         ),
-        isDirty: true,
+        // Don't set isDirty here — the editor dispatches SET_DIRTY separately for user edits
       };
 
     case 'DELETE_OVERLAY':
