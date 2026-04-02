@@ -270,4 +270,63 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
       ],
     },
   });
+
+  monaco.languages.setLanguageConfiguration('omni', {
+    comments: {
+      blockComment: ['<!--', '-->'],
+    },
+    brackets: [
+      ['{', '}'],
+      ['[', ']'],
+      ['(', ')'],
+    ],
+    autoClosingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+      { open: '<!--', close: '-->' },
+    ],
+    surroundingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+      { open: '<', close: '>' },
+    ],
+    indentationRules: {
+      increaseIndentPattern: /(<(?!\/|!--|area|base|br|col|hr|img|input|link|meta|param)[a-zA-Z][a-zA-Z0-9-]*\b[^/>]*>(?!.*<\/\1>)\s*$)|\{[^}]*$/,
+      decreaseIndentPattern: /^\s*(<\/[a-zA-Z][a-zA-Z0-9-]*\s*>|\})/,
+    },
+    onEnterRules: [
+      {
+        beforeText: /<([a-zA-Z][a-zA-Z0-9-]*)\b[^/>]*>$/,
+        afterText: /^<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>$/,
+        action: {
+          indentAction: monaco.languages.IndentAction.IndentOutdent,
+        },
+      },
+      {
+        beforeText: /<([a-zA-Z][a-zA-Z0-9-]*)\b[^/>]*>$/,
+        action: {
+          indentAction: monaco.languages.IndentAction.Indent,
+        },
+      },
+      {
+        beforeText: /\{[^}]*$/,
+        afterText: /^\s*\}/,
+        action: {
+          indentAction: monaco.languages.IndentAction.IndentOutdent,
+        },
+      },
+      {
+        beforeText: /\{[^}]*$/,
+        action: {
+          indentAction: monaco.languages.IndentAction.Indent,
+        },
+      },
+    ],
+  });
 }
