@@ -150,29 +150,31 @@ export function EditorPanel() {
 
   // Scroll to selected widget in editor when widget is clicked.
   // Watches widgetScrollRequest (increments on every click, even same widget).
+  // Tab switching is handled by the widget panel — this only handles scrolling.
   useEffect(() => {
     if (!state.selectedWidgetId || !state.widgetScrollRequest || !currentOverlay?.content) return;
+    // Don't try to scroll while a theme tab is showing — wait for tab to switch
+    if (isShowingTab) {
+      // Store pending scroll for when Monaco remounts with overlay content
+      const widgets = parseOmniContent(currentOverlay.content);
+      const widget = widgets.find(w => w.id === state.selectedWidgetId);
+      if (widget) {
+        pendingScrollRef.current = widget.startLine + 1;
+      }
+      return;
+    }
+
+    if (!editorRef.current) return;
 
     const widgets = parseOmniContent(currentOverlay.content);
     const widget = widgets.find(w => w.id === state.selectedWidgetId);
     if (!widget) return;
 
     const targetLine = widget.startLine + 1;
-
-    if (isShowingTab) {
-      // Switch to overlay tab — Monaco will remount, so store pending scroll
-      pendingScrollRef.current = targetLine;
-      dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
-    } else if (editorRef.current) {
-      // Already on overlay tab — scroll directly
-      editorRef.current.revealLineInCenter(targetLine);
-      editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
-      editorRef.current.focus();
-    }
-
-    // Clear selection highlight after scrolling
-    dispatch({ type: 'SELECT_WIDGET', payload: null });
-  }, [state.widgetScrollRequest]);
+    editorRef.current.revealLineInCenter(targetLine);
+    editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+    editorRef.current.focus();
+  }, [state.widgetScrollRequest, isShowingTab]);
 
   // Handle closing a tab
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {

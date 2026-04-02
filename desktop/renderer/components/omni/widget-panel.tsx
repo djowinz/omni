@@ -49,6 +49,10 @@ export function WidgetPanel() {
   };
 
   const handleSelectWidget = (widgetId: string) => {
+    // If a theme tab is open, switch back to the overlay tab first
+    if (state.activeTabId != null) {
+      dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
+    }
     dispatch({ type: "SELECT_WIDGET", payload: widgetId });
   };
 
