@@ -188,66 +188,199 @@ function getMetricValue(path: string, metrics: MetricValues): number | null {
 }
 
 /**
- * Evaluate class bindings and apply conditional classes
- * Supports: class:className="{metric} operator value"
+ * Evaluate class bindings and apply conditional classes per-element.
+ * Each element's class:name="condition" bindings are evaluated independently
+ * and added to that element's own class="" attribute.
+ *
+ * Example:
+ *   <div class="panel" class:warning="{gpu.temp} > 80">
+ * becomes (when gpu.temp is 90):
+ *   <div class="panel warning">
  */
 function evaluateClassBindings(template: string, metrics: MetricValues): string {
-  const bindingRegex = /class:([a-zA-Z0-9_-]+)=["']([^"']+)["']/g;
+  // Match each opening tag that might contain class bindings
+  // Process one element at a time so classes go to the right element
+  return template.replace(
+    /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g,
+    (fullMatch, tagName, attrs) => {
+      // Find all class:name="condition" bindings on this element
+      const bindingRegex = /\s*class:([a-zA-Z0-9_-]+)=["']([^"']+)["']/g;
+      const classesToAdd: string[] = [];
+      let bindingMatch;
 
-  // Collect classes whose conditions evaluate to true
-  const classesToAdd: string[] = [];
-  let match;
-  while ((match = bindingRegex.exec(template)) !== null) {
-    const className = match[1];
-    const condition = match[2];
-    if (evaluateCondition(condition, metrics)) {
-      classesToAdd.push(className);
+      while ((bindingMatch = bindingRegex.exec(attrs)) !== null) {
+        const className = bindingMatch[1];
+        const condition = bindingMatch[2];
+        if (evaluateCondition(condition, metrics)) {
+          classesToAdd.push(className);
+        }
+      }
+
+      // Remove class binding attributes from this element's attrs
+      let cleanAttrs = attrs.replace(/\s*class:[a-zA-Z0-9_-]+=["'][^"']+["']/g, '');
+
+      // Add conditional classes to the element's class attribute
+      if (classesToAdd.length > 0) {
+        const classMatch = /class="([^"]*)"/.exec(cleanAttrs);
+        if (classMatch) {
+          const existing = classMatch[1];
+          const combined = `${existing} ${classesToAdd.join(' ')}`.trim();
+          cleanAttrs = cleanAttrs.replace(`class="${existing}"`, `class="${combined}"`);
+        } else {
+          // No class attribute exists — add one
+          cleanAttrs = ` class="${classesToAdd.join(' ')}"${cleanAttrs}`;
+        }
+      }
+
+      return `<${tagName}${cleanAttrs}>`;
     }
-  }
-
-  // Remove all class binding attributes first (before position-dependent work)
-  let result = template.replace(/\s*class:[a-zA-Z0-9_-]+=["'][^"']+["']/g, '');
-
-  // Add collected classes to the first class="" attribute in the cleaned result
-  if (classesToAdd.length > 0) {
-    const classAttrMatch = result.match(/class="([^"]*)"/);
-    if (classAttrMatch) {
-      const existingClasses = classAttrMatch[1];
-      const newClasses = `${existingClasses} ${classesToAdd.join(' ')}`.trim();
-      result = result.replace(`class="${existingClasses}"`, `class="${newClasses}"`);
-    }
-  }
-
-  return result;
+  );
 }
 
 /**
- * Evaluate a condition expression
- * Supports: {metric} < value, {metric} > value, etc.
+ * Evaluate a condition expression against metric values.
+ * Supports the same grammar as the Rust backend:
+ *   - Comparisons: {metric} > value, {metric} <= value, etc.
+ *   - Logical AND: {gpu.temp} > 80 && {cpu.usage} > 90
+ *   - Logical OR: {gpu.temp} > 90 || {cpu.temp} > 85
+ *   - Negation: !({fps} > 60)
+ *   - Parentheses: ({gpu.temp} > 80) && ({cpu.usage} > 90)
+ *   - Arithmetic: {gpu.vram.used} / {gpu.vram.total} > 0.9
  */
 function evaluateCondition(condition: string, metrics: MetricValues): boolean {
-  // Parse condition: {metric} operator value
-  const conditionRegex = /\{([^}]+)\}\s*(<=|>=|<|>|==|!=)\s*(\d+(?:\.\d+)?)/;
-  const match = conditionRegex.exec(condition);
-  
-  if (!match) return false;
-  
-  const metricPath = match[1].trim();
-  const operator = match[2];
-  const threshold = parseFloat(match[3]);
-  
-  const value = getMetricValue(metricPath, metrics);
-  if (value === null) return false;
-  
-  switch (operator) {
-    case '<': return value < threshold;
-    case '>': return value > threshold;
-    case '<=': return value <= threshold;
-    case '>=': return value >= threshold;
-    case '==': return value === threshold;
-    case '!=': return value !== threshold;
-    default: return false;
+  try {
+    return evalOrExpr(condition.trim(), metrics).value;
+  } catch {
+    return false;
   }
+}
+
+interface EvalResult {
+  value: boolean;
+  rest: string;
+}
+
+interface NumResult {
+  value: number;
+  rest: string;
+}
+
+function evalOrExpr(input: string, metrics: MetricValues): EvalResult {
+  let { value, rest } = evalAndExpr(input, metrics);
+  while (rest.trimStart().startsWith('||')) {
+    rest = rest.trimStart().slice(2);
+    const right = evalAndExpr(rest, metrics);
+    value = value || right.value;
+    rest = right.rest;
+  }
+  return { value, rest };
+}
+
+function evalAndExpr(input: string, metrics: MetricValues): EvalResult {
+  let { value, rest } = evalNotExpr(input, metrics);
+  while (rest.trimStart().startsWith('&&')) {
+    rest = rest.trimStart().slice(2);
+    const right = evalNotExpr(rest, metrics);
+    value = value && right.value;
+    rest = right.rest;
+  }
+  return { value, rest };
+}
+
+function evalNotExpr(input: string, metrics: MetricValues): EvalResult {
+  const trimmed = input.trimStart();
+  if (trimmed.startsWith('!')) {
+    const inner = evalNotExpr(trimmed.slice(1), metrics);
+    return { value: !inner.value, rest: inner.rest };
+  }
+  return evalComparison(trimmed, metrics);
+}
+
+function evalComparison(input: string, metrics: MetricValues): EvalResult {
+  const left = evalNumExpr(input, metrics);
+  const rest = left.rest.trimStart();
+
+  const ops = ['<=', '>=', '==', '!=', '<', '>'];
+  for (const op of ops) {
+    if (rest.startsWith(op)) {
+      const right = evalNumExpr(rest.slice(op.length), metrics);
+      let value = false;
+      switch (op) {
+        case '<': value = left.value < right.value; break;
+        case '>': value = left.value > right.value; break;
+        case '<=': value = left.value <= right.value; break;
+        case '>=': value = left.value >= right.value; break;
+        case '==': value = left.value === right.value; break;
+        case '!=': value = left.value !== right.value; break;
+      }
+      return { value, rest: right.rest };
+    }
+  }
+
+  // No comparison operator — treat nonzero as true
+  return { value: left.value !== 0, rest: left.rest };
+}
+
+function evalNumExpr(input: string, metrics: MetricValues): NumResult {
+  let { value, rest } = evalMulExpr(input, metrics);
+  let trimmed = rest.trimStart();
+  while (trimmed.startsWith('+') || (trimmed.startsWith('-') && !trimmed.startsWith('->'))) {
+    const op = trimmed[0];
+    const right = evalMulExpr(trimmed.slice(1), metrics);
+    value = op === '+' ? value + right.value : value - right.value;
+    rest = right.rest;
+    trimmed = rest.trimStart();
+  }
+  return { value, rest };
+}
+
+function evalMulExpr(input: string, metrics: MetricValues): NumResult {
+  let { value, rest } = evalPrimary(input, metrics);
+  let trimmed = rest.trimStart();
+  while (trimmed.startsWith('*') || trimmed.startsWith('/')) {
+    const op = trimmed[0];
+    const right = evalPrimary(trimmed.slice(1), metrics);
+    value = op === '*' ? value * right.value : (right.value !== 0 ? value / right.value : 0);
+    rest = right.rest;
+    trimmed = rest.trimStart();
+  }
+  return { value, rest };
+}
+
+function evalPrimary(input: string, metrics: MetricValues): NumResult {
+  const trimmed = input.trimStart();
+
+  // Parenthesized expression
+  if (trimmed.startsWith('(')) {
+    const inner = evalNumExpr(trimmed.slice(1), metrics);
+    const rest = inner.rest.trimStart();
+    return { value: inner.value, rest: rest.startsWith(')') ? rest.slice(1) : rest };
+  }
+
+  // Metric variable: {metric.path}
+  const metricMatch = /^\{([^}]+)\}/.exec(trimmed);
+  if (metricMatch) {
+    const val = getMetricValue(metricMatch[1].trim(), metrics);
+    return { value: val ?? 0, rest: trimmed.slice(metricMatch[0].length) };
+  }
+
+  // Bare metric path (without braces): gpu.temp, fps, etc.
+  const bareMetricMatch = /^([a-zA-Z][a-zA-Z0-9._-]*)/.exec(trimmed);
+  if (bareMetricMatch) {
+    const val = getMetricValue(bareMetricMatch[1], metrics);
+    if (val !== null) {
+      return { value: val, rest: trimmed.slice(bareMetricMatch[0].length) };
+    }
+  }
+
+  // Number literal
+  const numMatch = /^-?\d+(\.\d+)?/.exec(trimmed);
+  if (numMatch) {
+    return { value: parseFloat(numMatch[0]), rest: trimmed.slice(numMatch[0].length) };
+  }
+
+  // Can't parse — return 0
+  return { value: 0, rest: trimmed };
 }
 
 /**

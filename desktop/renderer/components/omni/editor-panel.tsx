@@ -130,10 +130,17 @@ export function EditorPanel() {
     await saveCurrentOverlay();
   }, [saveCurrentOverlay]);
 
-  // Handle revert
-  const handleRevert = useCallback(() => {
-    dispatch({ type: 'SET_DIRTY', payload: false });
-  }, [dispatch]);
+  // Handle revert — reload content from backend
+  const handleRevert = useCallback(async () => {
+    if (!currentOverlay) return;
+    try {
+      const content = await backend.readFile(`overlays/${currentOverlay.name}/overlay.omni`);
+      dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name: currentOverlay.name, content } });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+    } catch (e) {
+      console.error('Revert failed:', e);
+    }
+  }, [currentOverlay, backend, dispatch]);
 
   // Keyboard shortcuts (Ctrl+S)
   useEffect(() => {
