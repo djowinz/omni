@@ -15,12 +15,21 @@ export function EditorPanel() {
   const currentOverlay = getCurrentOverlay();
   const activeTab = getActiveTab();
 
-  const isShowingTab = activeTab !== null;
+  const isShowingTab = activeTab != null;
   const displayContent = isShowingTab ? activeTab?.content : (currentOverlay?.content ?? '');
   const displayName = isShowingTab
     ? activeTab?.name
     : currentOverlay ? `${currentOverlay.name}.omni` : '';
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
+
+  // DEBUG: trace content flow
+  console.log('[editor-panel]', {
+    overlayName: currentOverlay?.name,
+    contentLength: currentOverlay?.content?.length ?? 'NULL',
+    displayContentLength: displayContent?.length ?? 'NULL',
+    isShowingTab,
+    activeTabId: activeTab?.id,
+  });
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
