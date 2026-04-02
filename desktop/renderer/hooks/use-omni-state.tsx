@@ -207,11 +207,10 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
 
   // Listen for host connection status changes
   useEffect(() => {
-    if (window.omni?.onHostStatus) {
-      window.omni.onHostStatus((status: any) => {
-        dispatch({ type: 'SET_CONNECTED', payload: !!status?.connected });
-      });
-    }
+    const unsub = window.omni?.onHostStatus?.((status: any) => {
+      dispatch({ type: 'SET_CONNECTED', payload: !!status?.connected });
+    });
+    return () => { unsub?.(); };
   }, []);
 
   /** Ensure an overlay's content is loaded (lazy loading). */

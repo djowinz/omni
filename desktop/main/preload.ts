@@ -8,7 +8,9 @@ contextBridge.exposeInMainWorld("omni", {
 
   // Host status
   onHostStatus: (callback: (status: any) => void) => {
-    ipcRenderer.on("host-status", (_event, status) => callback(status));
+    const handler = (_event: any, status: any) => callback(status);
+    ipcRenderer.on("host-status", handler);
+    return () => { ipcRenderer.removeListener("host-status", handler); };
   },
 
   // Backend communication
@@ -16,6 +18,8 @@ contextBridge.exposeInMainWorld("omni", {
 
   // Sensor data stream
   onSensorData: (callback: (snapshot: any) => void) => {
-    ipcRenderer.on("sensor-data", (_event, snapshot) => callback(snapshot));
+    const handler = (_event: any, snapshot: any) => callback(snapshot);
+    ipcRenderer.on("sensor-data", handler);
+    return () => { ipcRenderer.removeListener("sensor-data", handler); };
   },
 });

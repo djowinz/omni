@@ -4,9 +4,9 @@ interface OmniIpcBridge {
   minimizeWindow: () => void;
   maximizeWindow: () => void;
   closeWindow: () => void;
-  onHostStatus: (callback: (status: any) => void) => void;
+  onHostStatus: (callback: (status: any) => void) => (() => void);
   sendMessage: (msg: object) => Promise<any>;
-  onSensorData: (callback: (snapshot: any) => void) => void;
+  onSensorData: (callback: (snapshot: any) => void) => (() => void);
 }
 
 declare global {
