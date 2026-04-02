@@ -77,6 +77,7 @@ export interface AppState {
   // UI state
   selectedOverlayName: string;  // Currently being edited
   selectedWidgetId: string | null; // Widget selected in panel
+  widgetScrollRequest: number;     // Increments on every widget click to trigger scroll
 
   // Editor tabs
   openTabs: EditorTab[];

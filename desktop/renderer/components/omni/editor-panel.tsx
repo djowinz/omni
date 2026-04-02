@@ -148,9 +148,10 @@ export function EditorPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
 
-  // Scroll to selected widget in editor when widget is clicked
+  // Scroll to selected widget in editor when widget is clicked.
+  // Watches widgetScrollRequest (increments on every click, even same widget).
   useEffect(() => {
-    if (!state.selectedWidgetId || !currentOverlay?.content) return;
+    if (!state.selectedWidgetId || !state.widgetScrollRequest || !currentOverlay?.content) return;
 
     const widgets = parseOmniContent(currentOverlay.content);
     const widget = widgets.find(w => w.id === state.selectedWidgetId);
@@ -168,7 +169,10 @@ export function EditorPanel() {
       editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
       editorRef.current.focus();
     }
-  }, [state.selectedWidgetId, isShowingTab, currentOverlay?.content, dispatch]);
+
+    // Clear selection highlight after scrolling
+    dispatch({ type: 'SELECT_WIDGET', payload: null });
+  }, [state.widgetScrollRequest]);
 
   // Handle closing a tab
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {

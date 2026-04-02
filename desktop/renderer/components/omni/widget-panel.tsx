@@ -49,12 +49,7 @@ export function WidgetPanel() {
   };
 
   const handleSelectWidget = (widgetId: string) => {
-    // Clear then re-set to force the editor scroll effect to fire
-    // even when clicking the same widget again
-    dispatch({ type: "SELECT_WIDGET", payload: null });
-    setTimeout(() => {
-      dispatch({ type: "SELECT_WIDGET", payload: widgetId });
-    }, 0);
+    dispatch({ type: "SELECT_WIDGET", payload: widgetId });
   };
 
   const handleThemeClick = (themeSrc: string) => {

@@ -12,6 +12,7 @@ const initialState: AppState = {
   connected: false,
   selectedOverlayName: 'Default',
   selectedWidgetId: null,
+  widgetScrollRequest: 0,
   openTabs: [],
   activeTabId: null,
   themeFiles: {},
@@ -52,7 +53,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, selectedOverlayName: action.payload, selectedWidgetId: null };
 
     case 'SELECT_WIDGET':
-      return { ...state, selectedWidgetId: action.payload };
+      return {
+        ...state,
+        selectedWidgetId: action.payload,
+        widgetScrollRequest: action.payload ? state.widgetScrollRequest + 1 : state.widgetScrollRequest,
+      };
 
     case 'SET_CONFIG':
       return { ...state, config: action.payload };
