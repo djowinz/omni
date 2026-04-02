@@ -197,7 +197,6 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
         if (selectedName) {
           try {
             const content = await loadOverlayContent(selectedName);
-            console.log('[use-omni-state] loaded content for', selectedName, 'length:', content?.length, 'first 100 chars:', content?.substring(0, 100));
             dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name: selectedName, content } });
             dispatch({ type: 'SET_DIRTY', payload: false }); // Loading isn't a user edit
           } catch (e) {

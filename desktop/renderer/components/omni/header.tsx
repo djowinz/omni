@@ -46,7 +46,7 @@ export function Header() {
 
   const currentOverlay = getCurrentOverlay();
   const isActive = currentOverlay?.name === state.config?.active_overlay;
-  const isDefault = currentOverlay?.name === 'Default';
+  const isDefault = currentOverlay?.name === "Default";
 
   const logoSrc = "omni://resources/omni-logo.png";
   const logoTextSrc = "omni://resources/omni-text-logo.png";
@@ -69,7 +69,7 @@ export function Header() {
   };
 
   const handleDelete = async () => {
-    if (currentOverlay && currentOverlay.name !== 'Default') {
+    if (currentOverlay && currentOverlay.name !== "Default") {
       await deleteOverlay(currentOverlay.name);
     }
   };
@@ -97,13 +97,17 @@ export function Header() {
               <Image
                 src={logoSrc}
                 alt="Omni"
-                width={32}
-                height={32}
+                width={28}
+                height={28}
                 loading="eager"
-                className="relative w-8 h-8 rounded"
+                className="relative w-7 h-7 rounded"
               />
             </div>
-            <img src={logoTextSrc} alt="Omni" className="relative h-5 w-auto" />
+            <img
+              src={logoTextSrc}
+              alt="Omni"
+              className="relative h-3.5 w-auto"
+            />
           </div>
 
           {/* Divider */}
@@ -127,7 +131,7 @@ export function Header() {
                   >
                     <div className="flex items-center gap-2">
                       <span>{overlay.name}</span>
-                      {overlay.name === 'Default' && (
+                      {overlay.name === "Default" && (
                         <Badge
                           variant="outline"
                           className="text-[10px] px-1.5 py-0 border-[#71717A] text-[#71717A]"

@@ -22,15 +22,6 @@ export function EditorPanel() {
     : currentOverlay ? `${currentOverlay.name}.omni` : '';
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
 
-  // DEBUG: trace content flow
-  console.log('[editor-panel]', {
-    overlayName: currentOverlay?.name,
-    contentLength: currentOverlay?.content?.length ?? 'NULL',
-    displayContentLength: displayContent?.length ?? 'NULL',
-    isShowingTab,
-    activeTabId: activeTab?.id,
-  });
-
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const [lineCount, setLineCount] = useState(1);
