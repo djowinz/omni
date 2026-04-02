@@ -229,7 +229,14 @@ export function updatePreviewDOM(container: HTMLElement, metrics: MetricValues):
   });
 
   // 2. Update text content — walk text nodes and replace {metric} placeholders
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+  // Skip <style> and <script> elements — their text content is CSS/JS, not metric templates
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const tag = node.parentElement?.tagName?.toLowerCase();
+      if (tag === 'style' || tag === 'script') return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
   let node: Node | null;
   while ((node = walker.nextNode())) {
     const textNode = node as Text;
