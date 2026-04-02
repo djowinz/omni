@@ -26,6 +26,10 @@ export class HostManager extends EventEmitter {
     return this._status;
   }
 
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
   async start(): Promise<void> {
     const connected = await this.tryConnect();
     if (!connected) {

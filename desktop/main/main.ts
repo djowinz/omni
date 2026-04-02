@@ -104,7 +104,8 @@ ipcMain.on("window-maximize", () => {
 });
 ipcMain.on("window-close", () => mainWindow?.close());
 
-// IPC: request/response messages to host via WebSocket
+// IPC: request/response messages to host via WebSocket.
+// Waits up to 10s for the host connection before rejecting.
 ipcMain.handle('ws-message', async (_event, msg: any) => {
   const responseTypes: Record<string, string> = {
     'status': 'status.data',
@@ -124,6 +125,22 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
   if (!expectedType) {
     throw new Error(`Unknown message type: ${msg.type}`);
   }
+
+  // Wait for host connection if not yet ready
+  if (!hostManager.isConnected()) {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        hostManager.removeListener('connected', onConnect);
+        reject(new Error('Timed out waiting for host connection'));
+      }, 10000);
+      const onConnect = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      hostManager.once('connected', onConnect);
+    });
+  }
+
   return hostManager.sendAndWait(msg, expectedType);
 });
 
