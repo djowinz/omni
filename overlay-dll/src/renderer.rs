@@ -559,6 +559,16 @@ impl OverlayRenderer {
     }
 
     /// Render a list of computed widgets onto the swap chain back buffer.
+    /// Get the swap chain's back buffer dimensions.
+    pub unsafe fn get_render_size(&self, swap_chain_ptr: *mut c_void) -> (u32, u32) {
+        let sc: IDXGISwapChain = std::mem::transmute_copy(&swap_chain_ptr);
+        let sc = ManuallyDrop::new(sc);
+        match sc.GetDesc() {
+            Ok(desc) => (desc.BufferDesc.Width, desc.BufferDesc.Height),
+            Err(_) => (0, 0),
+        }
+    }
+
     pub unsafe fn render(&mut self, swap_chain_ptr: *mut c_void, widgets: &[ComputedWidget]) {
         if let Err(e) = self.ensure_render_target(swap_chain_ptr) {
             if self.api == GraphicsApi::DX12 {

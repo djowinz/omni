@@ -275,22 +275,23 @@ impl OmniResolver {
                 .map(|s| s.clone().unwrap_or_default())
                 .collect();
 
-            // Use actual screen dimensions for percentage-based positioning.
-            // SAFETY: GetSystemMetrics is always safe to call.
-            let screen_width = unsafe {
-                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                    windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN,
-                ) as f32
-            };
-            let screen_height = unsafe {
-                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                    windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN,
-                ) as f32
-            };
-            let (vw, vh) = if screen_width > 0.0 && screen_height > 0.0 {
-                (screen_width, screen_height)
+            // Use render target dimensions from DLL for percentage-based positioning.
+            // The DLL writes the swap chain size to frame data every frame.
+            let (vw, vh) = if snapshot.frame.render_width > 0 && snapshot.frame.render_height > 0 {
+                (snapshot.frame.render_width as f32, snapshot.frame.render_height as f32)
             } else {
-                (1920.0, 1080.0) // fallback
+                // Fallback to system metrics if DLL hasn't reported yet
+                let sw = unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                        windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN,
+                    ) as f32
+                };
+                let sh = unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                        windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN,
+                    ) as f32
+                };
+                if sw > 0.0 && sh > 0.0 { (sw, sh) } else { (1920.0, 1080.0) }
             };
 
             let layouts = layout::compute_layout(

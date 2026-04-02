@@ -69,6 +69,10 @@ pub struct FrameData {
     pub frame_time_01percent_ms: f32,
     /// false if no frame data source is active.
     pub available: bool,
+    /// Render target width in pixels (from swap chain).
+    pub render_width: u32,
+    /// Render target height in pixels (from swap chain).
+    pub render_height: u32,
 }
 
 impl Default for CpuData {
@@ -120,6 +124,8 @@ impl Default for FrameData {
             frame_time_1percent_ms: 0.0,
             frame_time_01percent_ms: 0.0,
             available: false,
+            render_width: 0,
+            render_height: 0,
         }
     }
 }

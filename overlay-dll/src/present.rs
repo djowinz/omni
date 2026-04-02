@@ -90,9 +90,15 @@ unsafe fn render_overlay(state: &mut RenderState, swap_chain: *mut c_void) {
     if let Some(frame_stats) = &mut state.frame_stats {
         frame_stats.record();
 
-        // Write frame stats back to shared memory for host-side reactive conditions
+        // Write frame stats + render dimensions to shared memory
         if frame_stats.available() {
             if let Some(reader) = &state.shm_reader {
+                // Get swap chain dimensions for the host's layout viewport
+                let (rw, rh) = state.renderer
+                    .as_ref()
+                    .map(|r| r.get_render_size(swap_chain))
+                    .unwrap_or((0, 0));
+
                 let fd = omni_shared::FrameData {
                     fps: frame_stats.fps(),
                     frame_time_ms: frame_stats.frame_time_ms(),
@@ -100,6 +106,8 @@ unsafe fn render_overlay(state: &mut RenderState, swap_chain: *mut c_void) {
                     frame_time_1percent_ms: frame_stats.frame_time_1pct_ms(),
                     frame_time_01percent_ms: frame_stats.frame_time_01pct_ms(),
                     available: true,
+                    render_width: rw,
+                    render_height: rh,
                 };
                 reader.write_frame_data(&fd);
             }
