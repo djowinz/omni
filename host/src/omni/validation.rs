@@ -6,7 +6,11 @@
 use super::parser::ParseError;
 
 /// Known HTML element names supported in .omni templates.
-pub const KNOWN_ELEMENTS: &[&str] = &["div", "span"];
+/// Elements supported by the D2D renderer:
+/// - div: layout container (flexbox, backgrounds, positioning)
+/// - span: inline text content
+/// - i: inline element (commonly used for icons, behaves like span)
+pub const KNOWN_ELEMENTS: &[&str] = &["div", "span", "i"];
 
 /// Known CSS properties supported by the resolver.
 pub const KNOWN_CSS_PROPERTIES: &[&str] = &[
