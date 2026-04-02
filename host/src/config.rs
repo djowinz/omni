@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use ts_rs::TS;
 
 /// Returns the path to the Omni config file: %APPDATA%\Omni\config.json
 pub fn config_path() -> PathBuf {
@@ -15,7 +16,8 @@ pub fn data_dir() -> PathBuf {
 }
 
 /// Top-level application configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 #[serde(default)]
 pub struct Config {
     /// Name of the active overlay folder (under overlays/).
@@ -33,7 +35,8 @@ pub struct Config {
     pub game_directories: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../desktop/src/generated/")]
 #[serde(default)]
 pub struct KeybindConfig {
     /// Key to toggle overlay visibility.
