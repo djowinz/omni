@@ -102,6 +102,43 @@ export class HostManager extends EventEmitter {
     }
   }
 
+  /** Send a message and wait for a response with the matching type. */
+  sendAndWait(msg: object, expectedType: string, timeoutMs = 5000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timeout waiting for ${expectedType}`));
+      }, timeoutMs);
+
+      const handler = (data: Buffer) => {
+        try {
+          const response = JSON.parse(data.toString());
+          if (response.type === expectedType || response.type === 'error') {
+            cleanup();
+            if (response.type === 'error') {
+              reject(new Error(response.message));
+            } else {
+              resolve(response);
+            }
+          }
+        } catch { /* ignore malformed */ }
+      };
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.ws?.removeListener('message', handler);
+      };
+
+      this.ws.on('message', handler);
+      this.ws.send(JSON.stringify(msg));
+    });
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     this.reconnectTimer = setInterval(async () => {
