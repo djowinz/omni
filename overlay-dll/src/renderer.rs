@@ -592,7 +592,11 @@ impl OverlayRenderer {
         rt.BeginDraw();
 
         for widget in widgets {
-            if widget.opacity <= 0.0 {
+            // Skip fully invisible widgets. We use a small epsilon so that
+            // widgets mid-transition (opacity 0.001) still render — the host's
+            // transition engine interpolates from 0→1 and we need to draw
+            // even at very low opacity values for smooth animation.
+            if widget.opacity < 0.001 {
                 continue;
             }
 
