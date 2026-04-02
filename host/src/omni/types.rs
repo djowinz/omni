@@ -90,9 +90,17 @@ pub struct ResolvedStyle {
     pub justify_content: Option<String>,
     pub align_items: Option<String>,
     pub gap: Option<String>,
-    // Padding/margin
+    // Padding/margin (shorthand and individual)
     pub padding: Option<String>,
+    pub padding_top: Option<String>,
+    pub padding_right: Option<String>,
+    pub padding_bottom: Option<String>,
+    pub padding_left: Option<String>,
     pub margin: Option<String>,
+    pub margin_top: Option<String>,
+    pub margin_right: Option<String>,
+    pub margin_bottom: Option<String>,
+    pub margin_left: Option<String>,
     // Min/max dimensions
     pub min_width: Option<String>,
     pub max_width: Option<String>,

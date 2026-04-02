@@ -273,7 +273,7 @@ fn build_taffy_style(style: &ResolvedStyle, node: &FlatNode, text_size: (f32, f3
         }
     }
 
-    // Padding
+    // Padding — shorthand sets all four, then individual sides override
     if let Some(p) = &style.padding {
         if let Some(v) = parse_px(Some(p)) {
             ts.padding = Rect {
@@ -284,8 +284,20 @@ fn build_taffy_style(style: &ResolvedStyle, node: &FlatNode, text_size: (f32, f3
             };
         }
     }
+    if let Some(v) = style.padding_top.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.padding.top = LengthPercentage::Length(v);
+    }
+    if let Some(v) = style.padding_right.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.padding.right = LengthPercentage::Length(v);
+    }
+    if let Some(v) = style.padding_bottom.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.padding.bottom = LengthPercentage::Length(v);
+    }
+    if let Some(v) = style.padding_left.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.padding.left = LengthPercentage::Length(v);
+    }
 
-    // Margin
+    // Margin — shorthand sets all four, then individual sides override
     if let Some(m) = &style.margin {
         if let Some(v) = parse_px(Some(m)) {
             ts.margin = Rect {
@@ -295,6 +307,18 @@ fn build_taffy_style(style: &ResolvedStyle, node: &FlatNode, text_size: (f32, f3
                 left: LengthPercentageAuto::Length(v),
             };
         }
+    }
+    if let Some(v) = style.margin_top.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.margin.top = LengthPercentageAuto::Length(v);
+    }
+    if let Some(v) = style.margin_right.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.margin.right = LengthPercentageAuto::Length(v);
+    }
+    if let Some(v) = style.margin_bottom.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.margin.bottom = LengthPercentageAuto::Length(v);
+    }
+    if let Some(v) = style.margin_left.as_deref().and_then(|s| parse_px(Some(s))) {
+        ts.margin.left = LengthPercentageAuto::Length(v);
     }
 
     // Size (width / height)

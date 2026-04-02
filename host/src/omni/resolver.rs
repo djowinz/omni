@@ -275,12 +275,30 @@ impl OmniResolver {
                 .map(|s| s.clone().unwrap_or_default())
                 .collect();
 
+            // Use actual screen dimensions for percentage-based positioning.
+            // SAFETY: GetSystemMetrics is always safe to call.
+            let screen_width = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                    windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN,
+                ) as f32
+            };
+            let screen_height = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                    windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN,
+                ) as f32
+            };
+            let (vw, vh) = if screen_width > 0.0 && screen_height > 0.0 {
+                (screen_width, screen_height)
+            } else {
+                (1920.0, 1080.0) // fallback
+            };
+
             let layouts = layout::compute_layout(
                 &flat_nodes,
                 &styles_for_layout,
                 &text_sizes,
-                1920.0,
-                1080.0,
+                vw,
+                vh,
             );
 
             // Step 5: Emit ComputedWidgets using layout positions
@@ -717,7 +735,15 @@ fn style_to_property_map(style: &ResolvedStyle) -> HashMap<String, String> {
     insert_if_some!(map, "border-radius", style.border_radius);
     insert_if_some!(map, "font-size", style.font_size);
     insert_if_some!(map, "padding", style.padding);
+    insert_if_some!(map, "padding-top", style.padding_top);
+    insert_if_some!(map, "padding-right", style.padding_right);
+    insert_if_some!(map, "padding-bottom", style.padding_bottom);
+    insert_if_some!(map, "padding-left", style.padding_left);
     insert_if_some!(map, "margin", style.margin);
+    insert_if_some!(map, "margin-top", style.margin_top);
+    insert_if_some!(map, "margin-right", style.margin_right);
+    insert_if_some!(map, "margin-bottom", style.margin_bottom);
+    insert_if_some!(map, "margin-left", style.margin_left);
     insert_if_some!(map, "gap", style.gap);
     insert_if_some!(map, "top", style.top);
     insert_if_some!(map, "right", style.right);
@@ -746,7 +772,15 @@ fn apply_property_overrides(style: &mut ResolvedStyle, overrides: &HashMap<Strin
             "border-radius" => style.border_radius = Some(value.clone()),
             "font-size" => style.font_size = Some(value.clone()),
             "padding" => style.padding = Some(value.clone()),
+            "padding-top" => style.padding_top = Some(value.clone()),
+            "padding-right" => style.padding_right = Some(value.clone()),
+            "padding-bottom" => style.padding_bottom = Some(value.clone()),
+            "padding-left" => style.padding_left = Some(value.clone()),
             "margin" => style.margin = Some(value.clone()),
+            "margin-top" => style.margin_top = Some(value.clone()),
+            "margin-right" => style.margin_right = Some(value.clone()),
+            "margin-bottom" => style.margin_bottom = Some(value.clone()),
+            "margin-left" => style.margin_left = Some(value.clone()),
             "gap" => style.gap = Some(value.clone()),
             "top" => style.top = Some(value.clone()),
             "right" => style.right = Some(value.clone()),

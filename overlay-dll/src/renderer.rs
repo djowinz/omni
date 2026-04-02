@@ -782,7 +782,13 @@ impl OverlayRenderer {
 
             let text_format = match text_format {
                 Ok(tf) => tf,
-                Err(_) => continue,
+                Err(e) => {
+                    log_to_file(&format!(
+                        "[renderer] CreateTextFormat failed for font '{}': {e}",
+                        font_family_str
+                    ));
+                    continue;
+                }
             };
 
             let _ = text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
