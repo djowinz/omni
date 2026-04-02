@@ -21,7 +21,15 @@ export function EditorPanel() {
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const autoCloseDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [lineCount, setLineCount] = useState(1);
+
+  // Dispose auto-close listener on unmount to prevent listener stacking on remount
+  useEffect(() => {
+    return () => {
+      autoCloseDisposableRef.current?.dispose();
+    };
+  }, []);
 
   // Determine Monaco language based on file type
   const language = displayType === 'theme' ? 'css' : 'omni';
@@ -33,9 +41,67 @@ export function EditorPanel() {
   }, []);
 
   // Capture editor reference on mount
-  const handleMount: OnMount = useCallback((editor) => {
+  const handleMount: OnMount = useCallback((editor, _monaco) => {
     editorRef.current = editor;
     setLineCount(editor.getModel()?.getLineCount() ?? 1);
+
+    // Auto-close XML tags when user types '>'
+    autoCloseDisposableRef.current = editor.onDidChangeModelContent((e) => {
+      const changes = e.changes;
+      // Only handle single-character insertions of '>'
+      if (changes.length !== 1) return;
+      const change = changes[0];
+      if (change.text !== '>') return;
+
+      const model = editor.getModel();
+      if (!model) return;
+
+      const position = {
+        lineNumber: change.range.startLineNumber,
+        column: change.range.startColumn + 1,
+      };
+
+      const lineContent = model.getLineContent(position.lineNumber);
+      const textBeforeCursor = lineContent.substring(0, position.column);
+
+      // Skip if this is a self-closing tag (/>) or closing a comment (-->)
+      if (/\/>$/.test(textBeforeCursor) || /-->$/.test(textBeforeCursor)) return;
+
+      // Skip if this is a closing tag (</tag>)
+      if (/<\/[a-zA-Z][a-zA-Z0-9-]*\s*>$/.test(textBeforeCursor)) return;
+
+      // Extract the tag name from the opening tag
+      const openTagMatch = textBeforeCursor.match(/<([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>$/);
+      if (!openTagMatch) return;
+
+      const tagName = openTagMatch[1];
+
+      // Skip if the closing tag already exists on the same line
+      const textAfterCursor = lineContent.substring(position.column);
+      if (new RegExp(`^\\s*</${tagName}\\s*>`).test(textAfterCursor)) return;
+
+      // Insert the closing tag
+      const closingTag = `</${tagName}>`;
+      const insertPosition = {
+        lineNumber: position.lineNumber,
+        column: position.column,
+      };
+
+      editor.executeEdits('auto-close-tag', [
+        {
+          range: {
+            startLineNumber: insertPosition.lineNumber,
+            startColumn: insertPosition.column,
+            endLineNumber: insertPosition.lineNumber,
+            endColumn: insertPosition.column,
+          },
+          text: closingTag,
+        },
+      ]);
+
+      // Move cursor back to between the tags
+      editor.setPosition(insertPosition);
+    });
   }, []);
 
   // Handle content changes from Monaco
