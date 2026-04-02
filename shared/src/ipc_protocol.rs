@@ -12,7 +12,7 @@ pub const MAX_WIDGETS: usize = 64;
 
 /// Protocol version. Bump when SharedOverlayState layout changes.
 /// Host writes this on creation; DLL checks it on open.
-pub const IPC_PROTOCOL_VERSION: u32 = 1;
+pub const IPC_PROTOCOL_VERSION: u32 = 2;
 
 #[repr(C)]
 pub struct SharedOverlayState {

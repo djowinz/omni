@@ -361,6 +361,19 @@ fn style_to_computed_widget(
         ..Default::default()
     };
 
+    // Set font family from CSS (default is "Segoe UI" from ComputedWidget::default)
+    if let Some(ref font_family) = style.font_family {
+        // CSS font-family can have quotes and fallbacks: "Arial", sans-serif
+        // Extract the first font name, stripping quotes
+        let first_font = font_family
+            .split(',')
+            .next()
+            .unwrap_or("Segoe UI")
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'');
+        write_fixed_str(&mut cw.font_family, first_font);
+    }
+
     // Parse background: gradient takes priority, otherwise solid color
     if let Some(bg) = &style.background {
         let bg_trimmed = bg.trim();

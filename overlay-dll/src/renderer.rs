@@ -763,8 +763,15 @@ impl OverlayRenderer {
                 DWRITE_FONT_WEIGHT_NORMAL
             };
 
+            // Read font family from the widget (set by host from CSS font-family)
+            let font_family_str = omni_shared::read_fixed_str(&widget.font_family);
+            let font_family_wide: Vec<u16> = font_family_str
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+
             let text_format = self.dwrite_factory.CreateTextFormat(
-                w!("Segoe UI"),
+                windows::core::PCWSTR(font_family_wide.as_ptr()),
                 None,
                 font_weight,
                 DWRITE_FONT_STYLE_NORMAL,

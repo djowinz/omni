@@ -13,6 +13,8 @@ pub struct ComputedWidget {
     pub height: f32,
     pub font_size: f32,
     pub font_weight: u16,
+    /// Font family name. Null-terminated UTF-8. Default: "Segoe UI".
+    pub font_family: [u8; 64],
     pub color_rgba: [u8; 4],
     pub bg_color_rgba: [u8; 4],
     pub bg_gradient: GradientDef,
@@ -142,6 +144,12 @@ impl Default for ComputedWidget {
             height: 0.0,
             font_size: 13.0,
             font_weight: 400,
+            font_family: {
+                let mut buf = [0u8; 64];
+                let default = b"Segoe UI";
+                buf[..default.len()].copy_from_slice(default);
+                buf
+            },
             color_rgba: [204, 204, 204, 255], // #cccccc
             bg_color_rgba: [0, 0, 0, 0],      // transparent
             bg_gradient: GradientDef::default(),
