@@ -1,4 +1,5 @@
 import type { ParsedWidget, MetricValues, ThemeImport } from '@/types/omni';
+import { FEATHER_PREVIEW_CSS } from './feather-preview';
 
 /**
  * Parse .omni file content and extract widget metadata
@@ -197,6 +198,9 @@ export function buildPreviewStructure(content: string): { html: string; css: str
     html += template;
     css += widgetContent.style;
   }
+
+  // Prepend feather icon font CSS so icons render in the preview
+  css = FEATHER_PREVIEW_CSS + css;
 
   return { html, css };
 }
