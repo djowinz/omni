@@ -188,7 +188,7 @@ export function EditorPanel() {
       <div className="flex h-10 items-center border-b border-[#27272A] bg-[#18181B] overflow-x-auto">
         {/* Main overlay tab */}
         <button
-          onClick={() => { dispatch({ type: 'SELECT_WIDGET', payload: null }); dispatch({ type: 'SET_ACTIVE_TAB', payload: null }); }}
+          onClick={() => { if (isShowingTab) { dispatch({ type: 'SELECT_WIDGET', payload: null }); dispatch({ type: 'SET_ACTIVE_TAB', payload: null }); } }}
           className={cn(
             'flex items-center gap-2 px-4 h-full text-xs border-r border-[#27272A] transition-colors whitespace-nowrap',
             !isShowingTab
@@ -207,7 +207,7 @@ export function EditorPanel() {
         {state.openTabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => { dispatch({ type: 'SELECT_WIDGET', payload: null }); dispatch({ type: 'SET_ACTIVE_TAB', payload: tab.id }); }}
+            onClick={() => { if (activeTab?.id !== tab.id) { dispatch({ type: 'SELECT_WIDGET', payload: null }); dispatch({ type: 'SET_ACTIVE_TAB', payload: tab.id }); } }}
             className={cn(
               'group flex items-center gap-2 px-4 h-full text-xs border-r border-[#27272A] transition-colors whitespace-nowrap',
               activeTab?.id === tab.id
