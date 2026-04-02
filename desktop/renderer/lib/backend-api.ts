@@ -1,11 +1,6 @@
 import type { OmniFile } from '@/src/generated/OmniFile';
-// TODO: replace `any` with ParseError once ts-rs exports it (Task 1)
-// import type { ParseError } from '@/src/generated/ParseError';
-// TODO: replace `any` with Config once ts-rs exports it (Task 1)
-// import type { Config } from '@/src/generated/Config';
-
-type ParseError = any;
-type Config = any;
+import type { ParseError } from '@/src/generated/ParseError';
+import type { Config } from '@/src/generated/Config';
 
 /** Typed wrapper around window.omni.sendMessage for all backend operations. */
 export class BackendApi {
