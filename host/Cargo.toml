@@ -18,6 +18,7 @@ quick-xml = "0.37"
 lightningcss = "1.0.0-alpha.71"
 taffy = "0.5"
 notify = "7"
+regex-lite = "0.1"
 
 [dependencies.windows]
 version = "0.58"

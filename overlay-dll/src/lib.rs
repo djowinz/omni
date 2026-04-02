@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use windows::Win32::Foundation::{BOOL, HINSTANCE, TRUE};
+use windows::Win32::Graphics::Gdi::{AddFontResourceExW, FONT_RESOURCE_CHARACTERISTICS};
 use windows::Win32::System::LibraryLoader::GetModuleHandleA;
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 
@@ -35,6 +36,10 @@ pub unsafe extern "system" fn DllMain(
         x if x == DLL_PROCESS_ATTACH => {
             *DLL_MODULE.0.get() = Some(hinst);
             log_to_file("omni overlay DLL attached — spawning init thread");
+
+            // Register bundled feather icon font for DirectWrite
+            register_bundled_fonts(hinst);
+
             std::thread::spawn(|| {
                 // SAFETY: install_hooks is called on a dedicated thread (not
                 // under loader lock). It accesses static mut globals that
@@ -92,4 +97,39 @@ pub unsafe extern "system" fn omni_shutdown(_param: *mut c_void) -> u32 {
 
     // FreeLibraryAndExitThread never returns, but just in case:
     0
+}
+
+/// Register bundled font files so DirectWrite can use them.
+/// Looks for .ttf/.otf files in the same directory as the DLL.
+unsafe fn register_bundled_fonts(hinst: HINSTANCE) {
+    // Get the DLL's directory path
+    let mut path_buf = [0u16; 260];
+    let len = windows::Win32::System::LibraryLoader::GetModuleFileNameW(hinst, &mut path_buf);
+    if len == 0 {
+        return;
+    }
+
+    let dll_path = String::from_utf16_lossy(&path_buf[..len as usize]);
+    let dll_dir = match dll_path.rfind('\\') {
+        Some(pos) => &dll_path[..pos],
+        None => return,
+    };
+
+    // Register feather.ttf if it exists next to the DLL
+    let font_path = format!("{}\\feather.ttf", dll_dir);
+    let font_wide: Vec<u16> = font_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+    // SAFETY: AddFontResourceExW registers the font for this process only
+    // (FR_PRIVATE = 0x10). No admin rights needed, no system-wide changes.
+    let result = AddFontResourceExW(
+        windows::core::PCWSTR(font_wide.as_ptr()),
+        FONT_RESOURCE_CHARACTERISTICS(0x10), // FR_PRIVATE
+        None,
+    );
+
+    if result > 0 {
+        log_to_file(&format!("[fonts] registered feather.ttf ({} fonts added)", result));
+    } else {
+        log_to_file(&format!("[fonts] failed to register feather.ttf from {}", font_path));
+    }
 }

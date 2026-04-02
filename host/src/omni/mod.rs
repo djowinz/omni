@@ -3,6 +3,7 @@ pub mod default;
 pub mod easing;
 pub mod expression;
 pub mod flat_tree;
+pub mod icon_font;
 pub mod interpolation;
 pub mod layout;
 pub mod parser;

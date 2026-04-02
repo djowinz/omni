@@ -16,6 +16,7 @@ use windows::Win32::Graphics::DirectWrite::{
 
 use super::css;
 use super::flat_tree::{self, FlatNode};
+use super::icon_font::IconFontMap;
 use super::interpolation;
 use super::layout;
 use super::reactive;
@@ -31,6 +32,8 @@ pub struct OmniResolver {
     dwrite_factory: Option<IDWriteFactory>,
     /// Transition engine for smooth property interpolation.
     transition_manager: transition::TransitionManager,
+    /// Icon font class→glyph mapping (feather icons).
+    icon_map: IconFontMap,
 }
 
 impl OmniResolver {
@@ -42,10 +45,39 @@ impl OmniResolver {
         if dwrite_factory.is_none() {
             warn!("Failed to create IDWriteFactory — text measurement will use fallback estimates");
         }
+        // Load icon font mapping from feather.css
+        // Look for it relative to the executable, or in the data directory
+        let icon_map = {
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+            let candidates = [
+                exe_dir.as_ref().map(|d| d.join("overlay").join("feather.css")),
+                exe_dir.as_ref().map(|d| d.join("feather.css")),
+                // Dev layout
+                exe_dir
+                    .as_ref()
+                    .and_then(|d| d.parent())
+                    .and_then(|d| d.parent())
+                    .map(|d| d.join("host").join("resources").join("feather.css")),
+            ];
+
+            let mut map = IconFontMap::from_css_file(std::path::Path::new(""));
+            for candidate in candidates.iter().flatten() {
+                if candidate.exists() {
+                    map = IconFontMap::from_css_file(candidate);
+                    break;
+                }
+            }
+            map
+        };
+
         Self {
             theme_vars: HashMap::new(),
             dwrite_factory,
             transition_manager: transition::TransitionManager::new(),
+            icon_map,
         }
     }
 
@@ -311,6 +343,19 @@ impl OmniResolver {
 
                     write_fixed_str(&mut cw.label_text, &raw_template);
                     write_fixed_str(&mut cw.format_pattern, &text);
+                    widgets.push(cw);
+                } else if let Some(icon_char) = self.icon_map.resolve_icon_classes(&node.classes) {
+                    // Icon element: has icon-* class, render as text with the icon font
+                    let mut cw = style_to_computed_widget(style, x, y, width);
+                    cw.widget_type = WidgetType::Label;
+                    cw.source = SensorSource::None;
+                    cw.height = height;
+
+                    let icon_text = icon_char.to_string();
+                    write_fixed_str(&mut cw.format_pattern, &icon_text);
+                    write_fixed_str(&mut cw.label_text, &icon_text);
+                    write_fixed_str(&mut cw.font_family, "feather");
+
                     widgets.push(cw);
                 } else if !node.child_indices.is_empty() {
                     let bg = parse_color(style.background.as_deref());
