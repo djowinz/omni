@@ -104,6 +104,29 @@ ipcMain.on("window-maximize", () => {
 });
 ipcMain.on("window-close", () => mainWindow?.close());
 
+// IPC: request/response messages to host via WebSocket
+ipcMain.handle('ws-message', async (_event, msg: any) => {
+  const responseTypes: Record<string, string> = {
+    'status': 'status.data',
+    'sensors.subscribe': 'sensors.subscribed',
+    'file.list': 'file.list',
+    'file.read': 'file.content',
+    'file.write': 'file.written',
+    'file.create': 'file.created',
+    'file.delete': 'file.deleted',
+    'widget.parse': 'widget.parsed',
+    'widget.apply': 'widget.applied',
+    'widget.update': 'widget.updated',
+    'config.get': 'config.data',
+    'config.update': 'config.updated',
+  };
+  const expectedType = responseTypes[msg.type];
+  if (!expectedType) {
+    throw new Error(`Unknown message type: ${msg.type}`);
+  }
+  return hostManager.sendAndWait(msg, expectedType);
+});
+
 // Register omni:// protocol for serving local resources
 protocol.registerSchemesAsPrivileged([
   {
@@ -178,29 +201,6 @@ app.on("ready", async () => {
   });
   hostManager.on("status", (status) => {
     mainWindow?.webContents.send("host-status", status);
-  });
-
-  // IPC: request/response messages to host via WebSocket
-  ipcMain.handle('ws-message', async (_event, msg: any) => {
-    const responseTypes: Record<string, string> = {
-      'status': 'status.data',
-      'sensors.subscribe': 'sensors.subscribed',
-      'file.list': 'file.list',
-      'file.read': 'file.content',
-      'file.write': 'file.written',
-      'file.create': 'file.created',
-      'file.delete': 'file.deleted',
-      'widget.parse': 'widget.parsed',
-      'widget.apply': 'widget.applied',
-      'widget.update': 'widget.updated',
-      'config.get': 'config.data',
-      'config.update': 'config.updated',
-    };
-    const expectedType = responseTypes[msg.type];
-    if (!expectedType) {
-      throw new Error(`Unknown message type: ${msg.type}`);
-    }
-    return hostManager.sendAndWait(msg, expectedType);
   });
 
   // Forward sensor data stream to renderer
