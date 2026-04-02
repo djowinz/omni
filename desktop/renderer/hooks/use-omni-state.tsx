@@ -205,13 +205,41 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     loadData();
   }, []);
 
-  // Listen for host connection status changes
+  // Listen for host connection status changes — reload data on reconnect
   useEffect(() => {
     const unsub = window.omni?.onHostStatus?.((status: any) => {
-      dispatch({ type: 'SET_CONNECTED', payload: !!status?.connected });
+      const wasConnected = state.connected;
+      const isNowConnected = !!status?.connected;
+      dispatch({ type: 'SET_CONNECTED', payload: isNowConnected });
+
+      // On reconnect (was disconnected, now connected), reload data
+      if (!wasConnected && isNowConnected) {
+        (async () => {
+          try {
+            const [overlays, config] = await Promise.all([
+              loadOverlayList(),
+              backend.getConfig(),
+            ]);
+            dispatch({ type: 'SET_OVERLAYS', payload: overlays });
+            dispatch({ type: 'SET_CONFIG', payload: config });
+
+            const selectedName = config.active_overlay && overlays.find((o: any) => o.name === config.active_overlay)
+              ? config.active_overlay
+              : overlays[0]?.name;
+            if (selectedName) {
+              dispatch({ type: 'SELECT_OVERLAY', payload: selectedName });
+              try {
+                const content = await loadOverlayContent(selectedName);
+                dispatch({ type: 'UPDATE_OVERLAY_CONTENT', payload: { name: selectedName, content } });
+                dispatch({ type: 'SET_DIRTY', payload: false });
+              } catch { /* overlay file may not exist */ }
+            }
+          } catch { /* backend still not ready */ }
+        })();
+      }
     });
     return () => { unsub?.(); };
-  }, []);
+  }, [state.connected]);
 
   /** Ensure an overlay's content is loaded (lazy loading). */
   const ensureOverlayLoaded = useCallback(async (name: string) => {

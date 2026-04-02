@@ -30,8 +30,13 @@ export class HostManager extends EventEmitter {
     const connected = await this.tryConnect();
     if (!connected) {
       this.spawnHost();
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      await this.tryConnect();
+      // Try a few times with increasing delay — host may take a moment to start
+      for (const delay of [1500, 2000, 3000]) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        if (await this.tryConnect()) return;
+      }
+      // Still not connected — schedule background reconnection
+      this.scheduleReconnect();
     }
   }
 

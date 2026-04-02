@@ -64,6 +64,7 @@ export function EditorPanel() {
         type: 'UPDATE_OVERLAY_CONTENT',
         payload: { name: currentOverlay.name, content: code },
       });
+      dispatch({ type: 'SET_DIRTY', payload: true });
     }
   }, [isShowingTab, activeTab, currentOverlay, dispatch]);
 
