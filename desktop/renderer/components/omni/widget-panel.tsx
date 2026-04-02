@@ -1,14 +1,25 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useOmniState } from "@/hooks/use-omni-state";
+import { useBackend } from "@/hooks/use-backend";
 import {
   parseOmniContent,
   toggleWidgetEnabled,
   parseThemeImports,
 } from "@/lib/omni-parser";
 import { cn } from "@/lib/utils";
-import { Layers, Eye, EyeOff, Palette, FileCode, Puzzle } from "lucide-react";
+import { Layers, Eye, EyeOff, Palette, FileCode, Puzzle, Plus } from "lucide-react";
 
 export function WidgetPanel() {
   const { state, dispatch, getCurrentOverlay, openThemeTab } = useOmniState();
@@ -45,6 +56,25 @@ export function WidgetPanel() {
     openThemeTab(themeSrc);
   };
 
+  const backend = useBackend();
+  const [createThemeOpen, setCreateThemeOpen] = useState(false);
+  const [newThemeName, setNewThemeName] = useState('');
+
+  const handleCreateTheme = async () => {
+    const name = newThemeName.trim();
+    if (!name) return;
+    const filename = name.endsWith('.css') ? name : `${name}.css`;
+    try {
+      await backend.createTheme(filename);
+      setCreateThemeOpen(false);
+      setNewThemeName('');
+      // Open the new theme in a tab
+      openThemeTab(`themes/${filename}`);
+    } catch (e) {
+      console.error('Failed to create theme:', e);
+    }
+  };
+
   const enabledCount = widgets.filter((w) => w.enabled).length;
 
   return (
@@ -59,15 +89,24 @@ export function WidgetPanel() {
 
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {/* Themes Section */}
-          {themes.length > 0 && (
-            <div className="mb-4">
-              <div className="flex items-center gap-2 px-2 py-1.5 mb-1">
+          {/* Themes Section — always visible */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between px-2 py-1.5 mb-1">
+              <div className="flex items-center gap-2">
                 <Palette className="h-3.5 w-3.5 text-[#00D9FF]" />
                 <span className="text-xs font-medium text-[#71717A] uppercase tracking-wider">
                   Themes
                 </span>
               </div>
+              <button
+                onClick={() => setCreateThemeOpen(true)}
+                className="flex items-center gap-1 text-[10px] text-[#00D9FF] hover:text-[#00D9FF]/80 transition-colors"
+              >
+                <Plus className="h-3 w-3" />
+                New
+              </button>
+            </div>
+            {themes.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {themes.map((theme) => (
                   <button
@@ -92,8 +131,15 @@ export function WidgetPanel() {
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="px-3 py-3 text-center">
+                <p className="text-xs text-[#52525B]">No themes imported</p>
+                <p className="text-[10px] text-[#3f3f46] mt-1">
+                  Add <span className="font-mono text-[#00D9FF]/60">&lt;theme src="..." /&gt;</span> in your .omni file
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* Widgets Section */}
           <div>
@@ -192,6 +238,42 @@ export function WidgetPanel() {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Create Theme Dialog */}
+      <Dialog open={createThemeOpen} onOpenChange={setCreateThemeOpen}>
+        <DialogContent className="bg-[#18181B] border-[#27272A]">
+          <DialogHeader>
+            <DialogTitle className="text-[#FAFAFA]">Create Theme</DialogTitle>
+            <DialogDescription className="text-[#71717A]">
+              Create a new CSS theme file. Reference it in your .omni file with{' '}
+              <code className="text-[#00D9FF] font-mono text-xs">&lt;theme src="themes/name.css" /&gt;</code>
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newThemeName}
+            onChange={(e) => setNewThemeName(e.target.value)}
+            placeholder="my-theme.css"
+            className="bg-[#0D0D0F] border-[#27272A] text-[#FAFAFA] placeholder:text-[#52525B]"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTheme(); }}
+          />
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setCreateThemeOpen(false)}
+              className="text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#27272A]"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateTheme}
+              disabled={!newThemeName.trim()}
+              className="bg-[#00D9FF] text-[#0D0D0F] hover:bg-[#00D9FF]/90"
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
