@@ -45,10 +45,22 @@ export function EditorPanel() {
     monacoRef.current = monaco;
   }, []);
 
-  // Capture editor reference on mount
+  // Pending scroll target — set when widget is clicked while on a different tab
+  const pendingScrollRef = useRef<number | null>(null);
+
+  // Capture editor reference on mount, execute pending scroll if any
   const handleMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
     setLineCount(editor.getModel()?.getLineCount() ?? 1);
+
+    // Execute pending scroll from widget click
+    if (pendingScrollRef.current !== null) {
+      const line = pendingScrollRef.current;
+      pendingScrollRef.current = null;
+      editor.revealLineInCenter(line);
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.focus();
+    }
   }, []);
 
   // Handle content changes from Monaco
@@ -136,35 +148,34 @@ export function EditorPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSave]);
 
-  // Scroll to selected widget in editor — only when selection changes,
-  // not when content changes (which would steal cursor on every keystroke)
+  // Scroll to selected widget in editor — only when selection changes
   const lastScrolledWidgetRef = useRef<string | null>(null);
   useEffect(() => {
     if (
       state.selectedWidgetId &&
       state.selectedWidgetId !== lastScrolledWidgetRef.current &&
-      currentOverlay
+      currentOverlay?.content
     ) {
-      // Switch back to the main overlay tab if a theme tab is active
-      if (isShowingTab) {
-        dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
-      }
+      const widgets = parseOmniContent(currentOverlay.content);
+      const widget = widgets.find(w => w.id === state.selectedWidgetId);
+      if (!widget) return;
 
-      // Defer scroll until after Monaco remounts with the overlay content
-      setTimeout(() => {
-        if (!editorRef.current || !currentOverlay.content) return;
-        const widgets = parseOmniContent(currentOverlay.content);
-        const widget = widgets.find(w => w.id === state.selectedWidgetId);
-        if (widget) {
-          editorRef.current.revealLineInCenter(widget.startLine + 1);
-          editorRef.current.setPosition({ lineNumber: widget.startLine + 1, column: 1 });
-          editorRef.current.focus();
-        }
-      }, 100);
+      const targetLine = widget.startLine + 1;
+
+      if (isShowingTab) {
+        // Switch to overlay tab — Monaco will remount, so store pending scroll
+        pendingScrollRef.current = targetLine;
+        dispatch({ type: 'SET_ACTIVE_TAB', payload: null });
+      } else if (editorRef.current) {
+        // Already on overlay tab — scroll directly
+        editorRef.current.revealLineInCenter(targetLine);
+        editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+        editorRef.current.focus();
+      }
 
       lastScrolledWidgetRef.current = state.selectedWidgetId;
     }
-  }, [state.selectedWidgetId, isShowingTab, dispatch]);
+  }, [state.selectedWidgetId, isShowingTab, currentOverlay?.content, dispatch]);
 
   // Handle closing a tab
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
