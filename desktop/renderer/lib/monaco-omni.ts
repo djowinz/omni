@@ -279,7 +279,6 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
       ['{', '}'],
       ['[', ']'],
       ['(', ')'],
-      ['<', '>'],
     ],
     autoClosingPairs: [
       { open: '{', close: '}' },
