@@ -12,7 +12,7 @@ export function PreviewPanel() {
   const currentOverlay = getCurrentOverlay();
 
   const previewHtml = useMemo(
-    () => currentOverlay
+    () => currentOverlay?.content
       ? renderOmniPreview(currentOverlay.content, state.previewMetrics)
       : '',
     [currentOverlay?.content, state.previewMetrics]

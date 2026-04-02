@@ -14,7 +14,7 @@ export function EditorPanel() {
   const activeTab = getActiveTab();
 
   const isShowingTab = activeTab !== null;
-  const displayContent = isShowingTab ? activeTab?.content : currentOverlay?.content;
+  const displayContent = isShowingTab ? activeTab?.content : (currentOverlay?.content ?? '');
   const displayName = isShowingTab
     ? activeTab?.name
     : currentOverlay ? `${currentOverlay.name}.omni` : '';
@@ -49,16 +49,16 @@ export function EditorPanel() {
         payload: { id: activeTab.id, content: code },
       });
       if (activeTab.type === 'overlay') {
-        const overlayId = activeTab.id.replace('overlay:', '');
+        const overlayName = activeTab.id.replace('overlay:', '');
         dispatch({
           type: 'UPDATE_OVERLAY_CONTENT',
-          payload: { id: overlayId, content: code },
+          payload: { name: overlayName, content: code },
         });
       }
     } else if (currentOverlay) {
       dispatch({
         type: 'UPDATE_OVERLAY_CONTENT',
-        payload: { id: currentOverlay.id, content: code },
+        payload: { name: currentOverlay.name, content: code },
       });
     }
   }, [isShowingTab, activeTab, currentOverlay, dispatch]);
@@ -98,7 +98,7 @@ export function EditorPanel() {
       currentOverlay &&
       editorRef.current
     ) {
-      const widgets = parseOmniContent(currentOverlay.content);
+      const widgets = parseOmniContent(currentOverlay.content ?? '');
       const widget = widgets.find(w => w.id === state.selectedWidgetId);
       if (widget) {
         editorRef.current.revealLineInCenter(widget.startLine + 1);

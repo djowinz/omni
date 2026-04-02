@@ -39,36 +39,38 @@ export function Header() {
     duplicateOverlay,
     deleteOverlay,
     getCurrentOverlay,
+    ensureOverlayLoaded,
   } = useOmniState();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [gamesDialogOpen, setGamesDialogOpen] = useState(false);
 
   const currentOverlay = getCurrentOverlay();
-  const isActive = currentOverlay?.id === state.activeOverlayId;
-  const isDefault = currentOverlay?.isDefault;
+  const isActive = currentOverlay?.name === state.config?.active_overlay;
+  const isDefault = currentOverlay?.name === 'Default';
 
   const logoSrc = "omni://resources/omni-logo.png";
   const logoTextSrc = "omni://resources/omni-text-logo.png";
 
-  const handleSelectOverlay = (id: string) => {
-    dispatch({ type: "SELECT_OVERLAY", payload: id });
+  const handleSelectOverlay = async (name: string) => {
+    dispatch({ type: "SELECT_OVERLAY", payload: name });
+    await ensureOverlayLoaded(name);
   };
 
   const handleSetActive = async () => {
     if (currentOverlay) {
-      await setAsActive(isActive ? null : currentOverlay.id);
+      await setAsActive(currentOverlay.name);
     }
   };
 
   const handleDuplicate = async () => {
     if (currentOverlay) {
-      await duplicateOverlay(currentOverlay.id);
+      await duplicateOverlay(currentOverlay.name);
     }
   };
 
   const handleDelete = async () => {
-    if (currentOverlay && !currentOverlay.isDefault) {
-      await deleteOverlay(currentOverlay.id);
+    if (currentOverlay && currentOverlay.name !== 'Default') {
+      await deleteOverlay(currentOverlay.name);
     }
   };
 
@@ -110,7 +112,7 @@ export function Header() {
           {/* Overlay Selector */}
           <div className="flex items-center gap-2">
             <Select
-              value={state.selectedOverlayId}
+              value={state.selectedOverlayName}
               onValueChange={handleSelectOverlay}
             >
               <SelectTrigger className="w-[220px] bg-[#0D0D0F] border-[#27272A] text-[#FAFAFA] hover:border-[#00D9FF]/50 transition-colors">
@@ -119,13 +121,13 @@ export function Header() {
               <SelectContent className="bg-[#18181B] border-[#27272A]">
                 {state.overlays.map((overlay) => (
                   <SelectItem
-                    key={overlay.id}
-                    value={overlay.id}
+                    key={overlay.name}
+                    value={overlay.name}
                     className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#FAFAFA]"
                   >
                     <div className="flex items-center gap-2">
                       <span>{overlay.name}</span>
-                      {overlay.isDefault && (
+                      {overlay.name === 'Default' && (
                         <Badge
                           variant="outline"
                           className="text-[10px] px-1.5 py-0 border-[#71717A] text-[#71717A]"
@@ -133,7 +135,7 @@ export function Header() {
                           Default
                         </Badge>
                       )}
-                      {overlay.id === state.activeOverlayId && (
+                      {overlay.name === state.config?.active_overlay && (
                         <Badge className="text-[10px] px-1.5 py-0 bg-[#00D9FF] text-[#0D0D0F] hover:bg-[#00D9FF]">
                           Active
                         </Badge>
@@ -265,7 +267,7 @@ export function Header() {
       <GameAssignmentsDialog
         open={gamesDialogOpen}
         onOpenChange={setGamesDialogOpen}
-        overlayId={currentOverlay?.id || ""}
+        overlayName={currentOverlay?.name || ""}
       />
     </>
   );
