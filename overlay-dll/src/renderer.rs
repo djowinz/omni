@@ -649,8 +649,19 @@ impl OverlayRenderer {
 
         let is_layer_parent = scan_layer_parents(widgets);
         let mut layer_stack: Vec<usize> = Vec::new();
+        let mut skip_ancestor: Option<usize> = None;
 
         for wi in 0..widgets.len() {
+            // Skip descendants of an invisible layer parent so they don't
+            // render at full opacity while the parent is fading out.
+            if let Some(ancestor_idx) = skip_ancestor {
+                if is_descendant_of(widgets, wi, ancestor_idx) {
+                    continue;
+                } else {
+                    skip_ancestor = None;
+                }
+            }
+
             let widget = &widgets[wi];
 
             // Skip fully invisible widgets. We use a small epsilon so that
@@ -658,6 +669,9 @@ impl OverlayRenderer {
             // transition engine interpolates from 0→1 and we need to draw
             // even at very low opacity values for smooth animation.
             if widget.opacity < 0.001 {
+                if is_layer_parent[wi] {
+                    skip_ancestor = Some(wi);
+                }
                 continue;
             }
 
@@ -678,7 +692,7 @@ impl OverlayRenderer {
 
             // If this widget is a layer parent, push a D2D compositing layer
             if is_layer_parent[wi] {
-                let half_min = f32::MIN / 2.0;
+                let half_min = -f32::MAX / 2.0;
                 let half_max = f32::MAX / 2.0;
                 let content_bounds = D2D_RECT_F {
                     left: if widget.overflow_x == 1 { rect.left } else { half_min },
