@@ -5,6 +5,7 @@
 
 use super::flat_tree::FlatNode;
 use super::types::ResolvedStyle;
+use taffy::geometry::Point;
 use taffy::prelude::*;
 use taffy::style::{
     AlignItems, Dimension, Display, FlexDirection, FlexWrap, LengthPercentage,
@@ -319,6 +320,27 @@ fn build_taffy_style(style: &ResolvedStyle, node: &FlatNode, text_size: (f32, f3
     }
     if let Some(v) = style.margin_left.as_deref().and_then(|s| parse_px(Some(s))) {
         ts.margin.left = LengthPercentageAuto::Length(v);
+    }
+
+    // Overflow — shorthand sets both axes, individual axes override
+    if let Some(ref overflow) = style.overflow {
+        let val = match overflow.as_str() {
+            "hidden" => taffy::Overflow::Hidden,
+            _ => taffy::Overflow::Visible,
+        };
+        ts.overflow = Point { x: val, y: val };
+    }
+    if let Some(ref ox) = style.overflow_x {
+        ts.overflow.x = match ox.as_str() {
+            "hidden" => taffy::Overflow::Hidden,
+            _ => taffy::Overflow::Visible,
+        };
+    }
+    if let Some(ref oy) = style.overflow_y {
+        ts.overflow.y = match oy.as_str() {
+            "hidden" => taffy::Overflow::Hidden,
+            _ => taffy::Overflow::Visible,
+        };
     }
 
     // Size (width / height)
@@ -728,6 +750,62 @@ mod tests {
     fn empty_input_returns_empty() {
         let results = compute_layout(&[], &[], &[], 1920.0, 1080.0);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn overflow_hidden_sets_taffy_overflow() {
+        let nodes = vec![
+            elem("div", None, vec![1]),
+            elem("div", Some(0), vec![]),
+        ];
+        let styles = vec![
+            style_with(|s| {
+                s.display = Some("flex".into());
+                s.width = Some("100px".into());
+                s.height = Some("50px".into());
+                s.overflow = Some("hidden".into());
+            }),
+            style_with(|s| {
+                s.width = Some("100px".into());
+                s.height = Some("200px".into());
+            }),
+        ];
+        let text_sizes = vec![(0.0, 0.0); 2];
+
+        let results = compute_layout(&nodes, &styles, &text_sizes, 1920.0, 1080.0);
+
+        // Parent should be 50px tall (overflow doesn't expand)
+        assert_eq!(results[0].height, 50.0);
+        // Child is still 200px — taffy doesn't clip child size
+        assert_eq!(results[1].height, 200.0);
+    }
+
+    #[test]
+    fn overflow_per_axis() {
+        let nodes = vec![
+            elem("div", None, vec![1]),
+            elem("div", Some(0), vec![]),
+        ];
+        let styles = vec![
+            style_with(|s| {
+                s.display = Some("flex".into());
+                s.width = Some("100px".into());
+                s.height = Some("50px".into());
+                s.overflow_x = Some("hidden".into());
+                s.overflow_y = Some("visible".into());
+            }),
+            style_with(|s| {
+                s.width = Some("200px".into());
+                s.height = Some("200px".into());
+            }),
+        ];
+        let text_sizes = vec![(0.0, 0.0); 2];
+
+        let results = compute_layout(&nodes, &styles, &text_sizes, 1920.0, 1080.0);
+
+        // Parent stays at its declared size
+        assert_eq!(results[0].width, 100.0);
+        assert_eq!(results[0].height, 50.0);
     }
 
     #[test]
