@@ -45,24 +45,28 @@ export interface Overlay {
 }
 
 /**
- * Simulated metric values for preview
+ * Simulated metric values for preview.
+ * Keys match sensor paths in host/src/omni/sensor_map.rs.
  */
 export interface MetricValues {
   fps: number;
-  frametime: number;
-  'frame.1pct': number;
+  'frame-time': number;
+  'frame-time.avg': number;
+  'frame-time.1pct': number;
+  'frame-time.01pct': number;
+  'cpu.usage': number;
+  'cpu.temp': number;
   'gpu.usage': number;
   'gpu.temp': number;
   'gpu.clock': number;
+  'gpu.mem-clock': number;
   'gpu.vram.used': number;
   'gpu.vram.total': number;
   'gpu.power': number;
-  'gpu.volt': number;
   'gpu.fan': number;
-  'cpu.usage': number;
-  'cpu.temp': number;
-  'cpu.core': number[];
   'ram.usage': number;
+  'ram.used': number;
+  'ram.total': number;
 }
 
 /**
@@ -105,7 +109,7 @@ export type AppAction =
   | { type: 'SELECT_WIDGET'; payload: string | null }
   | { type: 'SET_CONFIG'; payload: Config | null }
   | { type: 'SET_CONNECTED'; payload: boolean }
-  | { type: 'UPDATE_PREVIEW_METRIC'; payload: { key: string; value: number | number[] } }
+  | { type: 'UPDATE_PREVIEW_METRIC'; payload: { key: string; value: number } }
   | { type: 'SET_DIRTY'; payload: boolean }
   | { type: 'OPEN_TAB'; payload: EditorTab }
   | { type: 'CLOSE_TAB'; payload: string }
@@ -118,18 +122,21 @@ export type AppAction =
  */
 export const DEFAULT_METRICS: MetricValues = {
   fps: 144,
-  frametime: 6.9,
-  'frame.1pct': 120,
+  'frame-time': 6.9,
+  'frame-time.avg': 7.2,
+  'frame-time.1pct': 12.5,
+  'frame-time.01pct': 18.0,
+  'cpu.usage': 45,
+  'cpu.temp': 68,
   'gpu.usage': 85,
   'gpu.temp': 72,
   'gpu.clock': 1950,
+  'gpu.mem-clock': 1200,
   'gpu.vram.used': 8192,
   'gpu.vram.total': 12288,
   'gpu.power': 280,
-  'gpu.volt': 1050,
   'gpu.fan': 65,
-  'cpu.usage': 45,
-  'cpu.temp': 68,
-  'cpu.core': [42, 55, 38, 51, 44, 48, 39, 52],
   'ram.usage': 62,
+  'ram.used': 10240,
+  'ram.total': 16384,
 };

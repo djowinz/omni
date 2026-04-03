@@ -18,7 +18,7 @@
  *   White   #FAFAFA  — default text, content
  */
 
-import type { editor } from 'monaco-editor';
+import type { editor, languages } from 'monaco-editor';
 
 export const omniDarkTheme: editor.IStandaloneThemeData = {
   base: 'vs-dark',
@@ -328,5 +328,62 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
         },
       },
     ],
+  });
+
+  // Sensor path autocomplete — triggers inside {…} placeholders
+  const sensorItems: Array<{ path: string; detail: string; category: string }> = [
+    { path: 'cpu.usage', detail: 'CPU usage %', category: 'CPU' },
+    { path: 'cpu.temp', detail: 'CPU package temperature', category: 'CPU' },
+    { path: 'gpu.usage', detail: 'GPU usage %', category: 'GPU' },
+    { path: 'gpu.temp', detail: 'GPU temperature', category: 'GPU' },
+    { path: 'gpu.clock', detail: 'GPU core clock (MHz)', category: 'GPU' },
+    { path: 'gpu.mem-clock', detail: 'GPU memory clock (MHz)', category: 'GPU' },
+    { path: 'gpu.vram', detail: 'VRAM used/total (e.g. 4096/12288)', category: 'GPU' },
+    { path: 'gpu.vram.used', detail: 'VRAM used (MB)', category: 'GPU' },
+    { path: 'gpu.vram.total', detail: 'VRAM total (MB)', category: 'GPU' },
+    { path: 'gpu.power', detail: 'GPU power draw (W)', category: 'GPU' },
+    { path: 'gpu.fan', detail: 'GPU fan speed %', category: 'GPU' },
+    { path: 'ram.usage', detail: 'RAM usage %', category: 'RAM' },
+    { path: 'ram.used', detail: 'RAM used (MB)', category: 'RAM' },
+    { path: 'ram.total', detail: 'RAM total (MB)', category: 'RAM' },
+    { path: 'fps', detail: 'Frames per second', category: 'Frame' },
+    { path: 'frame-time', detail: 'Frame time (ms)', category: 'Frame' },
+    { path: 'frame-time.avg', detail: 'Average frame time (ms)', category: 'Frame' },
+    { path: 'frame-time.1pct', detail: '1% low frame time (ms)', category: 'Frame' },
+    { path: 'frame-time.01pct', detail: '0.1% low frame time (ms)', category: 'Frame' },
+  ];
+
+  monaco.languages.registerCompletionItemProvider('omni', {
+    triggerCharacters: ['{', '.', '-'],
+    provideCompletionItems(model, position): languages.CompletionList {
+      const lineContent = model.getLineContent(position.lineNumber);
+      const textBefore = lineContent.substring(0, position.column - 1);
+
+      // Find the opening { before the cursor (not yet closed by })
+      const lastOpen = textBefore.lastIndexOf('{');
+      if (lastOpen < 0) return { suggestions: [] };
+      const between = textBefore.substring(lastOpen + 1);
+      // Make sure we're not past a closing }
+      if (between.includes('}')) return { suggestions: [] };
+
+      const range = {
+        startLineNumber: position.lineNumber,
+        startColumn: lastOpen + 2, // after the {
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      };
+
+      const suggestions: languages.CompletionItem[] = sensorItems.map((s, i) => ({
+        label: s.path,
+        kind: monaco.languages.CompletionItemKind.Variable,
+        detail: s.detail,
+        documentation: `${s.category} sensor — use as {${s.path}}`,
+        insertText: s.path,
+        range,
+        sortText: String(i).padStart(3, '0'),
+      }));
+
+      return { suggestions };
+    },
   });
 }

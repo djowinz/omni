@@ -26,8 +26,9 @@ use windows::Win32::Graphics::Direct3D12::{
     ID3D12Device, ID3D12Resource, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_WEIGHT_NORMAL,
+    DWriteCreateFactory, IDWriteFactory, IDWriteFactory3, IDWriteFontCollection1,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_FONT_STRETCH_NORMAL,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT,
     DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
     DWRITE_TEXT_ALIGNMENT_LEADING,
 };
@@ -58,6 +59,38 @@ fn gradient_points(rect: &D2D_RECT_F, angle_deg: f32) -> (D2D_POINT_2F, D2D_POIN
         y: cy + dy,
     };
     (start, end)
+}
+
+/// Build a custom DirectWrite font collection from a .ttf font file.
+/// Returns `None` if the font file doesn't exist or the DWrite3 API is unavailable.
+unsafe fn build_custom_font_collection(
+    factory: &IDWriteFactory,
+    font_path: &str,
+) -> Option<IDWriteFontCollection1> {
+    // Need IDWriteFactory3 for CreateFontSetBuilder / CreateFontCollectionFromFontSet
+    let factory3: IDWriteFactory3 = factory.cast().ok()?;
+
+    let font_wide: Vec<u16> = font_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+    // Create font file reference → font face reference → font set → font collection
+    let font_file = factory
+        .CreateFontFileReference(windows::core::PCWSTR(font_wide.as_ptr()), None)
+        .ok()?;
+
+    let face_ref = factory3
+        .CreateFontFaceReference(&font_file, 0, DWRITE_FONT_SIMULATIONS_NONE)
+        .ok()?;
+
+    let builder = factory3.CreateFontSetBuilder().ok()?;
+    builder.AddFontFaceReference2(&face_ref).ok()?;
+    let font_set = builder.CreateFontSet().ok()?;
+    let collection = factory3.CreateFontCollectionFromFontSet(&font_set).ok()?;
+
+    log_to_file(&format!(
+        "[fonts] built DirectWrite font collection from {}",
+        font_path
+    ));
+    Some(collection)
 }
 
 /// Pre-scan widgets to identify "layer parents" — widgets that need a D2D PushLayer.
@@ -282,6 +315,9 @@ pub enum GraphicsApi {
 pub struct OverlayRenderer {
     d2d_factory: ID2D1Factory1,
     dwrite_factory: IDWriteFactory,
+    /// Custom font collection containing bundled fonts (e.g., feather icon font).
+    /// Used instead of the system collection for fonts not installed system-wide.
+    custom_font_collection: Option<IDWriteFontCollection1>,
     render_target: Option<ID2D1RenderTarget>,
     api: GraphicsApi,
     d3d11on12_device: Option<ID3D11On12Device>,
@@ -310,11 +346,26 @@ impl OverlayRenderer {
                 .map_err(|e| format!("DWriteCreateFactory failed: {e}"))?
         };
 
+        // Build a custom font collection from bundled font files (e.g., feather.ttf).
+        // AddFontResourceExW(FR_PRIVATE) only registers fonts for GDI — DirectWrite
+        // doesn't see them. We use IDWriteFactory3 to create a proper DWrite collection.
+        let custom_font_collection = unsafe {
+            let font_path = Self::find_bundled_font("feather.ttf");
+            match &font_path {
+                Some(path) => build_custom_font_collection(&dwrite_factory, path),
+                None => {
+                    log_to_file("[fonts] feather.ttf not found next to DLL");
+                    None
+                }
+            }
+        };
+
         log_to_file("[renderer] D2D1 + DirectWrite initialized");
 
         Ok(Self {
             d2d_factory,
             dwrite_factory,
+            custom_font_collection,
             render_target: None,
             api: GraphicsApi::Unknown,
             d3d11on12_device: None,
@@ -323,6 +374,26 @@ impl OverlayRenderer {
             last_swap_chain_ptr: std::ptr::null_mut(),
             dx12_fail_count: 0,
         })
+    }
+
+    /// Locate a font file next to the DLL binary.
+    fn find_bundled_font(filename: &str) -> Option<String> {
+        // Use the DLL module handle stored at attach time
+        let hinst = unsafe { (*crate::DLL_MODULE.0.get())? };
+        let mut path_buf = [0u16; 260];
+        let len =
+            unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(hinst, &mut path_buf) };
+        if len == 0 {
+            return None;
+        }
+        let dll_path = String::from_utf16_lossy(&path_buf[..len as usize]);
+        let dll_dir = &dll_path[..dll_path.rfind('\\')?];
+        let font_path = format!("{}\\{}", dll_dir, filename);
+        if std::path::Path::new(&font_path).exists() {
+            Some(font_path)
+        } else {
+            None
+        }
     }
 
     /// Detect the graphics API by querying the swap chain's device.
@@ -871,11 +942,7 @@ impl OverlayRenderer {
             // Draw text
             let text = read_fixed_str(&widget.format_pattern);
             if !text.is_empty() {
-                let font_weight = if widget.font_weight >= 700 {
-                    DWRITE_FONT_WEIGHT_BOLD
-                } else {
-                    DWRITE_FONT_WEIGHT_NORMAL
-                };
+                let font_weight = DWRITE_FONT_WEIGHT(widget.font_weight as i32);
 
                 // Read font family from the widget (set by host from CSS font-family)
                 let font_family_str = omni_shared::read_fixed_str(&widget.font_family);
@@ -884,9 +951,20 @@ impl OverlayRenderer {
                     .chain(std::iter::once(0))
                     .collect();
 
+                // Use custom font collection for the bundled icon font ("icomoon"),
+                // system collection (None) for all other fonts.
+                let is_icon_font = font_family_str == "icomoon";
+                let collection: Option<windows::Win32::Graphics::DirectWrite::IDWriteFontCollection> =
+                    if is_icon_font {
+                        self.custom_font_collection
+                            .as_ref()
+                            .and_then(|c| c.cast().ok())
+                    } else {
+                        None
+                    };
                 let text_format = self.dwrite_factory.CreateTextFormat(
                     windows::core::PCWSTR(font_family_wide.as_ptr()),
-                    None,
+                    collection.as_ref(),
                     font_weight,
                     DWRITE_FONT_STYLE_NORMAL,
                     DWRITE_FONT_STRETCH_NORMAL,

@@ -294,7 +294,7 @@ export function EditorPanel() {
             lineNumbersMinChars: 3,
             renderLineHighlight: 'line',
             contextmenu: true,
-            quickSuggestions: false,
+            quickSuggestions: { other: true, strings: true, comments: false },
             automaticLayout: true,
           }}
         />

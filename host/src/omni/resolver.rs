@@ -211,6 +211,34 @@ impl OmniResolver {
             // declaring element gets its opacity applied. Children render at their
             // own opacity (defaulting to 1.0).
 
+            // CSS inherited properties: if a child doesn't set these, inherit
+            // from the nearest ancestor that does. Flat tree is parent-before-child
+            // so a single forward pass suffices.
+            for i in 0..flat_nodes.len() {
+                let parent_idx = match flat_nodes[i].parent_index {
+                    Some(pi) => pi,
+                    None => continue,
+                };
+                let parent_style = match &resolved_styles[parent_idx] {
+                    Some(s) => s.clone(),
+                    None => continue,
+                };
+                if let Some(style) = resolved_styles[i].as_mut() {
+                    if style.font_family.is_none() {
+                        style.font_family = parent_style.font_family.clone();
+                    }
+                    if style.font_size.is_none() {
+                        style.font_size = parent_style.font_size.clone();
+                    }
+                    if style.font_weight.is_none() {
+                        style.font_weight = parent_style.font_weight.clone();
+                    }
+                    if style.color.is_none() {
+                        style.color = parent_style.color.clone();
+                    }
+                }
+            }
+
             // Step 3: Measure text for text-bearing elements
             let mut text_sizes: Vec<(f32, f32)> = vec![(0.0, 0.0); flat_nodes.len()];
             for (i, node) in flat_nodes.iter().enumerate() {
@@ -456,8 +484,15 @@ fn style_to_computed_widget(
             .font_weight
             .as_deref()
             .and_then(|w| match w {
-                "bold" => Some(700),
+                "thin" | "hairline" => Some(100),
+                "extra-light" | "ultralight" => Some(200),
+                "light" => Some(300),
                 "normal" => Some(400),
+                "medium" => Some(500),
+                "semi-bold" | "semibold" => Some(600),
+                "bold" => Some(700),
+                "extra-bold" | "ultrabold" => Some(800),
+                "black" | "heavy" => Some(900),
                 _ => w.parse().ok(),
             })
             .unwrap_or(400),
@@ -1411,5 +1446,47 @@ mod tests {
         // Before fix, child would say parent_index=0 (relative), pointing to w1's parent
         assert_eq!(widgets[2].parent_index, u16::MAX, "w2 parent should be root");
         assert_eq!(widgets[3].parent_index, 2, "w2 child should point to absolute 2, not 0");
+    }
+
+    #[test]
+    fn font_family_inherited_from_parent() {
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+
+        let file = OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![Widget {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                enabled: true,
+                template: HtmlNode::Element {
+                    tag: "div".to_string(),
+                    id: None,
+                    classes: vec!["panel".to_string()],
+                    inline_style: None,
+                    conditional_classes: vec![],
+                    children: vec![HtmlNode::Element {
+                        tag: "span".to_string(),
+                        id: None,
+                        classes: vec![],
+                        inline_style: None,
+                        conditional_classes: vec![],
+                        children: vec![HtmlNode::Text {
+                            content: "hello".to_string(),
+                        }],
+                    }],
+                },
+                style_source: ".panel { background: #333; font-family: 'Comic Sans MS'; }".to_string(),
+            }],
+        };
+
+        let mut resolver = OmniResolver::new();
+        let snap = SensorSnapshot::default();
+        let widgets = resolver.resolve(&file, &snap);
+
+        // Child text widget should inherit font-family from parent
+        assert!(widgets.len() >= 2, "Expected >= 2 widgets, got {}", widgets.len());
+        let child_font = omni_shared::read_fixed_str(&widgets[1].font_family);
+        assert_eq!(child_font, "Comic Sans MS", "Child should inherit parent's font-family");
     }
 }

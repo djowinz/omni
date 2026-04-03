@@ -12,27 +12,36 @@ interface MetricConfig {
   max: number;
   step: number;
   unit: string;
-  category: 'fps' | 'gpu' | 'cpu' | 'ram';
+  category: 'frame' | 'gpu' | 'cpu' | 'ram';
 }
 
 const METRICS: MetricConfig[] = [
-  { key: 'fps', label: 'FPS', min: 0, max: 300, step: 1, unit: '', category: 'fps' },
-  { key: 'frametime', label: 'Frametime', min: 0, max: 100, step: 0.1, unit: 'ms', category: 'fps' },
-  { key: 'frame.1pct', label: 'Frame 1%', min: 0, max: 200, step: 1, unit: '', category: 'fps' },
+  // Frame
+  { key: 'fps', label: 'FPS', min: 0, max: 300, step: 1, unit: '', category: 'frame' },
+  { key: 'frame-time', label: 'Frame Time', min: 0, max: 100, step: 0.1, unit: 'ms', category: 'frame' },
+  { key: 'frame-time.avg', label: 'Frame Avg', min: 0, max: 100, step: 0.1, unit: 'ms', category: 'frame' },
+  { key: 'frame-time.1pct', label: 'Frame 1%', min: 0, max: 100, step: 0.1, unit: 'ms', category: 'frame' },
+  { key: 'frame-time.01pct', label: 'Frame 0.1%', min: 0, max: 100, step: 0.1, unit: 'ms', category: 'frame' },
+  // CPU
+  { key: 'cpu.usage', label: 'CPU Usage', min: 0, max: 100, step: 1, unit: '%', category: 'cpu' },
+  { key: 'cpu.temp', label: 'CPU Temp', min: 20, max: 100, step: 1, unit: '°C', category: 'cpu' },
+  // GPU
   { key: 'gpu.usage', label: 'GPU Usage', min: 0, max: 100, step: 1, unit: '%', category: 'gpu' },
   { key: 'gpu.temp', label: 'GPU Temp', min: 20, max: 100, step: 1, unit: '°C', category: 'gpu' },
   { key: 'gpu.clock', label: 'GPU Clock', min: 500, max: 3000, step: 10, unit: 'MHz', category: 'gpu' },
+  { key: 'gpu.mem-clock', label: 'Mem Clock', min: 500, max: 3000, step: 10, unit: 'MHz', category: 'gpu' },
   { key: 'gpu.vram.used', label: 'VRAM Used', min: 0, max: 24000, step: 100, unit: 'MB', category: 'gpu' },
+  { key: 'gpu.vram.total', label: 'VRAM Total', min: 0, max: 24000, step: 100, unit: 'MB', category: 'gpu' },
   { key: 'gpu.power', label: 'GPU Power', min: 0, max: 500, step: 5, unit: 'W', category: 'gpu' },
-  { key: 'gpu.volt', label: 'GPU Voltage', min: 800, max: 1200, step: 10, unit: 'mV', category: 'gpu' },
   { key: 'gpu.fan', label: 'GPU Fan', min: 0, max: 100, step: 1, unit: '%', category: 'gpu' },
-  { key: 'cpu.usage', label: 'CPU Usage', min: 0, max: 100, step: 1, unit: '%', category: 'cpu' },
-  { key: 'cpu.temp', label: 'CPU Temp', min: 20, max: 100, step: 1, unit: '°C', category: 'cpu' },
+  // RAM
   { key: 'ram.usage', label: 'RAM Usage', min: 0, max: 100, step: 1, unit: '%', category: 'ram' },
+  { key: 'ram.used', label: 'RAM Used', min: 0, max: 65536, step: 256, unit: 'MB', category: 'ram' },
+  { key: 'ram.total', label: 'RAM Total', min: 0, max: 65536, step: 256, unit: 'MB', category: 'ram' },
 ];
 
 const categoryColors = {
-  fps: '#00D9FF',
+  frame: '#00D9FF',
   gpu: '#A855F7',
   cpu: '#3B82F6',
   ram: '#22C55E',

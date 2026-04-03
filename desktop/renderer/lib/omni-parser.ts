@@ -294,12 +294,10 @@ function formatMetricValue(path: string, value: number | null): string {
       return Math.round(value).toString();
 
     // One decimal place
-    case 'frametime':
     case 'frame-time':
     case 'frame-time.avg':
     case 'frame-time.1pct':
     case 'frame-time.01pct':
-    case 'frame.1pct':
       return value.toFixed(1);
 
     // Integer values
@@ -340,17 +338,8 @@ function replacePlaceholders(template: string, metrics: MetricValues): string {
  * Get a metric value by its dot notation path
  */
 function getMetricValue(path: string, metrics: MetricValues): number | null {
-  // Handle cpu.core.N pattern
-  const coreMatch = /^cpu\.core\.(\d+)$/.exec(path);
-  if (coreMatch) {
-    const index = parseInt(coreMatch[1], 10);
-    return metrics['cpu.core'][index] ?? null;
-  }
-  
-  // Direct property access
   const value = (metrics as unknown as Record<string, unknown>)[path];
   if (typeof value === 'number') return value;
-  
   return null;
 }
 

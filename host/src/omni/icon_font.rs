@@ -76,30 +76,49 @@ mod tests {
     #[test]
     fn parse_feather_css_pattern() {
         let css = r#"
-            .icon-cpu:before { content: "\e85e"; }
-            .icon-activity:before { content: "\e81d"; }
-            .icon-zap:before { content: "\e8f8"; }
+            .icon-cpu:before { content: "\e954"; }
+            .icon-activity:before { content: "\e922"; }
+            .icon-zap:before { content: "\ea17"; }
         "#;
         let mut icons = HashMap::new();
         IconFontMap::parse_css(css, &mut icons);
 
         assert_eq!(icons.len(), 3);
-        assert_eq!(icons.get("cpu"), Some(&'\u{e85e}'));
-        assert_eq!(icons.get("activity"), Some(&'\u{e81d}'));
-        assert_eq!(icons.get("zap"), Some(&'\u{e8f8}'));
+        assert_eq!(icons.get("cpu"), Some(&'\u{e954}'));
+        assert_eq!(icons.get("activity"), Some(&'\u{e922}'));
+        assert_eq!(icons.get("zap"), Some(&'\u{ea17}'));
     }
 
     #[test]
     fn resolve_icon_from_classes() {
-        let css = r#".icon-cpu:before { content: "\e85e"; }"#;
+        let css = r#".icon-cpu:before { content: "\e954"; }"#;
         let mut icons = HashMap::new();
         IconFontMap::parse_css(css, &mut icons);
         let map = IconFontMap { icons };
 
         let classes = vec!["icon".to_string(), "icon-cpu".to_string()];
-        assert_eq!(map.resolve_icon_classes(&classes), Some('\u{e85e}'));
+        assert_eq!(map.resolve_icon_classes(&classes), Some('\u{e954}'));
 
         let no_icon = vec!["panel".to_string()];
         assert_eq!(map.resolve_icon_classes(&no_icon), None);
+    }
+
+    #[test]
+    fn parse_multiline_css_format() {
+        // The actual feather.css uses multi-line format
+        let css = r#"
+.icon-cpu:before {
+    content: "\e954";
+}
+.icon-thermometer:before {
+    content: "\e9c6";
+}
+"#;
+        let mut icons = HashMap::new();
+        IconFontMap::parse_css(css, &mut icons);
+
+        assert_eq!(icons.len(), 2, "Should parse multi-line CSS entries, got: {:?}", icons);
+        assert_eq!(icons.get("cpu"), Some(&'\u{e954}'));
+        assert_eq!(icons.get("thermometer"), Some(&'\u{e9c6}'));
     }
 }
