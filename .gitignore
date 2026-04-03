@@ -6,3 +6,5 @@
 .worktrees/
 .claude/settings.local.*
 .superpowers
+
+desktop/src/generated
