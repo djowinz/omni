@@ -23,11 +23,12 @@ Add two fields:
 ```rust
 /// Index of parent widget in the widgets array. u16::MAX = no parent (root).
 pub parent_index: u16,
-/// Overflow behavior: 0 = visible (default), 1 = hidden (clips children).
-pub overflow: u8,
+/// Overflow behavior per axis: 0 = visible (default), 1 = hidden (clips children).
+pub overflow_x: u8,
+pub overflow_y: u8,
 ```
 
-Default: `parent_index: u16::MAX`, `overflow: 0`.
+Default: `parent_index: u16::MAX`, `overflow_x: 0`, `overflow_y: 0`.
 
 Bump `IPC_PROTOCOL_VERSION` to 4.
 
@@ -39,35 +40,49 @@ Bump `IPC_PROTOCOL_VERSION` to 4.
 - For each emitted widget, look up its flat node's `parent_index`, find the nearest ancestor that was also emitted as a `ComputedWidget`, and write that emitted index as `parent_index`
 - If no ancestor was emitted, set `parent_index = u16::MAX`
 
-**Emit `overflow`:**
-- Add `overflow: Option<String>` to `ResolvedStyle`
-- CSS resolver reads `overflow` property
-- Resolver maps `"hidden"` → `1`, everything else → `0`
+**Emit `overflow_x` / `overflow_y`:**
+- Add `overflow: Option<String>`, `overflow_x: Option<String>`, `overflow_y: Option<String>` to `ResolvedStyle`
+- CSS resolver reads `overflow` (shorthand, sets both axes), `overflow-x`, `overflow-y` (individual overrides)
+- Resolver maps `"hidden"` → `1`, everything else → `0` for each axis independently
 
 **Emit order guarantee:**
 The flat tree walk is top-down — parent flat nodes always have lower indices than children. The emission loop preserves this order. Parent widgets are always emitted before their children in the `widgets` Vec.
 
 ### 3. CSS resolver (host/src/omni/css.rs)
 
-Add `overflow` to the property map:
+Add overflow properties:
 ```rust
 overflow: props.get("overflow").cloned(),
+overflow_x: props.get("overflow-x").cloned(),
+overflow_y: props.get("overflow-y").cloned(),
 ```
+
+`overflow` is the shorthand — sets both axes. `overflow-x` and `overflow-y` override individually.
 
 ### 4. Layout engine (host/src/omni/layout.rs)
 
-Add taffy overflow support:
+Add taffy overflow support. Shorthand sets both, individual axes override:
 ```rust
+// Shorthand
 if let Some(ref overflow) = style.overflow {
-    match overflow.as_str() {
-        "hidden" => {
-            ts.overflow = Point {
-                x: taffy::Overflow::Hidden,
-                y: taffy::Overflow::Hidden,
-            };
-        }
-        _ => {}
-    }
+    let val = match overflow.as_str() {
+        "hidden" => taffy::Overflow::Hidden,
+        _ => taffy::Overflow::Visible,
+    };
+    ts.overflow = Point { x: val, y: val };
+}
+// Individual overrides
+if let Some(ref ox) = style.overflow_x {
+    ts.overflow.x = match ox.as_str() {
+        "hidden" => taffy::Overflow::Hidden,
+        _ => taffy::Overflow::Visible,
+    };
+}
+if let Some(ref oy) = style.overflow_y {
+    ts.overflow.y = match oy.as_str() {
+        "hidden" => taffy::Overflow::Hidden,
+        _ => taffy::Overflow::Visible,
+    };
 }
 ```
 
@@ -80,14 +95,18 @@ Replace the flat `for widget in widgets` loop with a hierarchy-aware render:
 ```
 1. Scan widgets to identify "layer parents" — widgets where:
    - opacity < 1.0 AND at least one other widget references them as parent_index
-   - OR overflow == 1 (hidden)
+   - OR overflow_x == 1 or overflow_y == 1 (clipping on at least one axis)
 
 2. Render in order (widgets are already parent-before-child):
    For each widget:
      a. If this widget is a layer parent:
         - Create D2D1_LAYER_PARAMETERS with:
           - opacity (if < 1.0, else 1.0)
-          - contentBounds (if overflow hidden: widget's rect; else: infinite)
+          - contentBounds: per-axis clipping rect
+            - overflow_x hidden: left = widget.x, right = widget.x + widget.width
+            - overflow_x visible: left = f32::MIN, right = f32::MAX
+            - overflow_y hidden: top = widget.y, bottom = widget.y + widget.height
+            - overflow_y visible: top = f32::MIN, bottom = f32::MAX
         - PushLayer
         - Draw this widget's background/border/shadow at FULL opacity (layer handles fade)
      b. If this widget is NOT a layer parent:
@@ -127,6 +146,8 @@ When NOT inside a layer:
 Add:
 ```rust
 pub overflow: Option<String>,
+pub overflow_x: Option<String>,
+pub overflow_y: Option<String>,
 ```
 
 ## Files Modified
@@ -138,12 +159,11 @@ pub overflow: Option<String>,
 | `host/src/omni/types.rs` | Add `overflow: Option<String>` to `ResolvedStyle` |
 | `host/src/omni/css.rs` | Read `overflow` property |
 | `host/src/omni/layout.rs` | Map `overflow: hidden` to taffy |
-| `host/src/omni/resolver.rs` | Emit `parent_index` + `overflow` on `ComputedWidget` |
+| `host/src/omni/resolver.rs` | Emit `parent_index` + `overflow_x/overflow_y` on `ComputedWidget` |
 | `overlay-dll/src/renderer.rs` | Hierarchy-aware render loop with `PushLayer`/`PopLayer` |
 
 ## Out of Scope
 
-- `overflow-x` / `overflow-y` independently (both axes clip together for now)
 - `overflow: scroll` (no scrollbars in the overlay)
 - `transform` compositing (`transform: scale()`, `rotate()`)
 - `mix-blend-mode`
