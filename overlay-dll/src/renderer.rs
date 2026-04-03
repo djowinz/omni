@@ -649,6 +649,7 @@ impl OverlayRenderer {
         let is_layer_parent = scan_layer_parents(widgets);
         let mut layer_stack: Vec<usize> = Vec::new();
         let mut skip_ancestor: Option<usize> = None;
+        let rt_size = rt.GetSize();
 
         for wi in 0..widgets.len() {
             // Skip descendants of an invisible layer parent so they don't
@@ -691,14 +692,15 @@ impl OverlayRenderer {
 
             // If this widget is a layer parent, push a D2D compositing layer
             if is_layer_parent[wi] {
-                // Use halved extremes to avoid overflow in D2D's internal transform math
-                const UNCLIPPED_MIN: f32 = -f32::MAX / 2.0;
-                const UNCLIPPED_MAX: f32 = f32::MAX / 2.0;
+                // For clipped axes use the widget bounds; for visible axes use
+                // the full render target so children aren't clipped. Avoid extreme
+                // float values — D2D allocates an intermediate surface for the
+                // layer and extreme bounds can corrupt the compositing result.
                 let content_bounds = D2D_RECT_F {
-                    left: if widget.overflow_x == 1 { rect.left } else { UNCLIPPED_MIN },
-                    top: if widget.overflow_y == 1 { rect.top } else { UNCLIPPED_MIN },
-                    right: if widget.overflow_x == 1 { rect.right } else { UNCLIPPED_MAX },
-                    bottom: if widget.overflow_y == 1 { rect.bottom } else { UNCLIPPED_MAX },
+                    left: if widget.overflow_x == 1 { rect.left } else { 0.0 },
+                    top: if widget.overflow_y == 1 { rect.top } else { 0.0 },
+                    right: if widget.overflow_x == 1 { rect.right } else { rt_size.width },
+                    bottom: if widget.overflow_y == 1 { rect.bottom } else { rt_size.height },
                 };
 
                 let layer_params = D2D1_LAYER_PARAMETERS {
