@@ -373,7 +373,11 @@ impl OmniResolver {
                     widgets.push(cw);
                 } else if !node.child_indices.is_empty() {
                     let bg = parse_color(style.background.as_deref());
-                    if bg[3] > 0 || style.border_radius.is_some() {
+                    let has_overflow_clip = style.overflow.as_deref() == Some("hidden")
+                        || style.overflow_x.as_deref() == Some("hidden")
+                        || style.overflow_y.as_deref() == Some("hidden");
+                    let needs_compositing = style.opacity.map_or(false, |o| o < 1.0);
+                    if bg[3] > 0 || style.border_radius.is_some() || has_overflow_clip || needs_compositing {
                         let mut cw = style_to_computed_widget(style, x, y, width);
                         cw.widget_type = WidgetType::Group;
                         cw.source = SensorSource::None;
@@ -1303,5 +1307,51 @@ mod tests {
         assert!(!widgets.is_empty(), "Expected at least 1 widget");
         assert_eq!(widgets[0].overflow_x, 1, "overflow_x should be 1 (hidden)");
         assert_eq!(widgets[0].overflow_y, 0, "overflow_y should be 0 (visible)");
+    }
+
+    #[test]
+    fn transparent_overflow_container_emitted_as_group() {
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+
+        // A container with overflow: hidden but NO background should still
+        // be emitted as a Group widget so the DLL can clip its children.
+        let file = OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![Widget {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                enabled: true,
+                template: HtmlNode::Element {
+                    tag: "div".to_string(),
+                    id: None,
+                    classes: vec!["clip-container".to_string()],
+                    inline_style: None,
+                    conditional_classes: vec![],
+                    children: vec![HtmlNode::Element {
+                        tag: "span".to_string(),
+                        id: None,
+                        classes: vec![],
+                        inline_style: None,
+                        conditional_classes: vec![],
+                        children: vec![HtmlNode::Text {
+                            content: "clipped text".to_string(),
+                        }],
+                    }],
+                },
+                style_source: ".clip-container { overflow: hidden; }".to_string(),
+            }],
+        };
+
+        let mut resolver = OmniResolver::new();
+        let snap = SensorSnapshot::default();
+        let widgets = resolver.resolve(&file, &snap);
+
+        // Should emit at least 2 widgets: the transparent clip container + child
+        assert!(widgets.len() >= 2, "Expected >= 2 widgets, got {}", widgets.len());
+        assert_eq!(widgets[0].overflow_x, 1);
+        assert_eq!(widgets[0].overflow_y, 1);
+        // Child should reference parent
+        assert_eq!(widgets[1].parent_index, 0);
     }
 }

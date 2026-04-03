@@ -4,4 +4,12 @@ export type FrameData = { fps: number, frame_time_ms: number, frame_time_avg_ms:
 /**
  * false if no frame data source is active.
  */
-available: boolean, };
+available: boolean, 
+/**
+ * Render target width in pixels (from swap chain).
+ */
+render_width: number, 
+/**
+ * Render target height in pixels (from swap chain).
+ */
+render_height: number, };
