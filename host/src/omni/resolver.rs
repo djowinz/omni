@@ -289,6 +289,8 @@ impl OmniResolver {
             );
 
             // Step 5: Emit ComputedWidgets using layout positions
+            let widget_base = widgets.len();
+            let mut flat_to_widget: HashMap<usize, u16> = HashMap::new();
             for (i, node) in flat_nodes.iter().enumerate() {
                 if node.is_text {
                     continue;
@@ -348,6 +350,9 @@ impl OmniResolver {
 
                     write_fixed_str(&mut cw.label_text, &raw_template);
                     write_fixed_str(&mut cw.format_pattern, &text);
+                    cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
+                    set_overflow_flags(&mut cw, style);
+                    flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
                     widgets.push(cw);
                 } else if let Some(icon_char) = self.icon_map.resolve_icon_classes(&node.classes) {
                     // Icon element: has icon-* class, render as text with the icon font
@@ -362,6 +367,9 @@ impl OmniResolver {
                     // The feather.ttf font registers as "icomoon" internally in DirectWrite
                     write_fixed_str(&mut cw.font_family, "icomoon");
 
+                    cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
+                    set_overflow_flags(&mut cw, style);
+                    flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
                     widgets.push(cw);
                 } else if !node.child_indices.is_empty() {
                     let bg = parse_color(style.background.as_deref());
@@ -371,18 +379,58 @@ impl OmniResolver {
                         cw.source = SensorSource::None;
                         cw.height = height;
 
+                        cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
+                        set_overflow_flags(&mut cw, style);
+                        flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
                         widgets.push(cw);
                     }
                 } else if height > 0.0 || parse_color(style.background.as_deref())[3] > 0 {
                     let mut cw = style_to_computed_widget(style, x, y, width);
                     cw.widget_type = WidgetType::Spacer;
                     cw.height = height;
+                    cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
+                    set_overflow_flags(&mut cw, style);
+                    flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
                     widgets.push(cw);
                 }
             }
         }
 
         widgets
+    }
+}
+
+/// Walk up the flat tree from `node_index` to find the nearest ancestor
+/// that was emitted as a ComputedWidget. Returns u16::MAX if none found.
+fn find_emitted_parent(
+    flat_nodes: &[FlatNode],
+    node_index: usize,
+    flat_to_widget: &HashMap<usize, u16>,
+) -> u16 {
+    let mut current = flat_nodes[node_index].parent_index;
+    while let Some(pi) = current {
+        if let Some(&widget_idx) = flat_to_widget.get(&pi) {
+            return widget_idx;
+        }
+        current = flat_nodes[pi].parent_index;
+    }
+    u16::MAX
+}
+
+/// Set overflow_x and overflow_y on a ComputedWidget from its ResolvedStyle.
+fn set_overflow_flags(cw: &mut ComputedWidget, style: &ResolvedStyle) {
+    // Shorthand sets both axes
+    if let Some(ref overflow) = style.overflow {
+        let val = if overflow == "hidden" { 1 } else { 0 };
+        cw.overflow_x = val;
+        cw.overflow_y = val;
+    }
+    // Individual axes override
+    if let Some(ref ox) = style.overflow_x {
+        cw.overflow_x = if ox == "hidden" { 1 } else { 0 };
+    }
+    if let Some(ref oy) = style.overflow_y {
+        cw.overflow_y = if oy == "hidden" { 1 } else { 0 };
     }
 }
 
@@ -1175,5 +1223,85 @@ mod tests {
         let cw = style_to_computed_widget(&style, 0.0, 0.0, 100.0);
         // background should win over background_color
         assert_eq!(cw.bg_color_rgba, [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn parent_index_emitted_for_nested_widgets() {
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+
+        let file = OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![Widget {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                enabled: true,
+                template: HtmlNode::Element {
+                    tag: "div".to_string(),
+                    id: None,
+                    classes: vec!["parent".to_string()],
+                    inline_style: None,
+                    conditional_classes: vec![],
+                    children: vec![HtmlNode::Element {
+                        tag: "div".to_string(),
+                        id: None,
+                        classes: vec!["child".to_string()],
+                        inline_style: None,
+                        conditional_classes: vec![],
+                        children: vec![HtmlNode::Text {
+                            content: "hello".to_string(),
+                        }],
+                    }],
+                },
+                style_source: ".parent { background: rgba(0,0,0,0.5); } .child { color: white; }".to_string(),
+            }],
+        };
+
+        let mut resolver = OmniResolver::new();
+        let snap = SensorSnapshot::default();
+        let widgets = resolver.resolve(&file, &snap);
+
+        // Should emit at least 2 widgets (parent group + child text)
+        assert!(widgets.len() >= 2, "Expected >= 2 widgets, got {}", widgets.len());
+
+        // First widget should have parent_index = u16::MAX (root)
+        assert_eq!(widgets[0].parent_index, u16::MAX);
+
+        // Second widget should reference first as parent
+        assert_eq!(widgets[1].parent_index, 0);
+    }
+
+    #[test]
+    fn overflow_flags_emitted() {
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+
+        let file = OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![Widget {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                enabled: true,
+                template: HtmlNode::Element {
+                    tag: "div".to_string(),
+                    id: None,
+                    classes: vec!["clip".to_string()],
+                    inline_style: None,
+                    conditional_classes: vec![],
+                    children: vec![HtmlNode::Text {
+                        content: "hello".to_string(),
+                    }],
+                },
+                style_source: ".clip { overflow-x: hidden; overflow-y: visible; background: black; }".to_string(),
+            }],
+        };
+
+        let mut resolver = OmniResolver::new();
+        let snap = SensorSnapshot::default();
+        let widgets = resolver.resolve(&file, &snap);
+
+        assert!(!widgets.is_empty(), "Expected at least 1 widget");
+        assert_eq!(widgets[0].overflow_x, 1, "overflow_x should be 1 (hidden)");
+        assert_eq!(widgets[0].overflow_y, 0, "overflow_y should be 0 (visible)");
     }
 }
