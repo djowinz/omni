@@ -289,7 +289,6 @@ impl OmniResolver {
             );
 
             // Step 5: Emit ComputedWidgets using layout positions
-            let widget_base = widgets.len();
             let mut flat_to_widget: HashMap<usize, u16> = HashMap::new();
             for (i, node) in flat_nodes.iter().enumerate() {
                 if node.is_text {
@@ -350,7 +349,7 @@ impl OmniResolver {
 
                     write_fixed_str(&mut cw.label_text, &raw_template);
                     write_fixed_str(&mut cw.format_pattern, &text);
-                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
+                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, &mut widgets);
                 } else if let Some(icon_char) = self.icon_map.resolve_icon_classes(&node.classes) {
                     // Icon element: has icon-* class, render as text with the icon font
                     let mut cw = style_to_computed_widget(style, x, y, width);
@@ -364,7 +363,7 @@ impl OmniResolver {
                     // The feather.ttf font registers as "icomoon" internally in DirectWrite
                     write_fixed_str(&mut cw.font_family, "icomoon");
 
-                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
+                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, &mut widgets);
                 } else if !node.child_indices.is_empty() {
                     let bg = parse_color(style.background.as_deref());
                     let has_overflow_clip = style.overflow.as_deref() == Some("hidden")
@@ -377,13 +376,13 @@ impl OmniResolver {
                         cw.source = SensorSource::None;
                         cw.height = height;
 
-                        emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
+                        emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, &mut widgets);
                     }
                 } else if height > 0.0 || parse_color(style.background.as_deref())[3] > 0 {
                     let mut cw = style_to_computed_widget(style, x, y, width);
                     cw.widget_type = WidgetType::Spacer;
                     cw.height = height;
-                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
+                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, &mut widgets);
                 }
             }
         }
@@ -432,12 +431,11 @@ fn emit_widget(
     style: &ResolvedStyle,
     flat_nodes: &[FlatNode],
     flat_to_widget: &mut HashMap<usize, u16>,
-    widget_base: usize,
     widgets: &mut Vec<ComputedWidget>,
 ) {
     cw.parent_index = find_emitted_parent(flat_nodes, flat_index, flat_to_widget);
     set_overflow_flags(cw, style);
-    flat_to_widget.insert(flat_index, (widgets.len() - widget_base) as u16);
+    flat_to_widget.insert(flat_index, widgets.len() as u16);
     widgets.push(*cw);
 }
 
@@ -1356,5 +1354,62 @@ mod tests {
         assert_eq!(widgets[0].overflow_y, 1);
         // Child should reference parent
         assert_eq!(widgets[1].parent_index, 0);
+    }
+
+    #[test]
+    fn parent_index_is_absolute_across_widget_definitions() {
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+
+        // Two widget definitions, each with a parent+child.
+        // The second definition's child must point to the absolute index
+        // of its parent in the global widget array, not a relative index.
+        let make_widget = |id: &str, cls: &str| Widget {
+            id: id.to_string(),
+            name: id.to_string(),
+            enabled: true,
+            template: HtmlNode::Element {
+                tag: "div".to_string(),
+                id: None,
+                classes: vec![cls.to_string()],
+                inline_style: None,
+                conditional_classes: vec![],
+                children: vec![HtmlNode::Element {
+                    tag: "span".to_string(),
+                    id: None,
+                    classes: vec![],
+                    inline_style: None,
+                    conditional_classes: vec![],
+                    children: vec![HtmlNode::Text {
+                        content: "text".to_string(),
+                    }],
+                }],
+            },
+            style_source: format!(".{cls} {{ background: rgba(0,0,0,0.5); }}"),
+        };
+
+        let file = OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![
+                make_widget("w1", "first"),
+                make_widget("w2", "second"),
+            ],
+        };
+
+        let mut resolver = OmniResolver::new();
+        let snap = SensorSnapshot::default();
+        let widgets = resolver.resolve(&file, &snap);
+
+        // Each widget def emits 2 widgets (parent group + child text)
+        assert!(widgets.len() >= 4, "Expected >= 4 widgets, got {}", widgets.len());
+
+        // Widget def 1: parent at 0, child at 1
+        assert_eq!(widgets[0].parent_index, u16::MAX, "w1 parent should be root");
+        assert_eq!(widgets[1].parent_index, 0, "w1 child should point to absolute 0");
+
+        // Widget def 2: parent at 2, child at 3
+        // Before fix, child would say parent_index=0 (relative), pointing to w1's parent
+        assert_eq!(widgets[2].parent_index, u16::MAX, "w2 parent should be root");
+        assert_eq!(widgets[3].parent_index, 2, "w2 child should point to absolute 2, not 0");
     }
 }
