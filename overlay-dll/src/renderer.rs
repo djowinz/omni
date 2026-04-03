@@ -9,9 +9,10 @@ use windows::Win32::Graphics::Direct2D::Common::{
     D2D_SIZE_F,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, ID2D1Brush, ID2D1Factory1, ID2D1RenderTarget, D2D1_ARC_SEGMENT,
-    D2D1_ARC_SIZE_SMALL, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_EXTEND_MODE_CLAMP,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_GAMMA_2_2, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
+    D2D1CreateFactory, ID2D1Brush, ID2D1Factory1, ID2D1RenderTarget,
+    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1_GAMMA_2_2, D2D1_LAYER_OPTIONS_NONE, D2D1_LAYER_PARAMETERS, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_ROUNDED_RECT, D2D1_SWEEP_DIRECTION_CLOCKWISE,
 };
 use windows::Win32::Graphics::Direct3D11::{
@@ -57,6 +58,50 @@ fn gradient_points(rect: &D2D_RECT_F, angle_deg: f32) -> (D2D_POINT_2F, D2D_POIN
         y: cy + dy,
     };
     (start, end)
+}
+
+/// Pre-scan widgets to identify "layer parents" — widgets that need a D2D PushLayer.
+/// A widget is a layer parent if:
+/// - opacity < 1.0 AND at least one other widget references it as parent_index
+/// - OR overflow_x == 1 or overflow_y == 1
+fn scan_layer_parents(widgets: &[ComputedWidget]) -> [bool; omni_shared::MAX_WIDGETS] {
+    let len = widgets.len();
+    let mut is_layer_parent = [false; omni_shared::MAX_WIDGETS];
+    let mut child_count = [0u16; omni_shared::MAX_WIDGETS];
+
+    for w in widgets.iter() {
+        let pi = w.parent_index as usize;
+        if pi < len {
+            child_count[pi] += 1;
+        }
+    }
+
+    for (i, w) in widgets.iter().enumerate() {
+        if w.overflow_x == 1 || w.overflow_y == 1 {
+            is_layer_parent[i] = true;
+            continue;
+        }
+        if w.opacity < 1.0 && child_count[i] > 0 {
+            is_layer_parent[i] = true;
+        }
+    }
+
+    is_layer_parent
+}
+
+/// Check if widget at `child_idx` is a descendant of widget at `ancestor_idx`.
+fn is_descendant_of(widgets: &[ComputedWidget], child_idx: usize, ancestor_idx: usize) -> bool {
+    let mut current = child_idx;
+    loop {
+        let pi = widgets[current].parent_index as usize;
+        if pi == ancestor_idx {
+            return true;
+        }
+        if pi >= widgets.len() || pi == current {
+            return false;
+        }
+        current = pi;
+    }
 }
 
 /// Fill a rectangle with per-corner border radii using `ID2D1PathGeometry`.
@@ -601,14 +646,41 @@ impl OverlayRenderer {
 
         rt.BeginDraw();
 
-        for widget in widgets {
+        let is_layer_parent = scan_layer_parents(widgets);
+        let mut layer_stack: Vec<usize> = Vec::new();
+        let mut skip_ancestor: Option<usize> = None;
+
+        for wi in 0..widgets.len() {
+            // Skip descendants of an invisible layer parent so they don't
+            // render at full opacity while the parent is fading out.
+            if let Some(ancestor_idx) = skip_ancestor {
+                if is_descendant_of(widgets, wi, ancestor_idx) {
+                    continue;
+                } else {
+                    skip_ancestor = None;
+                }
+            }
+
+            let widget = &widgets[wi];
+
             // Skip fully invisible widgets. We use a small epsilon so that
             // widgets mid-transition (opacity 0.001) still render — the host's
             // transition engine interpolates from 0→1 and we need to draw
             // even at very low opacity values for smooth animation.
             if widget.opacity < 0.001 {
+                if is_layer_parent[wi] {
+                    skip_ancestor = Some(wi);
+                }
                 continue;
             }
+
+            // Determine draw_opacity: if this widget is a layer parent, the
+            // layer handles the fade so we draw contents at full opacity.
+            let draw_opacity = if is_layer_parent[wi] {
+                1.0
+            } else {
+                widget.opacity
+            };
 
             let rect = D2D_RECT_F {
                 left: widget.x,
@@ -617,13 +689,46 @@ impl OverlayRenderer {
                 bottom: widget.y + widget.height,
             };
 
+            // If this widget is a layer parent, push a D2D compositing layer
+            if is_layer_parent[wi] {
+                // Use halved extremes to avoid overflow in D2D's internal transform math
+                const UNCLIPPED_MIN: f32 = -f32::MAX / 2.0;
+                const UNCLIPPED_MAX: f32 = f32::MAX / 2.0;
+                let content_bounds = D2D_RECT_F {
+                    left: if widget.overflow_x == 1 { rect.left } else { UNCLIPPED_MIN },
+                    top: if widget.overflow_y == 1 { rect.top } else { UNCLIPPED_MIN },
+                    right: if widget.overflow_x == 1 { rect.right } else { UNCLIPPED_MAX },
+                    bottom: if widget.overflow_y == 1 { rect.bottom } else { UNCLIPPED_MAX },
+                };
+
+                let layer_params = D2D1_LAYER_PARAMETERS {
+                    contentBounds: content_bounds,
+                    geometricMask: ManuallyDrop::new(None),
+                    maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    maskTransform: windows::Foundation::Numerics::Matrix3x2 {
+                        M11: 1.0,
+                        M12: 0.0,
+                        M21: 0.0,
+                        M22: 1.0,
+                        M31: 0.0,
+                        M32: 0.0,
+                    },
+                    opacity: widget.opacity,
+                    opacityBrush: ManuallyDrop::new(None),
+                    layerOptions: D2D1_LAYER_OPTIONS_NONE,
+                };
+
+                rt.PushLayer(&layer_params, None);
+                layer_stack.push(wi);
+            }
+
             let radii = widget.border_radius; // [tl, tr, br, bl]
 
             // Draw box shadow (before main background)
             if widget.box_shadow.enabled {
                 let shadow = &widget.box_shadow;
                 let sc = &shadow.color_rgba;
-                let shadow_alpha = (sc[3] as f32 / 255.0) * widget.opacity;
+                let shadow_alpha = (sc[3] as f32 / 255.0) * draw_opacity;
 
                 if shadow_alpha > 0.0 {
                     let shadow_rect = D2D_RECT_F {
@@ -709,13 +814,13 @@ impl OverlayRenderer {
                     r: grad.start_rgba[0] as f32 / 255.0,
                     g: grad.start_rgba[1] as f32 / 255.0,
                     b: grad.start_rgba[2] as f32 / 255.0,
-                    a: (grad.start_rgba[3] as f32 / 255.0) * widget.opacity,
+                    a: (grad.start_rgba[3] as f32 / 255.0) * draw_opacity,
                 };
                 let end_color = D2D1_COLOR_F {
                     r: grad.end_rgba[0] as f32 / 255.0,
                     g: grad.end_rgba[1] as f32 / 255.0,
                     b: grad.end_rgba[2] as f32 / 255.0,
-                    a: (grad.end_rgba[3] as f32 / 255.0) * widget.opacity,
+                    a: (grad.end_rgba[3] as f32 / 255.0) * draw_opacity,
                 };
 
                 let stops = [
@@ -752,7 +857,7 @@ impl OverlayRenderer {
                         r: bg[0] as f32 / 255.0,
                         g: bg[1] as f32 / 255.0,
                         b: bg[2] as f32 / 255.0,
-                        a: (bg[3] as f32 / 255.0) * widget.opacity,
+                        a: (bg[3] as f32 / 255.0) * draw_opacity,
                     };
 
                     if let Ok(brush) = rt.CreateSolidColorBrush(&bg_color, None) {
@@ -763,66 +868,85 @@ impl OverlayRenderer {
 
             // Draw text
             let text = read_fixed_str(&widget.format_pattern);
-            if text.is_empty() {
-                continue;
-            }
+            if !text.is_empty() {
+                let font_weight = if widget.font_weight >= 700 {
+                    DWRITE_FONT_WEIGHT_BOLD
+                } else {
+                    DWRITE_FONT_WEIGHT_NORMAL
+                };
 
-            let font_weight = if widget.font_weight >= 700 {
-                DWRITE_FONT_WEIGHT_BOLD
-            } else {
-                DWRITE_FONT_WEIGHT_NORMAL
-            };
+                // Read font family from the widget (set by host from CSS font-family)
+                let font_family_str = omni_shared::read_fixed_str(&widget.font_family);
+                let font_family_wide: Vec<u16> = font_family_str
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
 
-            // Read font family from the widget (set by host from CSS font-family)
-            let font_family_str = omni_shared::read_fixed_str(&widget.font_family);
-            let font_family_wide: Vec<u16> = font_family_str
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-
-            let text_format = self.dwrite_factory.CreateTextFormat(
-                windows::core::PCWSTR(font_family_wide.as_ptr()),
-                None,
-                font_weight,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                widget.font_size,
-                w!("en-us"),
-            );
-
-            let text_format = match text_format {
-                Ok(tf) => tf,
-                Err(e) => {
-                    log_to_file(&format!(
-                        "[renderer] CreateTextFormat failed for font '{}': {e}",
-                        font_family_str
-                    ));
-                    continue;
-                }
-            };
-
-            let _ = text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            let _ = text_format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-
-            let fg = &widget.color_rgba;
-            let fg_color = D2D1_COLOR_F {
-                r: fg[0] as f32 / 255.0,
-                g: fg[1] as f32 / 255.0,
-                b: fg[2] as f32 / 255.0,
-                a: (fg[3] as f32 / 255.0) * widget.opacity,
-            };
-
-            if let Ok(brush) = rt.CreateSolidColorBrush(&fg_color, None) {
-                let text_wide: Vec<u16> = text.encode_utf16().collect();
-                rt.DrawText(
-                    &text_wide,
-                    &text_format,
-                    &rect,
-                    &brush,
-                    D2D1_DRAW_TEXT_OPTIONS_NONE,
-                    DWRITE_MEASURING_MODE_NATURAL,
+                let text_format = self.dwrite_factory.CreateTextFormat(
+                    windows::core::PCWSTR(font_family_wide.as_ptr()),
+                    None,
+                    font_weight,
+                    DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    widget.font_size,
+                    w!("en-us"),
                 );
+
+                match text_format {
+                    Ok(text_format) => {
+                        let _ =
+                            text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                        let _ = text_format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+
+                        let fg = &widget.color_rgba;
+                        let fg_color = D2D1_COLOR_F {
+                            r: fg[0] as f32 / 255.0,
+                            g: fg[1] as f32 / 255.0,
+                            b: fg[2] as f32 / 255.0,
+                            a: (fg[3] as f32 / 255.0) * draw_opacity,
+                        };
+
+                        if let Ok(brush) = rt.CreateSolidColorBrush(&fg_color, None) {
+                            let text_wide: Vec<u16> = text.encode_utf16().collect();
+                            rt.DrawText(
+                                &text_wide,
+                                &text_format,
+                                &rect,
+                                &brush,
+                                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                                DWRITE_MEASURING_MODE_NATURAL,
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log_to_file(&format!(
+                            "[renderer] CreateTextFormat failed for font '{}': {e}",
+                            font_family_str
+                        ));
+                    }
+                }
             }
+
+            // Pop layers whose subtree has ended: check if the next widget is
+            // still a descendant of the top layer parent. If not, pop.
+            while let Some(&top) = layer_stack.last() {
+                let next_is_descendant = if wi + 1 < widgets.len() {
+                    is_descendant_of(widgets, wi + 1, top)
+                } else {
+                    false
+                };
+                if !next_is_descendant {
+                    rt.PopLayer();
+                    layer_stack.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Safety net: pop any remaining layers
+        for _ in 0..layer_stack.len() {
+            rt.PopLayer();
         }
 
         let _ = rt.EndDraw(None, None);

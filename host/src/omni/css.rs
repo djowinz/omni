@@ -636,6 +636,9 @@ fn props_to_resolved_style(props: &HashMap<String, String>) -> ResolvedStyle {
         flex_shrink: props.get("flex-shrink").cloned(),
         flex_wrap: props.get("flex-wrap").cloned(),
         transition: props.get("transition").cloned(),
+        overflow: props.get("overflow").cloned(),
+        overflow_x: props.get("overflow-x").cloned(),
+        overflow_y: props.get("overflow-y").cloned(),
     }
 }
 
@@ -869,6 +872,27 @@ mod tests {
 
         let style = resolve_styles(&flat[2], 2, &flat, &sheet, &HashMap::new());
         assert_eq!(style.font_size.as_deref(), Some("20px"));
+    }
+
+    #[test]
+    fn overflow_properties_resolved() {
+        let (flat, _) = make_test_tree();
+        let css = ".panel { overflow: hidden; }";
+        let sheet = parse_css(css);
+
+        let style = resolve_styles(&flat[0], 0, &flat, &sheet, &HashMap::new());
+        assert_eq!(style.overflow.as_deref(), Some("hidden"));
+    }
+
+    #[test]
+    fn overflow_individual_axes_resolved() {
+        let (flat, _) = make_test_tree();
+        let css = ".panel { overflow-x: hidden; overflow-y: visible; }";
+        let sheet = parse_css(css);
+
+        let style = resolve_styles(&flat[0], 0, &flat, &sheet, &HashMap::new());
+        assert_eq!(style.overflow_x.as_deref(), Some("hidden"));
+        assert_eq!(style.overflow_y.as_deref(), Some("visible"));
     }
 
     // --- Multiple rules, same specificity, source order wins ---

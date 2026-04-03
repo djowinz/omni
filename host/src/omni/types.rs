@@ -116,6 +116,10 @@ pub struct ResolvedStyle {
     pub flex_wrap: Option<String>,
     // Transitions
     pub transition: Option<String>,
+    // Overflow
+    pub overflow: Option<String>,
+    pub overflow_x: Option<String>,
+    pub overflow_y: Option<String>,
 }
 
 impl OmniFile {
