@@ -38,6 +38,11 @@ pub struct ComputedWidget {
     pub adaptive_color: AdaptiveColorMode,
     pub adaptive_light_rgba: [u8; 4],
     pub adaptive_dark_rgba: [u8; 4],
+    /// Index of parent widget in the widgets array. u16::MAX = no parent (root).
+    pub parent_index: u16,
+    /// Overflow behavior per axis: 0 = visible (default), 1 = hidden (clips children).
+    pub overflow_x: u8,
+    pub overflow_y: u8,
 }
 
 #[repr(C)]
@@ -167,6 +172,9 @@ impl Default for ComputedWidget {
             adaptive_color: AdaptiveColorMode::Off,
             adaptive_light_rgba: [255, 255, 255, 255],
             adaptive_dark_rgba: [0, 0, 0, 255],
+            parent_index: u16::MAX,
+            overflow_x: 0,
+            overflow_y: 0,
         }
     }
 }
@@ -246,6 +254,14 @@ mod tests {
         let result = read_fixed_str(&buf);
         assert_eq!(result.len(), 7); // 8 bytes - 1 null terminator
         assert_eq!(result, "This is");
+    }
+
+    #[test]
+    fn computed_widget_has_parent_and_overflow_fields() {
+        let w = ComputedWidget::default();
+        assert_eq!(w.parent_index, u16::MAX);
+        assert_eq!(w.overflow_x, 0);
+        assert_eq!(w.overflow_y, 0);
     }
 
     #[test]
