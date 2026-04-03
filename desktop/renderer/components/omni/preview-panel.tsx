@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { buildPreviewStructure, updatePreviewDOM } from '@/lib/omni-parser';
 import { MetricSimulator } from './metric-simulator';
+import { SensorReadout } from './sensor-readout';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Monitor } from 'lucide-react';
 import { useSensorData } from '@/hooks/use-sensor-data';
@@ -135,14 +136,16 @@ export function PreviewPanel() {
           />
         </div>
 
-        {/* Metric simulator — only shown in Simulate mode */}
-        {effectiveMode === 'simulate' && (
-          <div className="border-t border-[#27272A] bg-[#18181B]">
+        {/* Bottom panel: live sensor readout or metric simulator */}
+        <div className="border-t border-[#27272A] bg-[#18181B]">
+          {effectiveMode === 'live' && sensorData ? (
+            <SensorReadout snapshot={sensorData} />
+          ) : (
             <ScrollArea className="h-[180px]">
               <MetricSimulator />
             </ScrollArea>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

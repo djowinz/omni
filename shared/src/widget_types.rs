@@ -43,6 +43,8 @@ pub struct ComputedWidget {
     /// Overflow behavior per axis: 0 = visible (default), 1 = hidden (clips children).
     pub overflow_x: u8,
     pub overflow_y: u8,
+    /// Text alignment: 0 = left (default), 1 = center, 2 = right.
+    pub text_align: u8,
 }
 
 #[repr(C)]
@@ -175,6 +177,7 @@ impl Default for ComputedWidget {
             parent_index: u16::MAX,
             overflow_x: 0,
             overflow_y: 0,
+            text_align: 0,
         }
     }
 }

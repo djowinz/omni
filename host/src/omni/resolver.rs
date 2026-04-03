@@ -236,6 +236,9 @@ impl OmniResolver {
                     if style.color.is_none() {
                         style.color = parent_style.color.clone();
                     }
+                    if style.text_align.is_none() {
+                        style.text_align = parent_style.text_align.clone();
+                    }
                 }
             }
 
@@ -463,6 +466,11 @@ fn emit_widget(
 ) {
     cw.parent_index = find_emitted_parent(flat_nodes, flat_index, flat_to_widget);
     set_overflow_flags(cw, style);
+    cw.text_align = match style.text_align.as_deref() {
+        Some("center") => 1,
+        Some("right") | Some("end") => 2,
+        _ => 0, // left / start / default
+    };
     flat_to_widget.insert(flat_index, widgets.len() as u16);
     widgets.push(*cw);
 }

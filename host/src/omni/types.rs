@@ -84,6 +84,7 @@ pub struct ResolvedStyle {
     pub font_size: Option<String>,
     pub font_weight: Option<String>,
     pub font_family: Option<String>,
+    pub text_align: Option<String>,
     // Flexbox
     pub display: Option<String>,
     pub flex_direction: Option<String>,

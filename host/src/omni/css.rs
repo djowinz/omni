@@ -610,6 +610,7 @@ fn props_to_resolved_style(props: &HashMap<String, String>) -> ResolvedStyle {
         font_size: props.get("font-size").cloned(),
         font_weight: props.get("font-weight").cloned(),
         font_family: props.get("font-family").cloned(),
+        text_align: props.get("text-align").cloned(),
         display: props.get("display").cloned(),
         flex_direction: props.get("flex-direction").cloned(),
         justify_content: props.get("justify-content").cloned(),

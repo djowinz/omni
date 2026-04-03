@@ -30,7 +30,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_FONT_STRETCH_NORMAL,
     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT,
     DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-    DWRITE_TEXT_ALIGNMENT_LEADING,
+    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN;
 use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, IDXGISwapChain3};
@@ -976,7 +976,12 @@ impl OverlayRenderer {
                     Ok(text_format) => {
                         let _ =
                             text_format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                        let _ = text_format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                        let text_alignment = match widget.text_align {
+                            1 => DWRITE_TEXT_ALIGNMENT_CENTER,
+                            2 => DWRITE_TEXT_ALIGNMENT_TRAILING,
+                            _ => DWRITE_TEXT_ALIGNMENT_LEADING,
+                        };
+                        let _ = text_format.SetTextAlignment(text_alignment);
 
                         let fg = &widget.color_rgba;
                         let fg_color = D2D1_COLOR_F {

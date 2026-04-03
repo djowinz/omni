@@ -35,6 +35,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
     show: false,
+    icon: path.join(__dirname, "../resources/omni-logo.png"),
   });
 
   win.once("ready-to-show", () => win.show());
@@ -52,7 +53,7 @@ function createWindow(): BrowserWindow {
 
 function createTray(): void {
   // Try to load icon, fall back to empty
-  const iconPath = path.join(__dirname, "../resources/icon.png");
+  const iconPath = path.join(__dirname, "../resources/omni-logo.png");
   let icon: Electron.NativeImage;
   try {
     icon = nativeImage.createFromPath(iconPath);
@@ -106,20 +107,20 @@ ipcMain.on("window-close", () => mainWindow?.close());
 
 // IPC: request/response messages to host via WebSocket.
 // Waits up to 10s for the host connection before rejecting.
-ipcMain.handle('ws-message', async (_event, msg: any) => {
+ipcMain.handle("ws-message", async (_event, msg: any) => {
   const responseTypes: Record<string, string> = {
-    'status': 'status.data',
-    'sensors.subscribe': 'sensors.subscribed',
-    'file.list': 'file.list',
-    'file.read': 'file.content',
-    'file.write': 'file.written',
-    'file.create': 'file.created',
-    'file.delete': 'file.deleted',
-    'widget.parse': 'widget.parsed',
-    'widget.apply': 'widget.applied',
-    'widget.update': 'widget.updated',
-    'config.get': 'config.data',
-    'config.update': 'config.updated',
+    status: "status.data",
+    "sensors.subscribe": "sensors.subscribed",
+    "file.list": "file.list",
+    "file.read": "file.content",
+    "file.write": "file.written",
+    "file.create": "file.created",
+    "file.delete": "file.deleted",
+    "widget.parse": "widget.parsed",
+    "widget.apply": "widget.applied",
+    "widget.update": "widget.updated",
+    "config.get": "config.data",
+    "config.update": "config.updated",
   };
   const expectedType = responseTypes[msg.type];
   if (!expectedType) {
@@ -130,14 +131,14 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
   if (!hostManager.isConnected()) {
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        hostManager.removeListener('connected', onConnect);
-        reject(new Error('Timed out waiting for host connection'));
+        hostManager.removeListener("connected", onConnect);
+        reject(new Error("Timed out waiting for host connection"));
       }, 10000);
       const onConnect = () => {
         clearTimeout(timeout);
         resolve();
       };
-      hostManager.once('connected', onConnect);
+      hostManager.once("connected", onConnect);
     });
   }
 
@@ -221,9 +222,9 @@ app.on("ready", async () => {
   });
 
   // Forward sensor data stream to renderer
-  hostManager.on('message', (msg: any) => {
-    if (msg.type === 'sensors.data') {
-      mainWindow?.webContents.send('sensor-data', msg.snapshot);
+  hostManager.on("message", (msg: any) => {
+    if (msg.type === "sensors.data") {
+      mainWindow?.webContents.send("sensor-data", msg.snapshot);
     }
   });
 });
