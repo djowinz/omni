@@ -64,12 +64,11 @@ fn gradient_points(rect: &D2D_RECT_F, angle_deg: f32) -> (D2D_POINT_2F, D2D_POIN
 /// A widget is a layer parent if:
 /// - opacity < 1.0 AND at least one other widget references it as parent_index
 /// - OR overflow_x == 1 or overflow_y == 1
-fn scan_layer_parents(widgets: &[ComputedWidget]) -> Vec<bool> {
+fn scan_layer_parents(widgets: &[ComputedWidget]) -> [bool; omni_shared::MAX_WIDGETS] {
     let len = widgets.len();
-    let mut is_layer_parent = vec![false; len];
-    let mut child_count = vec![0u16; len];
+    let mut is_layer_parent = [false; omni_shared::MAX_WIDGETS];
+    let mut child_count = [0u16; omni_shared::MAX_WIDGETS];
 
-    // Count children per parent
     for w in widgets.iter() {
         let pi = w.parent_index as usize;
         if pi < len {
@@ -692,19 +691,14 @@ impl OverlayRenderer {
 
             // If this widget is a layer parent, push a D2D compositing layer
             if is_layer_parent[wi] {
-                let half_min = -f32::MAX / 2.0;
-                let half_max = f32::MAX / 2.0;
+                // Use halved extremes to avoid overflow in D2D's internal transform math
+                const UNCLIPPED_MIN: f32 = -f32::MAX / 2.0;
+                const UNCLIPPED_MAX: f32 = f32::MAX / 2.0;
                 let content_bounds = D2D_RECT_F {
-                    left: if widget.overflow_x == 1 { rect.left } else { half_min },
-                    top: if widget.overflow_y == 1 { rect.top } else { half_min },
-                    right: if widget.overflow_x == 1 { rect.right } else { half_max },
-                    bottom: if widget.overflow_y == 1 { rect.bottom } else { half_max },
-                };
-
-                let layer_opacity = if widget.opacity < 1.0 {
-                    widget.opacity
-                } else {
-                    1.0
+                    left: if widget.overflow_x == 1 { rect.left } else { UNCLIPPED_MIN },
+                    top: if widget.overflow_y == 1 { rect.top } else { UNCLIPPED_MIN },
+                    right: if widget.overflow_x == 1 { rect.right } else { UNCLIPPED_MAX },
+                    bottom: if widget.overflow_y == 1 { rect.bottom } else { UNCLIPPED_MAX },
                 };
 
                 let layer_params = D2D1_LAYER_PARAMETERS {
@@ -719,7 +713,7 @@ impl OverlayRenderer {
                         M31: 0.0,
                         M32: 0.0,
                     },
-                    opacity: layer_opacity,
+                    opacity: widget.opacity,
                     opacityBrush: ManuallyDrop::new(None),
                     layerOptions: D2D1_LAYER_OPTIONS_NONE,
                 };

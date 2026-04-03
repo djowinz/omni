@@ -350,10 +350,7 @@ impl OmniResolver {
 
                     write_fixed_str(&mut cw.label_text, &raw_template);
                     write_fixed_str(&mut cw.format_pattern, &text);
-                    cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
-                    set_overflow_flags(&mut cw, style);
-                    flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
-                    widgets.push(cw);
+                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
                 } else if let Some(icon_char) = self.icon_map.resolve_icon_classes(&node.classes) {
                     // Icon element: has icon-* class, render as text with the icon font
                     let mut cw = style_to_computed_widget(style, x, y, width);
@@ -367,10 +364,7 @@ impl OmniResolver {
                     // The feather.ttf font registers as "icomoon" internally in DirectWrite
                     write_fixed_str(&mut cw.font_family, "icomoon");
 
-                    cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
-                    set_overflow_flags(&mut cw, style);
-                    flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
-                    widgets.push(cw);
+                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
                 } else if !node.child_indices.is_empty() {
                     let bg = parse_color(style.background.as_deref());
                     let has_overflow_clip = style.overflow.as_deref() == Some("hidden")
@@ -383,19 +377,13 @@ impl OmniResolver {
                         cw.source = SensorSource::None;
                         cw.height = height;
 
-                        cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
-                        set_overflow_flags(&mut cw, style);
-                        flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
-                        widgets.push(cw);
+                        emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
                     }
                 } else if height > 0.0 || parse_color(style.background.as_deref())[3] > 0 {
                     let mut cw = style_to_computed_widget(style, x, y, width);
                     cw.widget_type = WidgetType::Spacer;
                     cw.height = height;
-                    cw.parent_index = find_emitted_parent(&flat_nodes, i, &flat_to_widget);
-                    set_overflow_flags(&mut cw, style);
-                    flat_to_widget.insert(i, (widgets.len() - widget_base) as u16);
-                    widgets.push(cw);
+                    emit_widget(&mut cw, i, style, &flat_nodes, &mut flat_to_widget, widget_base, &mut widgets);
                 }
             }
         }
@@ -423,19 +411,34 @@ fn find_emitted_parent(
 
 /// Set overflow_x and overflow_y on a ComputedWidget from its ResolvedStyle.
 fn set_overflow_flags(cw: &mut ComputedWidget, style: &ResolvedStyle) {
-    // Shorthand sets both axes
+    // Shorthand sets both, then per-axis overrides (matches CSS cascade)
     if let Some(ref overflow) = style.overflow {
         let val = if overflow == "hidden" { 1 } else { 0 };
         cw.overflow_x = val;
         cw.overflow_y = val;
     }
-    // Individual axes override
     if let Some(ref ox) = style.overflow_x {
         cw.overflow_x = if ox == "hidden" { 1 } else { 0 };
     }
     if let Some(ref oy) = style.overflow_y {
         cw.overflow_y = if oy == "hidden" { 1 } else { 0 };
     }
+}
+
+/// Set parent_index, overflow flags, record the flat→widget mapping, and push.
+fn emit_widget(
+    cw: &mut ComputedWidget,
+    flat_index: usize,
+    style: &ResolvedStyle,
+    flat_nodes: &[FlatNode],
+    flat_to_widget: &mut HashMap<usize, u16>,
+    widget_base: usize,
+    widgets: &mut Vec<ComputedWidget>,
+) {
+    cw.parent_index = find_emitted_parent(flat_nodes, flat_index, flat_to_widget);
+    set_overflow_flags(cw, style);
+    flat_to_widget.insert(flat_index, (widgets.len() - widget_base) as u16);
+    widgets.push(*cw);
 }
 
 /// Convert a ResolvedStyle into a ComputedWidget with position and visual properties.
