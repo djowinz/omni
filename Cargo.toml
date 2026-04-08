@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/shared", "crates/host", "crates/overlay-exe", "crates/ultralight-sys"]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,72 @@
+appId: com.omni.desktop
+productName: Omni
+extraResources:
+  - from: 'resources/'
+    to: '.'
+directories:
+  output: dist
+files:
+  - app/**/*
+  - main/**/*
+  - package.json
+  - '!renderer'
+  - '!src'
+  - '!resources'
+  - '!**/*.ts'
+  - '!**/*.tsx'
+  - '!**/*.map'
+  - '!tsconfig.json'
+  - '!postcss.config.mjs'
+  - '!pnpm-workspace.yaml'
+extraFiles:
+  # Rust host binary
+  - from: '../../target/release/omni-host.exe'
+    to: 'omni-host.exe'
+  # External overlay binary
+  - from: '../../target/release/omni-overlay.exe'
+    to: 'omni-overlay.exe'
+  # Ultralight runtime DLLs
+  - from: '../../vendor/ultralight/bin/Ultralight.dll'
+    to: 'Ultralight.dll'
+  - from: '../../vendor/ultralight/bin/UltralightCore.dll'
+    to: 'UltralightCore.dll'
+  - from: '../../vendor/ultralight/bin/WebCore.dll'
+    to: 'WebCore.dll'
+  - from: '../../vendor/ultralight/bin/AppCore.dll'
+    to: 'AppCore.dll'
+  # Ultralight resources
+  - from: '../../vendor/ultralight/resources/cacert.pem'
+    to: 'resources/cacert.pem'
+  - from: '../../vendor/ultralight/resources/icudt67l.dat'
+    to: 'resources/icudt67l.dat'
+  # Feather icon font (used by host HTML builder)
+  - from: '../../crates/host/resources/feather.woff2'
+    to: 'feather.woff2'
+  - from: '../../crates/host/resources/feather.css'
+    to: 'feather.css'
+  # Admin elevation manifest
+  - from: 'installer/Omni.exe.manifest'
+    to: 'Omni.exe.manifest'
+publish:
+  provider: github
+  owner: djowinz
+  repo: omni
+electronLanguages:
+  - en-US
+win:
+  icon: resources/omni-logo.ico
+  requestedExecutionLevel: requireAdministrator
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
+  installerHeaderIcon: resources/omni-logo.ico
+  installerIcon: resources/omni-logo.ico
+  uninstallerIcon: resources/omni-logo.ico
+  shortcutName: Omni
+  uninstallDisplayName: Omni
+  license: license.txt
+  artifactName: OmniSetup.${ext}
+  deleteAppDataOnUninstall: false
+  include: installer/uninstall-hooks.nsh

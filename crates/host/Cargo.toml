@@ -1,0 +1,38 @@
+[package]
+name = "omni-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+omni-shared = { path = "../shared" }
+ts-rs = { version = "10", features = ["serde-compat"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ctrlc = "3"
+sysinfo = "0.35"
+wmi = "0.14"
+tungstenite = "0.26"
+quick-xml = "0.37"
+notify = "7"
+regex-lite = "0.1"
+ultralight-sys = { path = "../ultralight-sys" }
+
+[dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_LibraryLoader",
+    "Win32_Security",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_IO",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_Time",
+    "Win32_System_Performance",
+]

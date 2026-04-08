@@ -1,0 +1,27 @@
+# Build file ignores
+dist/
+target/
+apps/desktop/renderer/generated/
+node_modules/
+.next/
+
+# secrets ignore
+secrets/
+.env
+.env.*
+*.pem
+*.key
+
+# AI tool ignores
+.claude/
+.cursor/
+.vscode/ai_history
+.windsurf/
+.anthropic/
+.continue/
+mcp_config.json
+
+# Ignore any AI tool artificats
+docs/superpowers
+.worktrees/
+.superpowers

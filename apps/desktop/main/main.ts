@@ -1,0 +1,337 @@
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, net } from 'electron';
+import { autoUpdater } from 'electron-updater';
+import * as path from 'path';
+import * as fs from 'fs';
+import { HostManager } from './host-manager';
+
+const isProd = process.env.NODE_ENV === 'production';
+
+// Enforce single instance — if another instance is already running,
+// focus it and exit this one.
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+const hostManager = new HostManager();
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+function createWindow(): BrowserWindow {
+  const preloadPath = path.join(__dirname, 'preload.js');
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'Omni',
+    frame: false,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+    icon: isProd
+      ? path.join(process.resourcesPath, 'omni-logo.ico')
+      : path.join(__dirname, '../resources/omni-logo.ico'),
+  });
+
+  // Show window on ready — unless minimize_to_tray is enabled
+  win.once('ready-to-show', () => {
+    let shouldMinimize = false;
+    try {
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      const cfg = JSON.parse(raw);
+      if (cfg.minimize_to_tray) {
+        shouldMinimize = true;
+      }
+    } catch {
+      // Config not available — show normally
+    }
+    if (!shouldMinimize) {
+      win.show();
+      win.focus();
+    }
+  });
+
+  // Minimize to tray on close
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
+
+  return win;
+}
+
+function createTray(): void {
+  // Try to load icon, fall back to empty
+  const iconPath = isProd
+    ? path.join(process.resourcesPath, 'omni-logo.png')
+    : path.join(__dirname, '../resources/omni-logo.png');
+  let icon: Electron.NativeImage;
+  try {
+    icon = nativeImage.createFromPath(iconPath);
+    if (!icon.isEmpty()) {
+      icon = icon.resize({ width: 16, height: 16 });
+    } else {
+      icon = nativeImage.createEmpty();
+    }
+  } catch {
+    icon = nativeImage.createEmpty();
+  }
+
+  tray = new Tray(icon);
+  tray.setToolTip('Omni Overlay');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open Omni',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+  tray.on('click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+}
+
+// Window control IPC handlers
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+});
+ipcMain.on('window-close', () => mainWindow?.close());
+
+// IPC: renderer requests install
+ipcMain.on('install-update', () => {
+  autoUpdater.quitAndInstall(true, true);
+});
+
+// Settings: restart the omni-host service
+ipcMain.handle('restart-host', async () => {
+  await hostManager.restart();
+  return { success: true };
+});
+
+// Settings: get login item (start with Windows) settings
+ipcMain.handle('get-login-item-settings', () => {
+  return app.getLoginItemSettings();
+});
+
+// Settings: set login item (start with Windows) settings
+ipcMain.handle('set-login-item-settings', (_event, openAtLogin: boolean) => {
+  app.setLoginItemSettings({ openAtLogin });
+  return { success: true };
+});
+
+// IPC: request/response messages to host via WebSocket.
+// Waits up to 10s for the host connection before rejecting.
+ipcMain.handle('ws-message', async (_event, msg: any) => {
+  const responseTypes: Record<string, string> = {
+    status: 'status.data',
+    'sensors.subscribe': 'sensors.subscribed',
+    'file.list': 'file.list',
+    'file.read': 'file.content',
+    'file.write': 'file.written',
+    'file.create': 'file.created',
+    'file.delete': 'file.deleted',
+    'widget.parse': 'widget.parsed',
+    'widget.apply': 'widget.applied',
+    'widget.update': 'widget.updated',
+    'config.get': 'config.data',
+    'config.update': 'config.updated',
+  };
+  const expectedType = responseTypes[msg.type];
+  if (!expectedType) {
+    throw new Error(`Unknown message type: ${msg.type}`);
+  }
+
+  // Wait for host connection if not yet ready
+  if (!hostManager.isConnected()) {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        hostManager.removeListener('connected', onConnect);
+        reject(new Error('Timed out waiting for host connection'));
+      }, 10000);
+      const onConnect = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      hostManager.once('connected', onConnect);
+    });
+  }
+
+  return hostManager.sendAndWait(msg, expectedType);
+});
+
+// Register omni:// protocol for serving local resources
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'omni',
+    privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
+]);
+
+app.on('ready', async () => {
+  // Handle omni:// protocol for serving local files.
+  // In production, this serves the entire app (Next.js static export + resources).
+  // URL formats:
+  //   omni://app/home/index.html  → serves from the app directory
+  //   omni://app/_next/static/... → serves Next.js static assets
+  //   omni://resources/logo.png   → serves from resources directory
+  protocol.handle('omni', (request) => {
+    const url = new URL(request.url);
+    const fullPath = decodeURIComponent(url.hostname + url.pathname);
+
+    let filePath: string;
+    if (isProd) {
+      // Production layout:
+      //   C:\Program Files\Omni\              ← install dir
+      //   C:\Program Files\Omni\resources\    ← Electron resources (app.asar, icons, fonts)
+      //   C:\Program Files\Omni\resources\app.asar\app\  ← Next.js export inside asar
+      //
+      // omni://app/home/index.html  → asar/app/home/index.html
+      // omni://resources/logo.png   → install_dir/resources/logo.png
+      const installDir = path.join(path.dirname(app.getAppPath()), '..');
+      const asarPath = path.join(app.getAppPath(), fullPath);
+      if (fs.existsSync(asarPath)) {
+        filePath = asarPath;
+      } else {
+        filePath = path.join(installDir, fullPath);
+      }
+    } else {
+      // Dev: resolve relative to desktop/ root
+      filePath = path.resolve(path.join(__dirname, '..'), fullPath);
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return new Response('Not Found', { status: 404 });
+    }
+
+    // Read the file content directly — net.fetch with file:// doesn't
+    // work for asar paths. Reading via fs handles asar transparently.
+    try {
+      const data = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.js': 'application/javascript',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.ico': 'image/x-icon',
+        '.svg': 'image/svg+xml',
+        '.ttf': 'font/ttf',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+        '.map': 'application/json',
+      };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      return new Response(data, {
+        headers: { 'Content-Type': contentType },
+      });
+    } catch (e) {
+      return new Response('Internal Error', { status: 500 });
+    }
+  });
+  mainWindow = createWindow();
+  createTray();
+
+  if (isProd) {
+    // Production: load via omni:// protocol so absolute paths (/_next/...) resolve correctly
+    await mainWindow.loadURL('omni://app/home/index.html');
+  } else {
+    // Development: load from Next.js dev server
+    const port = process.argv[2] || '8888';
+    await mainWindow.loadURL(`http://localhost:${port}/home`);
+    mainWindow.webContents.openDevTools();
+  }
+
+  // minimize_to_tray is now handled in the ready-to-show callback above
+
+  // Start host manager
+  await hostManager.start();
+
+  // Forward status to renderer via IPC
+  hostManager.on('connected', () => {
+    mainWindow?.webContents.send('host-status', hostManager.status);
+  });
+  hostManager.on('disconnected', () => {
+    mainWindow?.webContents.send('host-status', { connected: false });
+  });
+  hostManager.on('status', (status) => {
+    mainWindow?.webContents.send('host-status', status);
+  });
+
+  // Forward sensor data stream to renderer
+  hostManager.on('message', (msg: any) => {
+    if (msg.type === 'sensors.data') {
+      mainWindow?.webContents.send('sensor-data', msg.snapshot);
+    }
+  });
+
+  // --- Auto-updater ---
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('update-ready', info.version, info.releaseDate);
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('[auto-updater] Error:', err.message);
+  });
+
+  // Check on startup (delay 10s to let the app finish loading)
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 10_000);
+
+  // Check every 4 hours
+  setInterval(
+    () => {
+      autoUpdater.checkForUpdates().catch(() => {});
+    },
+    4 * 60 * 60 * 1000,
+  );
+});
+
+app.on('before-quit', async () => {
+  await hostManager.shutdown();
+});
+
+app.on('window-all-closed', () => {
+  // Don't quit — tray keeps us alive
+});
