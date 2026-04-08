@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/product-logo.png" alt="Omni" width="256">
+  <img src="docs/images/omni-banner.png" alt="Omni">
 </p>
 
 A customizable game overlay for Windows. Build overlays with HTML and CSS, see real-time hardware metrics, and display them on top of any game.
