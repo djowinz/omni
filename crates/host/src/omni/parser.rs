@@ -60,7 +60,26 @@ fn make_error(source: &str, offset: usize, message: String) -> ParseError {
 /// Returns `(Option<OmniFile>, Vec<ParseError>)`. The file is `Some` if parsing succeeded
 /// (no fatal errors). The diagnostics vec contains both errors and warnings — warnings
 /// don't prevent parsing.
+///
+/// Pass `hwinfo_connected: true` if HWiNFO shared memory is currently connected, so
+/// `hwinfo.*` sensor paths are treated as valid. When `false`, a single warning is emitted
+/// for any file that references `hwinfo.*` paths.
 pub fn parse_omni_with_diagnostics(source: &str) -> (Option<OmniFile>, Vec<ParseError>) {
+    parse_omni_with_diagnostics_inner(source, false)
+}
+
+/// Like `parse_omni_with_diagnostics` but takes an explicit `hwinfo_connected` flag.
+pub fn parse_omni_with_diagnostics_hwinfo(
+    source: &str,
+    hwinfo_connected: bool,
+) -> (Option<OmniFile>, Vec<ParseError>) {
+    parse_omni_with_diagnostics_inner(source, hwinfo_connected)
+}
+
+fn parse_omni_with_diagnostics_inner(
+    source: &str,
+    hwinfo_connected: bool,
+) -> (Option<OmniFile>, Vec<ParseError>) {
     let mut errors = Vec::new();
     let mut theme_src = None;
     let mut poll_config = HashMap::new();
@@ -125,7 +144,7 @@ pub fn parse_omni_with_diagnostics(source: &str) -> (Option<OmniFile>, Vec<Parse
         let mut warnings = errors; // may contain warnings from parsing phase
         for widget in &file.widgets {
             // Walk template tree for element names and sensor paths
-            validate_template_tree(&widget.template, source, &mut warnings);
+            validate_template_tree(&widget.template, source, hwinfo_connected, &mut warnings);
         }
 
         (Some(file), warnings)
@@ -151,7 +170,12 @@ pub fn parse_omni(source: &str) -> Result<OmniFile, Vec<ParseError>> {
 }
 
 /// Recursively walk an HtmlNode tree to validate element names and sensor paths.
-fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<ParseError>) {
+fn validate_template_tree(
+    node: &HtmlNode,
+    source: &str,
+    hwinfo_connected: bool,
+    warnings: &mut Vec<ParseError>,
+) {
     match node {
         HtmlNode::Element { tag, children, .. } => {
             // Check if element name is known
@@ -170,13 +194,18 @@ fn validate_template_tree(node: &HtmlNode, source: &str, warnings: &mut Vec<Pars
             }
             // Recurse into children
             for child in children {
-                validate_template_tree(child, source, warnings);
+                validate_template_tree(child, source, hwinfo_connected, warnings);
             }
         }
         HtmlNode::Text { content } => {
             // Find approximate offset of this text in source
             let text_offset = source.find(content.as_str()).unwrap_or(0);
-            let path_warnings = validation::validate_sensor_paths(content, source, text_offset);
+            let path_warnings = validation::validate_sensor_paths_with_hwinfo(
+                content,
+                source,
+                text_offset,
+                hwinfo_connected,
+            );
             warnings.extend(path_warnings);
         }
     }

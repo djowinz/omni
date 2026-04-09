@@ -105,10 +105,27 @@ pub fn validate_sensor_paths(
     omni_source: &str,
     text_offset: usize,
 ) -> Vec<ParseError> {
+    validate_sensor_paths_with_hwinfo(template_text, omni_source, text_offset, true)
+}
+
+/// Validate sensor paths found in template text (inside {}).
+///
+/// Like `validate_sensor_paths`, but when `hwinfo_connected` is `false` and an
+/// `hwinfo.*` path is encountered, emits a single warning for the whole file:
+/// "HWiNFO is not running — hwinfo.* sensors will show N/A".
+/// Only one such warning is emitted per call, regardless of how many hwinfo paths exist.
+/// When `hwinfo_connected` is `true`, hwinfo paths are silently skipped (valid).
+pub fn validate_sensor_paths_with_hwinfo(
+    template_text: &str,
+    omni_source: &str,
+    text_offset: usize,
+    hwinfo_connected: bool,
+) -> Vec<ParseError> {
     use super::sensor_map::parse_sensor_path;
 
     let mut warnings = Vec::new();
     let mut chars = template_text.char_indices().peekable();
+    let mut hwinfo_warned = false;
 
     while let Some((i, ch)) = chars.next() {
         if ch == '{' {
@@ -125,6 +142,20 @@ pub fn validate_sensor_paths(
             if found_close && !path.is_empty() {
                 let path = path.trim();
                 if path.starts_with("hwinfo.") {
+                    if !hwinfo_connected && !hwinfo_warned {
+                        hwinfo_warned = true;
+                        let offset = text_offset + start;
+                        let (line, column) =
+                            super::parser::offset_to_line_col(omni_source, offset);
+                        warnings.push(ParseError {
+                            message: "HWiNFO is not running \u{2014} hwinfo.* sensors will show N/A"
+                                .to_string(),
+                            severity: super::parser::Severity::Warning,
+                            line,
+                            column,
+                            suggestion: None,
+                        });
+                    }
                     continue;
                 }
                 if parse_sensor_path(path).is_none() {
@@ -252,5 +283,27 @@ mod tests {
         let text = "{gpu.tamp} / {cpu.usag}";
         let warnings = validate_sensor_paths(text, text, 0);
         assert_eq!(warnings.len(), 2);
+    }
+
+    #[test]
+    fn validate_hwinfo_path_warns_when_disconnected() {
+        let text = "VRM: {hwinfo.motherboard.vrm_temp}°C";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, false);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("HWiNFO is not running"));
+    }
+
+    #[test]
+    fn validate_hwinfo_path_no_warn_when_connected() {
+        let text = "VRM: {hwinfo.motherboard.vrm_temp}°C";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert_eq!(warnings.len(), 0);
+    }
+
+    #[test]
+    fn validate_hwinfo_only_one_warning_for_multiple_paths() {
+        let text = "{hwinfo.cpu.core_0_temp} / {hwinfo.gpu.vrm_temp}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, false);
+        assert_eq!(warnings.len(), 1); // Only one warning, not two
     }
 }

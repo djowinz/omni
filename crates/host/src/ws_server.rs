@@ -257,7 +257,15 @@ fn handle_message(
         }
         "widget.parse" => {
             let source = msg.get("source")?.as_str()?;
-            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
+            let hwinfo_connected = state
+                .hwinfo_state
+                .lock()
+                .map(|s| s.connected)
+                .unwrap_or(false);
+            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics_hwinfo(
+                source,
+                hwinfo_connected,
+            );
             let diag_json: Vec<Value> = diagnostics
                 .iter()
                 .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
@@ -320,7 +328,15 @@ fn handle_message(
         }
         "widget.apply" => {
             let source = msg.get("source").and_then(|v| v.as_str()).unwrap_or("");
-            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics(source);
+            let hwinfo_connected = state
+                .hwinfo_state
+                .lock()
+                .map(|s| s.connected)
+                .unwrap_or(false);
+            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics_hwinfo(
+                source,
+                hwinfo_connected,
+            );
             let diag_json: Vec<Value> = diagnostics
                 .iter()
                 .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
