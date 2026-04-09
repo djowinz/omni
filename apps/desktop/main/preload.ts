@@ -52,4 +52,22 @@ contextBridge.exposeInMainWorld('omni', {
   getLoginItemSettings: () => ipcRenderer.invoke('get-login-item-settings'),
   setLoginItemSettings: (openAtLogin: boolean) =>
     ipcRenderer.invoke('set-login-item-settings', openAtLogin),
+
+  // Log tailing
+  startLogTail: () => ipcRenderer.invoke('log:start'),
+  stopLogTail: () => ipcRenderer.invoke('log:stop'),
+  onLogData: (callback: (lines: string[]) => void) => {
+    const handler = (_event: any, lines: string[]) => callback(lines);
+    ipcRenderer.on('log:data', handler);
+    return () => {
+      ipcRenderer.removeListener('log:data', handler);
+    };
+  },
+  onLogError: (callback: (message: string) => void) => {
+    const handler = (_event: any, message: string) => callback(message);
+    ipcRenderer.on('log:error', handler);
+    return () => {
+      ipcRenderer.removeListener('log:error', handler);
+    };
+  },
 });
