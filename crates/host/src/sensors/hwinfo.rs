@@ -215,7 +215,7 @@ pub fn dedup_path(path: &str, seen: &mut HashMap<String, u32>) -> String {
 /// | V         | 2 decimal places  |
 /// | MHz       | integer           |
 /// | W         | integer           |
-/// | RPM       | 1 decimal place   |
+/// | RPM       | integer           |
 /// | (other)   | 1 decimal place   |
 /// Default decimal places for a HWiNFO reading based on its unit.
 pub fn default_precision_for_unit(unit: &str) -> usize {
@@ -494,7 +494,7 @@ mod tests {
         assert_eq!(format_hwinfo_value(125.4, "W"), "125");
         // V → 2 decimal places
         assert_eq!(format_hwinfo_value(1.234, "V"), "1.23");
-        // RPM → 1 decimal place
-        assert_eq!(format_hwinfo_value(1234.5, "RPM"), "1234.5");
+        // RPM → integer
+        assert_eq!(format_hwinfo_value(1234.5, "RPM"), "1234");
     }
 }
