@@ -13,6 +13,10 @@ interface OmniIpcBridge {
   restartHost: () => Promise<{ success: boolean }>;
   getLoginItemSettings: () => Promise<{ openAtLogin: boolean }>;
   setLoginItemSettings: (openAtLogin: boolean) => Promise<{ success: boolean }>;
+  startLogTail: () => Promise<{ path: string }>;
+  stopLogTail: () => Promise<void>;
+  onLogData: (callback: (lines: string[]) => void) => () => void;
+  onLogError: (callback: (message: string) => void) => () => void;
 }
 
 declare global {

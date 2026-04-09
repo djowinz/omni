@@ -3,6 +3,7 @@ import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
 import { HostManager } from './host-manager';
+import { LogTailer } from './log-tailer';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -171,6 +172,7 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
     'widget.update': 'widget.updated',
     'config.get': 'config.data',
     'config.update': 'config.updated',
+    'log.path': 'log.path',
   };
   const expectedType = responseTypes[msg.type];
   if (!expectedType) {
@@ -302,6 +304,49 @@ app.on('ready', async () => {
     }
     if (msg.type === 'hwinfo.sensors') {
       mainWindow?.webContents.send('hwinfo-sensors', msg);
+    }
+  });
+
+  // Log tailing
+  let logTailer: LogTailer | null = null;
+
+  ipcMain.handle('log:start', async () => {
+    // Stop any existing tailer
+    if (logTailer) {
+      logTailer.stop();
+      logTailer = null;
+    }
+
+    // Get log path from host
+    let logPath: string;
+    try {
+      const response = await hostManager.sendAndWait(
+        { type: 'log.path' },
+        'log.path',
+      );
+      logPath = response.path;
+    } catch {
+      throw new Error('Failed to get log path from host');
+    }
+
+    logTailer = new LogTailer(logPath);
+
+    logTailer.on('lines', (lines: string[]) => {
+      mainWindow?.webContents.send('log:data', lines);
+    });
+
+    logTailer.on('error', (err: Error) => {
+      mainWindow?.webContents.send('log:error', err.message);
+    });
+
+    logTailer.start();
+    return { path: logPath };
+  });
+
+  ipcMain.handle('log:stop', () => {
+    if (logTailer) {
+      logTailer.stop();
+      logTailer = null;
     }
   });
 
