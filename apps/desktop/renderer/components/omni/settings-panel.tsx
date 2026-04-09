@@ -3,7 +3,8 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Settings, ChevronRight, RotateCw } from 'lucide-react';
+import { Settings, ChevronRight, RotateCw, ScrollText } from 'lucide-react';
+import { useRouter } from 'next/router';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { BackendApi } from '@/lib/backend-api';
 import type { Config } from '@/generated/Config';
@@ -16,6 +17,7 @@ const backend = new BackendApi();
 
 export function SettingsPanel() {
   const { state, dispatch } = useOmniState();
+  const router = useRouter();
   const [excludeOpen, setExcludeOpen] = useState(false);
   const [includeOpen, setIncludeOpen] = useState(false);
   const [directoriesOpen, setDirectoriesOpen] = useState(false);
@@ -223,6 +225,15 @@ export function SettingsPanel() {
                 >
                   <RotateCw className={`h-3 w-3 ${restarting ? 'animate-spin' : ''}`} />
                   {restarting ? 'Restarting...' : 'Restart Service'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => router.push('/logs')}
+                  className="h-8 gap-1.5 border border-[#00D9FF]/30 bg-[#00D9FF]/10 text-[#00D9FF] hover:bg-[#00D9FF]/20 hover:text-[#00D9FF] text-xs"
+                >
+                  <ScrollText className="h-3 w-3" />
+                  View Logs
                 </Button>
               </div>
             </section>
