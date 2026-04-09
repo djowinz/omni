@@ -78,7 +78,7 @@ export function SettingsPanel() {
     <>
       <div className="flex h-full flex-col">
         {/* Header */}
-        <div className="flex h-10 items-center justify-between border-b border-[#27272A] px-3 bg-[#18181B]">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#27272A] px-3 bg-[#18181B]">
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-[#71717A]" />
             <h2 className="text-sm font-medium text-[#FAFAFA]">Settings</h2>
