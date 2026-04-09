@@ -26,10 +26,13 @@ const HWINFO_UNIT_STRING_LEN: usize = 16;
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // Fields read via pointer cast from shared memory
 pub struct HwInfoHeader {
-    /// Must equal `HWINFO_MEM_VERSION` (2).
+    /// Signature: "HWiS" (0x53695748).
+    pub signature: u32,
+    /// Must equal 2 for HWiNFO-SM2 format.
     pub version: u32,
     pub revision: u32,
-    pub poll_time: i64,
+    pub poll_time_lo: u32,
+    pub poll_time_hi: u32,
     pub sensor_section_offset: u32,
     pub sensor_size: u32,
     pub sensor_count: u32,
@@ -66,8 +69,9 @@ pub enum ReadingType {
 }
 
 /// One reading entry (e.g. "Core 0 Temperature").
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
+/// Packed to match HWiNFO's memory layout exactly — no padding between unit and value.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
 #[allow(dead_code)] // Fields read via pointer cast from shared memory
 pub struct HwInfoReading {
     pub reading_type: u32,
@@ -310,8 +314,8 @@ impl HwInfoReader {
     }
 
     unsafe fn parse_view(&mut self, base: *const u8) -> Result<(HwInfoState, bool), ()> {
-        // Read the header.
-        let header = &*(base as *const HwInfoHeader);
+        // Read the header (use read_unaligned — shared memory may not be aligned).
+        let header = std::ptr::read_unaligned(base as *const HwInfoHeader);
 
         if header.version != HWINFO_MEM_VERSION {
             if !self.logged_version_mismatch {
@@ -335,7 +339,7 @@ impl HwInfoReader {
         for i in 0..sensor_count {
             let offset =
                 header.sensor_section_offset as usize + i as usize * header.sensor_size as usize;
-            let sensor = &*(base.add(offset) as *const HwInfoSensor);
+            let sensor = std::ptr::read_unaligned(base.add(offset) as *const HwInfoSensor);
             let name = c_str_to_string(&sensor.name_user);
             let name = if name.is_empty() {
                 c_str_to_string(&sensor.name_original)
@@ -352,9 +356,9 @@ impl HwInfoReader {
         let mut seen_paths: HashMap<String, u32> = HashMap::new();
 
         for i in 0..reading_count {
-            let offset = header.reading_section_offset as usize
+            let reading_base = header.reading_section_offset as usize
                 + i as usize * header.reading_size as usize;
-            let reading = &*(base.add(offset) as *const HwInfoReading);
+            let reading = std::ptr::read_unaligned(base.add(reading_base) as *const HwInfoReading);
 
             let si = reading.sensor_index as usize;
             let sensor_name = sensor_names.get(si).map(|s| s.as_str()).unwrap_or("");
@@ -367,6 +371,10 @@ impl HwInfoReader {
             };
             let unit = c_str_to_string(&reading.unit);
 
+            if label.is_empty() {
+                continue;
+            }
+
             let raw_path = normalize_label(sensor_name, &label);
             let path = dedup_path(&raw_path, &mut seen_paths);
 
@@ -374,14 +382,20 @@ impl HwInfoReader {
             units.insert(path.clone(), unit.clone());
             sensors.push(HwInfoSensorMeta {
                 path,
-                label,
+                label: format!("{} — {}", sensor_name, label),
                 unit,
             });
         }
 
+        // Only keep sensors that have a value entry (dedup may cause Vec/HashMap mismatch)
+        let sensors: Vec<HwInfoSensorMeta> = sensors
+            .into_iter()
+            .filter(|s| values.contains_key(&s.path))
+            .collect();
+
         let new_state = HwInfoState {
             connected: true,
-            sensor_count,
+            sensor_count: sensors.len() as u32,
             values,
             sensors,
             units,

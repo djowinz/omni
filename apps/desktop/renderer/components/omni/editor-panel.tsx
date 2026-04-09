@@ -7,7 +7,7 @@ import { useOmniState } from '@/hooks/use-omni-state';
 import { useBackend } from '@/hooks/use-backend';
 import { parseOmniContent } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
-import { omniDarkTheme, registerOmniLanguage } from '@/lib/monaco-omni';
+import { omniDarkTheme, registerOmniLanguage, updateHwInfoSensors } from '@/lib/monaco-omni';
 import type { ParseError } from '@/generated/ParseError';
 
 export function EditorPanel() {
@@ -38,6 +38,11 @@ export function EditorPanel() {
     registerOmniLanguage(monaco);
     monacoRef.current = monaco;
   }, []);
+
+  // Update HWiNFO sensor list for Monaco autocomplete
+  useEffect(() => {
+    updateHwInfoSensors(state.hwinfoSensors);
+  }, [state.hwinfoSensors]);
 
   // Pending scroll target — set when widget is clicked while on a different tab
   const pendingScrollRef = useRef<number | null>(null);

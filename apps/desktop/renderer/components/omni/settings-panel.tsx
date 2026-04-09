@@ -10,6 +10,7 @@ import type { Config } from '@/generated/Config';
 import { KeybindRecorder } from './keybind-recorder';
 import { ProcessListDialog } from './process-list-dialog';
 import { GameDirectoriesDialog } from './game-directories-dialog';
+import { HwInfoSensorsDialog } from './hwinfo-sensors-dialog';
 
 const backend = new BackendApi();
 
@@ -18,6 +19,7 @@ export function SettingsPanel() {
   const [excludeOpen, setExcludeOpen] = useState(false);
   const [includeOpen, setIncludeOpen] = useState(false);
   const [directoriesOpen, setDirectoriesOpen] = useState(false);
+  const [hwinfoOpen, setHwinfoOpen] = useState(false);
   const [openAtLogin, setOpenAtLogin] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
@@ -159,7 +161,10 @@ export function SettingsPanel() {
                 Integrations
               </h3>
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-md border border-[#27272A] bg-[#27272A]/50 px-3 py-2">
+                <button
+                  onClick={() => state.hwinfoConnected && setHwinfoOpen(true)}
+                  className="flex w-full items-center justify-between rounded-md border border-[#27272A] bg-[#27272A]/50 px-3 py-2 text-left hover:bg-[#27272A] transition-colors"
+                >
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-[#FAFAFA]">HWiNFO</span>
                     {state.hwinfoConnected ? (
@@ -175,11 +180,12 @@ export function SettingsPanel() {
                     )}
                   </div>
                   {state.hwinfoConnected && (
-                    <span className="text-[10px] text-[#52525B]">
+                    <span className="flex items-center gap-1 text-[10px] text-[#52525B]">
                       {state.hwinfoSensorCount} sensors
+                      <ChevronRight className="h-3 w-3" />
                     </span>
                   )}
-                </div>
+                </button>
               </div>
             </section>
 
@@ -251,6 +257,10 @@ export function SettingsPanel() {
         onOpenChange={setDirectoriesOpen}
         directories={gameDirectories}
         onUpdate={(directories) => updateConfig({ game_directories: directories })}
+      />
+      <HwInfoSensorsDialog
+        open={hwinfoOpen}
+        onOpenChange={setHwinfoOpen}
       />
     </>
   );

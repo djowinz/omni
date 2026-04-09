@@ -1,6 +1,7 @@
 import { Radio } from 'lucide-react';
 import type { SensorSnapshot } from '@/generated/SensorSnapshot';
 import type { HwInfoData } from '@/lib/sensor-mapping';
+import { useOmniState } from '@/hooks/use-omni-state';
 
 interface SensorEntry {
   label: string;
@@ -120,6 +121,7 @@ interface Props {
 }
 
 export function SensorReadout({ snapshot, hwinfo }: Props) {
+  const { state } = useOmniState();
   const entries = buildEntries(snapshot);
 
   return (
@@ -129,7 +131,6 @@ export function SensorReadout({ snapshot, hwinfo }: Props) {
         <h3 className="text-[10px] font-semibold uppercase tracking-widest text-[#71717A]">
           Live Sensors
         </h3>
-        <div className="h-1.5 w-1.5 rounded-full bg-[#22C55E] animate-pulse" />
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         {entries.map((entry) => (
@@ -147,26 +148,15 @@ export function SensorReadout({ snapshot, hwinfo }: Props) {
           </div>
         ))}
       </div>
-      {hwinfo?.connected && hwinfo.values.length > 0 && (
+      {state.hwinfoConnected && state.hwinfoSensorCount > 0 && (
         <div className="mt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[#F59E0B] mb-1">
-            HWiNFO
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-            {hwinfo.values.map((v) => (
-              <div key={v.path} className="flex justify-between">
-                <span className="text-[10px] text-[#71717A] truncate">
-                  {v.path.replace('hwinfo.', '')}
-                </span>
-                <span className="text-[10px] text-[#F59E0B] font-mono ml-2">
-                  {typeof v.value === 'number'
-                    ? Number.isInteger(v.value)
-                      ? v.value
-                      : v.value.toFixed(1)
-                    : v.value}
-                </span>
-              </div>
-            ))}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#F59E0B]">
+              HWiNFO
+            </span>
+            <span className="text-[10px] text-[#52525B]">
+              {state.hwinfoSensorCount} sensors streaming
+            </span>
           </div>
         </div>
       )}

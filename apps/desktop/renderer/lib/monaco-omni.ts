@@ -345,8 +345,13 @@ export function updateHwInfoSensors(
   }));
 }
 
+let _registered = false;
+
 /** Register the custom Omni language for .omni files */
 export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
+  if (_registered) return;
+  _registered = true;
+
   monaco.languages.register({ id: 'omni' });
 
   monaco.languages.setMonarchTokensProvider('omni', {

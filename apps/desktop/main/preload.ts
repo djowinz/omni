@@ -27,6 +27,15 @@ contextBridge.exposeInMainWorld('omni', {
     };
   },
 
+  // HWiNFO sensor list updates
+  onHwInfoSensors: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('hwinfo-sensors', handler);
+    return () => {
+      ipcRenderer.removeListener('hwinfo-sensors', handler);
+    };
+  },
+
   // Auto-update
   onUpdateReady: (callback: (version: string, releaseDate: string) => void) => {
     const handler = (_event: any, version: string, releaseDate: string) =>

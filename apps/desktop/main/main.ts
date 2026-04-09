@@ -298,7 +298,10 @@ app.on('ready', async () => {
   // Forward sensor data stream to renderer
   hostManager.on('message', (msg: any) => {
     if (msg.type === 'sensors.data') {
-      mainWindow?.webContents.send('sensor-data', { snapshot: msg.snapshot, hwinfo: msg.hwinfo });
+      mainWindow?.webContents.send('sensor-data', { snapshot: msg.snapshot, hwinfo: msg.snapshot?.hwinfo });
+    }
+    if (msg.type === 'hwinfo.sensors') {
+      mainWindow?.webContents.send('hwinfo-sensors', msg);
     }
   });
 

@@ -131,6 +131,18 @@ fn key_name_to_vk(name: &str) -> Option<u16> {
         "NUMPAD7" => Some(0x67),
         "NUMPAD8" => Some(0x68),
         "NUMPAD9" => Some(0x69),
+        // OEM keys (US keyboard layout)
+        ";" | ":" => Some(0xBA),        // VK_OEM_1
+        "=" | "+" => Some(0xBB),        // VK_OEM_PLUS
+        "," | "<" => Some(0xBC),        // VK_OEM_COMMA
+        "-" | "_" => Some(0xBD),        // VK_OEM_MINUS
+        "." | ">" => Some(0xBE),        // VK_OEM_PERIOD
+        "/" | "?" => Some(0xBF),        // VK_OEM_2
+        "`" | "~" => Some(0xC0),        // VK_OEM_3
+        "[" | "{" => Some(0xDB),        // VK_OEM_4
+        "\\" | "|" => Some(0xDC),       // VK_OEM_5
+        "]" | "}" => Some(0xDD),        // VK_OEM_6
+        "'" | "\"" => Some(0xDE),       // VK_OEM_7
         _ => {
             let bytes = upper.as_bytes();
             if bytes.len() == 1 {
@@ -183,5 +195,18 @@ mod tests {
         let hk = parse_keybind("ctrl+f12").unwrap();
         assert!(hk.ctrl);
         assert_eq!(hk.vk, 0x7B);
+    }
+
+    #[test]
+    fn parse_oem_keys() {
+        let hk = parse_keybind("Ctrl+Shift+?").unwrap();
+        assert_eq!(hk.vk, 0xBF);
+        assert!(hk.ctrl);
+        assert!(hk.shift);
+
+        assert_eq!(parse_keybind("/").unwrap().vk, 0xBF);
+        assert_eq!(parse_keybind(";").unwrap().vk, 0xBA);
+        assert_eq!(parse_keybind("[").unwrap().vk, 0xDB);
+        assert_eq!(parse_keybind("`").unwrap().vk, 0xC0);
     }
 }

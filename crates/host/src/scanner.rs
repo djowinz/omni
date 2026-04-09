@@ -20,6 +20,8 @@ pub struct Scanner {
     last_game_exe: Option<String>,
     last_external_pid: Option<u32>,
     last_game_hwnd: Option<isize>,
+    last_process_count: usize,
+    last_seen_count: usize,
 }
 
 impl Scanner {
@@ -32,6 +34,8 @@ impl Scanner {
             tracked: HashMap::new(),
             overlay_exe_path,
             config,
+            last_process_count: 0,
+            last_seen_count: 0,
             last_game_exe: None,
             last_external_pid: None,
             last_game_hwnd: None,
@@ -60,9 +64,16 @@ impl Scanner {
         };
 
         let alive: HashSet<u32> = processes.iter().map(|e| e.th32ProcessID).collect();
-        info!(process_count = alive.len(), seen = self.seen.len(), tracked = self.tracked.len(), "Scanner poll");
+        let process_count = alive.len();
 
         self.seen.retain(|pid| alive.contains(pid));
+        let seen_count = self.seen.len();
+
+        if process_count != self.last_process_count || seen_count != self.last_seen_count {
+            info!(process_count, seen = seen_count, tracked = self.tracked.len(), "Scanner poll");
+            self.last_process_count = process_count;
+            self.last_seen_count = seen_count;
+        }
         let prev_tracked_count = self.tracked.len();
         self.tracked.retain(|pid, overlay_child| {
             if alive.contains(pid) {

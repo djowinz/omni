@@ -143,13 +143,9 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
             let snapshot = *state.latest_snapshot.lock().unwrap();
             let hwinfo = state.hwinfo_state.lock().unwrap();
             let hwinfo_values: Vec<Value> = hwinfo
-                .sensors
+                .values
                 .iter()
-                .filter_map(|s| {
-                    hwinfo.values.get(&s.path).map(|&v| {
-                        json!({"path": s.path, "value": v})
-                    })
-                })
+                .map(|(path, &v)| json!({"path": path, "value": v}))
                 .collect();
             let msg = json!({
                 "type": "sensors.data",
@@ -186,6 +182,19 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                     },
                 }
             });
+            // Build hwinfo.sensors message while we still hold the lock
+            let hwinfo_sensors_msg = {
+                let sensor_list: Vec<Value> = hwinfo
+                    .sensors
+                    .iter()
+                    .map(|s| json!({"path": s.path, "label": s.label, "unit": s.unit}))
+                    .collect();
+                Some(json!({
+                    "type": "hwinfo.sensors",
+                    "connected": hwinfo.connected,
+                    "sensors": sensor_list,
+                }))
+            };
             drop(hwinfo);
 
             if ws.send(Message::Text(msg.to_string().into())).is_err() {
@@ -193,29 +202,9 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
             }
             last_sensor_send = std::time::Instant::now();
 
-            // Push hwinfo.sensors list if the sensor list changed
-            let send_sensors = {
-                let mut changed = state.hwinfo_sensors_changed.lock().unwrap();
-                if *changed {
-                    *changed = false;
-                    true
-                } else {
-                    false
-                }
-            };
-            if send_sensors {
-                let hwinfo = state.hwinfo_state.lock().unwrap();
-                let sensor_list: Vec<Value> = hwinfo
-                    .sensors
-                    .iter()
-                    .map(|s| json!({"path": s.path, "label": s.label, "unit": s.unit}))
-                    .collect();
-                let sensors_msg = json!({
-                    "type": "hwinfo.sensors",
-                    "connected": hwinfo.connected,
-                    "sensors": sensor_list,
-                });
-                drop(hwinfo);
+            // Push hwinfo.sensors list when connected (every sensor cycle ensures
+            // clients that connect after initial detection still receive the list)
+            if let Some(sensors_msg) = hwinfo_sensors_msg {
                 if ws.send(Message::Text(sensors_msg.to_string().into())).is_err() {
                     break;
                 }

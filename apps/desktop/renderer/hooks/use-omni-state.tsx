@@ -149,6 +149,17 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state.connected]);
 
+  // Listen for HWiNFO sensor list updates
+  useEffect(() => {
+    const unsub = window.omni?.onHwInfoSensors?.((data: any) => {
+      dispatch({
+        type: 'SET_HWINFO_SENSORS',
+        payload: { connected: data.connected ?? false, sensors: data.sensors ?? [] },
+      });
+    });
+    return () => { unsub?.(); };
+  }, []);
+
   /** Ensure an overlay's content is loaded (lazy loading). */
   const ensureOverlayLoaded = useCallback(
     async (name: string) => {
