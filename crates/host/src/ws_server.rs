@@ -390,6 +390,16 @@ fn handle_message(
                 ),
             }
         }
+        "log.path" => {
+            let log_path = state.data_dir.join("logs").join("omni-host.log");
+            Some(
+                json!({
+                    "type": "log.path",
+                    "path": log_path.to_string_lossy(),
+                })
+                .to_string(),
+            )
+        }
         _ => {
             debug!(msg_type, "Unknown WebSocket message type");
             Some(
