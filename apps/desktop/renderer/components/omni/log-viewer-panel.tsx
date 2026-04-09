@@ -203,7 +203,7 @@ export function LogViewerPanel() {
       <div
         ref={parentRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-auto font-mono text-xs"
+        className="flex-1 overflow-y-scroll overflow-x-auto font-mono text-xs"
       >
         <div
           style={{
@@ -227,17 +227,13 @@ export function LogViewerPanel() {
                 }}
                 className="flex items-center gap-3 px-4 hover:bg-[#27272A]/30 select-text"
               >
-                {line.timestamp && (
-                  <span className="flex-shrink-0 text-[#52525B]">
-                    {line.timestamp.split('T')[1]?.replace('Z', '') ?? line.timestamp}
-                  </span>
-                )}
-                {line.level && (
-                  <span className={cn('w-12 flex-shrink-0 font-semibold', LEVEL_COLORS[line.level])}>
-                    {line.level}
-                  </span>
-                )}
-                <span className="text-[#A1A1AA] truncate">{line.message}</span>
+                <span className="w-24 flex-shrink-0 text-[#52525B]">
+                  {line.timestamp ? (line.timestamp.split('T')[1]?.replace('Z', '') ?? line.timestamp) : ''}
+                </span>
+                <span className={cn('w-12 flex-shrink-0 font-semibold', line.level ? LEVEL_COLORS[line.level] : 'text-[#52525B]')}>
+                  {line.level ?? ''}
+                </span>
+                <span className="text-[#A1A1AA] min-w-0 whitespace-pre">{line.message}</span>
               </div>
             );
           })}
