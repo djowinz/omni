@@ -153,6 +153,36 @@ export function SettingsPanel() {
               </div>
             </section>
 
+            {/* Integrations Section */}
+            <section>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[#52525B] mb-3">
+                Integrations
+              </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-md border border-[#27272A] bg-[#27272A]/50 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-[#FAFAFA]">HWiNFO</span>
+                    {state.hwinfoConnected ? (
+                      <span className="flex items-center gap-1 text-[10px] text-[#22C55E]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
+                        Detected
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] text-[#52525B]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#52525B]" />
+                        Not detected
+                      </span>
+                    )}
+                  </div>
+                  {state.hwinfoConnected && (
+                    <span className="text-[10px] text-[#52525B]">
+                      {state.hwinfoSensorCount} sensors
+                    </span>
+                  )}
+                </div>
+              </div>
+            </section>
+
             {/* Service Section */}
             <section>
               <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[#52525B] mb-3">
