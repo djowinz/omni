@@ -47,15 +47,23 @@ export function EditorPanel() {
   // Pending scroll target — set when widget is clicked while on a different tab
   const pendingScrollRef = useRef<number | null>(null);
 
+  // Keep a ref to editorViewStates so handleMount always reads the latest value
+  // without needing to be re-memoized (which would cause Monaco to remount)
+  const viewStatesRef = useRef(state.editorViewStates);
+  viewStatesRef.current = state.editorViewStates;
+
+  const activeTabIdRef = useRef(state.activeTabId);
+  activeTabIdRef.current = state.activeTabId;
+
   // Capture editor reference on mount, execute pending scroll if any
   const handleMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
     setLineCount(editor.getModel()?.getLineCount() ?? 1);
 
     // Restore view state from IndexedDB-backed state
-    const tabId = state.activeTabId;
-    if (tabId && state.editorViewStates[tabId]) {
-      const vs = state.editorViewStates[tabId];
+    const tabId = activeTabIdRef.current;
+    if (tabId && viewStatesRef.current[tabId]) {
+      const vs = viewStatesRef.current[tabId];
       editor.setPosition(vs.cursorPosition);
       editor.setScrollTop(vs.scrollTop);
       editor.setScrollLeft(vs.scrollLeft);
@@ -69,13 +77,13 @@ export function EditorPanel() {
       editor.setPosition({ lineNumber: line, column: 1 });
       editor.focus();
     }
-  }, [state.activeTabId, state.editorViewStates]);
+  }, []);
 
   // Save editor view state to IndexedDB-backed state on unmount
   useEffect(() => {
     return () => {
       const editor = editorRef.current;
-      const tabId = state.activeTabId;
+      const tabId = activeTabIdRef.current;
       if (editor && tabId) {
         const position = editor.getPosition();
         const scrollTop = editor.getScrollTop();
@@ -95,7 +103,7 @@ export function EditorPanel() {
         }
       }
     };
-  }, [state.activeTabId, dispatch]);
+  }, [dispatch]);
 
   // Handle content changes from Monaco
   const handleChange = useCallback(
