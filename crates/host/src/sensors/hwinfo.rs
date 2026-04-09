@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use tracing::{info, warn};
@@ -26,6 +24,7 @@ const HWINFO_UNIT_STRING_LEN: usize = 16;
 /// Top-level header at offset 0 of the shared memory block.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Fields read via pointer cast from shared memory
 pub struct HwInfoHeader {
     /// Must equal `HWINFO_MEM_VERSION` (2).
     pub version: u32,
@@ -42,6 +41,7 @@ pub struct HwInfoHeader {
 /// One sensor device entry (e.g. "CPU [#0]: AMD Ryzen 9 7950X").
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Fields read via pointer cast from shared memory
 pub struct HwInfoSensor {
     pub id: u32,
     pub instance: u32,
@@ -52,6 +52,7 @@ pub struct HwInfoSensor {
 /// Reading type enum matching HWiNFO's SENSOR_READING_TYPE.
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Variants matched via raw u32 from shared memory
 pub enum ReadingType {
     None = 0,
     Temp = 1,
@@ -67,6 +68,7 @@ pub enum ReadingType {
 /// One reading entry (e.g. "Core 0 Temperature").
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Fields read via pointer cast from shared memory
 pub struct HwInfoReading {
     pub reading_type: u32,
     pub sensor_index: u32,

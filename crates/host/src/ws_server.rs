@@ -212,6 +212,7 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                     .collect();
                 let sensors_msg = json!({
                     "type": "hwinfo.sensors",
+                    "connected": hwinfo.connected,
                     "sensors": sensor_list,
                 });
                 drop(hwinfo);

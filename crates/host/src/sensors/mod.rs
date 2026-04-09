@@ -165,7 +165,11 @@ impl SensorPoller {
                     any_updated = true;
                 }
 
-                // HWiNFO group (polled every tick — lightweight shared memory read)
+                // HWiNFO group (polled every tick — lightweight shared memory read).
+                // Note: HWiNFO is not included in the base tick GCD calculation.
+                // If all sensor groups have high intervals the effective HWiNFO poll
+                // rate equals the base tick, which is still fine since the read is
+                // a sub-microsecond memcpy.
                 {
                     let (hwinfo_state, hwinfo_sensors_changed) = hwinfo_reader.poll();
                     snapshot.hwinfo_connected = hwinfo_state.connected;
