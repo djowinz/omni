@@ -116,7 +116,7 @@ export class LogTailer extends EventEmitter {
 
     const lines = parts.filter((l) => l.length > 0);
     if (lines.length > 0) {
-      this.emit('lines', lines);
+      this.emit('lines', lines, this.offset);
     }
   }
 }
