@@ -56,8 +56,8 @@ contextBridge.exposeInMainWorld('omni', {
   // Log tailing
   startLogTail: () => ipcRenderer.invoke('log:start'),
   stopLogTail: () => ipcRenderer.invoke('log:stop'),
-  onLogData: (callback: (lines: string[]) => void) => {
-    const handler = (_event: any, lines: string[]) => callback(lines);
+  onLogData: (callback: (lines: string[], fileSize: number) => void) => {
+    const handler = (_event: any, lines: string[], fileSize: number) => callback(lines, fileSize);
     ipcRenderer.on('log:data', handler);
     return () => {
       ipcRenderer.removeListener('log:data', handler);

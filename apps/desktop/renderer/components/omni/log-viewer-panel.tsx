@@ -15,6 +15,12 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
 
 const ALL_LEVELS: LogLevel[] = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function LogViewerPanel() {
   const router = useRouter();
   const [lines, setLines] = useState<ParsedLogLine[]>([]);
@@ -24,6 +30,7 @@ export function LogViewerPanel() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [tailing, setTailing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileSize, setFileSize] = useState(0);
   const parentRef = useRef<HTMLDivElement>(null);
   const levelDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +39,8 @@ export function LogViewerPanel() {
     let unsubData: (() => void) | undefined;
     let unsubError: (() => void) | undefined;
 
-    unsubData = window.omni?.onLogData((newLines: string[]) => {
+    unsubData = window.omni?.onLogData((newLines: string[], size: number) => {
+      setFileSize(size);
       const parsed = newLines.map(parseLogLine);
       setLines((prev) => {
         const next = [...prev, ...parsed];
@@ -138,6 +146,9 @@ export function LogViewerPanel() {
               <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E] animate-pulse" />
               Live
             </span>
+          )}
+          {fileSize > 0 && (
+            <span className="text-[10px] text-[#52525B]">{formatFileSize(fileSize)}</span>
           )}
           {error && (
             <span className="flex items-center gap-1 text-[10px] text-[#EF4444]">

@@ -334,8 +334,8 @@ app.on('ready', async () => {
 
     logTailer = new LogTailer(logPath);
 
-    logTailer.on('lines', (lines: string[]) => {
-      mainWindow?.webContents.send('log:data', lines);
+    logTailer.on('lines', (lines: string[], fileSize: number) => {
+      mainWindow?.webContents.send('log:data', lines, fileSize);
     });
 
     logTailer.on('error', (err: Error) => {

@@ -15,7 +15,7 @@ interface OmniIpcBridge {
   setLoginItemSettings: (openAtLogin: boolean) => Promise<{ success: boolean }>;
   startLogTail: () => Promise<{ path: string }>;
   stopLogTail: () => Promise<void>;
-  onLogData: (callback: (lines: string[]) => void) => () => void;
+  onLogData: (callback: (lines: string[], fileSize: number) => void) => () => void;
   onLogError: (callback: (message: string) => void) => () => void;
 }
 
