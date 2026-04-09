@@ -1,4 +1,5 @@
 import { Puzzle, Settings } from 'lucide-react';
+import { useRouter } from 'next/router';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { cn } from '@/lib/utils';
 
@@ -9,13 +10,22 @@ const tabs = [
 
 export function ActivityBar() {
   const { state, dispatch } = useOmniState();
+  const router = useRouter();
+
+  const handleTabClick = (tabId: 'components' | 'settings') => {
+    dispatch({ type: 'SET_ACTIVE_PANEL', payload: tabId });
+    // If switching to Components while on the logs page, navigate back to home
+    if (tabId === 'components' && router.pathname === '/logs') {
+      router.push('/home');
+    }
+  };
 
   return (
     <div className="flex w-11 flex-shrink-0 flex-col border-r border-[#27272A] bg-[#141416]">
       {tabs.map((tab) => (
         <button
           key={tab.id}
-          onClick={() => dispatch({ type: 'SET_ACTIVE_PANEL', payload: tab.id })}
+          onClick={() => handleTabClick(tab.id)}
           className={cn(
             'flex h-10 w-full items-center justify-center border-l-2 transition-colors',
             state.activePanel === tab.id
