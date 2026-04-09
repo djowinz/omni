@@ -7,6 +7,7 @@ import { appReducer } from '@/lib/app-reducer';
 import {
   loadEditorState,
   persistEditorStateDebounced,
+  flushEditorState,
   type PersistedEditorState,
 } from '@/lib/persistence';
 
@@ -191,6 +192,20 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
       viewStates: state.editorViewStates,
     };
     persistEditorStateDebounced(persisted);
+  }, [state.openTabs, state.activeTabId, state.editorViewStates]);
+
+  // Flush editor state to IndexedDB before page unload (crash safety net)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const persisted = {
+        openTabs: state.openTabs,
+        activeTabId: state.activeTabId,
+        viewStates: state.editorViewStates,
+      };
+      flushEditorState(persisted);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [state.openTabs, state.activeTabId, state.editorViewStates]);
 
   /** Ensure an overlay's content is loaded (lazy loading). */
