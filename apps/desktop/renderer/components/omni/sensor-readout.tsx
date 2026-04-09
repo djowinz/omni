@@ -1,5 +1,6 @@
 import { Radio } from 'lucide-react';
 import type { SensorSnapshot } from '@/generated/SensorSnapshot';
+import type { HwInfoData } from '@/lib/sensor-mapping';
 
 interface SensorEntry {
   label: string;
@@ -113,7 +114,12 @@ function buildEntries(s: SensorSnapshot): SensorEntry[] {
   return entries;
 }
 
-export function SensorReadout({ snapshot }: { snapshot: SensorSnapshot }) {
+interface Props {
+  snapshot: SensorSnapshot;
+  hwinfo?: HwInfoData;
+}
+
+export function SensorReadout({ snapshot, hwinfo }: Props) {
   const entries = buildEntries(snapshot);
 
   return (
@@ -141,6 +147,29 @@ export function SensorReadout({ snapshot }: { snapshot: SensorSnapshot }) {
           </div>
         ))}
       </div>
+      {hwinfo?.connected && hwinfo.values.length > 0 && (
+        <div className="mt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-[#F59E0B] mb-1">
+            HWiNFO
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+            {hwinfo.values.map((v) => (
+              <div key={v.path} className="flex justify-between">
+                <span className="text-[10px] text-[#71717A] truncate">
+                  {v.path.replace('hwinfo.', '')}
+                </span>
+                <span className="text-[10px] text-[#F59E0B] font-mono ml-2">
+                  {typeof v.value === 'number'
+                    ? Number.isInteger(v.value)
+                      ? v.value
+                      : v.value.toFixed(1)
+                    : v.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

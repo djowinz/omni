@@ -26,7 +26,7 @@ export function PreviewPanel() {
   // Determine which metrics to use for preview
   const activeMetrics: MetricValues = useMemo(() => {
     if (effectiveMode === 'live' && sensorData) {
-      return { ...DEFAULT_METRICS, ...sensorSnapshotToMetrics(sensorData) };
+      return { ...DEFAULT_METRICS, ...sensorSnapshotToMetrics(sensorData.snapshot, sensorData.hwinfo) };
     }
     return state.previewMetrics;
   }, [effectiveMode, sensorData, state.previewMetrics]);
@@ -173,7 +173,7 @@ export function PreviewPanel() {
         {/* Bottom panel: live sensor readout or metric simulator */}
         <div className="border-t border-[#27272A] bg-[#18181B]">
           {effectiveMode === 'live' && sensorData ? (
-            <SensorReadout snapshot={sensorData} />
+            <SensorReadout snapshot={sensorData.snapshot} hwinfo={sensorData.hwinfo} />
           ) : (
             <ScrollArea className="h-[180px]">
               <MetricSimulator />
