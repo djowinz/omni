@@ -1,6 +1,7 @@
 // Core Types for Omni Overlay System
 
 import type { Config } from '@/generated/Config';
+import type { EditorViewState } from '@/lib/persistence';
 
 /**
  * Widget parsed from .omni file content
@@ -87,6 +88,9 @@ export interface AppState {
   openTabs: EditorTab[];
   activeTabId: string | null;
 
+  // Editor view states (cursor, scroll) per tab — persisted to IndexedDB
+  editorViewStates: Record<string, EditorViewState>;
+
   // Theme files
   themeFiles: Record<string, string>; // path -> content
 
@@ -131,7 +135,8 @@ export type AppAction =
   | { type: 'SET_THEME_FILE'; payload: { path: string; content: string } }
   | { type: 'SET_ACTIVE_PANEL'; payload: 'components' | 'settings' }
   | { type: 'SET_UPDATE_READY'; payload: { version: string; releaseDate: string } }
-  | { type: 'SET_HWINFO_SENSORS'; payload: { connected: boolean; sensors: Array<{ path: string; label: string; unit: string }> } };
+  | { type: 'SET_HWINFO_SENSORS'; payload: { connected: boolean; sensors: Array<{ path: string; label: string; unit: string }> } }
+  | { type: 'SET_EDITOR_VIEW_STATE'; payload: { tabId: string; viewState: EditorViewState } };
 
 /**
  * Default metric values for preview simulation

@@ -4,6 +4,11 @@ import { DEFAULT_METRICS } from '@/types/omni';
 import type { Config } from '@/generated/Config';
 import { BackendApi } from '@/lib/backend-api';
 import { appReducer } from '@/lib/app-reducer';
+import {
+  loadEditorState,
+  persistEditorStateDebounced,
+  type PersistedEditorState,
+} from '@/lib/persistence';
 
 const backend = new BackendApi();
 
@@ -16,6 +21,7 @@ const initialState: AppState = {
   widgetScrollRequest: 0,
   openTabs: [],
   activeTabId: null,
+  editorViewStates: {},
   themeFiles: {},
   previewMetrics: DEFAULT_METRICS,
   isDirty: false,
@@ -159,6 +165,33 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     });
     return () => { unsub?.(); };
   }, []);
+
+  // Hydrate editor state from IndexedDB on mount
+  useEffect(() => {
+    loadEditorState().then((persisted) => {
+      if (persisted) {
+        if (persisted.openTabs.length > 0) {
+          for (const tab of persisted.openTabs) {
+            dispatch({ type: 'OPEN_TAB', payload: tab });
+          }
+          if (persisted.activeTabId) {
+            dispatch({ type: 'SET_ACTIVE_TAB', payload: persisted.activeTabId });
+          }
+        }
+      }
+    });
+  }, []);
+
+  // Persist editor state to IndexedDB on changes (debounced)
+  useEffect(() => {
+    if (state.openTabs.length === 0 && !state.activeTabId) return;
+    const persisted: PersistedEditorState = {
+      openTabs: state.openTabs,
+      activeTabId: state.activeTabId,
+      viewStates: state.editorViewStates,
+    };
+    persistEditorStateDebounced(persisted);
+  }, [state.openTabs, state.activeTabId, state.editorViewStates]);
 
   /** Ensure an overlay's content is loaded (lazy loading). */
   const ensureOverlayLoaded = useCallback(

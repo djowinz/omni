@@ -127,6 +127,15 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         hwinfoSensorCount: action.payload.sensors.length,
       };
 
+    case 'SET_EDITOR_VIEW_STATE':
+      return {
+        ...state,
+        editorViewStates: {
+          ...state.editorViewStates,
+          [action.payload.tabId]: action.payload.viewState,
+        },
+      };
+
     default:
       return state;
   }

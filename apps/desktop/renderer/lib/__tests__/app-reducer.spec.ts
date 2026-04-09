@@ -13,6 +13,7 @@ function makeState(overrides?: Partial<AppState>): AppState {
     widgetScrollRequest: 0,
     openTabs: [],
     activeTabId: null,
+    editorViewStates: {},
     themeFiles: {},
     previewMetrics: DEFAULT_METRICS,
     isDirty: false,
@@ -20,6 +21,9 @@ function makeState(overrides?: Partial<AppState>): AppState {
     updateReady: false,
     updateVersion: null,
     updateReleaseDate: null,
+    hwinfoConnected: false,
+    hwinfoSensorCount: 0,
+    hwinfoSensors: [],
     ...overrides,
   };
 }
