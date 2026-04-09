@@ -24,6 +24,7 @@ export function LogViewerPanel() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [tailing, setTailing] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
+  const levelDropdownRef = useRef<HTMLDivElement>(null);
 
   // Start/stop tailing on mount/unmount
   useEffect(() => {
@@ -38,7 +39,10 @@ export function LogViewerPanel() {
 
     unsubData = window.omni?.onLogData((newLines: string[]) => {
       const parsed = newLines.map(parseLogLine);
-      setLines((prev) => [...prev, ...parsed]);
+      setLines((prev) => {
+        const next = [...prev, ...parsed];
+        return next.length > 50000 ? next.slice(next.length - 50000) : next;
+      });
     });
 
     unsubError = window.omni?.onLogError((message: string) => {
@@ -76,6 +80,18 @@ export function LogViewerPanel() {
       virtualizer.scrollToIndex(filteredLines.length - 1, { align: 'end' });
     }
   }, [filteredLines.length, autoScroll, virtualizer]);
+
+  // Close level dropdown when clicking outside
+  useEffect(() => {
+    if (!levelDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (levelDropdownRef.current && !levelDropdownRef.current.contains(e.target as Node)) {
+        setLevelDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [levelDropdownOpen]);
 
   // Detect manual scroll-up to pause auto-scroll
   const handleScroll = useCallback(() => {
@@ -133,7 +149,7 @@ export function LogViewerPanel() {
           </div>
 
           {/* Level filter */}
-          <div className="relative">
+          <div className="relative" ref={levelDropdownRef}>
             <button
               onClick={() => setLevelDropdownOpen(!levelDropdownOpen)}
               className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-2 py-1 text-xs text-[#A1A1AA] hover:bg-[#27272A]"
