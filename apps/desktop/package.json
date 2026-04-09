@@ -15,7 +15,9 @@
   },
   "dependencies": {
     "@plausible-analytics/tracker": "^0.4.4",
+    "@tanstack/react-virtual": "^3.13.23",
     "electron-updater": "^6.8.3",
+    "idb": "^8.0.3",
     "ws": "^8.20.0"
   },
   "devDependencies": {
