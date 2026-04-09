@@ -78,11 +78,9 @@ export function SettingsPanel() {
     <>
       <div className="flex h-full flex-col">
         {/* Header */}
-        <div className="flex items-center gap-2 border-b border-[#27272A] px-4 py-3">
+        <div className="flex h-10 items-center gap-2 border-b border-[#27272A] px-3 bg-[#18181B]">
           <Settings className="h-4 w-4 text-[#71717A]" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">
-            Settings
-          </span>
+          <h2 className="text-sm font-medium text-[#FAFAFA]">Settings</h2>
         </div>
 
         <ScrollArea className="flex-1">
