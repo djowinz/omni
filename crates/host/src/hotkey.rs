@@ -6,7 +6,7 @@
 //! - "Ctrl+Shift+H" (multiple modifiers + key)
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_MENU, VK_SHIFT,
+    GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 
 /// A parsed hotkey: modifier flags + a virtual key code.
@@ -16,6 +16,7 @@ pub struct Hotkey {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
+    pub win: bool,
 }
 
 /// State tracker that detects key-down edges (press, not hold).
@@ -57,6 +58,9 @@ impl HotkeyPoller {
         if self.hotkey.shift && !is_key_down(VK_SHIFT.0) {
             return false;
         }
+        if self.hotkey.win && !(is_key_down(VK_LWIN.0) || is_key_down(VK_RWIN.0)) {
+            return false;
+        }
         is_key_down(self.hotkey.vk)
     }
 }
@@ -71,6 +75,7 @@ pub fn parse_keybind(s: &str) -> Option<Hotkey> {
     let mut ctrl = false;
     let mut alt = false;
     let mut shift = false;
+    let mut win = false;
     let mut main_key = None;
 
     for part in s.split('+') {
@@ -79,6 +84,7 @@ pub fn parse_keybind(s: &str) -> Option<Hotkey> {
             "ctrl" | "control" => ctrl = true,
             "alt" => alt = true,
             "shift" => shift = true,
+            "meta" | "win" | "super" | "cmd" => win = true,
             _ => {
                 main_key = Some(key_name_to_vk(part)?);
             }
@@ -86,7 +92,7 @@ pub fn parse_keybind(s: &str) -> Option<Hotkey> {
     }
 
     let vk = main_key?;
-    Some(Hotkey { vk, ctrl, alt, shift })
+    Some(Hotkey { vk, ctrl, alt, shift, win })
 }
 
 /// Map a key name string to a Windows virtual key code.

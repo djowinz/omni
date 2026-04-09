@@ -15,6 +15,7 @@ function eventToKeyString(e: KeyboardEvent): string {
   if (e.ctrlKey) parts.push('Ctrl');
   if (e.altKey) parts.push('Alt');
   if (e.shiftKey) parts.push('Shift');
+  if (e.metaKey) parts.push('Meta');
 
   // Don't include bare modifier keys as the main key
   if (!MODIFIER_KEYS.includes(e.key)) {
