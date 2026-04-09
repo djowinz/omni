@@ -333,6 +333,18 @@ function mapLspToMonaco(
   return { suggestions, incomplete: lspList.isIncomplete ?? false };
 }
 
+let hwinfoSensorItems: Array<{ path: string; detail: string; category: string }> = [];
+
+export function updateHwInfoSensors(
+  sensors: Array<{ path: string; label: string; unit: string }>,
+) {
+  hwinfoSensorItems = sensors.map(s => ({
+    path: s.path,
+    detail: `${s.label} (${s.unit})`,
+    category: 'HWiNFO',
+  }));
+}
+
 /** Register the custom Omni language for .omni files */
 export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
   monaco.languages.register({ id: 'omni' });
@@ -675,7 +687,7 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
     endLineNumber: number;
     endColumn: number;
   }): languages.CompletionItem[] {
-    return sensorItems.map((s, i) => ({
+    return [...sensorItems, ...hwinfoSensorItems].map((s, i) => ({
       label: s.path,
       kind: monaco.languages.CompletionItemKind.Variable,
       detail: s.detail,
