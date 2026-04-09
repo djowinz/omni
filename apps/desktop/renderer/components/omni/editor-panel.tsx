@@ -52,6 +52,15 @@ export function EditorPanel() {
     editorRef.current = editor;
     setLineCount(editor.getModel()?.getLineCount() ?? 1);
 
+    // Restore view state from IndexedDB-backed state
+    const tabId = state.activeTabId;
+    if (tabId && state.editorViewStates[tabId]) {
+      const vs = state.editorViewStates[tabId];
+      editor.setPosition(vs.cursorPosition);
+      editor.setScrollTop(vs.scrollTop);
+      editor.setScrollLeft(vs.scrollLeft);
+    }
+
     // Execute pending scroll from widget click
     if (pendingScrollRef.current !== null) {
       const line = pendingScrollRef.current;
@@ -60,7 +69,33 @@ export function EditorPanel() {
       editor.setPosition({ lineNumber: line, column: 1 });
       editor.focus();
     }
-  }, []);
+  }, [state.activeTabId, state.editorViewStates]);
+
+  // Save editor view state to IndexedDB-backed state on unmount
+  useEffect(() => {
+    return () => {
+      const editor = editorRef.current;
+      const tabId = state.activeTabId;
+      if (editor && tabId) {
+        const position = editor.getPosition();
+        const scrollTop = editor.getScrollTop();
+        const scrollLeft = editor.getScrollLeft();
+        if (position) {
+          dispatch({
+            type: 'SET_EDITOR_VIEW_STATE',
+            payload: {
+              tabId,
+              viewState: {
+                cursorPosition: { lineNumber: position.lineNumber, column: position.column },
+                scrollTop,
+                scrollLeft,
+              },
+            },
+          });
+        }
+      }
+    };
+  }, [state.activeTabId, dispatch]);
 
   // Handle content changes from Monaco
   const handleChange = useCallback(
