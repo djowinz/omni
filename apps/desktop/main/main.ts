@@ -353,9 +353,14 @@ app.on('ready', async () => {
     }
   });
 
-  // --- Auto-updater ---
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // --- Auto-updater (production only) ---
+  if (!isProd) {
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+  } else {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+  }
 
   autoUpdater.on('update-downloaded', (info) => {
     mainWindow?.webContents.send('update-ready', info.version, info.releaseDate);
@@ -365,18 +370,20 @@ app.on('ready', async () => {
     console.error('[auto-updater] Error:', err.message);
   });
 
-  // Check on startup (delay 10s to let the app finish loading)
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {});
-  }, 10_000);
-
-  // Check every 4 hours
-  setInterval(
-    () => {
+  if (isProd) {
+    // Check on startup (delay 10s to let the app finish loading)
+    setTimeout(() => {
       autoUpdater.checkForUpdates().catch(() => {});
-    },
-    4 * 60 * 60 * 1000,
-  );
+    }, 10_000);
+
+    // Check every 4 hours
+    setInterval(
+      () => {
+        autoUpdater.checkForUpdates().catch(() => {});
+      },
+      4 * 60 * 60 * 1000,
+    );
+  }
 });
 
 app.on('before-quit', async () => {
