@@ -310,6 +310,9 @@ app.on('ready', async () => {
   // Log tailing
   let logTailer: LogTailer | null = null;
 
+  try { ipcMain.removeHandler('log:start'); } catch {}
+  try { ipcMain.removeHandler('log:stop'); } catch {}
+
   ipcMain.handle('log:start', async () => {
     // Stop any existing tailer
     if (logTailer) {
