@@ -397,6 +397,9 @@ fn run_host() {
 
     // Load initial HTML into Ultralight (styles + body + omniUpdate JS function)
     {
+        let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_state.lock()
+            .map(|s| (s.values.clone(), s.units.clone()))
+            .unwrap_or_default();
         let html = html_builder::build_initial_html(
             &host.omni_file,
             &latest_snapshot,
@@ -404,6 +407,8 @@ fn run_host() {
             1080,
             &data_dir,
             &host.current_overlay,
+            &hwinfo_values,
+            &hwinfo_units,
         );
         ul.load_html(&html);
         // Pump Ultralight for a few frames to let it initialize
@@ -613,12 +618,17 @@ fn run_host() {
             let vh = if latest_snapshot.frame.render_height > 0 {
                 latest_snapshot.frame.render_height
             } else { 1080 };
+            let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_state.lock()
+                .map(|s| (s.values.clone(), s.units.clone()))
+                .unwrap_or_default();
             let html = html_builder::build_initial_html(
                 &host.omni_file,
                 &latest_snapshot,
                 vw, vh,
                 &data_dir,
                 &host.current_overlay,
+                &hwinfo_values,
+                &hwinfo_units,
             );
             ul.load_html(&html);
             for _ in 0..10 {
@@ -633,7 +643,10 @@ fn run_host() {
         // The HTML is loaded once (with styles in <head> and omniUpdate function).
         // Each cycle we call omniUpdate({...}) to update classes and text nodes.
         // The DOM persists so CSS transitions animate naturally.
-        if let Some(js) = html_builder::build_update_js(&host.omni_file, &latest_snapshot) {
+        let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_state.lock()
+            .map(|s| (s.values.clone(), s.units.clone()))
+            .unwrap_or_default();
+        if let Some(js) = html_builder::build_update_js(&host.omni_file, &latest_snapshot, &hwinfo_values, &hwinfo_units) {
             ul.evaluate_script(&js);
         }
         ul.update_and_render();

@@ -7,10 +7,11 @@
 //! - `build_update_js` — walks the template tree with current sensor values
 //!   and builds a JSON payload for the omniUpdate function (called every cycle).
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use super::expression;
-use super::interpolation;
+use super::sensor_map;
 use super::types::{HtmlNode, OmniFile};
 use omni_shared::SensorSnapshot;
 
@@ -29,6 +30,8 @@ pub fn build_initial_html(
     viewport_height: u32,
     data_dir: &Path,
     overlay_name: &str,
+    hwinfo_values: &HashMap<String, f64>,
+    hwinfo_units: &HashMap<String, String>,
 ) -> String {
     let mut widget_css = String::new();
     let mut widget_html = String::new();
@@ -48,7 +51,7 @@ pub fn build_initial_html(
         }
         widget_css.push_str(&widget.style_source);
         widget_css.push('\n');
-        let html = render_initial_node(&widget.template, snapshot, &mut counter);
+        let html = render_initial_node(&widget.template, snapshot, &mut counter, hwinfo_values, hwinfo_units);
         widget_html.push_str(&html);
         widget_html.push('\n');
     }
@@ -100,11 +103,13 @@ fn render_initial_node(
     node: &HtmlNode,
     snapshot: &SensorSnapshot,
     counter: &mut u32,
+    hwinfo_values: &HashMap<String, f64>,
+    hwinfo_units: &HashMap<String, String>,
 ) -> String {
     match node {
         HtmlNode::Text { content } => {
             if content.contains('{') {
-                interpolation::interpolate(content, snapshot)
+                interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units)
             } else {
                 content.clone()
             }
@@ -137,7 +142,7 @@ fn render_initial_node(
 
             let children_html: String = children
                 .iter()
-                .map(|c| render_initial_node(c, snapshot, counter))
+                .map(|c| render_initial_node(c, snapshot, counter, hwinfo_values, hwinfo_units))
                 .collect();
 
             if matches!(tag.as_str(), "br" | "hr" | "img" | "input") {
@@ -160,7 +165,12 @@ fn render_initial_node(
 /// classes or sensor text:
 /// - `"c"` key: the full className string (all static + active conditional classes)
 /// - `"t"` key: the interpolated text content (for text node children with sensor placeholders)
-pub fn build_update_js(omni_file: &OmniFile, snapshot: &SensorSnapshot) -> Option<String> {
+pub fn build_update_js(
+    omni_file: &OmniFile,
+    snapshot: &SensorSnapshot,
+    hwinfo_values: &HashMap<String, f64>,
+    hwinfo_units: &HashMap<String, String>,
+) -> Option<String> {
     let mut entries = String::new();
     let mut counter: u32 = 0;
     let mut has_entries = false;
@@ -169,7 +179,7 @@ pub fn build_update_js(omni_file: &OmniFile, snapshot: &SensorSnapshot) -> Optio
         if !widget.enabled {
             continue;
         }
-        collect_update_entries(&widget.template, snapshot, &mut counter, &mut entries, &mut has_entries);
+        collect_update_entries(&widget.template, snapshot, &mut counter, &mut entries, &mut has_entries, hwinfo_values, hwinfo_units);
     }
 
     if !has_entries {
@@ -191,6 +201,8 @@ fn collect_update_entries(
     counter: &mut u32,
     entries: &mut String,
     has_entries: &mut bool,
+    hwinfo_values: &HashMap<String, f64>,
+    hwinfo_units: &HashMap<String, String>,
 ) {
     match node {
         HtmlNode::Text { .. } => {
@@ -222,7 +234,7 @@ fn collect_update_entries(
             for child in children {
                 if let HtmlNode::Text { content } = child {
                     if content.contains('{') {
-                        let interpolated = interpolation::interpolate(content, snapshot);
+                        let interpolated = interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units);
                         let escaped = interpolated.replace('\\', "\\\\").replace('"', "\\\"");
                         entry_parts.push(format!(r#""t":"{}""#, escaped));
                         break; // Only first text child
@@ -241,7 +253,7 @@ fn collect_update_entries(
 
             // Recurse into children
             for child in children {
-                collect_update_entries(child, snapshot, counter, entries, has_entries);
+                collect_update_entries(child, snapshot, counter, entries, has_entries, hwinfo_values, hwinfo_units);
             }
         }
     }
@@ -250,6 +262,48 @@ fn collect_update_entries(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Replace all `{sensor.path}` expressions using hwinfo-aware lookup.
+fn interpolate_with_hwinfo(
+    input: &str,
+    snapshot: &SensorSnapshot,
+    hwinfo_values: &HashMap<String, f64>,
+    hwinfo_units: &HashMap<String, String>,
+) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let mut path = String::new();
+            let mut found_close = false;
+            for inner in chars.by_ref() {
+                if inner == '}' {
+                    found_close = true;
+                    break;
+                }
+                path.push(inner);
+            }
+
+            if found_close && !path.is_empty() {
+                let value = sensor_map::get_sensor_value_with_hwinfo(
+                    path.trim(),
+                    snapshot,
+                    hwinfo_values,
+                    hwinfo_units,
+                );
+                result.push_str(&value);
+            } else {
+                result.push('{');
+                result.push_str(&path);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
 
 fn load_theme_css(data_dir: &Path, overlay_name: &str, theme_src: &str) -> String {
     use crate::workspace::structure::resolve_theme_path;

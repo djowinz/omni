@@ -124,6 +124,9 @@ pub fn validate_sensor_paths(
             }
             if found_close && !path.is_empty() {
                 let path = path.trim();
+                if path.starts_with("hwinfo.") {
+                    continue;
+                }
                 if parse_sensor_path(path).is_none() {
                     let suggestion = suggest_sensor_path(path);
                     let msg = match suggestion {

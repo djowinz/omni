@@ -7,6 +7,7 @@ use super::sensor_map;
 use omni_shared::SensorSnapshot;
 
 /// Replace all `{sensor.path}` expressions in the input string with current values.
+#[allow(dead_code)]
 pub fn interpolate(input: &str, snapshot: &SensorSnapshot) -> String {
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();

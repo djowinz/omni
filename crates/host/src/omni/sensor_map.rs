@@ -4,6 +4,9 @@ use omni_shared::SensorSnapshot;
 
 /// Returns `Some(())` if `path` is a known sensor path, `None` otherwise.
 pub fn parse_sensor_path(path: &str) -> Option<()> {
+    if path.starts_with("hwinfo.") && path.len() > 7 {
+        return Some(());
+    }
     match path {
         "cpu.usage"
         | "cpu.temp"
@@ -95,6 +98,26 @@ fn format_temp(temp_c: f32) -> String {
     }
 }
 
+/// Get the formatted string value for a sensor path, consulting HWiNFO data
+/// for `hwinfo.*` paths and falling back to the snapshot for all other paths.
+pub fn get_sensor_value_with_hwinfo(
+    path: &str,
+    snapshot: &SensorSnapshot,
+    hwinfo_values: &std::collections::HashMap<String, f64>,
+    hwinfo_units: &std::collections::HashMap<String, String>,
+) -> String {
+    if path.starts_with("hwinfo.") {
+        return match hwinfo_values.get(path) {
+            Some(&value) => {
+                let unit = hwinfo_units.get(path).map(|s| s.as_str()).unwrap_or("");
+                crate::sensors::hwinfo::format_hwinfo_value(value, unit)
+            }
+            None => "N/A".to_string(),
+        };
+    }
+    get_sensor_value(path, snapshot)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +128,37 @@ mod tests {
         assert!(parse_sensor_path("gpu.temp").is_some());
         assert!(parse_sensor_path("fps").is_some());
         assert!(parse_sensor_path("nonexistent").is_none());
+    }
+
+    #[test]
+    fn parse_hwinfo_paths() {
+        assert!(parse_sensor_path("hwinfo.cpu.core_0_temp").is_some());
+        assert!(parse_sensor_path("hwinfo.gpu.gpu_temperature").is_some());
+        assert!(parse_sensor_path("hwinfo.").is_none());
+    }
+
+    #[test]
+    fn get_hwinfo_value_from_state() {
+        let snapshot = SensorSnapshot::default();
+        let mut hwinfo_values = std::collections::HashMap::new();
+        hwinfo_values.insert("hwinfo.cpu.core_0_temp".to_string(), 65.0);
+        let mut hwinfo_units = std::collections::HashMap::new();
+        hwinfo_units.insert("hwinfo.cpu.core_0_temp".to_string(), "°C".to_string());
+        assert_eq!(
+            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units),
+            "65"
+        );
+    }
+
+    #[test]
+    fn get_hwinfo_value_missing() {
+        let snapshot = SensorSnapshot::default();
+        let hwinfo_values = std::collections::HashMap::new();
+        let hwinfo_units = std::collections::HashMap::new();
+        assert_eq!(
+            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units),
+            "N/A"
+        );
     }
 
     #[test]
