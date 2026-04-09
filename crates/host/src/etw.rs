@@ -8,15 +8,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use windows::core::{GUID, PCWSTR};
-use windows::Win32::System::Performance::QueryPerformanceFrequency;
 use windows::Win32::Foundation::WIN32_ERROR;
 use windows::Win32::System::Diagnostics::Etw::{
-    ControlTraceW, EnableTraceEx2, OpenTraceW, ProcessTrace, StartTraceW,
-    CONTROLTRACE_HANDLE, EVENT_RECORD, EVENT_TRACE_CONTROL_STOP,
-    EVENT_TRACE_LOGFILEW, EVENT_TRACE_PROPERTIES, EVENT_TRACE_REAL_TIME_MODE,
-    PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME,
+    ControlTraceW, EnableTraceEx2, OpenTraceW, ProcessTrace, StartTraceW, CONTROLTRACE_HANDLE,
+    EVENT_RECORD, EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_LOGFILEW, EVENT_TRACE_PROPERTIES,
+    EVENT_TRACE_REAL_TIME_MODE, PROCESS_TRACE_MODE_EVENT_RECORD, PROCESS_TRACE_MODE_REAL_TIME,
     WNODE_FLAG_TRACED_GUID,
 };
+use windows::Win32::System::Performance::QueryPerformanceFrequency;
 
 /// Wrapper to send a raw pointer across thread boundaries.
 /// Safety: the pointed-to data is only accessed from the consumer thread.
@@ -146,13 +145,8 @@ impl EtwCapture {
         // ── 3. Start the trace session ──────────────────────────────────
         let mut session_handle = CONTROLTRACE_HANDLE { Value: 0 };
 
-        let mut err = unsafe {
-            StartTraceW(
-                &mut session_handle,
-                PCWSTR(session_wide.as_ptr()),
-                props,
-            )
-        };
+        let mut err =
+            unsafe { StartTraceW(&mut session_handle, PCWSTR(session_wide.as_ptr()), props) };
 
         // If a stale session exists, stop it and retry.
         if err == WIN32_ERROR(0xB7) {
@@ -165,7 +159,10 @@ impl EtwCapture {
                     EVENT_TRACE_CONTROL_STOP,
                 );
                 if err.0 != 0 {
-                    tracing::debug!("ControlTraceW (stop stale session) returned 0x{:08X}", err.0);
+                    tracing::debug!(
+                        "ControlTraceW (stop stale session) returned 0x{:08X}",
+                        err.0
+                    );
                 }
             }
             // Re-zero the buffer and rebuild properties.
@@ -182,13 +179,7 @@ impl EtwCapture {
                     name_bytes,
                 );
             }
-            err = unsafe {
-                StartTraceW(
-                    &mut session_handle,
-                    PCWSTR(session_wide.as_ptr()),
-                    props,
-                )
-            };
+            err = unsafe { StartTraceW(&mut session_handle, PCWSTR(session_wide.as_ptr()), props) };
         }
 
         if err.0 != 0 {
@@ -218,7 +209,10 @@ impl EtwCapture {
                     EVENT_TRACE_CONTROL_STOP,
                 );
                 if stop_err.0 != 0 {
-                    tracing::debug!("ControlTraceW (cleanup after EnableTraceEx2 failure) returned 0x{:08X}", stop_err.0);
+                    tracing::debug!(
+                        "ControlTraceW (cleanup after EnableTraceEx2 failure) returned 0x{:08X}",
+                        stop_err.0
+                    );
                 }
             }
             return Err(format!("EnableTraceEx2 failed: 0x{:08X}", err.0));
@@ -257,16 +251,12 @@ impl EtwCapture {
                 unsafe {
                     let raw = send_ptr.as_raw();
                     // Build the logfile descriptor.
-                    let mut logfile: EVENT_TRACE_LOGFILEW =
-                        std::mem::zeroed();
-                    logfile.LoggerName = windows::core::PWSTR(
-                        session_name_for_consumer.as_ptr() as *mut u16,
-                    );
+                    let mut logfile: EVENT_TRACE_LOGFILEW = std::mem::zeroed();
+                    logfile.LoggerName =
+                        windows::core::PWSTR(session_name_for_consumer.as_ptr() as *mut u16);
                     logfile.Anonymous1.ProcessTraceMode =
-                        PROCESS_TRACE_MODE_REAL_TIME
-                            | PROCESS_TRACE_MODE_EVENT_RECORD;
-                    logfile.Anonymous2.EventRecordCallback =
-                        Some(event_record_callback);
+                        PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
+                    logfile.Anonymous2.EventRecordCallback = Some(event_record_callback);
                     logfile.Context = raw as *mut core::ffi::c_void;
 
                     let trace_handle = OpenTraceW(&mut logfile);
@@ -280,10 +270,7 @@ impl EtwCapture {
                     if err.0 != 0 && err.0 != 0x0000_0103
                     /* ERROR_NO_MORE_ITEMS */
                     {
-                        tracing::warn!(
-                            "ProcessTrace exited: 0x{:08X}",
-                            err.0
-                        );
+                        tracing::warn!("ProcessTrace exited: 0x{:08X}", err.0);
                     }
                 }
             })
@@ -304,8 +291,7 @@ impl EtwCapture {
                 }
                 // Stop the session so ProcessTrace returns.
                 let mut stop_buf = watchdog_buf;
-                let stop_props =
-                    stop_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
+                let stop_props = stop_buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
                 unsafe {
                     let err = ControlTraceW(
                         CONTROLTRACE_HANDLE { Value: 0 },
@@ -451,9 +437,7 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
         }
 
         state.frames_since_recompute += 1;
-        if state.frames_since_recompute >= RECOMPUTE_INTERVAL
-            && state.ring_count >= 2
-        {
+        if state.frames_since_recompute >= RECOMPUTE_INTERVAL && state.ring_count >= 2 {
             state.frames_since_recompute = 0;
             recompute_metrics(state);
         }
@@ -466,7 +450,9 @@ fn recompute_metrics(state: &mut CallbackState) {
     let count = state.ring_count;
     state.sorted_scratch.clear();
     state.sorted_scratch.extend_from_slice(&state.ring[..count]);
-    state.sorted_scratch.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    state
+        .sorted_scratch
+        .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let sum: f32 = state.sorted_scratch.iter().sum();
     let avg = sum / count as f32;

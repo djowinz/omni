@@ -137,11 +137,11 @@ pub fn validate_sensor_paths_with_hwinfo(
                     if !hwinfo_connected && !hwinfo_warned {
                         hwinfo_warned = true;
                         let offset = text_offset + start;
-                        let (line, column) =
-                            super::parser::offset_to_line_col(omni_source, offset);
+                        let (line, column) = super::parser::offset_to_line_col(omni_source, offset);
                         warnings.push(ParseError {
-                            message: "HWiNFO is not running \u{2014} hwinfo.* sensors will show N/A"
-                                .to_string(),
+                            message:
+                                "HWiNFO is not running \u{2014} hwinfo.* sensors will show N/A"
+                                    .to_string(),
                             severity: super::parser::Severity::Warning,
                             line,
                             column,
@@ -222,10 +222,7 @@ mod tests {
             suggest("DIV", KNOWN_ELEMENTS, 2),
             None // exact match case-insensitive
         );
-        assert_eq!(
-            suggest("DVI", KNOWN_ELEMENTS, 2),
-            Some("div".to_string())
-        );
+        assert_eq!(suggest("DVI", KNOWN_ELEMENTS, 2), Some("div".to_string()));
     }
 
     #[test]

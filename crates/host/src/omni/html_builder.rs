@@ -23,6 +23,7 @@ use omni_shared::SensorSnapshot;
 /// The body contains all widget HTML with `data-omni-id` attributes for
 /// targeted JS updates. A small `omniUpdate` function is embedded in a
 /// `<script>` tag for receiving update payloads.
+#[allow(clippy::too_many_arguments)]
 pub fn build_initial_html(
     omni_file: &OmniFile,
     snapshot: &SensorSnapshot,
@@ -51,7 +52,13 @@ pub fn build_initial_html(
         }
         widget_css.push_str(&widget.style_source);
         widget_css.push('\n');
-        let html = render_initial_node(&widget.template, snapshot, &mut counter, hwinfo_values, hwinfo_units);
+        let html = render_initial_node(
+            &widget.template,
+            snapshot,
+            &mut counter,
+            hwinfo_values,
+            hwinfo_units,
+        );
         widget_html.push_str(&html);
         widget_html.push('\n');
     }
@@ -115,7 +122,12 @@ fn render_initial_node(
             }
         }
         HtmlNode::Element {
-            tag, id, classes, inline_style, conditional_classes, children,
+            tag,
+            id,
+            classes,
+            inline_style,
+            conditional_classes,
+            children,
         } => {
             let node_id = format!("omni-{}", *counter);
             *counter += 1;
@@ -179,7 +191,15 @@ pub fn build_update_js(
         if !widget.enabled {
             continue;
         }
-        collect_update_entries(&widget.template, snapshot, &mut counter, &mut entries, &mut has_entries, hwinfo_values, hwinfo_units);
+        collect_update_entries(
+            &widget.template,
+            snapshot,
+            &mut counter,
+            &mut entries,
+            &mut has_entries,
+            hwinfo_values,
+            hwinfo_units,
+        );
     }
 
     if !has_entries {
@@ -209,7 +229,10 @@ fn collect_update_entries(
             // Text nodes don't have IDs — they're updated via their parent element
         }
         HtmlNode::Element {
-            classes, conditional_classes, children, ..
+            classes,
+            conditional_classes,
+            children,
+            ..
         } => {
             let node_id = format!("omni-{}", *counter);
             *counter += 1;
@@ -234,7 +257,8 @@ fn collect_update_entries(
             for child in children {
                 if let HtmlNode::Text { content } = child {
                     if content.contains('{') {
-                        let interpolated = interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units);
+                        let interpolated =
+                            interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units);
                         let escaped = interpolated.replace('\\', "\\\\").replace('"', "\\\"");
                         entry_parts.push(format!(r#""t":"{}""#, escaped));
                         break; // Only first text child
@@ -243,17 +267,21 @@ fn collect_update_entries(
             }
 
             if !entry_parts.is_empty() {
-                entries.push_str(&format!(
-                    r#""{}":{{{}}},"#,
-                    node_id,
-                    entry_parts.join(",")
-                ));
+                entries.push_str(&format!(r#""{}":{{{}}},"#, node_id, entry_parts.join(",")));
                 *has_entries = true;
             }
 
             // Recurse into children
             for child in children {
-                collect_update_entries(child, snapshot, counter, entries, has_entries, hwinfo_values, hwinfo_units);
+                collect_update_entries(
+                    child,
+                    snapshot,
+                    counter,
+                    entries,
+                    has_entries,
+                    hwinfo_values,
+                    hwinfo_units,
+                );
             }
         }
     }
@@ -342,7 +370,11 @@ fn load_feather_css(_data_dir: &Path) -> String {
         .filter(|p| p.exists())
         .or_else(|| {
             let dev_path = std::path::Path::new("crates/host/resources/feather.woff2");
-            if dev_path.exists() { Some(dev_path.to_path_buf()) } else { None }
+            if dev_path.exists() {
+                Some(dev_path.to_path_buf())
+            } else {
+                None
+            }
         });
 
     if let Some(ref font) = font_path {
@@ -362,7 +394,11 @@ fn load_feather_css(_data_dir: &Path) -> String {
         .filter(|p| p.exists())
         .or_else(|| {
             let dev_path = std::path::Path::new("crates/host/resources/feather.css");
-            if dev_path.exists() { Some(dev_path.to_path_buf()) } else { None }
+            if dev_path.exists() {
+                Some(dev_path.to_path_buf())
+            } else {
+                None
+            }
         });
 
     if let Some(ref css_file) = css_path {
@@ -371,7 +407,9 @@ fn load_feather_css(_data_dir: &Path) -> String {
                 let mut brace_depth = 0;
                 let mut end_pos = face_start;
                 for (i, ch) in full_css[face_start..].char_indices() {
-                    if ch == '{' { brace_depth += 1; }
+                    if ch == '{' {
+                        brace_depth += 1;
+                    }
                     if ch == '}' {
                         brace_depth -= 1;
                         if brace_depth == 0 {
@@ -401,10 +439,16 @@ fn simple_base64_encode(data: &[u8]) -> String {
         let triple = (b0 << 16) | (b1 << 8) | b2;
         result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
         result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 { result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char); }
-        else { result.push('='); }
-        if chunk.len() > 2 { result.push(CHARS[(triple & 0x3F) as usize] as char); }
-        else { result.push('='); }
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
     }
     result
 }

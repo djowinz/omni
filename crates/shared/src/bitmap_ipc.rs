@@ -57,8 +57,7 @@ impl BitmapHeader {
 }
 
 /// Total shared memory size: header + max pixel buffer.
-pub const TOTAL_SHM_SIZE: usize =
-    std::mem::size_of::<BitmapHeader>() + MAX_PIXEL_DATA_SIZE;
+pub const TOTAL_SHM_SIZE: usize = std::mem::size_of::<BitmapHeader>() + MAX_PIXEL_DATA_SIZE;
 
 /// Offset from the start of shared memory where pixel data begins.
 pub const PIXEL_DATA_OFFSET: usize = std::mem::size_of::<BitmapHeader>();

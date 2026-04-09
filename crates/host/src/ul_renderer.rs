@@ -90,9 +90,8 @@ impl UlRenderer {
     /// Execute a JavaScript string in the view.
     pub fn evaluate_script(&self, js: &str) {
         unsafe {
-            let c_js = CString::new(js).unwrap_or_else(|_| {
-                CString::new(js.replace('\0', "")).unwrap()
-            });
+            let c_js =
+                CString::new(js).unwrap_or_else(|_| CString::new(js.replace('\0', "")).unwrap());
             let ul_js = ultralight_sys::ulCreateString(c_js.as_ptr());
             let mut exception: ultralight_sys::ULString = std::ptr::null_mut();
             ultralight_sys::ulViewEvaluateScript(self.view, ul_js, &mut exception);
@@ -158,9 +157,12 @@ impl UlRenderer {
         }
         self.width = new_width;
         self.height = new_height;
-        info!(width = new_width, height = new_height, "Ultralight view resized");
+        info!(
+            width = new_width,
+            height = new_height,
+            "Ultralight view resized"
+        );
     }
-
 }
 
 impl Drop for UlRenderer {

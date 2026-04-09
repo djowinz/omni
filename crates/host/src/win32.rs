@@ -6,9 +6,11 @@
 use std::mem::size_of;
 
 use windows::Win32::Foundation::{CloseHandle, ERROR_NO_MORE_FILES, HANDLE, MAX_PATH};
-use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 use crate::error::HostError;
@@ -83,16 +85,20 @@ pub fn iter_processes() -> Result<Vec<PROCESSENTRY32W>, HostError> {
 /// so it works even on processes protected by anti-cheat.
 pub fn get_process_exe_path(pid: u32) -> Result<String, HostError> {
     // SAFETY: OpenProcess returns a valid handle on success (checked via `?`).
-    let handle = OwnedHandle::new(unsafe {
-        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)?
-    });
+    let handle =
+        OwnedHandle::new(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)? });
 
     let mut buf = [0u16; MAX_PATH as usize];
     let mut len = buf.len() as u32;
 
     // SAFETY: `handle` is valid, `buf` is large enough, `len` is set correctly.
     unsafe {
-        QueryFullProcessImageNameW(handle.raw(), PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buf.as_mut_ptr()), &mut len)?;
+        QueryFullProcessImageNameW(
+            handle.raw(),
+            PROCESS_NAME_FORMAT(0),
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        )?;
     }
 
     Ok(String::from_utf16_lossy(&buf[..len as usize]))
@@ -122,5 +128,4 @@ mod tests {
             "Expected at least one running process"
         );
     }
-
 }

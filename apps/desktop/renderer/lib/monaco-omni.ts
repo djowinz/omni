@@ -335,10 +335,8 @@ function mapLspToMonaco(
 
 let hwinfoSensorItems: Array<{ path: string; detail: string; category: string }> = [];
 
-export function updateHwInfoSensors(
-  sensors: Array<{ path: string; label: string; unit: string }>,
-) {
-  hwinfoSensorItems = sensors.map(s => ({
+export function updateHwInfoSensors(sensors: Array<{ path: string; label: string; unit: string }>) {
+  hwinfoSensorItems = sensors.map((s) => ({
     path: s.path,
     detail: `${s.label} (${s.unit})`,
     category: 'HWiNFO',

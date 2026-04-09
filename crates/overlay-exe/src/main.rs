@@ -18,10 +18,9 @@ use windows::core::{w, Interface, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    D3D11_BOX, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-    D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_DEFAULT,
+    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BOX,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA,
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
 };
 use windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
@@ -34,17 +33,14 @@ use windows::Win32::Graphics::Dxgi::{
     IDXGIDevice, IDXGIFactory2, IDXGISwapChain1, DXGI_PRESENT, DXGI_SWAP_CHAIN_DESC1,
     DXGI_SWAP_CHAIN_FLAG, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT,
 };
+use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Memory::{MapViewOfFile, OpenFileMappingW, FILE_MAP_READ};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetForegroundWindow,
-    IsIconic, IsWindow, PeekMessageW, RegisterClassExW, SetWindowPos, ShowWindow,
-    TranslateMessage,
-    HWND_TOPMOST, MSG, PM_REMOVE, SWP_NOACTIVATE, SW_HIDE,
-    SW_SHOWNOACTIVATE, WNDCLASSEXW,
-    WM_QUIT, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    IsIconic, IsWindow, PeekMessageW, RegisterClassExW, SetWindowPos, ShowWindow, TranslateMessage,
+    HWND_TOPMOST, MSG, PM_REMOVE, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE, WM_QUIT, WNDCLASSEXW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
-use windows::Win32::Graphics::Gdi::ClientToScreen;
 
 // ---------------------------------------------------------------------------
 // CLI parsing
@@ -224,8 +220,15 @@ impl GraphicsState {
     }
 
     /// Ensure the staging texture matches the given dimensions.
-    unsafe fn ensure_staging_texture(&mut self, width: u32, height: u32) -> windows::core::Result<()> {
-        if self.staging_texture.is_some() && self.staging_width == width && self.staging_height == height {
+    unsafe fn ensure_staging_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> windows::core::Result<()> {
+        if self.staging_texture.is_some()
+            && self.staging_width == width
+            && self.staging_height == height
+        {
             return Ok(());
         }
 
@@ -254,7 +257,8 @@ impl GraphicsState {
         };
 
         let mut texture = None;
-        self.d3d11_device.CreateTexture2D(&desc, Some(&init_data), Some(&mut texture))?;
+        self.d3d11_device
+            .CreateTexture2D(&desc, Some(&init_data), Some(&mut texture))?;
         self.staging_texture = texture;
         self.staging_width = width;
         self.staging_height = height;
@@ -281,10 +285,8 @@ impl BitmapReader {
             .chain(std::iter::once(0))
             .collect();
 
-        let handle = unsafe {
-            OpenFileMappingW(FILE_MAP_READ.0, false, PCWSTR(name_wide.as_ptr()))
-        }
-        .ok()?;
+        let handle =
+            unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, PCWSTR(name_wide.as_ptr())) }.ok()?;
 
         let ptr = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) };
         if ptr.Value.is_null() {
@@ -471,10 +473,14 @@ fn main() {
         let game_is_foreground = fg == target_hwnd;
 
         if game_is_foreground && !overlay_visible {
-            unsafe { let _ = ShowWindow(overlay_hwnd, SW_SHOWNOACTIVATE); }
+            unsafe {
+                let _ = ShowWindow(overlay_hwnd, SW_SHOWNOACTIVATE);
+            }
             overlay_visible = true;
         } else if !game_is_foreground && overlay_visible {
-            unsafe { let _ = ShowWindow(overlay_hwnd, SW_HIDE); }
+            unsafe {
+                let _ = ShowWindow(overlay_hwnd, SW_HIDE);
+            }
             overlay_visible = false;
         }
 
@@ -532,23 +538,22 @@ fn main() {
                                 let pixels = reader.pixel_data();
 
                                 // Determine the region to update
-                                let (dx, dy, dw, dh) = if last_sequence == 0
-                                    || seq != last_sequence + 1
-                                {
-                                    // Full frame update
-                                    (0, 0, bw, bh)
-                                } else {
-                                    // Dirty region from header
-                                    let dx = header.dirty_x.min(bw);
-                                    let dy = header.dirty_y.min(bh);
-                                    let dw = header.dirty_w.min(bw - dx);
-                                    let dh = header.dirty_h.min(bh - dy);
-                                    if dw == 0 || dh == 0 {
-                                        (0, 0, bw, bh) // fallback to full
+                                let (dx, dy, dw, dh) =
+                                    if last_sequence == 0 || seq != last_sequence + 1 {
+                                        // Full frame update
+                                        (0, 0, bw, bh)
                                     } else {
-                                        (dx, dy, dw, dh)
-                                    }
-                                };
+                                        // Dirty region from header
+                                        let dx = header.dirty_x.min(bw);
+                                        let dy = header.dirty_y.min(bh);
+                                        let dw = header.dirty_w.min(bw - dx);
+                                        let dh = header.dirty_h.min(bh - dy);
+                                        if dw == 0 || dh == 0 {
+                                            (0, 0, bw, bh) // fallback to full
+                                        } else {
+                                            (dx, dy, dw, dh)
+                                        }
+                                    };
 
                                 last_sequence = seq;
 
@@ -614,7 +619,9 @@ fn main() {
                         gfx.d3d11_context.CopySubresourceRegion(
                             &back_buffer,
                             0,
-                            0, 0, 0,
+                            0,
+                            0,
+                            0,
                             staging,
                             0,
                             Some(&src_box),

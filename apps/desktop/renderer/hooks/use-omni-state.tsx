@@ -164,7 +164,9 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
         payload: { connected: data.connected ?? false, sensors: data.sensors ?? [] },
       });
     });
-    return () => { unsub?.(); };
+    return () => {
+      unsub?.();
+    };
   }, []);
 
   // Hydrate editor state from IndexedDB on mount

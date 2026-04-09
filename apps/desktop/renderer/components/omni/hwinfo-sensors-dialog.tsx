@@ -1,10 +1,5 @@
 import { useState, useMemo } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Search, Copy } from 'lucide-react';
 import { useOmniState } from '@/hooks/use-omni-state';
@@ -65,7 +60,14 @@ export function HwInfoSensorsDialog({ open, onOpenChange }: HwInfoSensorsDialogP
 
   const formatValue = (value: number | undefined, unit: string) => {
     if (value === undefined || value === null) return 'N/A';
-    if (unit === '°C' || unit === '°F' || unit === '%' || unit === 'W' || unit === 'MHz' || unit === 'RPM') {
+    if (
+      unit === '°C' ||
+      unit === '°F' ||
+      unit === '%' ||
+      unit === 'W' ||
+      unit === 'MHz' ||
+      unit === 'RPM'
+    ) {
       return Math.round(value).toString();
     }
     if (unit === 'V' || unit === 'A') {
@@ -80,9 +82,7 @@ export function HwInfoSensorsDialog({ open, onOpenChange }: HwInfoSensorsDialogP
         <DialogHeader className="px-5 pt-5 pb-3">
           <DialogTitle className="text-[#FAFAFA] flex items-center gap-2">
             HWiNFO Sensors
-            <span className="text-[10px] text-[#52525B] font-normal">
-              {sensors.length} sensors
-            </span>
+            <span className="text-[10px] text-[#52525B] font-normal">{sensors.length} sensors</span>
           </DialogTitle>
         </DialogHeader>
 
@@ -132,9 +132,7 @@ export function HwInfoSensorsDialog({ open, onOpenChange }: HwInfoSensorsDialogP
                           }`}
                         />
                       </div>
-                      <span className="text-[10px] text-[#71717A] truncate block">
-                        {s.label}
-                      </span>
+                      <span className="text-[10px] text-[#71717A] truncate block">{s.label}</span>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span className="font-mono text-xs text-[#F59E0B] min-w-[60px] text-right">

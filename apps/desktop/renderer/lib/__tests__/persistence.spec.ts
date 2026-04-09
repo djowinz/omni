@@ -11,7 +11,13 @@ import 'fake-indexeddb/auto';
 
 const mockState: PersistedEditorState = {
   openTabs: [
-    { id: 'overlay:Test', name: 'Test', type: 'overlay', content: '<widget name="fps"/>', isDirty: true },
+    {
+      id: 'overlay:Test',
+      name: 'Test',
+      type: 'overlay',
+      content: '<widget name="fps"/>',
+      isDirty: true,
+    },
   ],
   activeTabId: 'overlay:Test',
   viewStates: {

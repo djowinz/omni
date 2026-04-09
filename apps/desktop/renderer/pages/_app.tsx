@@ -19,9 +19,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="w-72 flex-shrink-0 border-r border-[#27272A]">
           {state.activePanel === 'components' ? <WidgetPanel /> : <SettingsPanel />}
         </div>
-        <div className="flex-1 overflow-hidden">
-          {children}
-        </div>
+        <div className="flex-1 overflow-hidden">{children}</div>
       </main>
       <StatusBar />
     </div>

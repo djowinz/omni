@@ -25,10 +25,7 @@ pub struct Scanner {
 }
 
 impl Scanner {
-    pub fn new(
-        overlay_exe_path: String,
-        config: Config,
-    ) -> Self {
+    pub fn new(overlay_exe_path: String, config: Config) -> Self {
         Self {
             seen: HashSet::new(),
             tracked: HashMap::new(),
@@ -70,7 +67,12 @@ impl Scanner {
         let seen_count = self.seen.len();
 
         if process_count != self.last_process_count || seen_count != self.last_seen_count {
-            info!(process_count, seen = seen_count, tracked = self.tracked.len(), "Scanner poll");
+            info!(
+                process_count,
+                seen = seen_count,
+                tracked = self.tracked.len(),
+                "Scanner poll"
+            );
             self.last_process_count = process_count;
             self.last_seen_count = seen_count;
         }
@@ -108,11 +110,14 @@ impl Scanner {
             const SELF_EXECUTABLES: &[&str] = &[
                 "omni-host.exe",
                 "omni-overlay.exe",
-                "omni.exe",       // Installed Electron app
-                "electron.exe",   // Dev mode Electron
-                "nextron.exe",    // Dev mode Nextron
+                "omni.exe",     // Installed Electron app
+                "electron.exe", // Dev mode Electron
+                "nextron.exe",  // Dev mode Nextron
             ];
-            if SELF_EXECUTABLES.iter().any(|s| s.eq_ignore_ascii_case(&exe_name)) {
+            if SELF_EXECUTABLES
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(&exe_name))
+            {
                 self.seen.insert(pid);
                 continue;
             }
@@ -130,7 +135,10 @@ impl Scanner {
                     self.spawn_external_overlay(pid, &exe_name, game_hwnd);
                     self.seen.insert(pid); // Only mark seen after successful spawn
                 } else {
-                    info!(pid, exe_name, "Pending overlay — no visible window yet (include list)");
+                    info!(
+                        pid,
+                        exe_name, "Pending overlay — no visible window yet (include list)"
+                    );
                 }
                 continue;
             }
@@ -190,7 +198,10 @@ impl Scanner {
             let game_hwnd = match find_visible_window(pid) {
                 Some(h) => h,
                 None => {
-                    info!(pid, exe_name, "Pending overlay — no visible window yet (game directory)");
+                    info!(
+                        pid,
+                        exe_name, "Pending overlay — no visible window yet (game directory)"
+                    );
                     continue;
                 }
             };
@@ -224,7 +235,12 @@ impl Scanner {
 
     fn spawn_external_overlay(&mut self, pid: u32, exe_name: &str, hwnd: HWND) {
         let hwnd_value = hwnd.0 as isize;
-        info!(pid, exe_name, hwnd = hwnd_value, "Spawning external overlay process");
+        info!(
+            pid,
+            exe_name,
+            hwnd = hwnd_value,
+            "Spawning external overlay process"
+        );
 
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -283,20 +299,14 @@ mod tests {
 
     #[test]
     fn scanner_new_starts_empty() {
-        let scanner = Scanner::new(
-            "overlay.exe".to_string(),
-            Config::default(),
-        );
+        let scanner = Scanner::new("overlay.exe".to_string(), Config::default());
         assert!(scanner.tracked.is_empty());
         assert!(scanner.seen.is_empty());
     }
 
     #[test]
     fn last_game_exe_starts_none() {
-        let scanner = Scanner::new(
-            "overlay.exe".to_string(),
-            Config::default(),
-        );
+        let scanner = Scanner::new("overlay.exe".to_string(), Config::default());
         assert_eq!(scanner.last_game_exe(), None);
     }
 }

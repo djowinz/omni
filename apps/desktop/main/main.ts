@@ -300,7 +300,10 @@ app.on('ready', async () => {
   // Forward sensor data stream to renderer
   hostManager.on('message', (msg: any) => {
     if (msg.type === 'sensors.data') {
-      mainWindow?.webContents.send('sensor-data', { snapshot: msg.snapshot, hwinfo: msg.snapshot?.hwinfo });
+      mainWindow?.webContents.send('sensor-data', {
+        snapshot: msg.snapshot,
+        hwinfo: msg.snapshot?.hwinfo,
+      });
     }
     if (msg.type === 'hwinfo.sensors') {
       mainWindow?.webContents.send('hwinfo-sensors', msg);
@@ -310,8 +313,12 @@ app.on('ready', async () => {
   // Log tailing
   let logTailer: LogTailer | null = null;
 
-  try { ipcMain.removeHandler('log:start'); } catch {}
-  try { ipcMain.removeHandler('log:stop'); } catch {}
+  try {
+    ipcMain.removeHandler('log:start');
+  } catch {}
+  try {
+    ipcMain.removeHandler('log:stop');
+  } catch {}
 
   ipcMain.handle('log:start', async () => {
     // Stop any existing tailer
@@ -323,10 +330,7 @@ app.on('ready', async () => {
     // Get log path from host
     let logPath: string;
     try {
-      const response = await hostManager.sendAndWait(
-        { type: 'log.path' },
-        'log.path',
-      );
+      const response = await hostManager.sendAndWait({ type: 'log.path' }, 'log.path');
       logPath = response.path;
     } catch {
       throw new Error('Failed to get log path from host');

@@ -46,7 +46,11 @@ impl SensorPoller {
     pub fn start(
         poll_config: HashMap<String, u64>,
         running: Arc<AtomicBool>,
-    ) -> (Self, mpsc::Receiver<SensorSnapshot>, mpsc::Receiver<(hwinfo::HwInfoState, bool)>) {
+    ) -> (
+        Self,
+        mpsc::Receiver<SensorSnapshot>,
+        mpsc::Receiver<(hwinfo::HwInfoState, bool)>,
+    ) {
         let (tx, rx) = mpsc::channel();
         let (hwinfo_tx, hwinfo_rx) = mpsc::channel();
         let running_clone = running.clone();

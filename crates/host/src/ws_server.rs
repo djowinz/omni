@@ -205,7 +205,10 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
             // Push hwinfo.sensors list when connected (every sensor cycle ensures
             // clients that connect after initial detection still receive the list)
             if let Some(sensors_msg) = hwinfo_sensors_msg {
-                if ws.send(Message::Text(sensors_msg.to_string().into())).is_err() {
+                if ws
+                    .send(Message::Text(sensors_msg.to_string().into()))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -252,10 +255,8 @@ fn handle_message(
                 .lock()
                 .map(|s| s.connected)
                 .unwrap_or(false);
-            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics_hwinfo(
-                source,
-                hwinfo_connected,
-            );
+            let (file, diagnostics) =
+                crate::omni::parser::parse_omni_with_diagnostics_hwinfo(source, hwinfo_connected);
             let diag_json: Vec<Value> = diagnostics
                 .iter()
                 .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
@@ -323,10 +324,8 @@ fn handle_message(
                 .lock()
                 .map(|s| s.connected)
                 .unwrap_or(false);
-            let (file, diagnostics) = crate::omni::parser::parse_omni_with_diagnostics_hwinfo(
-                source,
-                hwinfo_connected,
-            );
+            let (file, diagnostics) =
+                crate::omni::parser::parse_omni_with_diagnostics_hwinfo(source, hwinfo_connected);
             let diag_json: Vec<Value> = diagnostics
                 .iter()
                 .map(|d| serde_json::to_value(d).unwrap_or(json!(null)))
