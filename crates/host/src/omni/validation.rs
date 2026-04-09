@@ -100,14 +100,6 @@ pub fn suggest_sensor_path(unknown: &str) -> Option<String> {
 ///
 /// NOTE: Currently uses old ParseError format (message + offset). Task 3 will
 /// reconcile once ParseError gains line/column/severity/suggestion fields.
-pub fn validate_sensor_paths(
-    template_text: &str,
-    omni_source: &str,
-    text_offset: usize,
-) -> Vec<ParseError> {
-    validate_sensor_paths_with_hwinfo(template_text, omni_source, text_offset, true)
-}
-
 /// Validate sensor paths found in template text (inside {}).
 ///
 /// Like `validate_sensor_paths`, but when `hwinfo_connected` is `false` and an
@@ -265,7 +257,7 @@ mod tests {
     #[test]
     fn validate_sensor_path_unknown() {
         let text = "CPU: {cpu.usag}%";
-        let warnings = validate_sensor_paths(text, text, 0);
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].message.contains("cpu.usag"));
         assert!(warnings[0].message.contains("cpu.usage"));
@@ -274,14 +266,14 @@ mod tests {
     #[test]
     fn validate_sensor_path_valid() {
         let text = "CPU: {cpu.usage}%";
-        let warnings = validate_sensor_paths(text, text, 0);
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
         assert_eq!(warnings.len(), 0);
     }
 
     #[test]
     fn validate_sensor_path_multiple() {
         let text = "{gpu.tamp} / {cpu.usag}";
-        let warnings = validate_sensor_paths(text, text, 0);
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
         assert_eq!(warnings.len(), 2);
     }
 
