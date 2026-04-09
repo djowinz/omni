@@ -216,25 +216,25 @@ export function SettingsPanel() {
                     </span>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRestartHost}
-                  disabled={restarting}
-                  className="h-8 gap-1.5 border border-[#EF4444]/30 bg-[#EF4444]/10 text-[#EF4444] hover:bg-[#EF4444]/20 hover:text-[#EF4444] text-xs"
-                >
-                  <RotateCw className={`h-3 w-3 ${restarting ? 'animate-spin' : ''}`} />
-                  {restarting ? 'Restarting...' : 'Restart Service'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => router.push('/logs')}
-                  className="h-8 gap-1.5 border border-[#00D9FF]/30 bg-[#00D9FF]/10 text-[#00D9FF] hover:bg-[#00D9FF]/20 hover:text-[#00D9FF] text-xs"
-                >
-                  <ScrollText className="h-3 w-3" />
-                  View Logs
-                </Button>
+                <div className="flex justify-between">
+                  <Button
+                    size="sm"
+                    onClick={handleRestartHost}
+                    disabled={restarting}
+                    className="h-8 gap-1.5 border border-[#EF4444]/30 bg-[#EF4444]/10 text-[#EF4444] hover:bg-[#EF4444]/20 hover:text-[#EF4444] text-xs"
+                  >
+                    <RotateCw className={`h-3 w-3 ${restarting ? 'animate-spin' : ''}`} />
+                    {restarting ? 'Restarting...' : 'Restart Service'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => router.push('/logs')}
+                    className="h-8 gap-1.5 border border-[#00D9FF]/30 bg-[#00D9FF]/10 text-[#00D9FF] hover:bg-[#00D9FF]/20 hover:text-[#00D9FF] text-xs"
+                  >
+                    <ScrollText className="h-3 w-3" />
+                    View Logs
+                  </Button>
+                </div>
               </div>
             </section>
 
@@ -269,10 +269,7 @@ export function SettingsPanel() {
         directories={gameDirectories}
         onUpdate={(directories) => updateConfig({ game_directories: directories })}
       />
-      <HwInfoSensorsDialog
-        open={hwinfoOpen}
-        onOpenChange={setHwinfoOpen}
-      />
+      <HwInfoSensorsDialog open={hwinfoOpen} onOpenChange={setHwinfoOpen} />
     </>
   );
 }
