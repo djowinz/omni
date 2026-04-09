@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Settings, ChevronRight, RotateCw, ScrollText } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useOmniState } from '@/hooks/use-omni-state';
@@ -85,7 +84,7 @@ export function SettingsPanel() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-6">
             {/* General Section */}
             <section>
@@ -246,7 +245,7 @@ export function SettingsPanel() {
               </span>
             </section>
           </div>
-        </ScrollArea>
+        </div>
       </div>
 
       <ProcessListDialog
