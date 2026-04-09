@@ -130,9 +130,9 @@ export function LogViewerPanel() {
   return (
     <div className="flex h-full flex-col bg-[#0A0A0C]">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-[#27272A] px-4 py-2">
+      <div className="flex items-center justify-between border-b border-[#27272A] px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-[#A1A1AA]">Service Logs</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Service Logs</span>
           {tailing && (
             <span className="flex items-center gap-1 text-[10px] text-[#22C55E]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E] animate-pulse" />
