@@ -62,20 +62,14 @@ export function LogViewerPanel() {
     };
   }, []);
 
-  // Filtered lines by level, with search match flagging
-  const { filteredLines, matchCount } = useMemo(() => {
+  // Filtered lines based on search and level
+  const filteredLines = useMemo(() => {
     const searchLower = search.toLowerCase();
-    let count = 0;
-    const filtered = lines.filter((line) => {
+    return lines.filter((line) => {
       if (line.level && !enabledLevels.has(line.level)) return false;
+      if (search && !line.raw.toLowerCase().includes(searchLower)) return false;
       return true;
     });
-    if (search) {
-      for (const line of filtered) {
-        if (line.raw.toLowerCase().includes(searchLower)) count++;
-      }
-    }
-    return { filteredLines: filtered, matchCount: count };
   }, [lines, search, enabledLevels]);
 
   const virtualizer = useVirtualizer({
@@ -164,7 +158,7 @@ export function LogViewerPanel() {
               className="w-32 bg-transparent text-[10px] text-[#A1A1AA] placeholder-[#52525B] outline-none"
             />
             {search && (
-              <span className="text-[9px] text-[#52525B] flex-shrink-0">{matchCount}</span>
+              <span className="text-[9px] text-[#52525B] flex-shrink-0">{filteredLines.length}</span>
             )}
           </div>
 
@@ -223,7 +217,6 @@ export function LogViewerPanel() {
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const line = filteredLines[virtualRow.index];
-            const isMatch = search ? line.raw.toLowerCase().includes(search.toLowerCase()) : false;
             return (
               <div
                 key={virtualRow.index}
@@ -235,10 +228,7 @@ export function LogViewerPanel() {
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className={cn(
-                  'flex items-center gap-3 px-4 select-text',
-                  isMatch ? 'bg-[#EAB308]/10' : 'hover:bg-[#27272A]/30',
-                )}
+                className="flex items-center gap-3 px-4 hover:bg-[#27272A]/30 select-text"
               >
                 <span className="w-24 flex-shrink-0 text-[#52525B]">
                   {line.timestamp ? (line.timestamp.split('T')[1]?.replace('Z', '') ?? line.timestamp) : ''}
