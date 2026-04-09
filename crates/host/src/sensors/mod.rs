@@ -1,6 +1,7 @@
 pub mod cpu;
 pub mod cpu_temp;
 pub mod gpu;
+pub mod hwinfo;
 pub mod ram;
 
 use std::collections::HashMap;
