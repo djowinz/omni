@@ -357,7 +357,7 @@ fn run_host() {
     }
 
     // Start sensor polling on background thread (uses poll_config from .omni file)
-    let (mut sensor_poller, sensor_rx) =
+    let (mut sensor_poller, sensor_rx, hwinfo_rx) =
         sensors::SensorPoller::start(host.omni_file.poll_config.clone(), sensor_running);
 
     // Start file watcher for hot-reload
@@ -471,6 +471,18 @@ fn run_host() {
 
         while let Ok(snapshot) = sensor_rx.try_recv() {
             latest_snapshot = snapshot;
+        }
+
+        // Receive HWiNFO state updates
+        while let Ok((new_hwinfo_state, sensors_changed)) = hwinfo_rx.try_recv() {
+            if let Ok(mut hwinfo_state) = ws_state.hwinfo_state.lock() {
+                *hwinfo_state = new_hwinfo_state;
+            }
+            if sensors_changed {
+                if let Ok(mut changed) = ws_state.hwinfo_sensors_changed.lock() {
+                    *changed = true;
+                }
+            }
         }
 
         // Merge ETW frame metrics for the most recently spawned external overlay

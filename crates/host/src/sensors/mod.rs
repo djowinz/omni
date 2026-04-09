@@ -18,6 +18,7 @@ use tracing::info;
 use cpu::CpuPoller;
 use cpu_temp::CpuTempPoller;
 use gpu::GpuPoller;
+use hwinfo::HwInfoReader;
 use ram::RamPoller;
 
 /// Default poll interval for sensors not explicitly configured.
@@ -45,8 +46,9 @@ impl SensorPoller {
     pub fn start(
         poll_config: HashMap<String, u64>,
         running: Arc<AtomicBool>,
-    ) -> (Self, mpsc::Receiver<SensorSnapshot>) {
+    ) -> (Self, mpsc::Receiver<SensorSnapshot>, mpsc::Receiver<(hwinfo::HwInfoState, bool)>) {
         let (tx, rx) = mpsc::channel();
+        let (hwinfo_tx, hwinfo_rx) = mpsc::channel();
         let running_clone = running.clone();
 
         let handle = thread::spawn(move || {
@@ -59,6 +61,7 @@ impl SensorPoller {
             let cpu_temp = CpuTempPoller::new();
             let gpu = GpuPoller::new();
             let ram = RamPoller::new();
+            let mut hwinfo_reader = HwInfoReader::new();
 
             if gpu.is_some() {
                 info!("sensor suite: CPU + GPU (NVAPI) + RAM + CPU temp (WMI)");
@@ -162,6 +165,19 @@ impl SensorPoller {
                     any_updated = true;
                 }
 
+                // HWiNFO group (polled every tick — lightweight shared memory read)
+                {
+                    let (hwinfo_state, hwinfo_sensors_changed) = hwinfo_reader.poll();
+                    snapshot.hwinfo_connected = hwinfo_state.connected;
+                    snapshot.hwinfo_sensor_count = hwinfo_state.sensor_count;
+                    if hwinfo_state.connected {
+                        any_updated = true;
+                    }
+                    if hwinfo_state.connected || hwinfo_sensors_changed {
+                        let _ = hwinfo_tx.send((hwinfo_state.clone(), hwinfo_sensors_changed));
+                    }
+                }
+
                 if any_updated {
                     snapshot.timestamp_ms = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -183,6 +199,7 @@ impl SensorPoller {
                 running,
             },
             rx,
+            hwinfo_rx,
         )
     }
 

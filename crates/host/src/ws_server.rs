@@ -25,6 +25,8 @@ pub struct WsSharedState {
     pub active_game: Mutex<Option<String>>,
     pub data_dir: std::path::PathBuf,
     pub running: AtomicBool,
+    pub hwinfo_state: Mutex<crate::sensors::hwinfo::HwInfoState>,
+    pub hwinfo_sensors_changed: Mutex<bool>,
 }
 
 impl WsSharedState {
@@ -36,6 +38,8 @@ impl WsSharedState {
             active_game: Mutex::new(None),
             data_dir,
             running: AtomicBool::new(true),
+            hwinfo_state: Mutex::new(crate::sensors::hwinfo::HwInfoState::default()),
+            hwinfo_sensors_changed: Mutex::new(false),
         }
     }
 }
@@ -137,6 +141,16 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
         // Push sensor data if subscribed (every 1 second)
         if sensor_subscribed && last_sensor_send.elapsed() >= Duration::from_secs(1) {
             let snapshot = *state.latest_snapshot.lock().unwrap();
+            let hwinfo = state.hwinfo_state.lock().unwrap();
+            let hwinfo_values: Vec<Value> = hwinfo
+                .sensors
+                .iter()
+                .filter_map(|s| {
+                    hwinfo.values.get(&s.path).map(|&v| {
+                        json!({"path": s.path, "value": v})
+                    })
+                })
+                .collect();
             let msg = json!({
                 "type": "sensors.data",
                 "snapshot": {
@@ -165,13 +179,46 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                         "available": snapshot.frame.available,
                         "fps": snapshot.frame.fps,
                     },
+                    "hwinfo": {
+                        "connected": hwinfo.connected,
+                        "sensor_count": hwinfo.sensor_count,
+                        "values": hwinfo_values,
+                    },
                 }
             });
+            drop(hwinfo);
 
             if ws.send(Message::Text(msg.to_string().into())).is_err() {
                 break;
             }
             last_sensor_send = std::time::Instant::now();
+
+            // Push hwinfo.sensors list if the sensor list changed
+            let send_sensors = {
+                let mut changed = state.hwinfo_sensors_changed.lock().unwrap();
+                if *changed {
+                    *changed = false;
+                    true
+                } else {
+                    false
+                }
+            };
+            if send_sensors {
+                let hwinfo = state.hwinfo_state.lock().unwrap();
+                let sensor_list: Vec<Value> = hwinfo
+                    .sensors
+                    .iter()
+                    .map(|s| json!({"path": s.path, "label": s.label, "unit": s.unit}))
+                    .collect();
+                let sensors_msg = json!({
+                    "type": "hwinfo.sensors",
+                    "sensors": sensor_list,
+                });
+                drop(hwinfo);
+                if ws.send(Message::Text(sensors_msg.to_string().into())).is_err() {
+                    break;
+                }
+            }
         }
     }
 }

@@ -12,6 +12,8 @@ pub struct SensorSnapshot {
     pub gpu: GpuData,
     pub ram: RamData,
     pub frame: FrameData,
+    pub hwinfo_connected: bool,
+    pub hwinfo_sensor_count: u32,
 }
 
 #[repr(C)]
