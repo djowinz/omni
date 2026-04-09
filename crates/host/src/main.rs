@@ -135,7 +135,12 @@ impl CappedLogWriter {
             .append(true)
             .open(&path)?;
         let bytes_written = file.metadata()?.len();
-        Ok(Self { path, file, max_bytes, bytes_written })
+        Ok(Self {
+            path,
+            file,
+            max_bytes,
+            bytes_written,
+        })
     }
 
     fn truncate_if_needed(&mut self) {
@@ -146,7 +151,8 @@ impl CappedLogWriter {
         if let Ok(content) = std::fs::read_to_string(&self.path) {
             let keep_from = content.len() / 2;
             // Find the next newline after the midpoint so we don't cut a line
-            let start = content[keep_from..].find('\n')
+            let start = content[keep_from..]
+                .find('\n')
                 .map(|i| keep_from + i + 1)
                 .unwrap_or(keep_from);
             let trimmed = &content[start..];
@@ -184,8 +190,8 @@ fn main() {
 
     let log_path = log_dir.join("omni-host.log");
     // Cap log file at 5 MB — when exceeded, keeps the most recent half
-    let log_writer = CappedLogWriter::new(log_path, 5 * 1024 * 1024)
-        .expect("Failed to open log file");
+    let log_writer =
+        CappedLogWriter::new(log_path, 5 * 1024 * 1024).expect("Failed to open log file");
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -199,10 +205,7 @@ fn main() {
                 .with_writer(std::sync::Mutex::new(log_writer))
                 .with_ansi(false),
         )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(std::io::stderr),
-        )
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 
     let args: Vec<String> = std::env::args().collect();
@@ -296,8 +299,8 @@ fn run_host() {
     .expect("Failed to set Ctrl+C handler");
 
     // Parse the toggle keybind and create a poller
-    let initial_hotkey = hotkey::parse_keybind(&config.keybinds.toggle_overlay)
-        .unwrap_or_else(|| {
+    let initial_hotkey =
+        hotkey::parse_keybind(&config.keybinds.toggle_overlay).unwrap_or_else(|| {
             warn!(
                 keybind = %config.keybinds.toggle_overlay,
                 "Failed to parse toggle keybind, falling back to F12"
@@ -336,13 +339,13 @@ fn run_host() {
     // Determine overlay exe path (next to host exe)
     let overlay_exe_path = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("omni-overlay.exe").to_string_lossy().into_owned()))
+        .and_then(|p| {
+            p.parent()
+                .map(|d| d.join("omni-overlay.exe").to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| "omni-overlay.exe".to_string());
 
-    let mut scanner_instance = scanner::Scanner::new(
-        overlay_exe_path,
-        config.clone(),
-    );
+    let mut scanner_instance = scanner::Scanner::new(overlay_exe_path, config.clone());
 
     let mut etw_captures: std::collections::HashMap<u32, etw::EtwCapture> =
         std::collections::HashMap::new();
@@ -380,7 +383,8 @@ fn run_host() {
     };
 
     // Create bitmap shared memory for Ultralight pixel output
-    let mut bitmap_writer = ipc::BitmapWriter::create().expect("Failed to create bitmap shared memory");
+    let mut bitmap_writer =
+        ipc::BitmapWriter::create().expect("Failed to create bitmap shared memory");
 
     // Determine the resources directory (next to the exe, where build.rs copies it)
     let exe_dir = std::env::current_exe()
@@ -397,7 +401,9 @@ fn run_host() {
 
     // Load initial HTML into Ultralight (styles + body + omniUpdate JS function)
     {
-        let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_state.lock()
+        let (hwinfo_values, hwinfo_units) = ws_state
+            .hwinfo_state
+            .lock()
             .map(|s| (s.values.clone(), s.units.clone()))
             .unwrap_or_default();
         let html = html_builder::build_initial_html(
@@ -428,9 +434,7 @@ fn run_host() {
 
             // Start ETW capture for newly tracked external overlay processes
             for &pid in scanner_instance.tracked_pids() {
-                if !etw_captures.contains_key(&pid)
-                    && !etw_failed.contains(&pid)
-                {
+                if !etw_captures.contains_key(&pid) && !etw_failed.contains(&pid) {
                     match etw::EtwCapture::start(pid) {
                         Ok(capture) => {
                             info!(pid, "Started ETW frame capture");
@@ -614,17 +618,24 @@ fn run_host() {
         if ul_needs_reload {
             let vw = if latest_snapshot.frame.render_width > 0 {
                 latest_snapshot.frame.render_width
-            } else { 1920 };
+            } else {
+                1920
+            };
             let vh = if latest_snapshot.frame.render_height > 0 {
                 latest_snapshot.frame.render_height
-            } else { 1080 };
-            let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_state.lock()
+            } else {
+                1080
+            };
+            let (hwinfo_values, hwinfo_units) = ws_state
+                .hwinfo_state
+                .lock()
                 .map(|s| (s.values.clone(), s.units.clone()))
                 .unwrap_or_default();
             let html = html_builder::build_initial_html(
                 &host.omni_file,
                 &latest_snapshot,
-                vw, vh,
+                vw,
+                vh,
                 &data_dir,
                 &host.current_overlay,
                 &hwinfo_values,
@@ -643,10 +654,17 @@ fn run_host() {
         // The HTML is loaded once (with styles in <head> and omniUpdate function).
         // Each cycle we call omniUpdate({...}) to update classes and text nodes.
         // The DOM persists so CSS transitions animate naturally.
-        let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_state.lock()
+        let (hwinfo_values, hwinfo_units) = ws_state
+            .hwinfo_state
+            .lock()
             .map(|s| (s.values.clone(), s.units.clone()))
             .unwrap_or_default();
-        if let Some(js) = html_builder::build_update_js(&host.omni_file, &latest_snapshot, &hwinfo_values, &hwinfo_units) {
+        if let Some(js) = html_builder::build_update_js(
+            &host.omni_file,
+            &latest_snapshot,
+            &hwinfo_values,
+            &hwinfo_units,
+        ) {
             ul.evaluate_script(&js);
         }
         ul.update_and_render();

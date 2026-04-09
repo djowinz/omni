@@ -1,7 +1,7 @@
 //! Writes rendered bitmap data to shared memory for the DLL/overlay-exe to read.
 
 use std::ptr;
-use std::sync::atomic::{AtomicU8, AtomicU64};
+use std::sync::atomic::{AtomicU64, AtomicU8};
 
 use omni_shared::{
     BitmapHeader, BITMAP_IPC_VERSION, BITMAP_SHM_NAME, PIXEL_DATA_OFFSET, TOTAL_SHM_SIZE,

@@ -8,25 +8,10 @@ pub fn parse_sensor_path(path: &str) -> Option<()> {
         return Some(());
     }
     match path {
-        "cpu.usage"
-        | "cpu.temp"
-        | "gpu.usage"
-        | "gpu.temp"
-        | "gpu.clock"
-        | "gpu.mem-clock"
-        | "gpu.vram"
-        | "gpu.vram.used"
-        | "gpu.vram.total"
-        | "gpu.power"
-        | "gpu.fan"
-        | "ram.usage"
-        | "ram.used"
-        | "ram.total"
-        | "fps"
-        | "frame-time"
-        | "frame-time.avg"
-        | "frame-time.1pct"
-        | "frame-time.01pct" => Some(()),
+        "cpu.usage" | "cpu.temp" | "gpu.usage" | "gpu.temp" | "gpu.clock" | "gpu.mem-clock"
+        | "gpu.vram" | "gpu.vram.used" | "gpu.vram.total" | "gpu.power" | "gpu.fan"
+        | "ram.usage" | "ram.used" | "ram.total" | "fps" | "frame-time" | "frame-time.avg"
+        | "frame-time.1pct" | "frame-time.01pct" => Some(()),
         _ => None,
     }
 }
@@ -50,9 +35,15 @@ fn get_raw_value(path: &str, snapshot: &SensorSnapshot) -> Option<f64> {
         "ram.total" => Some(snapshot.ram.total_mb as f64),
         "fps" if snapshot.frame.available => Some(snapshot.frame.fps as f64),
         "frame-time" if snapshot.frame.available => Some(snapshot.frame.frame_time_ms as f64),
-        "frame-time.avg" if snapshot.frame.available => Some(snapshot.frame.frame_time_avg_ms as f64),
-        "frame-time.1pct" if snapshot.frame.available => Some(snapshot.frame.frame_time_1percent_ms as f64),
-        "frame-time.01pct" if snapshot.frame.available => Some(snapshot.frame.frame_time_01percent_ms as f64),
+        "frame-time.avg" if snapshot.frame.available => {
+            Some(snapshot.frame.frame_time_avg_ms as f64)
+        }
+        "frame-time.1pct" if snapshot.frame.available => {
+            Some(snapshot.frame.frame_time_1percent_ms as f64)
+        }
+        "frame-time.01pct" if snapshot.frame.available => {
+            Some(snapshot.frame.frame_time_01percent_ms as f64)
+        }
         _ => None,
     }
 }
@@ -71,12 +62,22 @@ fn format_with_precision(value: f64, precision: usize) -> String {
 }
 
 fn nan_to_none(v: f64) -> Option<f64> {
-    if v.is_nan() { None } else { Some(v) }
+    if v.is_nan() {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 /// Get the formatted string value for a sensor path from a snapshot.
 pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
-    get_sensor_value_with_hwinfo(path, snapshot, &Default::default(), &Default::default(), None)
+    get_sensor_value_with_hwinfo(
+        path,
+        snapshot,
+        &Default::default(),
+        &Default::default(),
+        None,
+    )
 }
 
 /// Get the formatted string value for a sensor path, consulting HWiNFO data
@@ -91,14 +92,18 @@ pub fn get_sensor_value_with_hwinfo(
 ) -> String {
     // Special case: gpu.vram (composite format)
     if path == "gpu.vram" && precision.is_none() {
-        return format!("{}/{}", snapshot.gpu.vram_used_mb, snapshot.gpu.vram_total_mb);
+        return format!(
+            "{}/{}",
+            snapshot.gpu.vram_used_mb, snapshot.gpu.vram_total_mb
+        );
     }
 
     if path.starts_with("hwinfo.") {
         return match hwinfo_values.get(path) {
             Some(&value) => {
                 let unit = hwinfo_units.get(path).map(|s| s.as_str()).unwrap_or("");
-                let prec = precision.unwrap_or_else(|| crate::sensors::hwinfo::default_precision_for_unit(unit));
+                let prec = precision
+                    .unwrap_or_else(|| crate::sensors::hwinfo::default_precision_for_unit(unit));
                 format_with_precision(value, prec)
             }
             None => "N/A".to_string(),
@@ -141,7 +146,13 @@ mod tests {
         let mut hwinfo_units = std::collections::HashMap::new();
         hwinfo_units.insert("hwinfo.cpu.core_0_temp".to_string(), "°C".to_string());
         assert_eq!(
-            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units, None),
+            get_sensor_value_with_hwinfo(
+                "hwinfo.cpu.core_0_temp",
+                &snapshot,
+                &hwinfo_values,
+                &hwinfo_units,
+                None
+            ),
             "65"
         );
     }
@@ -152,7 +163,13 @@ mod tests {
         let hwinfo_values = std::collections::HashMap::new();
         let hwinfo_units = std::collections::HashMap::new();
         assert_eq!(
-            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units, None),
+            get_sensor_value_with_hwinfo(
+                "hwinfo.cpu.core_0_temp",
+                &snapshot,
+                &hwinfo_values,
+                &hwinfo_units,
+                None
+            ),
             "N/A"
         );
     }

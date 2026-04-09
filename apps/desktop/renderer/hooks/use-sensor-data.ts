@@ -23,7 +23,10 @@ export function useSensorData(): SensorData | null {
     const unsub = window.omni?.onSensorData?.((msg) => {
       // msg may be the old shape (bare SensorSnapshot) or the new shape { snapshot, hwinfo }
       if (msg && 'snapshot' in msg) {
-        setData({ snapshot: msg.snapshot as SensorSnapshot, hwinfo: msg.hwinfo as HwInfoData | undefined });
+        setData({
+          snapshot: msg.snapshot as SensorSnapshot,
+          hwinfo: msg.hwinfo as HwInfoData | undefined,
+        });
       } else {
         setData({ snapshot: msg as SensorSnapshot });
       }

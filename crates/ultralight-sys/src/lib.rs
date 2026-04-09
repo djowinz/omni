@@ -3,7 +3,7 @@
 
 #![allow(non_camel_case_types)]
 
-use std::os::raw::{c_char, c_uint, c_int, c_void};
+use std::os::raw::{c_char, c_int, c_uint, c_void};
 
 // Opaque pointer types matching the C typedefs (e.g. `typedef struct C_Config* ULConfig`).
 pub type ULConfig = *mut c_void;

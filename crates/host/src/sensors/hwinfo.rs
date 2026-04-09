@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use tracing::{info, warn};
+use windows::core::PCWSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Memory::{
     MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ,
 };
-use windows::core::PCWSTR;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // HWiNFO shared-memory binary layout
@@ -226,6 +226,7 @@ pub fn default_precision_for_unit(unit: &str) -> usize {
     }
 }
 
+#[allow(dead_code)] // Used in tests; public API for future formatting needs
 pub fn format_hwinfo_value(value: f64, unit: &str) -> String {
     let prec = default_precision_for_unit(unit);
     format!("{:.prec$}", value, prec = prec)
@@ -267,8 +268,7 @@ impl HwInfoReader {
                 if new_state.connected && !self.logged_connect {
                     info!(
                         sensor_count = new_state.sensor_count,
-                        "HWiNFO detected ({} sensors)",
-                        new_state.sensor_count
+                        "HWiNFO detected ({} sensors)", new_state.sensor_count
                     );
                     self.logged_connect = true;
                     self.logged_disconnect = false;
@@ -362,8 +362,8 @@ impl HwInfoReader {
         let mut seen_paths: HashMap<String, u32> = HashMap::new();
 
         for i in 0..reading_count {
-            let reading_base = header.reading_section_offset as usize
-                + i as usize * header.reading_size as usize;
+            let reading_base =
+                header.reading_section_offset as usize + i as usize * header.reading_size as usize;
             let reading = std::ptr::read_unaligned(base.add(reading_base) as *const HwInfoReading);
 
             let si = reading.sensor_index as usize;

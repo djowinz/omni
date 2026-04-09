@@ -3,7 +3,8 @@ import { parseLogLine, type ParsedLogLine } from '../log-parser';
 
 describe('parseLogLine', () => {
   it('should parse a standard tracing log line', () => {
-    const line = '2026-04-08T12:04:01.123Z  INFO omni_host::ws_server: WebSocket server listening on 127.0.0.1:9473';
+    const line =
+      '2026-04-08T12:04:01.123Z  INFO omni_host::ws_server: WebSocket server listening on 127.0.0.1:9473';
     const result = parseLogLine(line);
     expect(result).toEqual({
       timestamp: '2026-04-08T12:04:01.123Z',

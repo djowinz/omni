@@ -135,7 +135,13 @@ export type AppAction =
   | { type: 'SET_THEME_FILE'; payload: { path: string; content: string } }
   | { type: 'SET_ACTIVE_PANEL'; payload: 'components' | 'settings' }
   | { type: 'SET_UPDATE_READY'; payload: { version: string; releaseDate: string } }
-  | { type: 'SET_HWINFO_SENSORS'; payload: { connected: boolean; sensors: Array<{ path: string; label: string; unit: string }> } }
+  | {
+      type: 'SET_HWINFO_SENSORS';
+      payload: {
+        connected: boolean;
+        sensors: Array<{ path: string; label: string; unit: string }>;
+      };
+    }
   | { type: 'SET_EDITOR_VIEW_STATE'; payload: { tabId: string; viewState: EditorViewState } };
 
 /**

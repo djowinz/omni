@@ -92,7 +92,13 @@ pub fn parse_keybind(s: &str) -> Option<Hotkey> {
     }
 
     let vk = main_key?;
-    Some(Hotkey { vk, ctrl, alt, shift, win })
+    Some(Hotkey {
+        vk,
+        ctrl,
+        alt,
+        shift,
+        win,
+    })
 }
 
 /// Map a key name string to a Windows virtual key code.
@@ -138,17 +144,17 @@ fn key_name_to_vk(name: &str) -> Option<u16> {
         "NUMPAD8" => Some(0x68),
         "NUMPAD9" => Some(0x69),
         // OEM keys (US keyboard layout)
-        ";" | ":" => Some(0xBA),        // VK_OEM_1
-        "=" | "+" => Some(0xBB),        // VK_OEM_PLUS
-        "," | "<" => Some(0xBC),        // VK_OEM_COMMA
-        "-" | "_" => Some(0xBD),        // VK_OEM_MINUS
-        "." | ">" => Some(0xBE),        // VK_OEM_PERIOD
-        "/" | "?" => Some(0xBF),        // VK_OEM_2
-        "`" | "~" => Some(0xC0),        // VK_OEM_3
-        "[" | "{" => Some(0xDB),        // VK_OEM_4
-        "\\" | "|" => Some(0xDC),       // VK_OEM_5
-        "]" | "}" => Some(0xDD),        // VK_OEM_6
-        "'" | "\"" => Some(0xDE),       // VK_OEM_7
+        ";" | ":" => Some(0xBA),  // VK_OEM_1
+        "=" | "+" => Some(0xBB),  // VK_OEM_PLUS
+        "," | "<" => Some(0xBC),  // VK_OEM_COMMA
+        "-" | "_" => Some(0xBD),  // VK_OEM_MINUS
+        "." | ">" => Some(0xBE),  // VK_OEM_PERIOD
+        "/" | "?" => Some(0xBF),  // VK_OEM_2
+        "`" | "~" => Some(0xC0),  // VK_OEM_3
+        "[" | "{" => Some(0xDB),  // VK_OEM_4
+        "\\" | "|" => Some(0xDC), // VK_OEM_5
+        "]" | "}" => Some(0xDD),  // VK_OEM_6
+        "'" | "\"" => Some(0xDE), // VK_OEM_7
         _ => {
             let bytes = upper.as_bytes();
             if bytes.len() == 1 {
