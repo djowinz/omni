@@ -4,10 +4,14 @@ import { EventEmitter } from 'events';
 /**
  * Tails a log file — reads full history then streams new lines as they're appended.
  * Emits 'lines' events with arrays of new complete lines.
+ *
+ * Uses fs.watch for immediate change detection, plus a polling fallback
+ * (every 1s) to handle cases where fs.watch misses events on Windows.
  */
 export class LogTailer extends EventEmitter {
   private filePath: string;
   private watcher: fs.FSWatcher | null = null;
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
   private offset = 0;
   private buffer = '';
   private reading = false;
@@ -27,23 +31,36 @@ export class LogTailer extends EventEmitter {
     // Read existing content
     this.readFromOffset();
 
-    // Watch for changes
-    this.watcher = fs.watch(this.filePath, (eventType) => {
-      if (eventType === 'change') {
-        this.readFromOffset();
-      }
-    });
+    // Watch for changes (primary — immediate but can miss events on Windows)
+    try {
+      this.watcher = fs.watch(this.filePath, (eventType) => {
+        if (eventType === 'change') {
+          this.readFromOffset();
+        }
+      });
 
-    this.watcher.on('error', (err) => {
-      this.emit('error', err);
-    });
+      this.watcher.on('error', (err) => {
+        this.emit('error', err);
+      });
+    } catch {
+      // fs.watch can fail on some filesystems — polling will cover it
+    }
+
+    // Polling fallback (1s interval) — catches anything fs.watch misses
+    this.pollInterval = setInterval(() => {
+      this.readFromOffset();
+    }, 1000);
   }
 
-  /** Stop tailing — closes watcher and cleans up. */
+  /** Stop tailing — closes watcher, clears poll, and cleans up. */
   stop(): void {
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
+    }
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
     this.offset = 0;
     this.buffer = '';

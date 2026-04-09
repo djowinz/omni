@@ -23,6 +23,7 @@ export function LogViewerPanel() {
   const [levelDropdownOpen, setLevelDropdownOpen] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [tailing, setTailing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
   const levelDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -30,12 +31,6 @@ export function LogViewerPanel() {
   useEffect(() => {
     let unsubData: (() => void) | undefined;
     let unsubError: (() => void) | undefined;
-
-    window.omni?.startLogTail().then(() => {
-      setTailing(true);
-    }).catch(() => {
-      setTailing(false);
-    });
 
     unsubData = window.omni?.onLogData((newLines: string[]) => {
       const parsed = newLines.map(parseLogLine);
@@ -47,6 +42,16 @@ export function LogViewerPanel() {
 
     unsubError = window.omni?.onLogError((message: string) => {
       console.error('[log-viewer]', message);
+      setError(message);
+    });
+
+    window.omni?.startLogTail().then(() => {
+      setTailing(true);
+      setError(null);
+    }).catch((err: Error) => {
+      setTailing(false);
+      setError(err?.message ?? 'Failed to start log tailing');
+      console.error('[log-viewer] startLogTail failed:', err);
     });
 
     return () => {
@@ -132,6 +137,12 @@ export function LogViewerPanel() {
             <span className="flex items-center gap-1 text-[10px] text-[#22C55E]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E] animate-pulse" />
               Live
+            </span>
+          )}
+          {error && (
+            <span className="flex items-center gap-1 text-[10px] text-[#EF4444]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#EF4444]" />
+              {error}
             </span>
           )}
         </div>
