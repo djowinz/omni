@@ -148,14 +148,14 @@ export function LogViewerPanel() {
         </div>
         <div className="flex items-center gap-2">
           {/* Search */}
-          <div className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-2 py-1">
-            <Search className="h-3 w-3 text-[#52525B]" />
+          <div className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-1.5 h-6">
+            <Search className="h-3 w-3 text-[#52525B] flex-shrink-0" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search..."
-              className="w-32 bg-transparent text-xs text-[#A1A1AA] placeholder-[#52525B] outline-none"
+              className="w-32 bg-transparent text-[10px] text-[#A1A1AA] placeholder-[#52525B] outline-none"
             />
           </div>
 
@@ -163,7 +163,7 @@ export function LogViewerPanel() {
           <div className="relative" ref={levelDropdownRef}>
             <button
               onClick={() => setLevelDropdownOpen(!levelDropdownOpen)}
-              className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-2 py-1 text-xs text-[#A1A1AA] hover:bg-[#27272A]"
+              className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-1.5 h-6 text-[10px] text-[#A1A1AA] hover:bg-[#27272A]"
             >
               Level
               <ChevronDown className="h-3 w-3" />
@@ -191,10 +191,10 @@ export function LogViewerPanel() {
           {/* Close */}
           <button
             onClick={handleClose}
-            className="rounded p-1 text-[#52525B] hover:bg-[#27272A] hover:text-[#A1A1AA]"
+            className="rounded p-0.5 text-[#52525B] hover:bg-[#27272A] hover:text-[#A1A1AA]"
             title="Close log viewer"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3 w-3" />
           </button>
         </div>
       </div>
