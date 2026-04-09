@@ -4,6 +4,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tracing::warn;
 
 const DEBOUNCE_MS: u64 = 500;
 
@@ -183,7 +184,7 @@ fn debounce_loop(
             }
             Ok(Err(e)) => {
                 // Watcher error — log and continue
-                eprintln!("[file-watcher-debounce] notify error: {e}");
+                warn!("[file-watcher-debounce] notify error: {e}");
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Normal — check pending below
