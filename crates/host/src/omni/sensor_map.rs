@@ -31,91 +31,87 @@ pub fn parse_sensor_path(path: &str) -> Option<()> {
     }
 }
 
-/// Get the formatted string value for a sensor path from a snapshot.
-pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
+/// Get the raw f64 value for a sensor path from a snapshot.
+/// Returns None if the path is unknown or the value is unavailable.
+fn get_raw_value(path: &str, snapshot: &SensorSnapshot) -> Option<f64> {
     match path {
-        "cpu.usage" => format!("{:.0}", snapshot.cpu.total_usage_percent),
-        "cpu.temp" => format_temp(snapshot.cpu.package_temp_c),
-        "gpu.usage" => format!("{:.0}", snapshot.gpu.usage_percent),
-        "gpu.temp" => format_temp(snapshot.gpu.temp_c),
-        "gpu.clock" => format!("{}", snapshot.gpu.core_clock_mhz),
-        "gpu.mem-clock" => format!("{}", snapshot.gpu.mem_clock_mhz),
-        "gpu.vram" => format!(
-            "{}/{}",
-            snapshot.gpu.vram_used_mb, snapshot.gpu.vram_total_mb
-        ),
-        "gpu.vram.used" => format!("{}", snapshot.gpu.vram_used_mb),
-        "gpu.vram.total" => format!("{}", snapshot.gpu.vram_total_mb),
-        "gpu.power" => format!("{:.0}", snapshot.gpu.power_draw_w),
-        "gpu.fan" => format!("{}", snapshot.gpu.fan_speed_percent),
-        "ram.usage" => format!("{:.0}", snapshot.ram.usage_percent),
-        "ram.used" => format!("{}", snapshot.ram.used_mb),
-        "ram.total" => format!("{}", snapshot.ram.total_mb),
-        "fps" => {
-            if snapshot.frame.available {
-                format!("{:.0}", snapshot.frame.fps)
-            } else {
-                "N/A".to_string()
-            }
-        }
-        "frame-time" => {
-            if snapshot.frame.available {
-                format!("{:.1}", snapshot.frame.frame_time_ms)
-            } else {
-                "N/A".to_string()
-            }
-        }
-        "frame-time.avg" => {
-            if snapshot.frame.available {
-                format!("{:.1}", snapshot.frame.frame_time_avg_ms)
-            } else {
-                "N/A".to_string()
-            }
-        }
-        "frame-time.1pct" => {
-            if snapshot.frame.available {
-                format!("{:.1}", snapshot.frame.frame_time_1percent_ms)
-            } else {
-                "N/A".to_string()
-            }
-        }
-        "frame-time.01pct" => {
-            if snapshot.frame.available {
-                format!("{:.1}", snapshot.frame.frame_time_01percent_ms)
-            } else {
-                "N/A".to_string()
-            }
-        }
-        _ => "N/A".to_string(),
+        "cpu.usage" => Some(snapshot.cpu.total_usage_percent as f64),
+        "cpu.temp" => nan_to_none(snapshot.cpu.package_temp_c as f64),
+        "gpu.usage" => Some(snapshot.gpu.usage_percent as f64),
+        "gpu.temp" => nan_to_none(snapshot.gpu.temp_c as f64),
+        "gpu.clock" => Some(snapshot.gpu.core_clock_mhz as f64),
+        "gpu.mem-clock" => Some(snapshot.gpu.mem_clock_mhz as f64),
+        "gpu.vram.used" => Some(snapshot.gpu.vram_used_mb as f64),
+        "gpu.vram.total" => Some(snapshot.gpu.vram_total_mb as f64),
+        "gpu.power" => Some(snapshot.gpu.power_draw_w as f64),
+        "gpu.fan" => Some(snapshot.gpu.fan_speed_percent as f64),
+        "ram.usage" => Some(snapshot.ram.usage_percent as f64),
+        "ram.used" => Some(snapshot.ram.used_mb as f64),
+        "ram.total" => Some(snapshot.ram.total_mb as f64),
+        "fps" if snapshot.frame.available => Some(snapshot.frame.fps as f64),
+        "frame-time" if snapshot.frame.available => Some(snapshot.frame.frame_time_ms as f64),
+        "frame-time.avg" if snapshot.frame.available => Some(snapshot.frame.frame_time_avg_ms as f64),
+        "frame-time.1pct" if snapshot.frame.available => Some(snapshot.frame.frame_time_1percent_ms as f64),
+        "frame-time.01pct" if snapshot.frame.available => Some(snapshot.frame.frame_time_01percent_ms as f64),
+        _ => None,
     }
 }
 
-fn format_temp(temp_c: f32) -> String {
-    if temp_c.is_nan() {
-        "N/A".to_string()
-    } else {
-        format!("{:.0}", temp_c)
+/// Default precision for a built-in sensor path.
+fn default_precision(path: &str) -> usize {
+    match path {
+        "frame-time" | "frame-time.avg" | "frame-time.1pct" | "frame-time.01pct" => 1,
+        _ => 0, // integers for temps, percentages, clocks, power, memory, fps
     }
+}
+
+/// Format a value with the given precision (decimal places).
+fn format_with_precision(value: f64, precision: usize) -> String {
+    format!("{:.prec$}", value, prec = precision)
+}
+
+fn nan_to_none(v: f64) -> Option<f64> {
+    if v.is_nan() { None } else { Some(v) }
+}
+
+/// Get the formatted string value for a sensor path from a snapshot.
+pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
+    get_sensor_value_with_hwinfo(path, snapshot, &Default::default(), &Default::default(), None)
 }
 
 /// Get the formatted string value for a sensor path, consulting HWiNFO data
 /// for `hwinfo.*` paths and falling back to the snapshot for all other paths.
+/// An optional `precision` overrides the default decimal places.
 pub fn get_sensor_value_with_hwinfo(
     path: &str,
     snapshot: &SensorSnapshot,
     hwinfo_values: &std::collections::HashMap<String, f64>,
     hwinfo_units: &std::collections::HashMap<String, String>,
+    precision: Option<usize>,
 ) -> String {
+    // Special case: gpu.vram (composite format)
+    if path == "gpu.vram" && precision.is_none() {
+        return format!("{}/{}", snapshot.gpu.vram_used_mb, snapshot.gpu.vram_total_mb);
+    }
+
     if path.starts_with("hwinfo.") {
         return match hwinfo_values.get(path) {
             Some(&value) => {
                 let unit = hwinfo_units.get(path).map(|s| s.as_str()).unwrap_or("");
-                crate::sensors::hwinfo::format_hwinfo_value(value, unit)
+                let prec = precision.unwrap_or_else(|| crate::sensors::hwinfo::default_precision_for_unit(unit));
+                format_with_precision(value, prec)
             }
             None => "N/A".to_string(),
         };
     }
-    get_sensor_value(path, snapshot)
+
+    match get_raw_value(path, snapshot) {
+        Some(value) => {
+            let prec = precision.unwrap_or_else(|| default_precision(path));
+            format_with_precision(value, prec)
+        }
+        None => "N/A".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -145,7 +141,7 @@ mod tests {
         let mut hwinfo_units = std::collections::HashMap::new();
         hwinfo_units.insert("hwinfo.cpu.core_0_temp".to_string(), "°C".to_string());
         assert_eq!(
-            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units),
+            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units, None),
             "65"
         );
     }
@@ -156,7 +152,7 @@ mod tests {
         let hwinfo_values = std::collections::HashMap::new();
         let hwinfo_units = std::collections::HashMap::new();
         assert_eq!(
-            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units),
+            get_sensor_value_with_hwinfo("hwinfo.cpu.core_0_temp", &snapshot, &hwinfo_values, &hwinfo_units, None),
             "N/A"
         );
     }

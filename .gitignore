@@ -25,3 +25,6 @@ mcp_config.json
 docs/superpowers
 .worktrees/
 .superpowers
+
+# Any documents for frontend
+apps/desktop/docs

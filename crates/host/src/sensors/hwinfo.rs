@@ -217,12 +217,18 @@ pub fn dedup_path(path: &str, seen: &mut HashMap<String, u32>) -> String {
 /// | W         | integer           |
 /// | RPM       | 1 decimal place   |
 /// | (other)   | 1 decimal place   |
-pub fn format_hwinfo_value(value: f64, unit: &str) -> String {
+/// Default decimal places for a HWiNFO reading based on its unit.
+pub fn default_precision_for_unit(unit: &str) -> usize {
     match unit {
-        "°C" | "%" | "MHz" | "W" => format!("{}", value.round() as i64),
-        "V" => format!("{:.2}", value),
-        _ => format!("{:.1}", value),
+        "°C" | "°F" | "%" | "MHz" | "W" | "RPM" | "MB" | "GB" | "KB/s" | "MB/s" => 0,
+        "V" | "A" => 2,
+        _ => 1,
     }
+}
+
+pub fn format_hwinfo_value(value: f64, unit: &str) -> String {
+    let prec = default_precision_for_unit(unit);
+    format!("{:.prec$}", value, prec = prec)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

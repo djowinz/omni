@@ -286,11 +286,13 @@ fn interpolate_with_hwinfo(
             }
 
             if found_close && !path.is_empty() {
+                let (sensor_path, precision) = parse_precision(path.trim());
                 let value = sensor_map::get_sensor_value_with_hwinfo(
-                    path.trim(),
+                    sensor_path,
                     snapshot,
                     hwinfo_values,
                     hwinfo_units,
+                    precision,
                 );
                 result.push_str(&value);
             } else {
@@ -303,6 +305,19 @@ fn interpolate_with_hwinfo(
     }
 
     result
+}
+
+/// Parse precision suffix from a sensor path: `gpu.temp(2)` → `("gpu.temp", Some(2))`
+fn parse_precision(input: &str) -> (&str, Option<usize>) {
+    if let Some(paren_start) = input.rfind('(') {
+        if input.ends_with(')') {
+            let path = &input[..paren_start];
+            if let Ok(n) = input[paren_start + 1..input.len() - 1].parse::<usize>() {
+                return (path, Some(n));
+            }
+        }
+    }
+    (input, None)
 }
 
 fn load_theme_css(data_dir: &Path, overlay_name: &str, theme_src: &str) -> String {
