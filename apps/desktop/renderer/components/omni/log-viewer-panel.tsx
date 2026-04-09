@@ -53,14 +53,17 @@ export function LogViewerPanel() {
       setError(message);
     });
 
-    window.omni?.startLogTail().then(() => {
-      setTailing(true);
-      setError(null);
-    }).catch((err: Error) => {
-      setTailing(false);
-      setError(err?.message ?? 'Failed to start log tailing');
-      console.error('[log-viewer] startLogTail failed:', err);
-    });
+    window.omni
+      ?.startLogTail()
+      .then(() => {
+        setTailing(true);
+        setError(null);
+      })
+      .catch((err: Error) => {
+        setTailing(false);
+        setError(err?.message ?? 'Failed to start log tailing');
+        console.error('[log-viewer] startLogTail failed:', err);
+      });
 
     return () => {
       window.omni?.stopLogTail();
@@ -138,38 +141,40 @@ export function LogViewerPanel() {
   return (
     <div className="flex h-full flex-col bg-[#0A0A0C]">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-[#27272A] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Service Logs</span>
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#27272A] px-3 bg-[#18181B]">
+        <div className="flex items-center gap-3">
+          <span className="text-sm leading-[unset] font-medium text-[#FAFAFA]">Service Logs</span>
           {tailing && (
-            <span className="flex items-center gap-1 text-[10px] text-[#22C55E]">
+            <span className="flex items-center gap-1.5 text-xs text-[#22C55E]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E] animate-pulse" />
               Live
             </span>
           )}
-          {fileSize > 0 && (
-            <span className="text-[10px] text-[#52525B]">{formatFileSize(fileSize)}</span>
-          )}
           {error && (
-            <span className="flex items-center gap-1 text-[10px] text-[#EF4444]">
+            <span className="flex items-center gap-1.5 text-xs text-[#EF4444]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#EF4444]" />
               {error}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
+          {fileSize > 0 && (
+            <span className="text-xs text-[#52525B]">{formatFileSize(fileSize)}</span>
+          )}
           {/* Search */}
-          <div className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-1.5 h-6">
-            <Search className="h-3 w-3 text-[#52525B] flex-shrink-0" />
+          <div className="flex items-center gap-1.5 rounded border border-[#27272A] bg-[#0D0D0F] px-2 h-7">
+            <Search className="h-3.5 w-3.5 text-[#52525B] flex-shrink-0" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search..."
-              className="w-32 bg-transparent text-[10px] text-[#A1A1AA] placeholder-[#52525B] outline-none"
+              className="w-36 bg-transparent text-xs text-[#A1A1AA] placeholder-[#52525B] outline-none"
             />
             {search && (
-              <span className="text-[9px] text-[#52525B] flex-shrink-0">{filteredLines.length}</span>
+              <span className="text-[10px] text-[#52525B] flex-shrink-0">
+                {filteredLines.length}
+              </span>
             )}
           </div>
 
@@ -177,10 +182,10 @@ export function LogViewerPanel() {
           <div className="relative" ref={levelDropdownRef}>
             <button
               onClick={() => setLevelDropdownOpen(!levelDropdownOpen)}
-              className="flex items-center gap-1 rounded border border-[#27272A] bg-[#18181B] px-1.5 h-6 text-[10px] text-[#A1A1AA] hover:bg-[#27272A]"
+              className="flex items-center gap-1.5 rounded border border-[#27272A] bg-[#0D0D0F] px-2 h-7 text-xs text-[#A1A1AA] hover:bg-[#27272A]"
             >
               Level
-              <ChevronDown className="h-3 w-3" />
+              <ChevronDown className="h-3.5 w-3.5" />
             </button>
             {levelDropdownOpen && (
               <div className="absolute right-0 top-full z-10 mt-1 rounded border border-[#27272A] bg-[#18181B] py-1 shadow-lg">
@@ -205,10 +210,10 @@ export function LogViewerPanel() {
           {/* Close */}
           <button
             onClick={handleClose}
-            className="rounded p-0.5 text-[#52525B] hover:bg-[#27272A] hover:text-[#A1A1AA]"
+            className="rounded p-1 text-[#52525B] hover:bg-[#27272A] hover:text-[#A1A1AA]"
             title="Close log viewer"
           >
-            <X className="h-3 w-3" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -242,9 +247,16 @@ export function LogViewerPanel() {
                 className="flex items-center gap-3 px-4 hover:bg-[#27272A]/30 select-text"
               >
                 <span className="w-24 flex-shrink-0 text-[#52525B]">
-                  {line.timestamp ? (line.timestamp.split('T')[1]?.replace('Z', '') ?? line.timestamp) : ''}
+                  {line.timestamp
+                    ? (line.timestamp.split('T')[1]?.replace('Z', '') ?? line.timestamp)
+                    : ''}
                 </span>
-                <span className={cn('w-12 flex-shrink-0 font-semibold', line.level ? LEVEL_COLORS[line.level] : 'text-[#52525B]')}>
+                <span
+                  className={cn(
+                    'w-12 flex-shrink-0 font-semibold',
+                    line.level ? LEVEL_COLORS[line.level] : 'text-[#52525B]',
+                  )}
+                >
                   {line.level ?? ''}
                 </span>
                 <span className="text-[#A1A1AA] min-w-0 whitespace-pre">{line.message}</span>
