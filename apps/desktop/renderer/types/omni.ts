@@ -103,6 +103,11 @@ export interface AppState {
   updateReady: boolean;
   updateVersion: string | null;
   updateReleaseDate: string | null;
+
+  // HWiNFO integration
+  hwinfoConnected: boolean;
+  hwinfoSensorCount: number;
+  hwinfoSensors: Array<{ path: string; label: string; unit: string }>;
 }
 
 /**
@@ -125,7 +130,8 @@ export type AppAction =
   | { type: 'UPDATE_TAB_CONTENT'; payload: { id: string; content: string } }
   | { type: 'SET_THEME_FILE'; payload: { path: string; content: string } }
   | { type: 'SET_ACTIVE_PANEL'; payload: 'components' | 'settings' }
-  | { type: 'SET_UPDATE_READY'; payload: { version: string; releaseDate: string } };
+  | { type: 'SET_UPDATE_READY'; payload: { version: string; releaseDate: string } }
+  | { type: 'SET_HWINFO_SENSORS'; payload: { connected: boolean; sensors: Array<{ path: string; label: string; unit: string }> } };
 
 /**
  * Default metric values for preview simulation

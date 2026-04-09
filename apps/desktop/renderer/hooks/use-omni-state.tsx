@@ -23,6 +23,9 @@ const initialState: AppState = {
   updateReady: false,
   updateVersion: null,
   updateReleaseDate: null,
+  hwinfoConnected: false,
+  hwinfoSensorCount: 0,
+  hwinfoSensors: [],
 };
 
 /** Load the list of overlay names from the backend, creating Overlay stubs with null content. */

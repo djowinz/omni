@@ -91,4 +91,30 @@ describe('sensorSnapshotToMetrics', () => {
       expect(metrics['ram.total']).toBe(16384);
     });
   });
+
+  describe('given a snapshot with hwinfo data', () => {
+    it('should include hwinfo values as metric keys', () => {
+      const snapshot = makeSnapshot();
+      const hwinfo = {
+        connected: true,
+        sensor_count: 2,
+        values: [
+          { path: 'hwinfo.cpu.core_0_temp', value: 65 },
+          { path: 'hwinfo.gpu.vrm_temp', value: 78 },
+        ],
+      };
+      const metrics = sensorSnapshotToMetrics(snapshot, hwinfo);
+      expect(metrics['hwinfo.cpu.core_0_temp']).toBe(65);
+      expect(metrics['hwinfo.gpu.vrm_temp']).toBe(78);
+    });
+  });
+
+  describe('given hwinfo disconnected', () => {
+    it('should not include hwinfo metrics', () => {
+      const snapshot = makeSnapshot();
+      const hwinfo = { connected: false, sensor_count: 0, values: [] };
+      const metrics = sensorSnapshotToMetrics(snapshot, hwinfo);
+      expect(metrics['hwinfo.cpu.core_0_temp']).toBeUndefined();
+    });
+  });
 });

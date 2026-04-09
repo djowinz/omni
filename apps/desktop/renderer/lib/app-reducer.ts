@@ -119,6 +119,14 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         updateReleaseDate: action.payload.releaseDate,
       };
 
+    case 'SET_HWINFO_SENSORS':
+      return {
+        ...state,
+        hwinfoConnected: action.payload.connected,
+        hwinfoSensors: action.payload.sensors,
+        hwinfoSensorCount: action.payload.sensors.length,
+      };
+
     default:
       return state;
   }

@@ -1,9 +1,18 @@
 import type { SensorSnapshot } from '@/generated/SensorSnapshot';
 import type { MetricValues } from '@/types/omni';
 
+export interface HwInfoData {
+  connected: boolean;
+  sensor_count: number;
+  values: Array<{ path: string; value: number }>;
+}
+
 /** Map a SensorSnapshot (ts-rs generated from Rust) to the frontend MetricValues type. */
-export function sensorSnapshotToMetrics(snapshot: SensorSnapshot): Partial<MetricValues> {
-  return {
+export function sensorSnapshotToMetrics(
+  snapshot: SensorSnapshot,
+  hwinfo?: HwInfoData,
+): Partial<MetricValues> {
+  const metrics: Partial<MetricValues> = {
     fps: snapshot.frame.fps,
     'frame-time': snapshot.frame.frame_time_ms,
     'frame-time.avg': snapshot.frame.frame_time_avg_ms,
@@ -23,4 +32,12 @@ export function sensorSnapshotToMetrics(snapshot: SensorSnapshot): Partial<Metri
     'ram.used': Number(snapshot.ram.used_mb),
     'ram.total': Number(snapshot.ram.total_mb),
   };
+
+  if (hwinfo?.connected && hwinfo.values) {
+    for (const { path, value } of hwinfo.values) {
+      (metrics as Record<string, number>)[path] = value;
+    }
+  }
+
+  return metrics;
 }
