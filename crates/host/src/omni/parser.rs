@@ -797,16 +797,92 @@ fn desugar_chart_bar(
 }
 
 fn desugar_chart_pie(
-    _attrs: &HashMap<String, String>,
+    attrs: &HashMap<String, String>,
     source: &str,
     pos: usize,
 ) -> Result<HtmlNode, ParseError> {
-    // Implemented in Task 15
-    Err(make_error(
-        source,
-        pos,
-        "pie chart desugaring not yet implemented".to_string(),
-    ))
+    let value = attrs.get("value").ok_or_else(|| {
+        make_error(
+            source,
+            pos,
+            "pie chart requires 'value' attribute".to_string(),
+        )
+    })?;
+    let total = attrs.get("total").ok_or_else(|| {
+        make_error(
+            source,
+            pos,
+            "pie chart requires 'total' attribute".to_string(),
+        )
+    })?;
+    let radius = attrs.get("radius").map(String::as_str).unwrap_or("40");
+    let stroke_width = attrs
+        .get("stroke-width")
+        .map(String::as_str)
+        .unwrap_or("10");
+    let stroke = attrs
+        .get("stroke")
+        .map(String::as_str)
+        .unwrap_or("currentColor");
+    let extra_class = attrs.get("class").map(String::as_str).unwrap_or("");
+
+    let mut svg_classes = vec!["omni-chart".to_string(), "omni-chart-pie".to_string()];
+    for c in extra_class.split_whitespace() {
+        svg_classes.push(c.to_string());
+    }
+
+    let track = HtmlNode::Element {
+        tag: "circle".to_string(),
+        id: None,
+        classes: vec!["omni-chart-pie-track".to_string()],
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("cx".to_string(), "50".to_string()),
+            ("cy".to_string(), "50".to_string()),
+            ("r".to_string(), radius.to_string()),
+            ("fill".to_string(), "none".to_string()),
+            ("stroke".to_string(), "rgba(255,255,255,0.1)".to_string()),
+            ("stroke-width".to_string(), stroke_width.to_string()),
+        ],
+        children: vec![],
+    };
+
+    let fill = HtmlNode::Element {
+        tag: "circle".to_string(),
+        id: None,
+        classes: vec!["omni-chart-pie-fill".to_string()],
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("cx".to_string(), "50".to_string()),
+            ("cy".to_string(), "50".to_string()),
+            ("r".to_string(), radius.to_string()),
+            ("fill".to_string(), "none".to_string()),
+            ("stroke".to_string(), stroke.to_string()),
+            ("stroke-width".to_string(), stroke_width.to_string()),
+            (
+                "stroke-dasharray".to_string(),
+                format!("{{circumference({})}}", radius),
+            ),
+            (
+                "stroke-dashoffset".to_string(),
+                format!("{{ratio_dashoffset({}, {}, {})}}", value, total, radius),
+            ),
+            ("transform".to_string(), "rotate(-90 50 50)".to_string()),
+        ],
+        children: vec![],
+    };
+
+    Ok(HtmlNode::Element {
+        tag: "svg".to_string(),
+        id: None,
+        classes: svg_classes,
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![("viewBox".to_string(), "0 0 100 100".to_string())],
+        children: vec![track, fill],
+    })
 }
 
 #[cfg(test)]
@@ -1143,6 +1219,69 @@ mod tests {
                 }
             }
             _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parse_chart_pie_desugars_to_svg_circles() {
+        let source = r#"<widget id="mem" name="Memory">
+<template>
+  <chart type="pie" value="ram.used" total="ram.total"/>
+</template>
+<style></style>
+</widget>"#;
+        let (file, _diag) = parse_omni_with_diagnostics_hwinfo(source, false);
+        let file = file.expect("parse succeeded");
+        let widget = &file.widgets[0];
+        // Adapt template navigation based on how your parser roots the template.
+        // The svg element may be &widget.template directly (single-child case)
+        // or children[0] of a wrapping div (multi-child case).
+        let svg = match &widget.template {
+            crate::omni::types::HtmlNode::Element { tag, children, .. } if tag == "svg" => {
+                &widget.template
+            }
+            crate::omni::types::HtmlNode::Element { children, .. } => children
+                .iter()
+                .find(|c| matches!(c, crate::omni::types::HtmlNode::Element { tag, .. } if tag == "svg"))
+                .expect("template should contain an svg element"),
+            _ => panic!(),
+        };
+        match svg {
+            crate::omni::types::HtmlNode::Element {
+                tag,
+                classes,
+                children,
+                ..
+            } => {
+                assert_eq!(tag, "svg");
+                assert!(
+                    classes.iter().any(|c| c == "omni-chart-pie"),
+                    "svg should have omni-chart-pie class, got {:?}",
+                    classes
+                );
+                assert_eq!(children.len(), 2, "pie should have track + fill circles");
+                let fill_circle = &children[1];
+                match fill_circle {
+                    crate::omni::types::HtmlNode::Element {
+                        tag, attributes, ..
+                    } => {
+                        assert_eq!(tag, "circle");
+                        let dashoffset = attributes
+                            .iter()
+                            .find(|(k, _)| k == "stroke-dashoffset")
+                            .expect("fill circle should have stroke-dashoffset");
+                        assert!(
+                            dashoffset.1.contains("ratio_dashoffset"),
+                            "stroke-dashoffset should use ratio_dashoffset: {}",
+                            dashoffset.1
+                        );
+                        assert!(dashoffset.1.contains("ram.used"));
+                        assert!(dashoffset.1.contains("ram.total"));
+                    }
+                    _ => panic!("fill child should be Element"),
+                }
+            }
+            _ => panic!("expected svg element"),
         }
     }
 }
