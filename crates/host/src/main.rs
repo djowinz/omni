@@ -420,6 +420,7 @@ fn run_host() {
     // Load initial HTML into Ultralight (styles + body + omniUpdate JS function)
     {
         let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
+        let history = crate::omni::history::SensorHistory::new();
         let initial = html_builder::build_initial_html(
             &host.omni_file,
             &latest_snapshot,
@@ -429,6 +430,7 @@ fn run_host() {
             &host.current_overlay,
             &hwinfo_values,
             &hwinfo_units,
+            &history,
         );
         ul.load_html(&initial.full_document);
         store_and_broadcast_preview(&ws_state, &initial);
@@ -646,6 +648,7 @@ fn run_host() {
                 .lock()
                 .map(|s| (s.values.clone(), s.units.clone()))
                 .unwrap_or_default();
+            let history = crate::omni::history::SensorHistory::new();
             let initial = html_builder::build_initial_html(
                 &host.omni_file,
                 &latest_snapshot,
@@ -655,6 +658,7 @@ fn run_host() {
                 &host.current_overlay,
                 &hwinfo_values,
                 &hwinfo_units,
+                &history,
             );
             ul.load_html(&initial.full_document);
             store_and_broadcast_preview(&ws_state, &initial);
@@ -671,8 +675,9 @@ fn run_host() {
         // Each cycle we call omniUpdate({...}) to update classes and text nodes.
         // The DOM persists so CSS transitions animate naturally.
         let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
+        let history = crate::omni::history::SensorHistory::new();
         if let Some(diff) = html_builder::compute_update_diff(
-            &host.omni_file, &latest_snapshot, &hwinfo_values, &hwinfo_units,
+            &host.omni_file, &latest_snapshot, &hwinfo_values, &hwinfo_units, &history,
         ) {
             let js = html_builder::format_as_js(&diff);
             ul.evaluate_script(&js);

@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::expression;
-use super::sensor_map;
+use super::history::SensorHistory;
+use super::interpolation::{interpolate, EvalCtx};
 use super::types::{HtmlNode, OmniFile};
 use omni_shared::SensorSnapshot;
 
@@ -44,6 +45,7 @@ pub fn build_initial_html(
     overlay_name: &str,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
+    history: &SensorHistory,
 ) -> InitialHtml {
     let mut widget_css = String::new();
     let mut widget_html = String::new();
@@ -69,6 +71,7 @@ pub fn build_initial_html(
             &mut counter,
             hwinfo_values,
             hwinfo_units,
+            history,
         );
         widget_html.push_str(&html);
         widget_html.push('\n');
@@ -143,11 +146,13 @@ fn render_initial_node(
     counter: &mut u32,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
+    history: &SensorHistory,
 ) -> String {
     match node {
         HtmlNode::Text { content } => {
             if content.contains('{') {
-                interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units)
+                let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
+                interpolate(content, &ctx)
             } else {
                 content.clone()
             }
@@ -185,7 +190,7 @@ fn render_initial_node(
 
             let children_html: String = children
                 .iter()
-                .map(|c| render_initial_node(c, snapshot, counter, hwinfo_values, hwinfo_units))
+                .map(|c| render_initial_node(c, snapshot, counter, hwinfo_values, hwinfo_units, history))
                 .collect();
 
             if matches!(tag.as_str(), "br" | "hr" | "img" | "input") {
@@ -222,6 +227,7 @@ pub fn compute_update_diff(
     snapshot: &SensorSnapshot,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
+    history: &SensorHistory,
 ) -> Option<UpdateDiff> {
     let mut diff = UpdateDiff::new();
     let mut counter: u32 = 0;
@@ -230,7 +236,7 @@ pub fn compute_update_diff(
         if !widget.enabled {
             continue;
         }
-        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units);
+        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units, history);
     }
 
     if diff.is_empty() {
@@ -300,6 +306,7 @@ fn collect_diff_entries(
     diff: &mut UpdateDiff,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
+    history: &SensorHistory,
 ) {
     match node {
         HtmlNode::Text { .. } => {
@@ -334,7 +341,8 @@ fn collect_diff_entries(
             for child in children {
                 if let HtmlNode::Text { content } = child {
                     if content.contains('{') {
-                        let interpolated = interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units);
+                        let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
+                        let interpolated = interpolate(content, &ctx);
                         update_t = Some(interpolated);
                         break; // Only first text child
                     }
@@ -347,7 +355,7 @@ fn collect_diff_entries(
 
             // Recurse into children
             for child in children {
-                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units);
+                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units, history);
             }
         }
     }
@@ -356,63 +364,6 @@ fn collect_diff_entries(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Replace all `{sensor.path}` expressions using hwinfo-aware lookup.
-fn interpolate_with_hwinfo(
-    input: &str,
-    snapshot: &SensorSnapshot,
-    hwinfo_values: &HashMap<String, f64>,
-    hwinfo_units: &HashMap<String, String>,
-) -> String {
-    let mut result = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '{' {
-            let mut path = String::new();
-            let mut found_close = false;
-            for inner in chars.by_ref() {
-                if inner == '}' {
-                    found_close = true;
-                    break;
-                }
-                path.push(inner);
-            }
-
-            if found_close && !path.is_empty() {
-                let (sensor_path, precision) = parse_precision(path.trim());
-                let value = sensor_map::get_sensor_value_with_hwinfo(
-                    sensor_path,
-                    snapshot,
-                    hwinfo_values,
-                    hwinfo_units,
-                    precision,
-                );
-                result.push_str(&value);
-            } else {
-                result.push('{');
-                result.push_str(&path);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
-
-/// Parse precision suffix from a sensor path: `gpu.temp(2)` → `("gpu.temp", Some(2))`
-fn parse_precision(input: &str) -> (&str, Option<usize>) {
-    if let Some(paren_start) = input.rfind('(') {
-        if input.ends_with(')') {
-            let path = &input[..paren_start];
-            if let Ok(n) = input[paren_start + 1..input.len() - 1].parse::<usize>() {
-                return (path, Some(n));
-            }
-        }
-    }
-    (input, None)
-}
 
 fn load_theme_css(data_dir: &Path, overlay_name: &str, theme_src: &str) -> String {
     use crate::workspace::structure::resolve_theme_path;
