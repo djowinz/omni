@@ -168,14 +168,112 @@ pub fn evaluate(expr: &Expression, ctx: &EvalCtx) -> String {
     }
 }
 
-/// Dispatch to helper function implementations. Returns None for unknown
-/// functions. Populated in later tasks.
-#[allow(unused_variables, clippy::match_single_binding)]
+/// Dispatch to helper function implementations. Returns None for unknown functions.
 fn evaluate_function(name: &str, args: &[Argument], ctx: &EvalCtx) -> Option<String> {
-    // Stub — real implementations arrive in Tasks 9 and 10.
     match name {
+        "format_value" => eval_format_value(args, ctx),
+        "buffer_min" => eval_buffer_stat(args, ctx, BufferStat::Min),
+        "buffer_max" => eval_buffer_stat(args, ctx, BufferStat::Max),
+        "buffer_avg" => eval_buffer_stat(args, ctx, BufferStat::Avg),
+        "nice_min" => eval_nice_bound(args, ctx, NiceBound::Min),
+        "nice_max" => eval_nice_bound(args, ctx, NiceBound::Max),
+        "nice_tick" => eval_nice_tick(args, ctx),
         _ => None,
     }
+}
+
+#[derive(Clone, Copy)]
+enum BufferStat {
+    Min,
+    Max,
+    Avg,
+}
+
+#[derive(Clone, Copy)]
+enum NiceBound {
+    Min,
+    Max,
+}
+
+fn arg_sensor_path<'a>(args: &'a [Argument], idx: usize) -> Option<&'a str> {
+    match args.get(idx)? {
+        Argument::SensorPath(s) | Argument::Identifier(s) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+fn arg_unit(args: &[Argument], idx: usize) -> Option<Unit> {
+    match args.get(idx)? {
+        Argument::Unit(u) => Some(*u),
+        _ => None,
+    }
+}
+
+fn arg_number(args: &[Argument], idx: usize) -> Option<f64> {
+    match args.get(idx)? {
+        Argument::Number(n) => Some(*n),
+        _ => None,
+    }
+}
+
+/// `format_value(sensor, unit)` or `format_value(number, unit)`
+fn eval_format_value(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let unit = arg_unit(args, 1)?;
+    let value = match args.first()? {
+        Argument::SensorPath(s) | Argument::Identifier(s) => {
+            sensor_map::get_sensor_value_f64(s, ctx.snapshot, ctx.hwinfo_values)?
+        }
+        Argument::Number(n) => *n,
+        _ => return None,
+    };
+    Some(unit.format(value))
+}
+
+/// `buffer_min|max|avg(sensor, unit)`
+fn eval_buffer_stat(args: &[Argument], ctx: &EvalCtx, stat: BufferStat) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let unit = arg_unit(args, 1)?;
+    let value = match stat {
+        BufferStat::Min => ctx.history.min(sensor),
+        BufferStat::Max => ctx.history.max(sensor),
+        BufferStat::Avg => ctx.history.avg(sensor),
+    }
+    .unwrap_or(0.0);
+    Some(unit.format(value))
+}
+
+/// `nice_min(sensor)` / `nice_max(sensor)` — returns raw number as string
+fn eval_nice_bound(args: &[Argument], ctx: &EvalCtx, bound: NiceBound) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let min_raw = ctx.history.min(sensor).unwrap_or(0.0);
+    let max_raw = ctx.history.max(sensor).unwrap_or(0.0);
+    if min_raw == 0.0 && max_raw == 0.0 {
+        return Some("0".to_string());
+    }
+    let (nmin, nmax) = Unit::None.nice_bounds(min_raw, max_raw);
+    Some(match bound {
+        NiceBound::Min => format!("{}", nmin),
+        NiceBound::Max => format!("{}", nmax),
+    })
+}
+
+/// `nice_tick(sensor, unit, index, count)` — formatted label for nth tick
+fn eval_nice_tick(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let unit = arg_unit(args, 1)?;
+    let index = arg_number(args, 2)? as usize;
+    let count = arg_number(args, 3)? as usize;
+    let min = ctx.history.min(sensor).unwrap_or(0.0);
+    let max = ctx.history.max(sensor).unwrap_or(0.0);
+    if count == 0 {
+        return Some(unit.format(min));
+    }
+    let ticks = unit.nice_ticks(min, max, count);
+    if ticks.is_empty() {
+        return Some(unit.format(0.0));
+    }
+    let clamped = index.min(ticks.len() - 1);
+    Some(unit.format(ticks[clamped]))
 }
 
 /// Scan `input` for `{...}` expressions and replace each with its
@@ -332,5 +430,116 @@ mod tests {
             }
             other => panic!("Expected SensorPath, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn eval_format_value_sensor_and_unit() {
+        let mut snapshot = SensorSnapshot::default();
+        snapshot.cpu.total_usage_percent = 85.0;
+        let history = SensorHistory::new();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{format_value(cpu.usage, %)}", &ctx);
+        assert_eq!(result, "85 %");
+    }
+
+    #[test]
+    fn eval_format_value_bytes() {
+        let snapshot = SensorSnapshot::default();
+        let history = SensorHistory::new();
+        let mut hv = HashMap::new();
+        hv.insert("network.bytes_per_sec".to_string(), 1_500_000.0);
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{format_value(network.bytes_per_sec, bytes/s)}", &ctx);
+        assert_eq!(result, "1.4 MB/s");
+    }
+
+    #[test]
+    fn eval_buffer_max_with_unit() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        history.push_sample("cpu.usage", 10.0);
+        history.push_sample("cpu.usage", 80.0);
+        history.push_sample("cpu.usage", 40.0);
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{buffer_max(cpu.usage, %)}", &ctx);
+        assert_eq!(result, "80 %");
+    }
+
+    #[test]
+    fn eval_buffer_min_and_avg() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        for v in [10.0, 20.0, 30.0, 40.0] {
+            history.push_sample("cpu.usage", v);
+        }
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let min_result = interpolate("{buffer_min(cpu.usage, %)}", &ctx);
+        assert_eq!(min_result, "10 %");
+        let avg_result = interpolate("{buffer_avg(cpu.usage, %)}", &ctx);
+        assert_eq!(avg_result, "25 %");
+    }
+
+    #[test]
+    fn eval_nice_min_max_returns_raw_numbers() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        for v in [15.0, 85.0, 50.0] {
+            history.push_sample("cpu.usage", v);
+        }
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let max_result = interpolate("{nice_max(cpu.usage)}", &ctx);
+        assert!(
+            max_result.parse::<f64>().is_ok(),
+            "nice_max should return a raw number, got {}",
+            max_result
+        );
+        let min_result = interpolate("{nice_min(cpu.usage)}", &ctx);
+        assert!(
+            min_result.parse::<f64>().is_ok(),
+            "nice_min should return a raw number, got {}",
+            min_result
+        );
+    }
+
+    #[test]
+    fn eval_nice_tick_returns_formatted_label() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        history.push_sample("cpu.usage", 0.0);
+        history.push_sample("cpu.usage", 100.0);
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{nice_tick(cpu.usage, %, 2, 4)}", &ctx);
+        assert!(
+            result.contains('%'),
+            "nice_tick should format with unit, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn eval_empty_buffer_returns_zero_fallback() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{buffer_max(cpu.usage, %)}", &ctx);
+        assert_eq!(result, "0 %");
     }
 }
