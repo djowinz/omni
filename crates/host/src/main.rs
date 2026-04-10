@@ -7,6 +7,24 @@ use tracing_subscriber::EnvFilter;
 use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 
 use omni::html_builder;
+use serde_json::json;
+
+/// Store initial HTML for new preview subscribers and broadcast to existing ones.
+fn store_and_broadcast_preview(
+    ws_state: &ws_server::WsSharedState,
+    initial: &html_builder::InitialHtml,
+) {
+    {
+        let mut latest = ws_state.latest_initial_html.lock().unwrap();
+        *latest = Some((initial.html.clone(), initial.css.clone()));
+    }
+    let msg = json!({
+        "type": "preview.html",
+        "html": &initial.html,
+        "css": &initial.css,
+    });
+    ws_server::broadcast_preview(ws_state, &msg.to_string());
+}
 
 struct HostState {
     omni_file: omni::OmniFile,
@@ -401,12 +419,8 @@ fn run_host() {
 
     // Load initial HTML into Ultralight (styles + body + omniUpdate JS function)
     {
-        let (hwinfo_values, hwinfo_units) = ws_state
-            .hwinfo_state
-            .lock()
-            .map(|s| (s.values.clone(), s.units.clone()))
-            .unwrap_or_default();
-        let html = html_builder::build_initial_html(
+        let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
+        let initial = html_builder::build_initial_html(
             &host.omni_file,
             &latest_snapshot,
             1920,
@@ -416,7 +430,8 @@ fn run_host() {
             &hwinfo_values,
             &hwinfo_units,
         );
-        ul.load_html(&html);
+        ul.load_html(&initial.full_document);
+        store_and_broadcast_preview(&ws_state, &initial);
         // Pump Ultralight for a few frames to let it initialize
         for _ in 0..10 {
             ul.update_and_render();
@@ -631,7 +646,7 @@ fn run_host() {
                 .lock()
                 .map(|s| (s.values.clone(), s.units.clone()))
                 .unwrap_or_default();
-            let html = html_builder::build_initial_html(
+            let initial = html_builder::build_initial_html(
                 &host.omni_file,
                 &latest_snapshot,
                 vw,
@@ -641,7 +656,8 @@ fn run_host() {
                 &hwinfo_values,
                 &hwinfo_units,
             );
-            ul.load_html(&html);
+            ul.load_html(&initial.full_document);
+            store_and_broadcast_preview(&ws_state, &initial);
             for _ in 0..10 {
                 ul.update_and_render();
                 std::thread::sleep(Duration::from_millis(16));
@@ -654,18 +670,23 @@ fn run_host() {
         // The HTML is loaded once (with styles in <head> and omniUpdate function).
         // Each cycle we call omniUpdate({...}) to update classes and text nodes.
         // The DOM persists so CSS transitions animate naturally.
-        let (hwinfo_values, hwinfo_units) = ws_state
-            .hwinfo_state
-            .lock()
-            .map(|s| (s.values.clone(), s.units.clone()))
-            .unwrap_or_default();
-        if let Some(js) = html_builder::build_update_js(
-            &host.omni_file,
-            &latest_snapshot,
-            &hwinfo_values,
-            &hwinfo_units,
+        let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
+        if let Some(diff) = html_builder::compute_update_diff(
+            &host.omni_file, &latest_snapshot, &hwinfo_values, &hwinfo_units,
         ) {
+            let js = html_builder::format_as_js(&diff);
             ul.evaluate_script(&js);
+
+            // Send JSON to preview subscribers
+            let subs = ws_state.preview_subscribers.lock().unwrap();
+            if !subs.is_empty() {
+                drop(subs);
+                let preview_msg = json!({
+                    "type": "preview.update",
+                    "diff": diff,
+                });
+                ws_server::broadcast_preview(&ws_state, &preview_msg.to_string());
+            }
         }
         ul.update_and_render();
         ul.with_pixels(|w, h, rb, pixels, dirty| {

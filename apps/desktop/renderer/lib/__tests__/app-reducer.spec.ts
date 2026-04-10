@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { appReducer } from '../app-reducer';
-import { DEFAULT_METRICS } from '@/types/omni';
 import type { AppState, EditorTab } from '@/types/omni';
 
 function makeState(overrides?: Partial<AppState>): AppState {
@@ -15,7 +14,6 @@ function makeState(overrides?: Partial<AppState>): AppState {
     activeTabId: null,
     editorViewStates: {},
     themeFiles: {},
-    previewMetrics: DEFAULT_METRICS,
     isDirty: false,
     activePanel: 'components',
     updateReady: false,
@@ -239,33 +237,6 @@ describe('appReducer', () => {
         expect(next.updateReady).toBe(true);
         expect(next.updateVersion).toBe('1.2.0');
         expect(next.updateReleaseDate).toBe('2026-04-08T05:00:00Z');
-      });
-    });
-  });
-
-  describe('preview metrics', () => {
-    describe('given UPDATE_PREVIEW_METRIC', () => {
-      it('should update the specific metric key', () => {
-        const state = makeState();
-
-        const next = appReducer(state, {
-          type: 'UPDATE_PREVIEW_METRIC',
-          payload: { key: 'fps', value: 60 },
-        });
-
-        expect(next.previewMetrics.fps).toBe(60);
-      });
-
-      it('should not affect other metrics', () => {
-        const state = makeState();
-        const originalCpuUsage = state.previewMetrics['cpu.usage'];
-
-        const next = appReducer(state, {
-          type: 'UPDATE_PREVIEW_METRIC',
-          payload: { key: 'fps', value: 60 },
-        });
-
-        expect(next.previewMetrics['cpu.usage']).toBe(originalCpuUsage);
       });
     });
   });

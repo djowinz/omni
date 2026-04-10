@@ -136,14 +136,14 @@ export function EditorPanel() {
 
   const backend = useBackend();
 
-  // Debounced parse: send content to backend every 400ms and set Monaco markers
+  // Debounced apply: send content to backend every 400ms for live preview + markers
   useEffect(() => {
     const content = displayContent ?? '';
     if (!content || !editorRef.current || !monacoRef.current) return;
 
     const timer = setTimeout(async () => {
       try {
-        const { diagnostics } = await backend.parseOverlay(content);
+        const { diagnostics } = await backend.applyOverlay(content);
         const model = editorRef.current?.getModel();
         if (model && monacoRef.current) {
           const markers = diagnostics.map((d: ParseError) => ({

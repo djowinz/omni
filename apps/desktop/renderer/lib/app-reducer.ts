@@ -44,15 +44,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_CONNECTED':
       return { ...state, connected: action.payload };
 
-    case 'UPDATE_PREVIEW_METRIC':
-      return {
-        ...state,
-        previewMetrics: {
-          ...state.previewMetrics,
-          [action.payload.key]: action.payload.value,
-        },
-      };
-
     case 'SET_DIRTY':
       return { ...state, isDirty: action.payload };
 

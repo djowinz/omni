@@ -1,86 +1,69 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
-import { buildPreviewStructure, updatePreviewDOM, parseThemeImports } from '@/lib/omni-parser';
 import { useBackend } from '@/hooks/use-backend';
-import { MetricSimulator } from './metric-simulator';
-import { SensorReadout } from './sensor-readout';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Monitor } from 'lucide-react';
+import { applyPreviewDiff, type PreviewDiff } from '@/lib/preview-updater';
 import { useSensorData } from '@/hooks/use-sensor-data';
-import { sensorSnapshotToMetrics } from '@/lib/sensor-mapping';
-import { DEFAULT_METRICS } from '@/types/omni';
-import type { MetricValues } from '@/types/omni';
-import { cn } from '@/lib/utils';
+import { SensorReadout } from './sensor-readout';
+import { Monitor } from 'lucide-react';
 
 export function PreviewPanel() {
-  const { state, getCurrentOverlay } = useOmniState();
-  const currentOverlay = getCurrentOverlay();
-
-  const [mode, setMode] = useState<'live' | 'simulate'>('live');
-  const sensorData = useSensorData();
-  const isConnected = sensorData !== null;
-
-  // Force simulate when disconnected
-  const effectiveMode = isConnected ? mode : 'simulate';
-
-  // Determine which metrics to use for preview
-  const activeMetrics: MetricValues = useMemo(() => {
-    if (effectiveMode === 'live' && sensorData) {
-      return {
-        ...DEFAULT_METRICS,
-        ...sensorSnapshotToMetrics(sensorData.snapshot, sensorData.hwinfo),
-      };
-    }
-    return state.previewMetrics;
-  }, [effectiveMode, sensorData, state.previewMetrics]);
-
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const { state } = useOmniState();
   const backend = useBackend();
-  const [themeCss, setThemeCss] = useState('');
+  const sensorData = useSensorData();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Load theme CSS when overlay content changes
+  // Subscribe to preview when connected
   useEffect(() => {
-    if (!currentOverlay?.content) {
-      setThemeCss('');
-      return;
+    if (!state.connected) return;
+    backend.subscribePreview();
+  }, [state.connected, backend]);
+
+  // Handle preview.html — write full document into iframe
+  const handlePreviewHtml = useCallback((data: { html: string; css: string }) => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+
+    // Write a complete HTML document. position:fixed inside the iframe
+    // resolves relative to the iframe's viewport, not the outer window.
+    doc.open();
+    doc.write(`<!DOCTYPE html>
+<html><head><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:transparent;overflow:hidden}
+${data.css}
+</style></head><body>${data.html}</body></html>`);
+    doc.close();
+  }, []);
+
+  // Handle preview.update — incremental diff applied to iframe document
+  const handlePreviewUpdate = useCallback((data: { diff: PreviewDiff }) => {
+    const body = iframeRef.current?.contentDocument?.body;
+    if (!body) return;
+    applyPreviewDiff(body, data.diff);
+  }, []);
+
+  // Register IPC listeners
+  useEffect(() => {
+    const cleanupHtml = window.omni?.onPreviewHtml?.(handlePreviewHtml);
+    const cleanupUpdate = window.omni?.onPreviewUpdate?.(handlePreviewUpdate);
+
+    return () => {
+      cleanupHtml?.();
+      cleanupUpdate?.();
+    };
+  }, [handlePreviewHtml, handlePreviewUpdate]);
+
+  // Blank on disconnect
+  useEffect(() => {
+    if (!state.connected) {
+      const doc = iframeRef.current?.contentDocument;
+      if (doc) {
+        doc.open();
+        doc.write('<!DOCTYPE html><html><head></head><body></body></html>');
+        doc.close();
+      }
     }
-    const themes = parseThemeImports(currentOverlay.content);
-    if (themes.length === 0) {
-      setThemeCss('');
-      return;
-    }
-    // Load all theme files and concatenate their CSS
-    Promise.all(
-      themes.map(async (t) => {
-        const path = t.src.startsWith('themes/') ? t.src : `themes/${t.src}`;
-        try {
-          return await backend.readFile(path);
-        } catch {
-          return '';
-        }
-      }),
-    ).then((results) => setThemeCss(results.join('\n')));
-  }, [currentOverlay?.content, backend]);
-
-  // Build the overlay structure once when content changes (preserves DOM for transitions)
-  const structure = useMemo(
-    () => (currentOverlay?.content ? buildPreviewStructure(currentOverlay.content) : null),
-    [currentOverlay?.content],
-  );
-
-  // Set the static HTML structure when it changes
-  useEffect(() => {
-    if (!overlayRef.current || !structure) return;
-    const scopedCss = structure.css.replace(/position:\s*fixed/gi, 'position: absolute');
-    const scopedHtml = structure.html.replace(/position:\s*fixed/gi, 'position: absolute');
-    overlayRef.current.innerHTML = `<style>${themeCss}\n${scopedCss}</style>${scopedHtml}`;
-  }, [structure, themeCss]);
-
-  // Update metrics in place (class toggling + text replacement) — no DOM recreation
-  useEffect(() => {
-    if (!overlayRef.current || !structure) return;
-    updatePreviewDOM(overlayRef.current, activeMetrics);
-  }, [activeMetrics, structure]);
+  }, [state.connected]);
 
   return (
     <div className="flex h-full flex-col bg-[#0D0D0F]">
@@ -90,32 +73,15 @@ export function PreviewPanel() {
           <Monitor className="h-4 w-4 text-[#00D9FF]" />
           <h2 className="text-sm font-medium text-[#FAFAFA]">Preview</h2>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[#52525B]">Click to toggle</span>
-          <button
-            onClick={() => setMode((m) => (m === 'live' ? 'simulate' : 'live'))}
-            disabled={!isConnected}
-            className={cn(
-              'text-xs px-2 py-0.5 rounded transition-colors',
-              effectiveMode === 'live'
-                ? 'bg-[#22C55E]/20 text-[#22C55E]'
-                : 'bg-[#A855F7]/20 text-[#A855F7]',
-              !isConnected && 'opacity-50 cursor-not-allowed',
-            )}
-          >
-            {effectiveMode === 'live' ? (
-              <>
-                <span className="animate-pulse">●</span> Live
-              </>
-            ) : (
-              '◆ Simulate'
-            )}
-          </button>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-[#71717A] uppercase tracking-wider">
+            {state.connected ? 'Host-driven' : 'Disconnected'}
+          </span>
         </div>
       </div>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Preview area - simulates in-game overlay */}
+        {/* Preview area */}
         <div className="relative flex-1 overflow-hidden m-2 rounded-lg border border-[#27272A]">
           {/* Game simulation background */}
           <div
@@ -164,24 +130,26 @@ export function PreviewPanel() {
             </div>
           </div>
 
-          {/* Rendered overlay — DOM is created once and updated in place for CSS transitions.
+          {/* Rendered overlay inside an iframe. The iframe creates its own viewport
+              so position:fixed resolves relative to the preview area, not the outer
+              window. CSS is fully isolated — no Tailwind bleed, no :root issues.
               SECURITY: innerHTML renders user-authored overlay templates.
               Safe in this context: contextIsolation is enabled, nodeIntegration is off,
               and content comes from the user's own files. Before supporting shared/imported
               overlays, add HTML sanitization to strip <script> and event handlers. */}
-          <div ref={overlayRef} className="absolute inset-0 pointer-events-none overflow-hidden" />
+          <iframe
+            ref={iframeRef}
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{ border: 'none', background: 'transparent' }}
+          />
         </div>
 
-        {/* Bottom panel: live sensor readout or metric simulator */}
-        <div className="border-t border-[#27272A] bg-[#18181B]">
-          {effectiveMode === 'live' && sensorData ? (
+        {/* Bottom panel: live sensor readout */}
+        {sensorData && (
+          <div className="border-t border-[#27272A] bg-[#18181B]">
             <SensorReadout snapshot={sensorData.snapshot} hwinfo={sensorData.hwinfo} />
-          ) : (
-            <ScrollArea className="h-[180px]">
-              <MetricSimulator />
-            </ScrollArea>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
