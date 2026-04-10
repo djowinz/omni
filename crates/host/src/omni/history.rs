@@ -25,6 +25,7 @@ impl SensorHistory {
         }
     }
 
+    #[allow(dead_code)] // Used by tests; public API for future non-default buffer sizes
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffers: HashMap::new(),
@@ -43,6 +44,7 @@ impl SensorHistory {
         }
     }
 
+    #[allow(dead_code)] // Used by tests; public API for future diagnostics
     pub fn is_registered(&self, sensor_path: &str) -> bool {
         self.registered.contains(sensor_path)
     }

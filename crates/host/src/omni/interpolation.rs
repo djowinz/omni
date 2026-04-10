@@ -201,7 +201,7 @@ enum NiceBound {
     Max,
 }
 
-fn arg_sensor_path<'a>(args: &'a [Argument], idx: usize) -> Option<&'a str> {
+fn arg_sensor_path(args: &[Argument], idx: usize) -> Option<&str> {
     match args.get(idx)? {
         Argument::SensorPath(s) | Argument::Identifier(s) => Some(s.as_str()),
         _ => None,
