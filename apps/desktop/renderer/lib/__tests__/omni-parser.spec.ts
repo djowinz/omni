@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  parseOmniContent,
-  toggleWidgetEnabled,
-  buildPreviewStructure,
-  parseThemeImports,
-} from '../omni-parser';
+import { parseOmniContent, toggleWidgetEnabled, parseThemeImports } from '../omni-parser';
 
 describe('parseOmniContent', () => {
   describe('given a file with a single widget', () => {
@@ -104,67 +99,6 @@ describe('toggleWidgetEnabled', () => {
     it('should leave the content unchanged', () => {
       const result = toggleWidgetEnabled(content, 'nonexistent', false);
       expect(result).toBe(content);
-    });
-  });
-});
-
-describe('buildPreviewStructure', () => {
-  describe('given a widget with template and style', () => {
-    const content = `<widget id="fps" name="FPS">
-  <template><div class="fps">{fps} FPS</div></template>
-  <style>.fps { color: cyan; }</style>
-</widget>`;
-
-    it('should extract html and css', () => {
-      const result = buildPreviewStructure(content);
-      expect(result.html).toContain('class="fps"');
-      expect(result.html).toContain('{fps} FPS');
-      expect(result.css).toContain('.fps { color: cyan; }');
-    });
-  });
-
-  describe('given a disabled widget', () => {
-    const content = `<widget id="fps" name="FPS" enabled="false">
-  <template><div>{fps}</div></template>
-  <style>.fps { color: cyan; }</style>
-</widget>`;
-
-    it('should exclude it from the output', () => {
-      const result = buildPreviewStructure(content);
-      expect(result.html).toBe('');
-      expect(result.css).toBe('');
-    });
-  });
-
-  describe('given a widget with class bindings', () => {
-    const content = `<widget id="fps" name="FPS">
-  <template><div class="panel" class:warning="{gpu.temp} > 80">{fps}</div></template>
-  <style>.panel { color: white; }</style>
-</widget>`;
-
-    it('should convert class bindings to data attributes', () => {
-      const result = buildPreviewStructure(content);
-      expect(result.html).toContain('data-omni-bindings=');
-      expect(result.html).not.toContain('class:warning');
-      expect(result.html).toContain('class="panel"');
-    });
-
-    it('should encode the binding condition', () => {
-      const result = buildPreviewStructure(content);
-      const encoded = encodeURIComponent('warning:{gpu.temp} > 80');
-      expect(result.html).toContain(encoded);
-    });
-  });
-
-  describe('given a widget with no template', () => {
-    const content = `<widget id="empty" name="Empty">
-  <style>.empty { color: red; }</style>
-</widget>`;
-
-    it('should skip the widget', () => {
-      const result = buildPreviewStructure(content);
-      expect(result.html).toBe('');
-      expect(result.css).toBe('');
     });
   });
 });

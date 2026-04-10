@@ -7,6 +7,10 @@ interface OmniIpcBridge {
   onHostStatus: (callback: (status: any) => void) => () => void;
   sendMessage: (msg: object) => Promise<any>;
   onSensorData: (callback: (snapshot: any) => void) => () => void;
+  onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => () => void;
+  onPreviewUpdate: (
+    callback: (data: { diff: Record<string, { c?: string; t?: string }> }) => void,
+  ) => () => void;
   onHwInfoSensors: (callback: (data: any) => void) => () => void;
   onUpdateReady: (callback: (version: string, releaseDate: string) => void) => () => void;
   installUpdate: () => void;

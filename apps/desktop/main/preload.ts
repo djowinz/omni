@@ -27,6 +27,26 @@ contextBridge.exposeInMainWorld('omni', {
     };
   },
 
+  // Preview HTML stream
+  onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-html', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-html', handler);
+    };
+  },
+
+  // Preview incremental updates
+  onPreviewUpdate: (
+    callback: (data: { diff: Record<string, { c?: string; t?: string }> }) => void,
+  ) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-update', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-update', handler);
+    };
+  },
+
   // HWiNFO sensor list updates
   onHwInfoSensors: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);

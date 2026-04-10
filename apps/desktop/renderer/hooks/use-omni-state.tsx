@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import type { AppState, AppAction, Overlay, EditorTab } from '@/types/omni';
-import { DEFAULT_METRICS } from '@/types/omni';
 import type { Config } from '@/generated/Config';
 import { BackendApi } from '@/lib/backend-api';
 import { appReducer } from '@/lib/app-reducer';
@@ -24,7 +23,6 @@ const initialState: AppState = {
   activeTabId: null,
   editorViewStates: {},
   themeFiles: {},
-  previewMetrics: DEFAULT_METRICS,
   isDirty: false,
   activePanel: 'components',
   updateReady: false,

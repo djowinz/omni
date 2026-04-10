@@ -1,11 +1,10 @@
 //! Converts a parsed OmniFile into HTML for Ultralight rendering.
 //!
-//! Two functions:
 //! - `build_initial_html` — builds the full HTML page (called once at startup
-//!   and on hot reload). Includes styles, the omniUpdate JS function, and the
-//!   initial body with data-omni-id attributes on every element.
-//! - `build_update_js` — walks the template tree with current sensor values
-//!   and builds a JSON payload for the omniUpdate function (called every cycle).
+//!   and on hot reload). Returns `InitialHtml` with separated html/css/full_document.
+//! - `compute_update_diff` — walks the template tree with current sensor values
+//!   and returns a structured `UpdateDiff` of element updates (called every cycle).
+//! - `format_as_js` — serializes an `UpdateDiff` into a JS call for Ultralight.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,6 +17,18 @@ use omni_shared::SensorSnapshot;
 // ---------------------------------------------------------------------------
 // Initial HTML (called once, or on hot reload)
 // ---------------------------------------------------------------------------
+
+/// Structured output from `build_initial_html`, giving callers access to the
+/// widget markup and CSS independently of the full Ultralight document.
+#[derive(Debug, Clone)]
+pub struct InitialHtml {
+    /// Widget markup with data-omni-id attributes, no wrapping html/body
+    pub html: String,
+    /// Combined widget styles + theme CSS
+    pub css: String,
+    /// Complete HTML document for Ultralight (html + css + omniUpdate JS)
+    pub full_document: String,
+}
 
 /// Build the complete HTML page. This is loaded into Ultralight once.
 /// The body contains all widget HTML with `data-omni-id` attributes for
@@ -33,7 +44,7 @@ pub fn build_initial_html(
     overlay_name: &str,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
-) -> String {
+) -> InitialHtml {
     let mut widget_css = String::new();
     let mut widget_html = String::new();
     let mut counter: u32 = 0;
@@ -63,7 +74,16 @@ pub fn build_initial_html(
         widget_html.push('\n');
     }
 
-    format!(
+    // Combine all CSS for the structured output.
+    // Include the same base reset as full_document so the preview renders identically.
+    let css = format!(
+        "*{{margin:0;padding:0;box-sizing:border-box}}\n{feather_css}\n{theme_css}\n{widget_css}",
+        feather_css = feather_css,
+        theme_css = theme_css,
+        widget_css = widget_css,
+    );
+
+    let full_document = format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
@@ -101,7 +121,13 @@ function omniUpdate(data) {{
 </html>"#,
         vw = viewport_width,
         vh = viewport_height,
-    )
+    );
+
+    InitialHtml {
+        html: widget_html,
+        css,
+        full_document,
+    }
 }
 
 /// Render a node for the initial HTML. Evaluates reactive classes and
@@ -167,43 +193,73 @@ fn render_initial_node(
 }
 
 // ---------------------------------------------------------------------------
-// Per-cycle JS update (called every loop iteration)
+// Per-cycle update types and functions
 // ---------------------------------------------------------------------------
 
-/// Build a JS call to `omniUpdate({...})` with current sensor values and
-/// reactive class states. Returns None if the omni file has no widgets.
-///
-/// The JSON payload contains entries for elements that have either reactive
-/// classes or sensor text:
-/// - `"c"` key: the full className string (all static + active conditional classes)
-/// - `"t"` key: the interpolated text content (for text node children with sensor placeholders)
-pub fn build_update_js(
+/// A single element's update: optional class list and/or text content.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ElementUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t: Option<String>,
+}
+
+/// A diff mapping omni-id → element update.
+pub type UpdateDiff = HashMap<String, ElementUpdate>;
+
+/// Compute the structured diff of element updates for the current sensor state.
+/// Returns None if no elements need updating.
+pub fn compute_update_diff(
     omni_file: &OmniFile,
     snapshot: &SensorSnapshot,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
-) -> Option<String> {
-    let mut entries = String::new();
+) -> Option<UpdateDiff> {
+    let mut diff = UpdateDiff::new();
     let mut counter: u32 = 0;
-    let mut has_entries = false;
 
     for widget in &omni_file.widgets {
         if !widget.enabled {
             continue;
         }
-        collect_update_entries(
-            &widget.template,
-            snapshot,
-            &mut counter,
-            &mut entries,
-            &mut has_entries,
-            hwinfo_values,
-            hwinfo_units,
-        );
+        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units);
     }
 
-    if !has_entries {
-        return None;
+    if diff.is_empty() {
+        None
+    } else {
+        Some(diff)
+    }
+}
+
+/// Convert an `UpdateDiff` into the JS string format consumed by Ultralight:
+/// `omniUpdate({"omni-0":{"c":"class1 class2","t":"72°C"},...})`
+pub fn format_as_js(diff: &UpdateDiff) -> String {
+    // Build entries in sorted order for deterministic output matching the
+    // sequential omni-id assignment (omni-0, omni-1, ...).
+    let mut ids: Vec<&String> = diff.keys().collect();
+    ids.sort_by_key(|id| {
+        id.strip_prefix("omni-")
+            .and_then(|n| n.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
+    });
+
+    let mut entries = String::new();
+    for id in &ids {
+        let update = &diff[*id];
+        let mut parts = Vec::new();
+        if let Some(ref c) = update.c {
+            let escaped = c.replace('\\', "\\\\").replace('"', "\\\"");
+            parts.push(format!(r#""c":"{}""#, escaped));
+        }
+        if let Some(ref t) = update.t {
+            let escaped = t.replace('\\', "\\\\").replace('"', "\\\"");
+            parts.push(format!(r#""t":"{}""#, escaped));
+        }
+        if !parts.is_empty() {
+            entries.push_str(&format!(r#""{}":{{{}}},"#, id, parts.join(",")));
+        }
     }
 
     // Remove trailing comma
@@ -211,16 +267,15 @@ pub fn build_update_js(
         entries.pop();
     }
 
-    Some(format!("omniUpdate({{{}}})", entries))
+    format!("omniUpdate({{{}}})", entries)
 }
 
-/// Walk the template tree and collect JSON entries for elements that need updating.
-fn collect_update_entries(
+/// Walk the template tree and collect diff entries for elements that need updating.
+fn collect_diff_entries(
     node: &HtmlNode,
     snapshot: &SensorSnapshot,
     counter: &mut u32,
-    entries: &mut String,
-    has_entries: &mut bool,
+    diff: &mut UpdateDiff,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
 ) {
@@ -237,9 +292,10 @@ fn collect_update_entries(
             let node_id = format!("omni-{}", *counter);
             *counter += 1;
 
-            let mut entry_parts = Vec::new();
+            let mut update_c: Option<String> = None;
+            let mut update_t: Option<String> = None;
 
-            // If this element has reactive classes, emit the full className
+            // If this element has reactive classes, compute the full className
             if !conditional_classes.is_empty() {
                 let mut active_classes = classes.clone();
                 for cc in conditional_classes {
@@ -249,39 +305,27 @@ fn collect_update_entries(
                         active_classes.push(cc.class_name.clone());
                     }
                 }
-                let class_str = active_classes.join(" ").replace('"', "\\\"");
-                entry_parts.push(format!(r#""c":"{}""#, class_str));
+                update_c = Some(active_classes.join(" "));
             }
 
-            // If this element has a text child with sensor placeholders, emit the text
+            // If this element has a text child with sensor placeholders, interpolate it
             for child in children {
                 if let HtmlNode::Text { content } = child {
                     if content.contains('{') {
-                        let interpolated =
-                            interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units);
-                        let escaped = interpolated.replace('\\', "\\\\").replace('"', "\\\"");
-                        entry_parts.push(format!(r#""t":"{}""#, escaped));
+                        let interpolated = interpolate_with_hwinfo(content, snapshot, hwinfo_values, hwinfo_units);
+                        update_t = Some(interpolated);
                         break; // Only first text child
                     }
                 }
             }
 
-            if !entry_parts.is_empty() {
-                entries.push_str(&format!(r#""{}":{{{}}},"#, node_id, entry_parts.join(",")));
-                *has_entries = true;
+            if update_c.is_some() || update_t.is_some() {
+                diff.insert(node_id, ElementUpdate { c: update_c, t: update_t });
             }
 
             // Recurse into children
             for child in children {
-                collect_update_entries(
-                    child,
-                    snapshot,
-                    counter,
-                    entries,
-                    has_entries,
-                    hwinfo_values,
-                    hwinfo_units,
-                );
+                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units);
             }
         }
     }

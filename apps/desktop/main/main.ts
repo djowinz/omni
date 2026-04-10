@@ -173,6 +173,7 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
     'config.get': 'config.data',
     'config.update': 'config.updated',
     'log.path': 'log.path',
+    'preview.subscribe': 'preview.subscribed',
   };
   const expectedType = responseTypes[msg.type];
   if (!expectedType) {
@@ -307,6 +308,12 @@ app.on('ready', async () => {
     }
     if (msg.type === 'hwinfo.sensors') {
       mainWindow?.webContents.send('hwinfo-sensors', msg);
+    }
+    if (msg.type === 'preview.html') {
+      mainWindow?.webContents.send('preview-html', { html: msg.html, css: msg.css });
+    }
+    if (msg.type === 'preview.update') {
+      mainWindow?.webContents.send('preview-update', { diff: msg.diff });
     }
   });
 

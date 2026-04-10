@@ -66,4 +66,9 @@ export class BackendApi {
   async subscribeSensors(): Promise<void> {
     await this.send({ type: 'sensors.subscribe' });
   }
+
+  async subscribePreview(): Promise<{ active: boolean }> {
+    const response = await this.send({ type: 'preview.subscribe' });
+    return { active: response.active };
+  }
 }

@@ -6,6 +6,7 @@
 
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -27,9 +28,18 @@ pub struct WsSharedState {
     pub running: AtomicBool,
     pub hwinfo_state: Mutex<crate::sensors::hwinfo::HwInfoState>,
     pub hwinfo_sensors_changed: Mutex<bool>,
+    pub preview_subscribers: Mutex<Vec<mpsc::Sender<String>>>,
+    pub latest_initial_html: Mutex<Option<(String, String)>>,  // (html, css)
 }
 
 impl WsSharedState {
+    /// Extract cloned HWiNFO values and units from the shared state.
+    pub fn hwinfo_values_and_units(&self) -> (std::collections::HashMap<String, f64>, std::collections::HashMap<String, String>) {
+        self.hwinfo_state.lock()
+            .map(|s| (s.values.clone(), s.units.clone()))
+            .unwrap_or_default()
+    }
+
     pub fn new(data_dir: std::path::PathBuf) -> Self {
         Self {
             latest_snapshot: Mutex::new(SensorSnapshot::default()),
@@ -40,6 +50,8 @@ impl WsSharedState {
             running: AtomicBool::new(true),
             hwinfo_state: Mutex::new(crate::sensors::hwinfo::HwInfoState::default()),
             hwinfo_sensors_changed: Mutex::new(false),
+            preview_subscribers: Mutex::new(Vec::new()),
+            latest_initial_html: Mutex::new(None),
         }
     }
 }
@@ -103,20 +115,50 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
     };
 
     let mut sensor_subscribed = false;
+    let mut preview_subscribed = false;
     let mut last_sensor_send = std::time::Instant::now();
+    let (preview_tx, preview_rx) = mpsc::channel::<String>();
 
-    while state.running.load(Ordering::Relaxed) {
+    'outer: while state.running.load(Ordering::Relaxed) {
         // Read incoming messages (non-blocking via read timeout)
         match ws.read() {
             Ok(msg) => {
                 match msg {
                     Message::Text(text) => {
                         let text_str: &str = &text;
+
+                        // Detect message type before handling
+                        let msg_type = serde_json::from_str::<Value>(text_str).ok()
+                            .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string()));
+
                         if let Some(response) =
                             handle_message(text_str, state, &mut sensor_subscribed)
                         {
                             if ws.send(Message::Text(response.into())).is_err() {
                                 break; // Client disconnected
+                            }
+                        }
+
+                        // Register as preview subscriber and send current HTML.
+                        // Always re-sends HTML — the Electron renderer may have been
+                        // destroyed and recreated while the WS connection stayed alive.
+                        if msg_type.as_deref() == Some("preview.subscribe") {
+                            if !preview_subscribed {
+                                preview_subscribed = true;
+                                state.preview_subscribers.lock().unwrap().push(preview_tx.clone());
+                                info!("Client subscribed to preview updates");
+                            }
+
+                            // Send current HTML if available
+                            if let Some((ref html, ref css)) = *state.latest_initial_html.lock().unwrap() {
+                                let msg = json!({
+                                    "type": "preview.html",
+                                    "html": html,
+                                    "css": css,
+                                }).to_string();
+                                if ws.send(Message::Text(msg.into())).is_err() {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -136,6 +178,13 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                 // Timeout — no message, continue
             }
             Err(_) => break, // Connection error
+        }
+
+        // Push preview updates to client
+        while let Ok(msg) = preview_rx.try_recv() {
+            if ws.send(Message::Text(msg.into())).is_err() {
+                break 'outer;
+            }
         }
 
         // Push sensor data if subscribed (every 1 second)
@@ -229,6 +278,10 @@ fn handle_message(
             *sensor_subscribed = true;
             info!("Client subscribed to sensor data");
             Some(json!({"type": "sensors.subscribed"}).to_string())
+        }
+        "preview.subscribe" => {
+            let active = state.latest_initial_html.lock().unwrap().is_some();
+            Some(json!({"type": "preview.subscribed", "active": active}).to_string())
         }
         "status" => {
             let active_overlay = state
@@ -410,6 +463,13 @@ fn handle_message(
             )
         }
     }
+}
+
+/// Broadcast a preview message to all active subscribers.
+/// Removes disconnected subscribers automatically.
+pub fn broadcast_preview(state: &WsSharedState, message: &str) {
+    let mut subs = state.preview_subscribers.lock().unwrap();
+    subs.retain(|tx| tx.send(message.to_string()).is_ok());
 }
 
 /// Format f32 for JSON — NaN becomes null.
