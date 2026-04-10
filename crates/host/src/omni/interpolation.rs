@@ -178,6 +178,12 @@ fn evaluate_function(name: &str, args: &[Argument], ctx: &EvalCtx) -> Option<Str
         "nice_min" => eval_nice_bound(args, ctx, NiceBound::Min),
         "nice_max" => eval_nice_bound(args, ctx, NiceBound::Max),
         "nice_tick" => eval_nice_tick(args, ctx),
+        "chart_polyline" => eval_chart_polyline(args, ctx),
+        "chart_path" => eval_chart_path(args, ctx),
+        "bar_height" => eval_bar_height(args, ctx),
+        "bar_y" => eval_bar_y(args, ctx),
+        "circumference" => eval_circumference(args),
+        "ratio_dashoffset" => eval_ratio_dashoffset(args, ctx),
         _ => None,
     }
 }
@@ -274,6 +280,145 @@ fn eval_nice_tick(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     }
     let clamped = index.min(ticks.len() - 1);
     Some(unit.format(ticks[clamped]))
+}
+
+/// Compute scale bounds for a chart: use explicit min/max if provided,
+/// otherwise derive from the buffer's min/max.
+fn chart_bounds(args: &[Argument], ctx: &EvalCtx, sensor: &str) -> Option<(f64, f64)> {
+    if args.len() >= 5 {
+        let min = arg_number(args, 3)?;
+        let max = arg_number(args, 4)?;
+        return Some((min, max));
+    }
+    let min = ctx.history.min(sensor).unwrap_or(0.0);
+    let max = ctx.history.max(sensor).unwrap_or(0.0);
+    if min == max {
+        // Flat line — give it a 10% pad
+        let pad = (min.abs() * 0.1).max(1.0);
+        Some((min - pad, max + pad))
+    } else {
+        Some((min, max))
+    }
+}
+
+/// `chart_polyline(sensor, width, height)` or `chart_polyline(sensor, w, h, min, max)`
+fn eval_chart_polyline(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let width = arg_number(args, 1)?;
+    let height = arg_number(args, 2)?;
+    let buffer = ctx.history.buffer(sensor)?;
+    if buffer.is_empty() {
+        return Some(String::new());
+    }
+    let (min, max) = chart_bounds(args, ctx, sensor)?;
+    let range = (max - min).abs();
+    if range == 0.0 {
+        return Some(String::new());
+    }
+    let n = buffer.len();
+    let step_x = if n > 1 { width / (n - 1) as f64 } else { 0.0 };
+    let mut parts = Vec::with_capacity(n);
+    for (i, v) in buffer.iter().enumerate() {
+        let x = i as f64 * step_x;
+        let y = height - ((v - min) / range) * height;
+        parts.push(format!("{:.1},{:.1}", x, y));
+    }
+    Some(parts.join(" "))
+}
+
+/// `chart_path(sensor, width, height)` — SVG path `d` string for `<path>`
+fn eval_chart_path(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let width = arg_number(args, 1)?;
+    let height = arg_number(args, 2)?;
+    let buffer = ctx.history.buffer(sensor)?;
+    if buffer.is_empty() {
+        return Some(String::new());
+    }
+    let (min, max) = chart_bounds(args, ctx, sensor)?;
+    let range = (max - min).abs();
+    if range == 0.0 {
+        return Some(String::new());
+    }
+    let n = buffer.len();
+    let step_x = if n > 1 { width / (n - 1) as f64 } else { 0.0 };
+    let points: Vec<(f64, f64)> = buffer
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let x = i as f64 * step_x;
+            let y = height - ((v - min) / range) * height;
+            (x, y)
+        })
+        .collect();
+    if points.is_empty() {
+        return Some(String::new());
+    }
+    let mut d = format!("M{:.1},{:.1}", points[0].0, points[0].1);
+    for pt in points.iter().skip(1) {
+        d.push_str(&format!(" L{:.1},{:.1}", pt.0, pt.1));
+    }
+    Some(d)
+}
+
+/// `bar_height(sensor, height, min, max)`
+fn eval_bar_height(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let h = arg_number(args, 1)?;
+    let min = arg_number(args, 2)?;
+    let max = arg_number(args, 3)?;
+    let value = sensor_map::get_sensor_value_f64(sensor, ctx.snapshot, ctx.hwinfo_values)
+        .unwrap_or(0.0);
+    let range = max - min;
+    if range == 0.0 {
+        return Some("0".to_string());
+    }
+    let clamped = value.max(min).min(max);
+    let height = ((clamped - min) / range) * h;
+    Some(format!("{}", height as i64))
+}
+
+/// `bar_y(sensor, height, min, max)` — y-coordinate for top of bar
+fn eval_bar_y(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let sensor = arg_sensor_path(args, 0)?;
+    let h = arg_number(args, 1)?;
+    let min = arg_number(args, 2)?;
+    let max = arg_number(args, 3)?;
+    let value = sensor_map::get_sensor_value_f64(sensor, ctx.snapshot, ctx.hwinfo_values)
+        .unwrap_or(0.0);
+    let range = max - min;
+    if range == 0.0 {
+        return Some(format!("{}", h as i64));
+    }
+    let clamped = value.max(min).min(max);
+    let bar_h = ((clamped - min) / range) * h;
+    Some(format!("{}", (h - bar_h) as i64))
+}
+
+/// `circumference(r)` → 2πr
+fn eval_circumference(args: &[Argument]) -> Option<String> {
+    let r = arg_number(args, 0)?;
+    let c = 2.0 * std::f64::consts::PI * r;
+    Some(format!("{:.4}", c))
+}
+
+/// `ratio_dashoffset(value_sensor, total_sensor, r)`
+fn eval_ratio_dashoffset(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
+    let value_sensor = arg_sensor_path(args, 0)?;
+    let total_sensor = arg_sensor_path(args, 1)?;
+    let r = arg_number(args, 2)?;
+    let value = sensor_map::get_sensor_value_f64(value_sensor, ctx.snapshot, ctx.hwinfo_values)
+        .unwrap_or(0.0);
+    let total = sensor_map::get_sensor_value_f64(total_sensor, ctx.snapshot, ctx.hwinfo_values)
+        .unwrap_or(0.0);
+    let ratio = if total > 0.0 {
+        (value / total).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let circumference = 2.0 * std::f64::consts::PI * r;
+    let offset = circumference * (1.0 - ratio);
+    Some(format!("{:.4}", offset))
 }
 
 /// Scan `input` for `{...}` expressions and replace each with its
@@ -541,5 +686,113 @@ mod tests {
         let ctx = make_ctx(&snapshot, &history, &hv, &hu);
         let result = interpolate("{buffer_max(cpu.usage, %)}", &ctx);
         assert_eq!(result, "0 %");
+    }
+
+    #[test]
+    fn eval_chart_polyline_returns_points_string() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        history.push_sample("cpu.usage", 0.0);
+        history.push_sample("cpu.usage", 50.0);
+        history.push_sample("cpu.usage", 100.0);
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{chart_polyline(cpu.usage, 200, 60)}", &ctx);
+        let parts: Vec<&str> = result.split(' ').collect();
+        assert_eq!(parts.len(), 3, "expected 3 points, got {:?}", parts);
+        for part in &parts {
+            let coords: Vec<&str> = part.split(',').collect();
+            assert_eq!(coords.len(), 2);
+            coords[0].parse::<f64>().expect("x should be a number");
+            coords[1].parse::<f64>().expect("y should be a number");
+        }
+    }
+
+    #[test]
+    fn eval_chart_polyline_empty_buffer_returns_empty_string() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{chart_polyline(cpu.usage, 200, 60)}", &ctx);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn eval_chart_polyline_fixed_scale() {
+        let snapshot = SensorSnapshot::default();
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        history.push_sample("cpu.usage", 50.0);
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        // With min=0, max=100, height=60, value 50 should map to y=30 (midpoint).
+        // Single sample → x=0, y=30 (step_x is 0 when n=1).
+        let result = interpolate("{chart_polyline(cpu.usage, 200, 60, 0, 100)}", &ctx);
+        assert!(
+            result.contains(",30") || result.contains(",30.0"),
+            "expected y=30 in points: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn eval_bar_height_and_y() {
+        let mut snapshot = SensorSnapshot::default();
+        snapshot.cpu.total_usage_percent = 50.0;
+        let history = SensorHistory::new();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        // cpu.usage = 50, min=0, max=100, h=60 → bar height = 30
+        let height_result = interpolate("{bar_height(cpu.usage, 60, 0, 100)}", &ctx);
+        assert_eq!(height_result, "30");
+        // bar_y = h - bar_height = 60 - 30 = 30
+        let y_result = interpolate("{bar_y(cpu.usage, 60, 0, 100)}", &ctx);
+        assert_eq!(y_result, "30");
+    }
+
+    #[test]
+    fn eval_circumference() {
+        let snapshot = SensorSnapshot::default();
+        let history = SensorHistory::new();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        let result = interpolate("{circumference(40)}", &ctx);
+        let v: f64 = result.parse().unwrap();
+        let expected = 2.0 * std::f64::consts::PI * 40.0;
+        assert!(
+            (v - expected).abs() < 0.01,
+            "got {} expected {}",
+            v,
+            expected
+        );
+    }
+
+    #[test]
+    fn eval_ratio_dashoffset() {
+        let mut snapshot = SensorSnapshot::default();
+        snapshot.ram.used_mb = 8192;
+        snapshot.ram.total_mb = 16384;
+        let history = SensorHistory::new();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let ctx = make_ctx(&snapshot, &history, &hv, &hu);
+        // ratio = 0.5 → dashoffset = circumference * (1 - 0.5) = circumference * 0.5
+        let result = interpolate("{ratio_dashoffset(ram.used, ram.total, 40)}", &ctx);
+        let v: f64 = result.parse().unwrap();
+        let circ = 2.0 * std::f64::consts::PI * 40.0;
+        assert!(
+            (v - circ * 0.5).abs() < 0.01,
+            "got {} expected {}",
+            v,
+            circ * 0.5
+        );
     }
 }
