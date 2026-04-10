@@ -390,6 +390,35 @@ fn parse_html_element(
         return Ok(node);
     }
 
+    // Intercept <chart-card> the same way: desugar at parse time into a fully
+    // laid-out SVG subtree with title, axis labels, and an inner chart.
+    if tag == "chart-card" {
+        let chart_attrs = collect_chart_attrs(start);
+        let pos = reader.buffer_position() as usize;
+        let node = desugar_chart_card(&chart_attrs, source, pos)?;
+        loop {
+            match reader.read_event() {
+                Ok(Event::End(ref e)) if e.name().as_ref() == b"chart-card" => break,
+                Ok(Event::Eof) => {
+                    return Err(make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        "Unexpected EOF inside <chart-card>".to_string(),
+                    ));
+                }
+                Err(e) => {
+                    return Err(make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        format!("XML error in <chart-card>: {}", e),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        return Ok(node);
+    }
+
     let id = get_attr(start, "id");
     let classes = get_attr(start, "class")
         .map(|c| c.split_whitespace().map(String::from).collect())
@@ -459,6 +488,12 @@ fn parse_empty_html_element(source: &str, pos: usize, start: &BytesStart) -> Res
     if tag == "chart" {
         let chart_attrs = collect_chart_attrs(start);
         return desugar_chart(&chart_attrs, source, pos);
+    }
+
+    // Intercept <chart-card/> self-closing and desugar at parse time.
+    if tag == "chart-card" {
+        let chart_attrs = collect_chart_attrs(start);
+        return desugar_chart_card(&chart_attrs, source, pos);
     }
 
     let id = get_attr(start, "id");
@@ -647,6 +682,159 @@ fn desugar_chart(
             format!("unknown chart type: {}", other),
         )),
     }
+}
+
+/// Desugar a `<chart-card>` element into a full SVG layout with title,
+/// Y-axis tick labels, X-axis labels, and a nested chart body. The inner
+/// chart is delegated to `desugar_chart` with overridden width/height that
+/// match the plot area.
+fn desugar_chart_card(
+    attrs: &HashMap<String, String>,
+    source: &str,
+    pos: usize,
+) -> Result<HtmlNode, ParseError> {
+    let chart_type = attrs.get("type").ok_or_else(|| {
+        make_error(
+            source,
+            pos,
+            "chart-card requires 'type' attribute".to_string(),
+        )
+    })?;
+    let unit = attrs.get("unit").map(String::as_str).unwrap_or("none");
+    let title = attrs.get("title").cloned();
+    let y_ticks: usize = attrs
+        .get("y-ticks")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+
+    // Layout constants for v1
+    let (card_w, card_h) = (250i32, 110i32);
+    let (plot_x, plot_y, plot_w, plot_h) = (42i32, 22i32, 200i32, 72i32);
+
+    let mut children: Vec<HtmlNode> = Vec::new();
+
+    // Title
+    if let Some(title_text) = title {
+        children.push(HtmlNode::Element {
+            tag: "text".to_string(),
+            id: None,
+            classes: vec!["omni-chart-card-title".to_string()],
+            inline_style: None,
+            conditional_classes: vec![],
+            attributes: vec![
+                ("x".to_string(), format!("{}", card_w / 2)),
+                ("y".to_string(), "14".to_string()),
+                ("text-anchor".to_string(), "middle".to_string()),
+            ],
+            children: vec![HtmlNode::Text {
+                content: title_text,
+            }],
+        });
+    }
+
+    // Y-axis labels (only for line/bar)
+    let sensor_for_ticks = match chart_type.as_str() {
+        "line" | "bar" => attrs.get("sensor").cloned(),
+        _ => None,
+    };
+    if let Some(sensor) = sensor_for_ticks.as_ref() {
+        let step_y = plot_h as f64 / (y_ticks.saturating_sub(1).max(1)) as f64;
+        for i in 0..y_ticks {
+            // Reverse so index 0 is at the bottom (top tick is the highest value)
+            let display_index = y_ticks - 1 - i;
+            let y = plot_y as f64 + (i as f64 * step_y) + 4.0;
+            let label_expr = format!(
+                "{{nice_tick({}, {}, {}, {})}}",
+                sensor, unit, display_index, y_ticks
+            );
+            children.push(HtmlNode::Element {
+                tag: "text".to_string(),
+                id: None,
+                classes: vec!["omni-chart-card-y-label".to_string()],
+                inline_style: None,
+                conditional_classes: vec![],
+                attributes: vec![
+                    ("x".to_string(), format!("{}", plot_x - 4)),
+                    ("y".to_string(), format!("{:.0}", y)),
+                    ("text-anchor".to_string(), "end".to_string()),
+                ],
+                children: vec![HtmlNode::Text {
+                    content: label_expr,
+                }],
+            });
+        }
+    }
+
+    // Inner chart — delegate to desugar_chart with width/height overridden
+    // to match the plot area.
+    let mut inner_attrs = attrs.clone();
+    inner_attrs.insert("width".to_string(), plot_w.to_string());
+    inner_attrs.insert("height".to_string(), plot_h.to_string());
+    let inner_chart = desugar_chart(&inner_attrs, source, pos)?;
+    // Wrap in a <g transform> so it sits inside the plot area.
+    children.push(HtmlNode::Element {
+        tag: "g".to_string(),
+        id: None,
+        classes: vec![],
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![(
+            "transform".to_string(),
+            format!("translate({},{})", plot_x, plot_y),
+        )],
+        children: vec![inner_chart],
+    });
+
+    // X-axis labels (only for line charts)
+    if chart_type == "line" {
+        children.push(HtmlNode::Element {
+            tag: "text".to_string(),
+            id: None,
+            classes: vec!["omni-chart-card-x-label".to_string()],
+            inline_style: None,
+            conditional_classes: vec![],
+            attributes: vec![
+                ("x".to_string(), format!("{}", plot_x)),
+                ("y".to_string(), format!("{}", card_h - 4)),
+            ],
+            children: vec![HtmlNode::Text {
+                content: "60s ago".to_string(),
+            }],
+        });
+        children.push(HtmlNode::Element {
+            tag: "text".to_string(),
+            id: None,
+            classes: vec!["omni-chart-card-x-label".to_string()],
+            inline_style: None,
+            conditional_classes: vec![],
+            attributes: vec![
+                ("x".to_string(), format!("{}", plot_x + plot_w)),
+                ("y".to_string(), format!("{}", card_h - 4)),
+                ("text-anchor".to_string(), "end".to_string()),
+            ],
+            children: vec![HtmlNode::Text {
+                content: "now".to_string(),
+            }],
+        });
+    }
+
+    let classes = vec![
+        "omni-chart-card".to_string(),
+        format!("omni-chart-card-{}", chart_type),
+    ];
+
+    Ok(HtmlNode::Element {
+        tag: "svg".to_string(),
+        id: None,
+        classes,
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![(
+            "viewBox".to_string(),
+            format!("0 0 {} {}", card_w, card_h),
+        )],
+        children,
+    })
 }
 
 fn desugar_chart_line(
@@ -1280,6 +1468,81 @@ mod tests {
                     }
                     _ => panic!("fill child should be Element"),
                 }
+            }
+            _ => panic!("expected svg element"),
+        }
+    }
+
+    #[test]
+    fn parse_chart_card_desugars_to_full_layout() {
+        let source = r#"<widget id="net" name="Network">
+<template>
+  <chart-card type="line" sensor="network.bytes_per_sec" unit="bytes/s" title="Network Down"/>
+</template>
+<style></style>
+</widget>"#;
+        let (file, _diag) = parse_omni_with_diagnostics_hwinfo(source, false);
+        let file = file.expect("parse succeeded");
+        let widget = &file.widgets[0];
+        let svg = match &widget.template {
+            crate::omni::types::HtmlNode::Element { tag, .. } if tag == "svg" => {
+                &widget.template
+            }
+            crate::omni::types::HtmlNode::Element { children, .. } => children
+                .iter()
+                .find(|c| matches!(c, crate::omni::types::HtmlNode::Element { tag, .. } if tag == "svg"))
+                .expect("template should contain an svg element"),
+            _ => panic!(),
+        };
+        match svg {
+            crate::omni::types::HtmlNode::Element {
+                tag,
+                classes,
+                children,
+                ..
+            } => {
+                assert_eq!(tag, "svg");
+                assert!(
+                    classes.iter().any(|c| c == "omni-chart-card"),
+                    "svg should have omni-chart-card class, got {:?}",
+                    classes
+                );
+
+                // Should contain a title text
+                let title_found = children.iter().any(|c| matches!(c,
+                    crate::omni::types::HtmlNode::Element { tag, classes, .. }
+                    if tag == "text" && classes.iter().any(|cl| cl == "omni-chart-card-title")
+                ));
+                assert!(title_found, "title text missing");
+
+                // Should contain at least 2 Y-axis labels
+                let y_label_count = children.iter().filter(|c| matches!(c,
+                    crate::omni::types::HtmlNode::Element { tag, classes, .. }
+                    if tag == "text" && classes.iter().any(|cl| cl == "omni-chart-card-y-label")
+                )).count();
+                assert!(y_label_count >= 2, "should have at least 2 y-labels, got {}", y_label_count);
+
+                // Should contain the inner chart SVG (nested svg with omni-chart-line class)
+                // It may be inside a <g transform="translate(...)"> wrapper
+                let find_inner_chart = |nodes: &[crate::omni::types::HtmlNode]| -> bool {
+                    for node in nodes {
+                        if let crate::omni::types::HtmlNode::Element { tag, classes, children: inner_children, .. } = node {
+                            if tag == "svg" && classes.iter().any(|c| c == "omni-chart-line") {
+                                return true;
+                            }
+                            // Recurse one level for the <g> wrapper case
+                            for inner in inner_children {
+                                if let crate::omni::types::HtmlNode::Element { tag, classes, .. } = inner {
+                                    if tag == "svg" && classes.iter().any(|c| c == "omni-chart-line") {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    false
+                };
+                assert!(find_inner_chart(children), "inner chart SVG missing");
             }
             _ => panic!("expected svg element"),
         }
