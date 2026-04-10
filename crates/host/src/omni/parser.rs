@@ -5,7 +5,7 @@
 //! - One or more `<widget id="..." name="..." enabled="true/false">` blocks
 //!   - Each widget contains `<template>...</template>` and `<style>...</style>`
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -1073,6 +1073,96 @@ fn desugar_chart_pie(
     })
 }
 
+/// Walk all widgets in an OmniFile and return the set of sensor paths
+/// that are referenced inside chart helper function calls in element
+/// attributes. Used by the host to decide which sensors need a history buffer.
+pub fn collect_chart_sensors(file: &OmniFile) -> HashSet<String> {
+    let mut sensors = HashSet::new();
+    for widget in &file.widgets {
+        if !widget.enabled {
+            continue;
+        }
+        walk_for_chart_sensors(&widget.template, &mut sensors);
+    }
+    sensors
+}
+
+fn walk_for_chart_sensors(node: &HtmlNode, sensors: &mut HashSet<String>) {
+    if let HtmlNode::Element {
+        attributes,
+        children,
+        ..
+    } = node
+    {
+        for (_, value) in attributes {
+            extract_chart_sensor_args(value, sensors);
+        }
+        for child in children {
+            walk_for_chart_sensors(child, sensors);
+        }
+    }
+}
+
+/// Scan an attribute value for `{function(sensor, ...)}` calls and extract
+/// the sensor-path arguments.
+fn extract_chart_sensor_args(value: &str, sensors: &mut HashSet<String>) {
+    let mut rest = value;
+    while let Some(open) = rest.find('{') {
+        let body_start = open + 1;
+        let close = match rest[body_start..].find('}') {
+            Some(c) => body_start + c,
+            None => break,
+        };
+        let body = &rest[body_start..close];
+        extract_sensors_from_expression(body, sensors);
+        rest = &rest[close + 1..];
+    }
+}
+
+fn extract_sensors_from_expression(expr: &str, sensors: &mut HashSet<String>) {
+    let paren_start = match expr.find('(') {
+        Some(p) => p,
+        None => return,
+    };
+    if !expr.ends_with(')') {
+        return;
+    }
+    let name = expr[..paren_start].trim();
+    let args_str = &expr[paren_start + 1..expr.len() - 1];
+    let args: Vec<&str> = args_str.split(',').map(str::trim).collect();
+
+    // Functions where the first arg is a sensor path
+    let first_arg_sensor = matches!(
+        name,
+        "chart_polyline"
+            | "chart_path"
+            | "bar_height"
+            | "bar_y"
+            | "buffer_min"
+            | "buffer_max"
+            | "buffer_avg"
+            | "nice_min"
+            | "nice_max"
+            | "nice_tick"
+            | "format_value"
+    );
+    if first_arg_sensor {
+        if let Some(first) = args.first() {
+            if first.contains('.') && first.parse::<f64>().is_err() {
+                sensors.insert(first.to_string());
+            }
+        }
+    }
+    // ratio_dashoffset takes two sensor args
+    if name == "ratio_dashoffset" && args.len() >= 2 {
+        for arg in &args[..2] {
+            if arg.contains('.') && arg.parse::<f64>().is_err() {
+                sensors.insert(arg.to_string());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1471,6 +1561,25 @@ mod tests {
             }
             _ => panic!("expected svg element"),
         }
+    }
+
+    #[test]
+    fn collect_chart_sensors_finds_all_references() {
+        let source = r#"<widget id="w1" name="W1">
+<template>
+  <chart type="line" sensor="cpu.usage"/>
+  <chart type="bar" sensor="gpu.usage" min="0" max="100"/>
+  <chart type="pie" value="ram.used" total="ram.total"/>
+</template>
+<style></style>
+</widget>"#;
+        let (file, _diag) = parse_omni_with_diagnostics_hwinfo(source, false);
+        let file = file.expect("parse succeeded");
+        let sensors = crate::omni::parser::collect_chart_sensors(&file);
+        assert!(sensors.contains("cpu.usage"), "missing cpu.usage, got {:?}", sensors);
+        assert!(sensors.contains("gpu.usage"), "missing gpu.usage");
+        assert!(sensors.contains("ram.used"), "missing ram.used");
+        assert!(sensors.contains("ram.total"), "missing ram.total");
     }
 
     #[test]
