@@ -125,9 +125,7 @@ fn format_scaled(value: f64, base: f64, prefixes: &[&str], suffix: &str) -> Stri
         abs /= base;
         idx += 1;
     }
-    if idx == 0 {
-        format!("{}{} {}{}", sign, abs as i64, prefixes[idx], suffix)
-    } else if abs >= 100.0 {
+    if idx == 0 || abs >= 100.0 {
         format!("{}{} {}{}", sign, abs as i64, prefixes[idx], suffix)
     } else {
         format!("{}{:.1} {}{}", sign, abs, prefixes[idx], suffix)
