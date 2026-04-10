@@ -276,6 +276,7 @@ fn parse_widget(
         classes: vec![],
         inline_style: None,
         conditional_classes: vec![],
+        attributes: vec![],
         children: vec![],
     });
 
@@ -341,6 +342,7 @@ fn parse_template_children(
             classes: vec![],
             inline_style: None,
             conditional_classes: vec![],
+            attributes: vec![],
             children,
         })
     }
@@ -359,6 +361,7 @@ fn parse_html_element(
         .unwrap_or_default();
     let inline_style = get_attr(start, "style");
     let conditional_classes = get_conditional_classes(start);
+    let attributes = get_extra_attributes(start);
 
     let mut children = Vec::new();
 
@@ -407,6 +410,7 @@ fn parse_html_element(
         classes,
         inline_style,
         conditional_classes,
+        attributes,
         children,
     })
 }
@@ -420,6 +424,7 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
         .unwrap_or_default();
     let inline_style = get_attr(start, "style");
     let conditional_classes = get_conditional_classes(start);
+    let attributes = get_extra_attributes(start);
 
     HtmlNode::Element {
         tag,
@@ -427,6 +432,7 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
         classes,
         inline_style,
         conditional_classes,
+        attributes,
         children: vec![],
     }
 }
@@ -513,6 +519,30 @@ fn get_attr(start: &BytesStart, name: &str) -> Option<String> {
         .filter_map(|a| a.ok())
         .find(|a| a.key.as_ref() == name.as_bytes())
         .map(|a| String::from_utf8_lossy(&a.value).to_string())
+}
+
+/// Extract arbitrary attributes that aren't handled by dedicated fields
+/// (i.e., not `id`, `class`, `style`, or `class:NAME`). Preserves source
+/// ordering so diffs remain deterministic.
+fn get_extra_attributes(start: &BytesStart) -> Vec<(String, String)> {
+    let class_prefix = b"class:";
+    start
+        .attributes()
+        .filter_map(|a| a.ok())
+        .filter_map(|a| {
+            let key = a.key.as_ref();
+            if key == b"id"
+                || key == b"class"
+                || key == b"style"
+                || key.starts_with(class_prefix)
+            {
+                return None;
+            }
+            let name = String::from_utf8_lossy(key).to_string();
+            let value = String::from_utf8_lossy(&a.value).to_string();
+            Some((name, value))
+        })
+        .collect()
 }
 
 /// Extract conditional class bindings from `class:name="expression"` attributes.
