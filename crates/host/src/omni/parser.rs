@@ -719,16 +719,81 @@ fn desugar_chart_line(
 }
 
 fn desugar_chart_bar(
-    _attrs: &HashMap<String, String>,
+    attrs: &HashMap<String, String>,
     source: &str,
     pos: usize,
 ) -> Result<HtmlNode, ParseError> {
-    // Implemented in Task 14
-    Err(make_error(
-        source,
-        pos,
-        "bar chart desugaring not yet implemented".to_string(),
-    ))
+    let sensor = attrs.get("sensor").ok_or_else(|| {
+        make_error(
+            source,
+            pos,
+            "bar chart requires 'sensor' attribute".to_string(),
+        )
+    })?;
+    let width = attrs.get("width").map(String::as_str).unwrap_or("100");
+    let height = attrs.get("height").map(String::as_str).unwrap_or("50");
+    let min = attrs.get("min").map(String::as_str).unwrap_or("0");
+    let max = attrs.get("max").map(String::as_str).unwrap_or("100");
+    let fill = attrs
+        .get("fill")
+        .map(String::as_str)
+        .unwrap_or("currentColor");
+    let extra_class = attrs.get("class").map(String::as_str).unwrap_or("");
+
+    let mut svg_classes = vec!["omni-chart".to_string(), "omni-chart-bar".to_string()];
+    for c in extra_class.split_whitespace() {
+        svg_classes.push(c.to_string());
+    }
+
+    let track = HtmlNode::Element {
+        tag: "rect".to_string(),
+        id: None,
+        classes: vec!["omni-chart-bar-track".to_string()],
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("x".to_string(), "0".to_string()),
+            ("y".to_string(), "0".to_string()),
+            ("width".to_string(), width.to_string()),
+            ("height".to_string(), height.to_string()),
+        ],
+        children: vec![],
+    };
+
+    let fill_rect = HtmlNode::Element {
+        tag: "rect".to_string(),
+        id: None,
+        classes: vec!["omni-chart-bar-fill".to_string()],
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("fill".to_string(), fill.to_string()),
+            ("x".to_string(), "0".to_string()),
+            (
+                "y".to_string(),
+                format!("{{bar_y({}, {}, {}, {})}}", sensor, height, min, max),
+            ),
+            ("width".to_string(), width.to_string()),
+            (
+                "height".to_string(),
+                format!("{{bar_height({}, {}, {}, {})}}", sensor, height, min, max),
+            ),
+        ],
+        children: vec![],
+    };
+
+    Ok(HtmlNode::Element {
+        tag: "svg".to_string(),
+        id: None,
+        classes: svg_classes,
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("viewBox".to_string(), format!("0 0 {} {}", width, height)),
+            ("preserveAspectRatio".to_string(), "none".to_string()),
+        ],
+        children: vec![track, fill_rect],
+    })
 }
 
 fn desugar_chart_pie(
@@ -1027,5 +1092,57 @@ mod tests {
     fn offset_to_line_col_beyond_end() {
         let source = "abc";
         assert_eq!(offset_to_line_col(source, 100), (1, 4)); // clamped
+    }
+
+    #[test]
+    fn parse_chart_bar_desugars_to_svg_rects() {
+        let source = r#"<widget id="cpu" name="CPU">
+<template>
+  <chart type="bar" sensor="cpu.usage" min="0" max="100"/>
+</template>
+<style></style>
+</widget>"#;
+        let (file, _diag) = parse_omni_with_diagnostics_hwinfo(source, false);
+        let file = file.expect("parse succeeded");
+        let widget = &file.widgets[0];
+        let svg = match &widget.template {
+            crate::omni::types::HtmlNode::Element { tag, children, .. } => {
+                if tag == "svg" {
+                    &widget.template
+                } else {
+                    children
+                        .iter()
+                        .find(|c| matches!(c, crate::omni::types::HtmlNode::Element { .. }))
+                        .expect("template should have an element child")
+                }
+            }
+            _ => panic!(),
+        };
+        match svg {
+            crate::omni::types::HtmlNode::Element {
+                tag,
+                classes,
+                children,
+                ..
+            } => {
+                assert_eq!(tag, "svg");
+                assert!(classes.iter().any(|c| c == "omni-chart-bar"));
+                // Should have track + fill rects
+                assert_eq!(children.len(), 2);
+                let fill_rect = &children[1];
+                match fill_rect {
+                    crate::omni::types::HtmlNode::Element {
+                        tag, attributes, ..
+                    } => {
+                        assert_eq!(tag, "rect");
+                        let height_attr = attributes.iter().find(|(k, _)| k == "height").unwrap();
+                        assert!(height_attr.1.contains("bar_height"));
+                        assert!(height_attr.1.contains("cpu.usage"));
+                    }
+                    _ => panic!(),
+                }
+            }
+            _ => panic!(),
+        }
     }
 }
