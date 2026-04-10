@@ -163,6 +163,7 @@ fn render_initial_node(
             classes,
             inline_style,
             conditional_classes,
+            attributes,
             children,
         } => {
             let node_id = format!("omni-{}", *counter);
@@ -186,6 +187,28 @@ fn render_initial_node(
             }
             if let Some(ref style) = inline_style {
                 attrs.push_str(&format!(r#" style="{}""#, style));
+            }
+
+            // Emit arbitrary attributes (e.g., SVG points/d/viewBox/width).
+            // Values may contain `{...}` interpolations — evaluate them so
+            // the initial HTML matches the first update tick.
+            for (name, value) in attributes {
+                let resolved = if value.contains('{') {
+                    let ctx = EvalCtx {
+                        snapshot,
+                        history,
+                        hwinfo_values,
+                        hwinfo_units,
+                    };
+                    interpolate(value, &ctx)
+                } else {
+                    value.clone()
+                };
+                attrs.push_str(&format!(
+                    r#" {}="{}""#,
+                    name,
+                    resolved.replace('"', "&quot;")
+                ));
             }
 
             let children_html: String = children
@@ -315,6 +338,7 @@ fn collect_diff_entries(
         HtmlNode::Element {
             classes,
             conditional_classes,
+            attributes,
             children,
             ..
         } => {
@@ -349,8 +373,36 @@ fn collect_diff_entries(
                 }
             }
 
-            if update_c.is_some() || update_t.is_some() {
-                diff.insert(node_id, ElementUpdate { c: update_c, t: update_t, a: None });
+            // Walk arbitrary attributes — any value containing `{...}` needs
+            // to be re-evaluated each tick and emitted as an `a` update.
+            let mut update_a: HashMap<String, String> = HashMap::new();
+            for (name, value) in attributes {
+                if value.contains('{') {
+                    let ctx = EvalCtx {
+                        snapshot,
+                        history,
+                        hwinfo_values,
+                        hwinfo_units,
+                    };
+                    let interpolated = interpolate(value, &ctx);
+                    update_a.insert(name.clone(), interpolated);
+                }
+            }
+            let update_a_opt = if update_a.is_empty() {
+                None
+            } else {
+                Some(update_a)
+            };
+
+            if update_c.is_some() || update_t.is_some() || update_a_opt.is_some() {
+                diff.insert(
+                    node_id,
+                    ElementUpdate {
+                        c: update_c,
+                        t: update_t,
+                        a: update_a_opt,
+                    },
+                );
             }
 
             // Recurse into children
@@ -502,6 +554,70 @@ mod tests {
         diff.insert("omni-0".to_string(), update);
         let js = format_as_js(&diff);
         assert!(!js.contains("\"a\":"), "JS output should not contain 'a' field: {}", js);
+    }
+
+    #[test]
+    fn compute_update_diff_emits_attribute_changes() {
+        use crate::omni::history::SensorHistory;
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+        use omni_shared::SensorSnapshot;
+        use std::collections::HashMap;
+
+        let mut snapshot = SensorSnapshot::default();
+        snapshot.cpu.total_usage_percent = 60.0;
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        history.push_sample("cpu.usage", 60.0);
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+
+        let file = OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![Widget {
+                id: "bar".to_string(),
+                name: "Bar".to_string(),
+                enabled: true,
+                template: HtmlNode::Element {
+                    tag: "svg".to_string(),
+                    id: None,
+                    classes: vec![],
+                    inline_style: None,
+                    conditional_classes: vec![],
+                    attributes: vec![],
+                    children: vec![HtmlNode::Element {
+                        tag: "rect".to_string(),
+                        id: None,
+                        classes: vec![],
+                        inline_style: None,
+                        conditional_classes: vec![],
+                        attributes: vec![
+                            (
+                                "height".to_string(),
+                                "{bar_height(cpu.usage, 60, 0, 100)}".to_string(),
+                            ),
+                            (
+                                "y".to_string(),
+                                "{bar_y(cpu.usage, 60, 0, 100)}".to_string(),
+                            ),
+                        ],
+                        children: vec![],
+                    }],
+                },
+                style_source: String::new(),
+            }],
+        };
+
+        let diff = compute_update_diff(&file, &snapshot, &hv, &hu, &history)
+            .expect("expected a diff");
+        let any_attr_update = diff
+            .values()
+            .any(|u| u.a.as_ref().map(|a| !a.is_empty()).unwrap_or(false));
+        assert!(
+            any_attr_update,
+            "expected at least one attribute update in diff: {:?}",
+            diff
+        );
     }
 
     #[test]
