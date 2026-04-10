@@ -111,6 +111,11 @@ function omniUpdate(data) {{
                 }}
             }}
         }}
+        if (info.a !== undefined) {{
+            for (const [attr, val] of Object.entries(info.a)) {{
+                el.setAttribute(attr, val);
+            }}
+        }}
     }}
 }}
 </script>
@@ -196,13 +201,15 @@ fn render_initial_node(
 // Per-cycle update types and functions
 // ---------------------------------------------------------------------------
 
-/// A single element's update: optional class list and/or text content.
+/// A single element's update: optional class list, text content, and/or SVG attributes.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ElementUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub c: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub t: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a: Option<HashMap<String, String>>,
 }
 
 /// A diff mapping omni-id → element update.
@@ -256,6 +263,21 @@ pub fn format_as_js(diff: &UpdateDiff) -> String {
         if let Some(ref t) = update.t {
             let escaped = t.replace('\\', "\\\\").replace('"', "\\\"");
             parts.push(format!(r#""t":"{}""#, escaped));
+        }
+        if let Some(ref a) = update.a {
+            if !a.is_empty() {
+                let mut attr_keys: Vec<&String> = a.keys().collect();
+                attr_keys.sort();
+                let attr_parts: Vec<String> = attr_keys
+                    .iter()
+                    .map(|k| {
+                        let v = &a[*k];
+                        let escaped_v = v.replace('\\', "\\\\").replace('"', "\\\"");
+                        format!(r#""{}":"{}""#, k, escaped_v)
+                    })
+                    .collect();
+                parts.push(format!(r#""a":{{{}}}"#, attr_parts.join(",")));
+            }
         }
         if !parts.is_empty() {
             entries.push_str(&format!(r#""{}":{{{}}},"#, id, parts.join(",")));
@@ -320,7 +342,7 @@ fn collect_diff_entries(
             }
 
             if update_c.is_some() || update_t.is_some() {
-                diff.insert(node_id, ElementUpdate { c: update_c, t: update_t });
+                diff.insert(node_id, ElementUpdate { c: update_c, t: update_t, a: None });
             }
 
             // Recurse into children
@@ -495,4 +517,58 @@ fn simple_base64_encode(data: &[u8]) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn element_update_with_attributes() {
+        use std::collections::HashMap;
+        let mut attrs = HashMap::new();
+        attrs.insert("points".to_string(), "0,50 10,40 20,30".to_string());
+        let update = ElementUpdate {
+            c: None,
+            t: None,
+            a: Some(attrs),
+        };
+        let mut diff = UpdateDiff::new();
+        diff.insert("omni-0".to_string(), update);
+        let js = format_as_js(&diff);
+        assert!(js.contains("\"a\":{"), "JS output missing 'a' field: {}", js);
+        assert!(js.contains("\"points\":\"0,50 10,40 20,30\""), "JS output missing points value: {}", js);
+    }
+
+    #[test]
+    fn element_update_without_attributes_omits_a_field() {
+        let update = ElementUpdate {
+            c: Some("active".to_string()),
+            t: None,
+            a: None,
+        };
+        let mut diff = UpdateDiff::new();
+        diff.insert("omni-0".to_string(), update);
+        let js = format_as_js(&diff);
+        assert!(!js.contains("\"a\":"), "JS output should not contain 'a' field: {}", js);
+    }
+
+    #[test]
+    fn element_update_with_class_text_and_attributes() {
+        use std::collections::HashMap;
+        let mut attrs = HashMap::new();
+        attrs.insert("height".to_string(), "42".to_string());
+        let update = ElementUpdate {
+            c: Some("hot".to_string()),
+            t: Some("72".to_string()),
+            a: Some(attrs),
+        };
+        let mut diff = UpdateDiff::new();
+        diff.insert("omni-0".to_string(), update);
+        let js = format_as_js(&diff);
+        assert!(js.contains("\"c\":\"hot\""));
+        assert!(js.contains("\"t\":\"72\""));
+        assert!(js.contains("\"a\":{"));
+        assert!(js.contains("\"height\":\"42\""));
+    }
 }
