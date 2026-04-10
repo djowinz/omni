@@ -304,7 +304,8 @@ fn parse_template_children(
                 children.push(node);
             }
             Ok(Event::Empty(ref e)) => {
-                let node = parse_empty_html_element(e);
+                let pos = reader.buffer_position() as usize;
+                let node = parse_empty_html_element(source, pos, e)?;
                 children.push(node);
             }
             Ok(Event::Text(ref e)) => {
@@ -355,6 +356,40 @@ fn parse_html_element(
     start: &BytesStart,
 ) -> Result<HtmlNode, ParseError> {
     let tag = String::from_utf8_lossy(start.name().as_ref()).to_string();
+
+    // Intercept <chart> before doing normal element construction. Desugar into
+    // an SVG subtree at parse time so downstream pipeline stages never see a
+    // raw <chart> element.
+    if tag == "chart" {
+        let chart_attrs = collect_chart_attrs(start);
+        let pos = reader.buffer_position() as usize;
+        let node = desugar_chart(&chart_attrs, source, pos)?;
+        // Consume any inner content until the matching </chart> end tag so the
+        // event stream stays balanced. Charts don't have meaningful children,
+        // so we discard whatever's inside.
+        loop {
+            match reader.read_event() {
+                Ok(Event::End(ref e)) if e.name().as_ref() == b"chart" => break,
+                Ok(Event::Eof) => {
+                    return Err(make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        "Unexpected EOF inside <chart>".to_string(),
+                    ));
+                }
+                Err(e) => {
+                    return Err(make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        format!("XML error in <chart>: {}", e),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        return Ok(node);
+    }
+
     let id = get_attr(start, "id");
     let classes = get_attr(start, "class")
         .map(|c| c.split_whitespace().map(String::from).collect())
@@ -372,7 +407,8 @@ fn parse_html_element(
                 children.push(child);
             }
             Ok(Event::Empty(ref e)) => {
-                children.push(parse_empty_html_element(e));
+                let pos = reader.buffer_position() as usize;
+                children.push(parse_empty_html_element(source, pos, e)?);
             }
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().unwrap_or_default().to_string();
@@ -416,8 +452,15 @@ fn parse_html_element(
 }
 
 /// Parse a self-closing HTML element (e.g., `<br/>`, `<spacer/>`).
-fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
+fn parse_empty_html_element(source: &str, pos: usize, start: &BytesStart) -> Result<HtmlNode, ParseError> {
     let tag = String::from_utf8_lossy(start.name().as_ref()).to_string();
+
+    // Intercept <chart/> and desugar at parse time.
+    if tag == "chart" {
+        let chart_attrs = collect_chart_attrs(start);
+        return desugar_chart(&chart_attrs, source, pos);
+    }
+
     let id = get_attr(start, "id");
     let classes = get_attr(start, "class")
         .map(|c| c.split_whitespace().map(String::from).collect())
@@ -426,7 +469,7 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
     let conditional_classes = get_conditional_classes(start);
     let attributes = get_extra_attributes(start);
 
-    HtmlNode::Element {
+    Ok(HtmlNode::Element {
         tag,
         id,
         classes,
@@ -434,7 +477,7 @@ fn parse_empty_html_element(start: &BytesStart) -> HtmlNode {
         conditional_classes,
         attributes,
         children: vec![],
-    }
+    })
 }
 
 /// Read all text content until the closing tag is found.
@@ -565,6 +608,140 @@ fn get_conditional_classes(start: &BytesStart) -> Vec<ConditionalClass> {
             }
         })
         .collect()
+}
+
+/// Collect all attributes on a `<chart>` element into a map for desugaring.
+fn collect_chart_attrs(start: &BytesStart) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for attr in start.attributes().flatten() {
+        let k = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+        let v = String::from_utf8_lossy(&attr.value).to_string();
+        out.insert(k, v);
+    }
+    out
+}
+
+/// Desugar a `<chart>` element into an SVG subtree at parse time.
+/// Dispatched from `parse_html_element` / `parse_empty_html_element` when
+/// the tag name is "chart".
+fn desugar_chart(
+    attrs: &HashMap<String, String>,
+    source: &str,
+    pos: usize,
+) -> Result<HtmlNode, ParseError> {
+    let chart_type = attrs.get("type").ok_or_else(|| {
+        make_error(
+            source,
+            pos,
+            "chart element requires 'type' attribute".to_string(),
+        )
+    })?;
+
+    match chart_type.as_str() {
+        "line" => desugar_chart_line(attrs, source, pos),
+        "bar" => desugar_chart_bar(attrs, source, pos),
+        "pie" => desugar_chart_pie(attrs, source, pos),
+        other => Err(make_error(
+            source,
+            pos,
+            format!("unknown chart type: {}", other),
+        )),
+    }
+}
+
+fn desugar_chart_line(
+    attrs: &HashMap<String, String>,
+    source: &str,
+    pos: usize,
+) -> Result<HtmlNode, ParseError> {
+    let sensor = attrs.get("sensor").ok_or_else(|| {
+        make_error(
+            source,
+            pos,
+            "line chart requires 'sensor' attribute".to_string(),
+        )
+    })?;
+    let width = attrs.get("width").map(String::as_str).unwrap_or("200");
+    let height = attrs.get("height").map(String::as_str).unwrap_or("60");
+    let stroke = attrs
+        .get("stroke")
+        .map(String::as_str)
+        .unwrap_or("currentColor");
+    let stroke_width = attrs
+        .get("stroke-width")
+        .map(String::as_str)
+        .unwrap_or("2");
+    let fill = attrs.get("fill").map(String::as_str).unwrap_or("none");
+    let extra_class = attrs.get("class").map(String::as_str).unwrap_or("");
+
+    // Build the points interpolation. Use fixed-scale if min/max were given,
+    // otherwise auto-scale.
+    let points_expr = match (attrs.get("min"), attrs.get("max")) {
+        (Some(min), Some(max)) => format!(
+            "{{chart_polyline({}, {}, {}, {}, {})}}",
+            sensor, width, height, min, max
+        ),
+        _ => format!("{{chart_polyline({}, {}, {})}}", sensor, width, height),
+    };
+
+    let mut svg_classes = vec!["omni-chart".to_string(), "omni-chart-line".to_string()];
+    for c in extra_class.split_whitespace() {
+        svg_classes.push(c.to_string());
+    }
+
+    let polyline = HtmlNode::Element {
+        tag: "polyline".to_string(),
+        id: None,
+        classes: vec!["omni-chart-line-stroke".to_string()],
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("fill".to_string(), fill.to_string()),
+            ("stroke".to_string(), stroke.to_string()),
+            ("stroke-width".to_string(), stroke_width.to_string()),
+            ("points".to_string(), points_expr),
+        ],
+        children: vec![],
+    };
+
+    Ok(HtmlNode::Element {
+        tag: "svg".to_string(),
+        id: None,
+        classes: svg_classes,
+        inline_style: None,
+        conditional_classes: vec![],
+        attributes: vec![
+            ("viewBox".to_string(), format!("0 0 {} {}", width, height)),
+            ("preserveAspectRatio".to_string(), "none".to_string()),
+        ],
+        children: vec![polyline],
+    })
+}
+
+fn desugar_chart_bar(
+    _attrs: &HashMap<String, String>,
+    source: &str,
+    pos: usize,
+) -> Result<HtmlNode, ParseError> {
+    // Implemented in Task 14
+    Err(make_error(
+        source,
+        pos,
+        "bar chart desugaring not yet implemented".to_string(),
+    ))
+}
+
+fn desugar_chart_pie(
+    _attrs: &HashMap<String, String>,
+    source: &str,
+    pos: usize,
+) -> Result<HtmlNode, ParseError> {
+    // Implemented in Task 15
+    Err(make_error(
+        source,
+        pos,
+        "pie chart desugaring not yet implemented".to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -763,6 +940,77 @@ mod tests {
             assert_eq!(conditional_classes[1].expression, "gpu.temp > 95");
         } else {
             panic!("Expected Element");
+        }
+    }
+
+    #[test]
+    fn parse_chart_line_desugars_to_svg_polyline() {
+        let source = r#"<widget id="fps" name="FPS">
+<template>
+  <chart type="line" sensor="cpu.usage"/>
+</template>
+<style></style>
+</widget>"#;
+        let (file, _diagnostics) = parse_omni_with_diagnostics_hwinfo(source, false);
+        let file = file.expect("parse succeeded");
+        let widget = &file.widgets[0];
+        // The template root's first element child should be an <svg>
+        // containing a <polyline> whose points attribute has a chart_polyline call.
+        let svg = match &widget.template {
+            crate::omni::types::HtmlNode::Element { tag, children, .. } => {
+                if tag == "svg" {
+                    &widget.template
+                } else {
+                    children
+                        .iter()
+                        .find(|c| matches!(c, crate::omni::types::HtmlNode::Element { .. }))
+                        .expect("template should have an element child")
+                }
+            }
+            _ => panic!("template should be Element"),
+        };
+        match svg {
+            crate::omni::types::HtmlNode::Element {
+                tag,
+                children,
+                classes,
+                attributes,
+                ..
+            } => {
+                assert_eq!(tag, "svg");
+                assert!(
+                    classes.iter().any(|c| c == "omni-chart-line"),
+                    "svg should have omni-chart-line class, got {:?}",
+                    classes
+                );
+                // Should have a viewBox attribute
+                assert!(
+                    attributes.iter().any(|(k, _)| k == "viewBox"),
+                    "svg should have viewBox attribute, got {:?}",
+                    attributes
+                );
+                // Child should be a polyline with interpolated points
+                let polyline = children
+                    .iter()
+                    .find(|c| matches!(c, crate::omni::types::HtmlNode::Element { tag, .. } if tag == "polyline"))
+                    .expect("svg should contain a polyline child");
+                match polyline {
+                    crate::omni::types::HtmlNode::Element { attributes, .. } => {
+                        let points_attr = attributes
+                            .iter()
+                            .find(|(k, _)| k == "points")
+                            .expect("polyline should have points");
+                        assert!(
+                            points_attr.1.contains("chart_polyline"),
+                            "points should contain chart_polyline call: {}",
+                            points_attr.1
+                        );
+                        assert!(points_attr.1.contains("cpu.usage"));
+                    }
+                    _ => panic!("polyline child should be Element"),
+                }
+            }
+            _ => panic!("expected svg element, got {:?}", svg),
         }
     }
 
