@@ -39,9 +39,9 @@ extraFiles:
     to: 'resources/cacert.pem'
   - from: '../../vendor/ultralight/resources/icudt67l.dat'
     to: 'resources/icudt67l.dat'
-  # Feather icon font (used by host HTML builder)
-  - from: '../../crates/host/resources/feather.woff2'
-    to: 'feather.woff2'
+  # Feather icon font (used by host HTML builder — TTF for Ultralight compatibility)
+  - from: '../../crates/host/resources/feather.ttf'
+    to: 'feather.ttf'
   - from: '../../crates/host/resources/feather.css'
     to: 'feather.css'
   # Admin elevation manifest

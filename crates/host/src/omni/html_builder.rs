@@ -366,10 +366,10 @@ fn load_feather_css(_data_dir: &Path) -> String {
 
     let font_path = exe_dir
         .as_ref()
-        .map(|d| d.join("feather.woff2"))
+        .map(|d| d.join("feather.ttf"))
         .filter(|p| p.exists())
         .or_else(|| {
-            let dev_path = std::path::Path::new("crates/host/resources/feather.woff2");
+            let dev_path = std::path::Path::new("crates/host/resources/feather.ttf");
             if dev_path.exists() {
                 Some(dev_path.to_path_buf())
             } else {
@@ -381,7 +381,7 @@ fn load_feather_css(_data_dir: &Path) -> String {
         if let Ok(font_bytes) = std::fs::read(font) {
             let b64 = simple_base64_encode(&font_bytes);
             css.push_str(&format!(
-                r#"@font-face{{font-family:"feather";src:url("data:font/woff2;base64,{}") format("woff2");}}"#,
+                r#"@font-face{{font-family:"feather";src:url("data:font/truetype;base64,{}") format("truetype");}}"#,
                 b64
             ));
             css.push('\n');
