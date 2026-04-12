@@ -707,9 +707,10 @@ fn desugar_chart_card(
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
 
-    // Layout constants for v1
-    let (card_w, card_h) = (250i32, 110i32);
-    let (plot_x, plot_y, plot_w, plot_h) = (42i32, 22i32, 200i32, 72i32);
+    // Layout constants for v1. Default CSS font sizes: 10px title, 8px labels.
+    // Leaves ~8px padding between plot bottom (94) and x-labels (106).
+    let (card_w, card_h) = (260i32, 110i32);
+    let (plot_x, plot_y, plot_w, plot_h) = (48i32, 22i32, 200i32, 72i32);
 
     let mut children: Vec<HtmlNode> = Vec::new();
 
