@@ -75,9 +75,10 @@ impl Fingerprint {
     }
 
     pub fn to_hex(&self) -> String {
+        use std::fmt::Write;
         let mut s = String::with_capacity(12);
         for b in &self.0 {
-            s.push_str(&format!("{:02x}", b));
+            let _ = write!(s, "{:02x}", b);
         }
         s
     }
