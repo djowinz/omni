@@ -67,15 +67,13 @@ describe('applyPreviewDiff', () => {
   });
 
   it('applies attribute updates via setAttribute', () => {
-    const container = createContainer(
-      '<svg><polyline data-omni-id="omni-0" points="0,0"/></svg>',
-    );
+    const container = createContainer('<svg><polyline data-omni-id="omni-0" points="0,0"/></svg>');
     applyPreviewDiff(container, {
       'omni-0': { a: { points: '0,50 10,40 20,30' } },
     });
-    expect(
-      container.querySelector('[data-omni-id="omni-0"]')!.getAttribute('points'),
-    ).toBe('0,50 10,40 20,30');
+    expect(container.querySelector('[data-omni-id="omni-0"]')!.getAttribute('points')).toBe(
+      '0,50 10,40 20,30',
+    );
   });
 
   it('applies multiple attributes in one update', () => {

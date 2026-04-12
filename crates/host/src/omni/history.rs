@@ -103,9 +103,10 @@ impl SensorHistory {
         self.buffers.retain(|k, _| keep.contains(k));
     }
 
-    /// Iterate over registered sensor paths.
-    pub fn registered_iter(&self) -> impl Iterator<Item = String> + '_ {
-        self.registered.iter().cloned()
+    /// Iterate over registered sensor paths. Returns borrowed `&str` refs —
+    /// callers that need owned Strings can `.map(str::to_string)`.
+    pub fn registered_iter(&self) -> impl Iterator<Item = &str> + '_ {
+        self.registered.iter().map(String::as_str)
     }
 }
 

@@ -516,7 +516,14 @@ fn run_host() {
         while let Ok(snapshot) = sensor_rx.try_recv() {
             latest_snapshot = snapshot;
 
-            let registered: Vec<String> = host.sensor_history.registered_iter().collect();
+            // Collecting to owned Strings here avoids a mutable/immutable
+            // borrow conflict — we iterate registered paths then push_sample
+            // mutates the same struct.
+            let registered: Vec<String> = host
+                .sensor_history
+                .registered_iter()
+                .map(str::to_string)
+                .collect();
             if !registered.is_empty() {
                 let hwinfo_values_snapshot = ws_state
                     .hwinfo_state
@@ -551,7 +558,11 @@ fn run_host() {
 
         // Push HWiNFO-referenced chart sensor samples into history on update
         if hwinfo_updated {
-            let registered: Vec<String> = host.sensor_history.registered_iter().collect();
+            let registered: Vec<String> = host
+                .sensor_history
+                .registered_iter()
+                .map(str::to_string)
+                .collect();
             if !registered.is_empty() {
                 let hwinfo_values_now = ws_state
                     .hwinfo_state
