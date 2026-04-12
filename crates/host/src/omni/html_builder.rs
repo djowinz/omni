@@ -15,6 +15,21 @@ use super::interpolation::{interpolate, EvalCtx};
 use super::types::{HtmlNode, OmniFile};
 use omni_shared::SensorSnapshot;
 
+/// Default styling for `<chart>` and `<chart-card>` elements. Loaded before
+/// user widget styles so users can override any rule. Provides a reasonable
+/// out-of-the-box appearance on dark game overlays and the Electron preview.
+const DEFAULT_CHART_CSS: &str = r#"
+.omni-chart-line-stroke{stroke:#00D9FF;stroke-width:2;fill:none}
+.omni-chart-bar-track{fill:rgba(255,255,255,0.06)}
+.omni-chart-bar-fill{fill:#00D9FF;transition:height 300ms ease-out,y 300ms ease-out}
+.omni-chart-pie-track{stroke:rgba(255,255,255,0.1)}
+.omni-chart-pie-fill{stroke:#00D9FF;transition:stroke-dashoffset 500ms ease-out}
+.omni-chart-card{font-family:system-ui,-apple-system,sans-serif}
+.omni-chart-card-title{font-size:10px;font-weight:600;fill:#e5e5e5;letter-spacing:0.5px}
+.omni-chart-card-y-label{font-size:8px;fill:#888}
+.omni-chart-card-x-label{font-size:8px;fill:#666;letter-spacing:0.3px}
+"#;
+
 // ---------------------------------------------------------------------------
 // Initial HTML (called once, or on hot reload)
 // ---------------------------------------------------------------------------
@@ -79,9 +94,12 @@ pub fn build_initial_html(
 
     // Combine all CSS for the structured output.
     // Include the same base reset as full_document so the preview renders identically.
+    // Order: reset → feather → chart defaults → theme → widget. Widgets and themes
+    // override chart defaults; chart defaults override feather icons.
     let css = format!(
-        "*{{margin:0;padding:0;box-sizing:border-box}}\n{feather_css}\n{theme_css}\n{widget_css}",
+        "*{{margin:0;padding:0;box-sizing:border-box}}\n{feather_css}\n{chart_css}\n{theme_css}\n{widget_css}",
         feather_css = feather_css,
+        chart_css = DEFAULT_CHART_CSS,
         theme_css = theme_css,
         widget_css = widget_css,
     );
@@ -95,6 +113,7 @@ pub fn build_initial_html(
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:{vw}px;height:{vh}px;background:transparent;overflow:hidden}}
 {feather_css}
+{chart_css}
 {theme_css}
 {widget_css}
 </style>
@@ -129,6 +148,7 @@ function omniUpdate(data) {{
 </html>"#,
         vw = viewport_width,
         vh = viewport_height,
+        chart_css = DEFAULT_CHART_CSS,
     );
 
     InitialHtml {
