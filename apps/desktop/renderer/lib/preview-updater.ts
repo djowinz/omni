@@ -1,5 +1,5 @@
 export interface PreviewDiff {
-  [omniId: string]: { c?: string; t?: string };
+  [omniId: string]: { c?: string; t?: string; a?: Record<string, string> };
 }
 
 export function applyPreviewDiff(container: HTMLElement, diff: PreviewDiff): void {
@@ -7,7 +7,9 @@ export function applyPreviewDiff(container: HTMLElement, diff: PreviewDiff): voi
     const el = container.querySelector(`[data-omni-id="${id}"]`);
     if (!el) continue;
     if (update.c !== undefined) {
-      el.className = update.c;
+      // Use setAttribute so this works for both HTML and SVG elements.
+      // SVG elements have className as an SVGAnimatedString, not a writable string.
+      el.setAttribute('class', update.c);
     }
     if (update.t !== undefined) {
       // Target only the first text node child — matches Ultralight's omniUpdate behavior.
@@ -17,6 +19,11 @@ export function applyPreviewDiff(container: HTMLElement, diff: PreviewDiff): voi
           n.textContent = update.t;
           break;
         }
+      }
+    }
+    if (update.a) {
+      for (const [name, value] of Object.entries(update.a)) {
+        el.setAttribute(name, value);
       }
     }
   }
