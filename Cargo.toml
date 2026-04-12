@@ -1,5 +1,14 @@
 [workspace]
-members = ["crates/shared", "crates/host", "crates/overlay-exe", "crates/ultralight-sys"]
+members = [
+    "crates/shared",
+    "crates/host",
+    "crates/overlay-exe",
+    "crates/ultralight-sys",
+    "crates/omni-sanitize",
+    "crates/omni-bundle",
+    "crates/omni-guard-trait",
+    "crates/omni-identity",
+]
 resolver = "2"
 
 [profile.release]
