@@ -8,7 +8,6 @@ members = [
     "crates/omni-bundle",
     "crates/omni-guard-trait",
     "crates/omni-identity",
-    "crates/omni-contracts-smoke",
 ]
 resolver = "2"
 
