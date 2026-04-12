@@ -423,7 +423,6 @@ fn eval_ratio_dashoffset(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
 
 /// Scan `input` for `{...}` expressions and replace each with its
 /// evaluated result.
-#[allow(dead_code)]
 pub fn interpolate(input: &str, ctx: &EvalCtx) -> String {
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();

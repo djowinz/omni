@@ -375,7 +375,9 @@ fn collect_diff_entries(
 
             // Walk arbitrary attributes — any value containing `{...}` needs
             // to be re-evaluated each tick and emitted as an `a` update.
-            let mut update_a: HashMap<String, String> = HashMap::new();
+            // Defer HashMap allocation until the first interpolatable
+            // attribute is found, since most elements have none.
+            let mut update_a: Option<HashMap<String, String>> = None;
             for (name, value) in attributes {
                 if value.contains('{') {
                     let ctx = EvalCtx {
@@ -385,22 +387,19 @@ fn collect_diff_entries(
                         hwinfo_units,
                     };
                     let interpolated = interpolate(value, &ctx);
-                    update_a.insert(name.clone(), interpolated);
+                    update_a
+                        .get_or_insert_with(HashMap::new)
+                        .insert(name.clone(), interpolated);
                 }
             }
-            let update_a_opt = if update_a.is_empty() {
-                None
-            } else {
-                Some(update_a)
-            };
 
-            if update_c.is_some() || update_t.is_some() || update_a_opt.is_some() {
+            if update_c.is_some() || update_t.is_some() || update_a.is_some() {
                 diff.insert(
                     node_id,
                     ElementUpdate {
                         c: update_c,
                         t: update_t,
-                        a: update_a_opt,
+                        a: update_a,
                     },
                 );
             }
