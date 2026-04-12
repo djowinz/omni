@@ -1,0 +1,14 @@
+[package]
+name = "omni-identity"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+thiserror = "1"
+ed25519-dalek = "2"
+rand = "0.8"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+zeroize = "1"
