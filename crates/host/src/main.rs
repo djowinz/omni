@@ -508,12 +508,14 @@ fn run_host() {
             }
         }
 
+        // Drain the poller's snapshot channel. Each delivered snapshot represents
+        // one poll cycle, so push samples into the chart history ONCE per snapshot
+        // (not once per main-loop iteration). This keeps the 60-sample buffer
+        // aligned with sensor poll intervals — at the default 1 Hz, 60 samples
+        // is 60 seconds of history.
         while let Ok(snapshot) = sensor_rx.try_recv() {
             latest_snapshot = snapshot;
-        }
 
-        // Push registered chart sensor samples into history from the latest snapshot
-        {
             let registered: Vec<String> = host.sensor_history.registered_iter().collect();
             if !registered.is_empty() {
                 let hwinfo_values_snapshot = ws_state
