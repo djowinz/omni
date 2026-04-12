@@ -80,7 +80,12 @@ impl Unit {
     }
 
     /// Compute tick values for a [min, max] range targeting approximately
-    /// `target_count` ticks.
+    /// `target_count` ticks. Returns "nice" round-number tick positions via
+    /// Heckbert's algorithm. `chart-card` Y-axis labels use linear
+    /// interpolation across `nice_bounds` instead (to guarantee distinct
+    /// labels), but this is kept as a public API for widget authors who
+    /// want actual tick positions.
+    #[allow(dead_code)]
     pub fn nice_ticks(&self, min: f64, max: f64, target_count: usize) -> Vec<f64> {
         if min >= max || target_count == 0 {
             return vec![min, max];

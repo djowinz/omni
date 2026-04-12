@@ -274,12 +274,19 @@ fn eval_nice_tick(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     if count == 0 {
         return Some(unit.format(min));
     }
-    let ticks = unit.nice_ticks(min, max, count);
-    if ticks.is_empty() {
-        return Some(unit.format(0.0));
-    }
-    let clamped = index.min(ticks.len() - 1);
-    Some(unit.format(ticks[clamped]))
+    // Evenly interpolate `count` labels across the nice-rounded Y-axis range.
+    // nice_ticks sometimes returns fewer values than requested (for tight
+    // ranges), so using its length directly causes duplicate labels when
+    // `index` exceeds `len-1`. Linear interpolation across the nice bounds
+    // gives `count` distinct labels regardless of tick granularity.
+    let (nice_min, nice_max) = unit.nice_bounds(min, max);
+    let fraction = if count <= 1 {
+        0.0
+    } else {
+        index.min(count - 1) as f64 / (count - 1) as f64
+    };
+    let value = nice_min + fraction * (nice_max - nice_min);
+    Some(unit.format(value))
 }
 
 /// Compute scale bounds for a chart: use explicit min/max if provided,
