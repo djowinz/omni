@@ -300,4 +300,12 @@ mod tests {
             Err(IdentityError::BadPassphrase)
         ));
     }
+
+    #[test]
+    fn seed_is_zeroizing_wrapper() {
+        // Compile-time check: seed() must return Zeroizing<[u8; 32]>
+        let kp = Keypair::generate();
+        let s: zeroize::Zeroizing<[u8; 32]> = kp.seed();
+        assert_eq!(s.len(), 32);
+    }
 }
