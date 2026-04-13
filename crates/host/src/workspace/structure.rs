@@ -125,6 +125,54 @@ pub fn list_themes(data_dir: &Path) -> Vec<String> {
     names
 }
 
+/// List font filenames in the overlay's `fonts/` subdirectory.
+/// Returns only files with known font extensions (ttf/otf/woff/woff2), sorted.
+pub fn list_overlay_fonts(data_dir: &Path, overlay_name: &str) -> Vec<String> {
+    list_overlay_assets(
+        data_dir,
+        overlay_name,
+        "fonts",
+        &["ttf", "otf", "woff", "woff2"],
+    )
+}
+
+/// List image filenames in the overlay's `images/` subdirectory.
+/// Returns only files with known image extensions (png/jpg/jpeg/webp/gif/svg), sorted.
+pub fn list_overlay_images(data_dir: &Path, overlay_name: &str) -> Vec<String> {
+    list_overlay_assets(
+        data_dir,
+        overlay_name,
+        "images",
+        &["png", "jpg", "jpeg", "webp", "gif", "svg"],
+    )
+}
+
+fn list_overlay_assets(
+    data_dir: &Path,
+    overlay_name: &str,
+    subdir: &str,
+    exts: &[&str],
+) -> Vec<String> {
+    let dir = overlay_dir(data_dir, overlay_name).join(subdir);
+    let mut names = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else { continue; };
+            let ext_ok = Path::new(name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .is_some_and(|e| exts.iter().any(|x| *x == e));
+            if ext_ok {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names.sort();
+    names
+}
+
 /// Validate that a relative path doesn't escape the data directory.
 /// Rejects traversal, absolute paths, null bytes, and Windows alternate data streams.
 pub fn validate_relative_path(path: &str) -> Result<(), String> {
@@ -259,6 +307,43 @@ mod tests {
         let names = list_overlays(&dir);
         assert_eq!(names, vec!["Alpha", "Beta"]);
 
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn list_overlay_fonts_returns_supported_extensions() {
+        let dir = temp_dir();
+        let overlay = dir.join("overlays/Default");
+        fs::create_dir_all(overlay.join("fonts")).ok();
+        fs::write(overlay.join("fonts/SpaceMono.ttf"), b"").ok();
+        fs::write(overlay.join("fonts/Body.woff2"), b"").ok();
+        fs::write(overlay.join("fonts/readme.txt"), b"").ok();
+
+        let fonts = list_overlay_fonts(&dir, "Default");
+        assert_eq!(fonts, vec!["Body.woff2", "SpaceMono.ttf"]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn list_overlay_images_returns_supported_extensions() {
+        let dir = temp_dir();
+        let overlay = dir.join("overlays/Default");
+        fs::create_dir_all(overlay.join("images")).ok();
+        fs::write(overlay.join("images/logo.png"), b"").ok();
+        fs::write(overlay.join("images/bg.jpg"), b"").ok();
+        fs::write(overlay.join("images/icon.webp"), b"").ok();
+        fs::write(overlay.join("images/notes.txt"), b"").ok();
+
+        let images = list_overlay_images(&dir, "Default");
+        assert_eq!(images, vec!["bg.jpg", "icon.webp", "logo.png"]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn list_overlay_fonts_empty_when_missing() {
+        let dir = temp_dir();
+        fs::create_dir_all(dir.join("overlays/Default")).ok();
+        assert!(list_overlay_fonts(&dir, "Default").is_empty());
         cleanup(&dir);
     }
 
