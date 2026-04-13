@@ -1,19 +1,9 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { notImplemented } from "../lib/errors";
 
 const app = new Hono<AppEnv>();
 
-// GET /v1/download/:id
-app.get("/:id", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_IMPLEMENTED",
-        message: "route GET /v1/download/:id is not implemented yet (sub-spec #007 skeleton)",
-      },
-    },
-    501,
-  ),
-);
+app.get("/:id", () => notImplemented("GET /v1/download/:id"));
 
 export default app;

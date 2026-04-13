@@ -1,19 +1,9 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { notImplemented } from "../lib/errors";
 
 const app = new Hono<AppEnv>();
 
-// GET /v1/list
-app.get("/", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_IMPLEMENTED",
-        message: "route GET /v1/list is not implemented yet (sub-spec #007 skeleton)",
-      },
-    },
-    501,
-  ),
-);
+app.get("/", () => notImplemented("GET /v1/list"));
 
 export default app;

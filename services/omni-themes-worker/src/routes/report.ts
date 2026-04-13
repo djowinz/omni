@@ -1,19 +1,9 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { notImplemented } from "../lib/errors";
 
 const app = new Hono<AppEnv>();
 
-// POST /v1/report
-app.post("/", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_IMPLEMENTED",
-        message: "route POST /v1/report is not implemented yet (sub-spec #007 skeleton)",
-      },
-    },
-    501,
-  ),
-);
+app.post("/", () => notImplemented("POST /v1/report"));
 
 export default app;

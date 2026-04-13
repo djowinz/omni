@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./types";
+import { errorResponse } from "./lib/errors";
 import upload from "./routes/upload";
 import download from "./routes/download";
 import list from "./routes/list";
@@ -18,19 +19,11 @@ app.route("/v1/artifact", artifact);
 app.route("/v1/report", report);
 app.route("/v1/me/gallery", gallery);
 
-app.notFound((c) =>
-  c.json(
-    { error: { code: "NOT_FOUND", message: "no route matched" } },
-    404,
-  ),
-);
+app.notFound(() => errorResponse(404, "NOT_FOUND", "no route matched"));
 
-app.onError((err, c) => {
+app.onError((err) => {
   const message = err instanceof Error ? err.message : String(err);
-  return c.json(
-    { error: { code: "SERVER_ERROR", message } },
-    500,
-  );
+  return errorResponse(500, "SERVER_ERROR", message);
 });
 
 export default app;
