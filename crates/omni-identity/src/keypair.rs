@@ -40,8 +40,29 @@ impl Keypair {
         Self { signing: SigningKey::from_bytes(seed) }
     }
 
-    pub fn load_or_create(_path: &Path) -> Result<Self, IdentityError> {
-        todo!("Task 9")
+    pub fn load_or_create(path: &Path) -> Result<Self, IdentityError> {
+        if path.exists() {
+            let bytes = std::fs::read(path)?;
+            let seed = crate::format::decode_identity_key(&bytes)?;
+            #[cfg(windows)]
+            {
+                crate::acl::verify_user_only(path)?;
+            }
+            Ok(Self::from_seed(&seed))
+        } else {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let kp = Self::generate();
+            let seed = kp.seed();
+            let enc = crate::format::encode_identity_key(&seed);
+            crate::atomic::atomic_write(path, &enc)?;
+            #[cfg(windows)]
+            {
+                crate::acl::set_user_only(path)?;
+            }
+            Ok(kp)
+        }
     }
 
     pub fn export_encrypted(&self, _passphrase: &str) -> Result<Vec<u8>, IdentityError> {
@@ -87,5 +108,28 @@ mod tests {
         let seed = kp.seed();
         let kp2 = Keypair::from_seed(&seed);
         assert_eq!(kp.public_key(), kp2.public_key());
+    }
+
+    use tempfile::tempdir;
+
+    #[test]
+    fn load_or_create_generates_on_first_call() {
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("id").join("identity.key");
+        let kp = Keypair::load_or_create(&p).unwrap();
+        assert!(p.exists());
+        assert_eq!(std::fs::metadata(&p).unwrap().len(), 74);
+        // Second call returns same key
+        let kp2 = Keypair::load_or_create(&p).unwrap();
+        assert_eq!(kp.public_key(), kp2.public_key());
+    }
+
+    #[test]
+    fn load_rejects_corrupt_file() {
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("identity.key");
+        std::fs::write(&p, b"garbage").unwrap();
+        let result = Keypair::load_or_create(&p);
+        assert!(matches!(result, Err(IdentityError::Corrupt(_))));
     }
 }
