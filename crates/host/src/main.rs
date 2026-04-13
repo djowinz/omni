@@ -781,11 +781,7 @@ fn run_host() {
         let subs = ws_state.preview_subscribers.lock().unwrap();
         if !subs.is_empty() {
             drop(subs);
-            let preview_msg = json!({
-                "type": "preview.update",
-                "values": values,
-                "diff": class_diff,
-            });
+            let preview_msg = omni::preview::build_preview_payload(&values, class_diff.as_ref());
             ws_server::broadcast_preview(&ws_state, &preview_msg.to_string());
         }
         ul.update_and_render();
