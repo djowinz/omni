@@ -13,6 +13,7 @@ pub mod ul_string;
 pub mod units;
 pub mod validation;
 pub mod js_bootstrap;
+pub mod preview;
 pub mod view_trust;
 
 #[cfg(test)]
