@@ -48,8 +48,8 @@ pub struct InitialHtml {
 
 /// Build the complete HTML page. This is loaded into Ultralight once.
 /// The body contains all widget HTML with `data-omni-id` attributes for
-/// targeted JS updates. A small `omniUpdate` function is embedded in a
-/// `<script>` tag for receiving update payloads.
+/// targeted JS updates. The privileged bootstrap script is injected before
+/// `<style>` in `<head>` based on the supplied trust level.
 #[allow(clippy::too_many_arguments)]
 pub fn build_initial_html(
     omni_file: &OmniFile,
@@ -61,7 +61,9 @@ pub fn build_initial_html(
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
     history: &SensorHistory,
+    trust: crate::omni::view_trust::ViewTrust,
 ) -> InitialHtml {
+    let bootstrap = crate::omni::js_bootstrap::render_script_tag(trust);
     let mut widget_css = String::new();
     let mut widget_html = String::new();
     let mut counter: u32 = 0;
@@ -109,6 +111,7 @@ pub fn build_initial_html(
 <html>
 <head>
 <meta charset="utf-8">
+{bootstrap}
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:{vw}px;height:{vh}px;background:transparent;overflow:hidden}}
@@ -117,35 +120,12 @@ html,body{{width:{vw}px;height:{vh}px;background:transparent;overflow:hidden}}
 {theme_css}
 {widget_css}
 </style>
-<script>
-function omniUpdate(data) {{
-    for (const [id, info] of Object.entries(data)) {{
-        const el = document.querySelector('[data-omni-id="' + id + '"]');
-        if (!el) continue;
-        if (info.c !== undefined && el.className !== info.c) {{
-            el.className = info.c;
-        }}
-        if (info.t !== undefined) {{
-            for (const n of el.childNodes) {{
-                if (n.nodeType === 3 && n.textContent !== info.t) {{
-                    n.textContent = info.t;
-                    break;
-                }}
-            }}
-        }}
-        if (info.a !== undefined) {{
-            for (const [attr, val] of Object.entries(info.a)) {{
-                el.setAttribute(attr, val);
-            }}
-        }}
-    }}
-}}
-</script>
 </head>
 <body>
 {widget_html}
 </body>
 </html>"#,
+        bootstrap = bootstrap,
         vw = viewport_width,
         vh = viewport_height,
         chart_css = DEFAULT_CHART_CSS,
@@ -900,5 +880,90 @@ mod render_tests {
         let snap = SensorSnapshot::default();
         let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
         assert_eq!(html, "Hello");
+    }
+
+    fn minimal_omni_file() -> crate::omni::types::OmniFile {
+        use crate::omni::types::{OmniFile, Widget};
+        OmniFile {
+            theme_src: None,
+            poll_config: HashMap::new(),
+            widgets: vec![Widget {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                enabled: false,
+                template: HtmlNode::Text { content: "".into() },
+                style_source: String::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn initial_document_contains_bootstrap_and_trusted_flag() {
+        use crate::omni::view_trust::ViewTrust;
+        let omni_file = minimal_omni_file();
+        let snap = SensorSnapshot::default();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let history = SensorHistory::new();
+        let data_dir = std::path::Path::new(".");
+        let result = build_initial_html(
+            &omni_file,
+            &snap,
+            800,
+            600,
+            data_dir,
+            "test-overlay",
+            &hv,
+            &hu,
+            &history,
+            ViewTrust::LocalAuthored,
+        );
+        assert!(
+            result.full_document.contains("window.__omni_update"),
+            "full_document should contain window.__omni_update"
+        );
+        assert!(
+            result.full_document.contains("const TRUSTED = true;"),
+            "full_document should contain 'const TRUSTED = true;' for LocalAuthored"
+        );
+        assert!(
+            !result.full_document.contains("function omniUpdate"),
+            "full_document must not contain legacy 'function omniUpdate'"
+        );
+    }
+
+    #[test]
+    fn untrusted_document_defangs() {
+        use crate::omni::view_trust::ViewTrust;
+        let omni_file = minimal_omni_file();
+        let snap = SensorSnapshot::default();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let history = SensorHistory::new();
+        let data_dir = std::path::Path::new(".");
+        let result = build_initial_html(
+            &omni_file,
+            &snap,
+            800,
+            600,
+            data_dir,
+            "test-overlay",
+            &hv,
+            &hu,
+            &history,
+            ViewTrust::BundleInstalled,
+        );
+        assert!(
+            result.full_document.contains("const TRUSTED = false;"),
+            "full_document should contain 'const TRUSTED = false;' for BundleInstalled"
+        );
+        assert!(
+            result.full_document.contains("eval disabled"),
+            "full_document should contain 'eval disabled' defang for untrusted view"
+        );
+        assert!(
+            !result.full_document.contains("function omniUpdate"),
+            "full_document must not contain legacy 'function omniUpdate'"
+        );
     }
 }

@@ -16,3 +16,4 @@ pub mod js_bootstrap;
 pub mod view_trust;
 
 pub use types::*;
+pub use view_trust::ViewTrust;
