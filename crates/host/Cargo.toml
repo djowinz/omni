@@ -3,6 +3,14 @@ name = "omni-host"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "omni_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "omni-host"
+path = "src/main.rs"
+
 [dependencies]
 omni-shared = { path = "../shared" }
 ts-rs = { version = "10", features = ["serde-compat"] }

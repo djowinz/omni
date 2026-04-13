@@ -5,6 +5,12 @@ use sysinfo::System;
 
 pub struct RamPoller;
 
+impl Default for RamPoller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RamPoller {
     pub fn new() -> Self {
         Self

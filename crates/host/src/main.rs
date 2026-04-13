@@ -121,19 +121,10 @@ impl HostState {
     }
 }
 
-mod config;
-mod error;
-mod etw;
-mod hotkey;
-mod ipc;
-mod omni;
-mod scanner;
-mod sensors;
-mod ul_renderer;
-mod watcher;
-pub(crate) mod win32;
-mod workspace;
-mod ws_server;
+use omni_host::{
+    config, etw, hotkey, ipc, omni, scanner, sensors, ul_renderer, watcher, win32, workspace,
+    ws_server,
+};
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -431,7 +422,7 @@ fn run_host() {
             &hwinfo_units,
         );
         let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
-        if let Err(e) = ul.mount(&overlay_root, &initial.full_document, crate::omni::view_trust::ViewTrust::LocalAuthored) {
+        if let Err(e) = ul.mount(&overlay_root, &initial.full_document, omni_host::omni::view_trust::ViewTrust::LocalAuthored) {
             tracing::warn!(error = %e, "Failed to mount overlay");
         }
         store_and_broadcast_preview(&ws_state, &initial);
@@ -660,7 +651,7 @@ fn run_host() {
                 &hwinfo_units,
             );
             let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
-            if let Err(e) = ul.mount(&overlay_root, &initial.full_document, crate::omni::view_trust::ViewTrust::LocalAuthored) {
+            if let Err(e) = ul.mount(&overlay_root, &initial.full_document, omni_host::omni::view_trust::ViewTrust::LocalAuthored) {
                 tracing::warn!(error = %e, "Failed to mount overlay");
             }
             store_and_broadcast_preview(&ws_state, &initial);
