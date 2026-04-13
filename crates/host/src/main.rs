@@ -319,6 +319,7 @@ fn run_host() {
     let mut config = config::load_config(&config_path);
     let data_dir = config::data_dir();
     let scan_interval = Duration::from_millis(2000);
+    const ETW_RETRY_COOLDOWN: Duration = Duration::from_secs(5);
 
     // Initialize workspace folder structure (overlays/, themes/, Default overlay)
     workspace::structure::init_workspace(&data_dir);
@@ -379,7 +380,8 @@ fn run_host() {
 
     let mut etw_captures: std::collections::HashMap<u32, etw::EtwCapture> =
         std::collections::HashMap::new();
-    let mut etw_failed: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut etw_failed: std::collections::HashMap<u32, Instant> =
+        std::collections::HashMap::new();
 
     let mut host = HostState::new(overlay_name, data_dir.clone(), config_path.clone());
 
@@ -463,23 +465,34 @@ fn run_host() {
 
             // Start ETW capture for newly tracked external overlay processes
             for &pid in scanner_instance.tracked_pids() {
-                if !etw_captures.contains_key(&pid) && !etw_failed.contains(&pid) {
-                    match etw::EtwCapture::start(pid) {
-                        Ok(capture) => {
-                            info!(pid, "Started ETW frame capture");
-                            etw_captures.insert(pid, capture);
-                        }
-                        Err(e) => {
-                            warn!(pid, error = %e, "Failed to start ETW capture — frame metrics unavailable for this process");
-                            etw_failed.insert(pid);
-                        }
+                if etw_captures.contains_key(&pid) {
+                    continue;
+                }
+                // If this PID failed recently, back off before retrying.
+                if !should_retry_etw(pid, &etw_failed, ETW_RETRY_COOLDOWN) {
+                    continue;
+                }
+                match etw::EtwCapture::start(pid) {
+                    Ok(capture) => {
+                        info!(pid, "Started ETW frame capture");
+                        etw_captures.insert(pid, capture);
+                        etw_failed.remove(&pid);
+                    }
+                    Err(e) => {
+                        warn!(
+                            pid,
+                            error = %e,
+                            retry_in_secs = ETW_RETRY_COOLDOWN.as_secs(),
+                            "Failed to start ETW capture — will retry"
+                        );
+                        etw_failed.insert(pid, Instant::now());
                     }
                 }
             }
 
             // Clean up ETW sessions and failure tracking for exited processes
             etw_captures.retain(|pid, _| scanner_instance.is_tracked(*pid));
-            etw_failed.retain(|pid| scanner_instance.is_tracked(*pid));
+            etw_failed.retain(|pid, _| scanner_instance.is_tracked(*pid));
 
             if let Ok(mut game) = ws_state.active_game.lock() {
                 *game = scanner_instance.last_game_exe().map(|s| s.to_string());
@@ -795,4 +808,47 @@ fn run_host() {
         warn!("WebSocket server thread panicked: {e:?}");
     }
     info!("Omni host stopped");
+}
+
+/// Returns true if `pid` should be attempted. Either no prior failure is
+/// recorded, or the cooldown has elapsed since the last recorded failure.
+fn should_retry_etw(
+    pid: u32,
+    failures: &std::collections::HashMap<u32, Instant>,
+    cooldown: Duration,
+) -> bool {
+    match failures.get(&pid) {
+        None => true,
+        Some(last) => last.elapsed() >= cooldown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_retry_etw;
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn should_retry_when_no_prior_failure() {
+        let failures: HashMap<u32, Instant> = HashMap::new();
+        assert!(should_retry_etw(1234, &failures, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn should_not_retry_within_cooldown() {
+        let mut failures: HashMap<u32, Instant> = HashMap::new();
+        failures.insert(1234, Instant::now());
+        assert!(!should_retry_etw(1234, &failures, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn should_retry_after_cooldown_elapsed() {
+        let mut failures: HashMap<u32, Instant> = HashMap::new();
+        let long_ago = Instant::now()
+            .checked_sub(Duration::from_secs(3600))
+            .unwrap_or_else(Instant::now);
+        failures.insert(1234, long_ago);
+        assert!(should_retry_etw(1234, &failures, Duration::from_secs(5)));
+    }
 }
