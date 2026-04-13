@@ -16,9 +16,36 @@ pub fn pack(
     files: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>, BundleError> {
     if files.contains_key("manifest.json") {
-        return Err(BundleError::FileOrphan(
-            "manifest.json must not appear in files map; it is computed".into(),
+        return Err(BundleError::UnsafePath(
+            "manifest.json is a reserved name; remove it from files map".into(),
         ));
+    }
+
+    // Fast-fail structural checks before any hashing.
+    let total_entries = files.len() + 1;
+    if total_entries > MAX_ENTRIES {
+        return Err(BundleError::TooManyEntries { actual: total_entries });
+    }
+
+    // Reject duplicate paths in the manifest (BTreeMap would silently overwrite).
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for e in &manifest.files {
+        if !seen.insert(e.path.as_str()) {
+            return Err(BundleError::UnsafePath(format!(
+                "duplicate manifest entry: {}",
+                e.path
+            )));
+        }
+    }
+
+    // entry_overlay and default_theme must be listed in files.
+    if !manifest.files.iter().any(|e| e.path == manifest.entry_overlay) {
+        return Err(BundleError::FileMissing(manifest.entry_overlay.clone()));
+    }
+    if let Some(theme) = &manifest.default_theme {
+        if !manifest.files.iter().any(|e| &e.path == theme) {
+            return Err(BundleError::FileMissing(theme.clone()));
+        }
     }
 
     let entries: BTreeMap<&str, &[u8; 32]> = manifest
@@ -53,11 +80,6 @@ pub fn pack(
                 actual: hex::encode(actual),
             });
         }
-    }
-
-    let total_entries = files.len() + 1;
-    if total_entries > MAX_ENTRIES {
-        return Err(BundleError::TooManyEntries { actual: total_entries });
     }
 
     let manifest_bytes = pretty_manifest_bytes(manifest).map_err(BundleError::Json)?;

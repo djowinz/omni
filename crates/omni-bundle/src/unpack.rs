@@ -7,11 +7,21 @@ use zip::ZipArchive;
 use crate::error::BundleError;
 use crate::manifest::Manifest;
 use crate::path::{check_size, validate_path};
-use crate::{MAX_BUNDLE_UNCOMPRESSED, MAX_COMPRESSION_RATIO, MAX_ENTRIES};
+use crate::{
+    MAX_BUNDLE_COMPRESSED, MAX_BUNDLE_UNCOMPRESSED, MAX_COMPRESSION_RATIO, MAX_ENTRIES,
+};
 
 pub fn unpack(
     zip_bytes: &[u8],
 ) -> Result<(Manifest, BTreeMap<String, Vec<u8>>), BundleError> {
+    if (zip_bytes.len() as u64) > MAX_BUNDLE_COMPRESSED {
+        return Err(BundleError::SizeExceeded {
+            kind: "bundle-compressed".into(),
+            actual: zip_bytes.len() as u64,
+            limit: MAX_BUNDLE_COMPRESSED,
+        });
+    }
+
     let mut zip = ZipArchive::new(Cursor::new(zip_bytes)).map_err(BundleError::Zip)?;
 
     if zip.len() > MAX_ENTRIES {
@@ -40,8 +50,10 @@ pub fn unpack(
         let compressed = entry.compressed_size();
         let uncompressed = entry.size();
         if compressed > 0 {
-            let ratio = uncompressed / compressed;
-            if ratio > MAX_COMPRESSION_RATIO {
+            // uncompressed > compressed * MAX_COMPRESSION_RATIO (no division; exact).
+            let limit = compressed.saturating_mul(MAX_COMPRESSION_RATIO);
+            if uncompressed > limit {
+                let ratio = uncompressed / compressed.max(1);
                 return Err(BundleError::ZipBomb(ratio));
             }
         }
@@ -122,8 +134,20 @@ fn validate_manifest_semantics(m: &Manifest) -> Result<(), BundleError> {
             m.entry_overlay
         )));
     }
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in &m.files {
         let _ = validate_path(&e.path)?;
+        if !seen.insert(e.path.as_str()) {
+            return Err(BundleError::UnsafePath(format!("duplicate manifest entry: {}", e.path)));
+        }
+    }
+    if !m.files.iter().any(|e| e.path == m.entry_overlay) {
+        return Err(BundleError::FileMissing(m.entry_overlay.clone()));
+    }
+    if let Some(theme) = &m.default_theme {
+        if !m.files.iter().any(|e| &e.path == theme) {
+            return Err(BundleError::FileMissing(theme.clone()));
+        }
     }
     Ok(())
 }
