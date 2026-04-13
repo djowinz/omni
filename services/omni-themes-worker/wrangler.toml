@@ -1,0 +1,44 @@
+name = "omni-themes-worker"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+workers_dev = false
+
+# Route is filled in post-provisioning with the user's chosen TLD.
+# Example (prod): route = { pattern = "themes.omni.example.com/*", zone_name = "omni.example.com" }
+# Leave commented until the user wires up DNS so `wrangler deploy` does not fail for unrelated sub-specs.
+
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "omni-themes-blobs"
+
+[[d1_databases]]
+binding = "META"
+database_name = "omni-themes-meta"
+database_id = "00000000-0000-0000-0000-000000000000"  # <fill-in-after-provisioning>
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "00000000000000000000000000000000"  # <fill-in-after-provisioning> (32-char hex)
+
+[[durable_objects.bindings]]
+name = "BUNDLE_PROCESSOR"
+class_name = "BundleProcessor"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["BundleProcessor"]
+
+[vars]
+OMNI_THEMES_ENV = "prod"
+OMNI_THEMES_RATE_LIMIT_SCALE = "1"
+
+[env.dev]
+# Example dev route, commented so deploys don't fail:
+# route = { pattern = "themes-dev.omni.example.com/*", zone_name = "omni.example.com" }
+
+[env.dev.vars]
+OMNI_THEMES_ENV = "dev"
+OMNI_THEMES_RATE_LIMIT_SCALE = "10"
