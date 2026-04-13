@@ -20,14 +20,10 @@ pub type ULBuffer = *mut c_void;
 /// `ulPlatformSetFileSystem` to intercept all resource loads performed by views.
 #[repr(C)]
 pub struct ULFileSystem {
-    pub file_exists:
-        Option<unsafe extern "C" fn(path: ULString) -> bool>,
-    pub get_file_mime_type:
-        Option<unsafe extern "C" fn(path: ULString) -> ULString>,
-    pub get_file_charset:
-        Option<unsafe extern "C" fn(path: ULString) -> ULString>,
-    pub open_file:
-        Option<unsafe extern "C" fn(path: ULString) -> ULBuffer>,
+    pub file_exists: Option<unsafe extern "C" fn(path: ULString) -> bool>,
+    pub get_file_mime_type: Option<unsafe extern "C" fn(path: ULString) -> ULString>,
+    pub get_file_charset: Option<unsafe extern "C" fn(path: ULString) -> ULString>,
+    pub open_file: Option<unsafe extern "C" fn(path: ULString) -> ULBuffer>,
 }
 
 /// Integer rectangle (used for dirty bounds).
