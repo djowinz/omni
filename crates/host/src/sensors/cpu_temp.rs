@@ -24,6 +24,12 @@ pub struct CpuTempPoller {
     connection: Option<WMIConnection>,
 }
 
+impl Default for CpuTempPoller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpuTempPoller {
     /// Initialize WMI connection to root\WMI namespace.
     /// Returns a poller that always works — if WMI connection fails,
