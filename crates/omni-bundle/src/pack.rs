@@ -46,7 +46,7 @@ pub fn pack(
 
         let expected = entries[path.as_str()];
         let actual = sha256_of(bytes);
-        if &actual != *expected {
+        if actual != *expected {
             return Err(BundleError::HashMismatch {
                 path: path.clone(),
                 manifest: hex::encode(expected),
