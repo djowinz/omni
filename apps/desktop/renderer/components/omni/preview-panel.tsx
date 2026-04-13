@@ -11,12 +11,6 @@ export function PreviewPanel() {
   const backend = useBackend();
   const sensorData = useSensorData();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  // Track the last-applied html/css so we can skip the iframe rebuild when
-  // the host re-broadcasts identical content (e.g. from widget.apply with
-  // no structural change). Rebuilding via doc.open/write/close causes a
-  // visible flicker and resets any in-progress CSS animations.
-  const lastHtmlRef = useRef<string | null>(null);
-  const lastCssRef = useRef<string | null>(null);
 
   // Subscribe to preview when connected
   useEffect(() => {
@@ -28,14 +22,6 @@ export function PreviewPanel() {
   const handlePreviewHtml = useCallback((data: { html: string; css: string }) => {
     const doc = iframeRef.current?.contentDocument;
     if (!doc) return;
-
-    // Skip the rebuild if the payload is identical to what's already rendered.
-    // Incremental attribute/class/text changes still arrive via preview.update.
-    if (data.html === lastHtmlRef.current && data.css === lastCssRef.current) {
-      return;
-    }
-    lastHtmlRef.current = data.html;
-    lastCssRef.current = data.css;
 
     // Write a complete HTML document. position:fixed inside the iframe
     // resolves relative to the iframe's viewport, not the outer window.
@@ -76,10 +62,6 @@ ${data.css}
         doc.write('<!DOCTYPE html><html><head></head><body></body></html>');
         doc.close();
       }
-      // Reset the dedupe cache so the first preview.html after reconnect
-      // forces a rebuild even if payload matches what we had before.
-      lastHtmlRef.current = null;
-      lastCssRef.current = null;
     }
   }, [state.connected]);
 

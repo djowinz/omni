@@ -386,16 +386,11 @@ fn handle_message(
             let has_errors = diagnostics
                 .iter()
                 .any(|d| d.severity == crate::omni::parser::Severity::Error);
-            // Only apply if the parse produced a non-empty file with no errors.
-            // Guard against clients that accidentally send unrelated content
-            // (e.g. a CSS theme file) — the parser would return an OmniFile
-            // with zero widgets, which would clobber the live preview.
+            // Only apply if no errors
             if !has_errors {
                 if let Some(ref f) = file {
-                    if !f.widgets.is_empty() {
-                        if let Ok(mut active) = state.active_omni_file.lock() {
-                            *active = Some(f.clone());
-                        }
+                    if let Ok(mut active) = state.active_omni_file.lock() {
+                        *active = Some(f.clone());
                     }
                 }
             }

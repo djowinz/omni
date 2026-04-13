@@ -5,15 +5,8 @@
 
 use super::parser::ParseError;
 
-/// Known element names supported in .omni templates. Includes HTML (div,
-/// span, i) plus the SVG subset used by the charting system.
-pub const KNOWN_ELEMENTS: &[&str] = &[
-    // HTML
-    "div", "span", "i",
-    // SVG container and shapes used by <chart> / <chart-card> desugaring
-    "svg", "g", "polyline", "path", "rect", "circle", "line", "text", "ellipse",
-    "polygon", "defs", "linearGradient", "radialGradient", "stop",
-];
+/// Known HTML element names supported in .omni templates.
+pub const KNOWN_ELEMENTS: &[&str] = &["div", "span", "i"];
 
 /// Known sensor paths for interpolation expressions.
 pub const KNOWN_SENSOR_PATHS: &[&str] = &[
@@ -140,17 +133,6 @@ pub fn validate_sensor_paths_with_hwinfo(
             }
             if found_close && !path.is_empty() {
                 let path = path.trim();
-                // Function-call interpolation (e.g. `chart_polyline(cpu.usage, 200, 60)`,
-                // `nice_tick(sensor, unit, i, n)`, `format_value(...)`). These are
-                // handled by the interpolation dispatcher at runtime — skip sensor-path
-                // validation. Sensor paths with a precision suffix (e.g. `cpu.usage(2)`)
-                // contain a `.` before the `(`, so we can distinguish them from
-                // function calls which use bare identifiers.
-                if let Some(paren_idx) = path.find('(') {
-                    if path.ends_with(')') && !path[..paren_idx].contains('.') {
-                        continue;
-                    }
-                }
                 if path.starts_with("hwinfo.") {
                     if !hwinfo_connected && !hwinfo_warned {
                         hwinfo_warned = true;

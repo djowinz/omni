@@ -55,11 +55,6 @@ pub enum HtmlNode {
         inline_style: Option<String>,
         /// Conditional class bindings (`class:name="expr"`).
         conditional_classes: Vec<ConditionalClass>,
-        /// Arbitrary attributes beyond tag/id/class/style (e.g., SVG points,
-        /// d, width, height, viewBox). May contain `{...}` interpolations.
-        /// Stored as a `Vec` of `(name, value)` pairs to preserve insertion
-        /// order for deterministic diffs.
-        attributes: Vec<(String, String)>,
         children: Vec<HtmlNode>,
     },
     Text {
@@ -97,7 +92,6 @@ mod tests {
                     classes: vec![],
                     inline_style: None,
                     conditional_classes: vec![],
-                    attributes: vec![],
                     children: vec![HtmlNode::Text {
                         content: "{fps}".to_string(),
                     }],
@@ -120,7 +114,6 @@ mod tests {
             classes: vec!["panel".to_string(), "active".to_string()],
             inline_style: Some("color: red;".to_string()),
             conditional_classes: vec![],
-            attributes: vec![],
             children: vec![],
         };
 

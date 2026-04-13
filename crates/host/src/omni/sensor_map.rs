@@ -69,21 +69,6 @@ fn nan_to_none(v: f64) -> Option<f64> {
     }
 }
 
-/// Look up a raw sensor value by path. Returns None if the path is unknown
-/// or the value is unavailable (NaN). Unlike `get_sensor_value_with_hwinfo`
-/// this does not format or convert the value.
-pub fn get_sensor_value_f64(
-    path: &str,
-    snapshot: &SensorSnapshot,
-    hwinfo_values: &std::collections::HashMap<String, f64>,
-) -> Option<f64> {
-    // Check hwinfo first (dynamic paths take precedence)
-    if let Some(v) = hwinfo_values.get(path) {
-        return Some(*v);
-    }
-    get_raw_value(path, snapshot)
-}
-
 /// Get the formatted string value for a sensor path from a snapshot.
 pub fn get_sensor_value(path: &str, snapshot: &SensorSnapshot) -> String {
     get_sensor_value_with_hwinfo(
@@ -207,37 +192,5 @@ mod tests {
     fn nan_temp_returns_na() {
         let snapshot = SensorSnapshot::default();
         assert_eq!(get_sensor_value("cpu.temp", &snapshot), "N/A");
-    }
-
-    #[test]
-    fn get_sensor_value_f64_cpu_usage() {
-        let mut snapshot = SensorSnapshot::default();
-        snapshot.cpu.total_usage_percent = 42.0;
-        let hv = std::collections::HashMap::new();
-        assert_eq!(
-            super::get_sensor_value_f64("cpu.usage", &snapshot, &hv),
-            Some(42.0)
-        );
-    }
-
-    #[test]
-    fn get_sensor_value_f64_hwinfo_wins() {
-        let snapshot = SensorSnapshot::default();
-        let mut hv = std::collections::HashMap::new();
-        hv.insert("cpu.usage".to_string(), 99.0);
-        assert_eq!(
-            super::get_sensor_value_f64("cpu.usage", &snapshot, &hv),
-            Some(99.0)
-        );
-    }
-
-    #[test]
-    fn get_sensor_value_f64_unknown_returns_none() {
-        let snapshot = SensorSnapshot::default();
-        let hv = std::collections::HashMap::new();
-        assert_eq!(
-            super::get_sensor_value_f64("unknown.path", &snapshot, &hv),
-            None
-        );
     }
 }
