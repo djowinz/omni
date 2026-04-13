@@ -1,7 +1,8 @@
 //! Safe wrapper around Ultralight C API for headless overlay rendering.
 
 use std::ffi::CString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use tracing::info;
 
@@ -9,6 +10,9 @@ use crate::omni::fs_dispatcher;
 use crate::omni::overlay_fs::OverlayFilesystem;
 use crate::omni::trust_filter;
 use crate::omni::view_trust::ViewTrust;
+
+/// Filename of the scratch HTML written into the overlay root on mount.
+const SCRATCH_NAME: &str = ".omni_current.html";
 
 /// Safe wrapper around Ultralight renderer + view.
 pub struct UlRenderer {
@@ -18,6 +22,7 @@ pub struct UlRenderer {
     view_config: ultralight_sys::ULViewConfig,
     width: u32,
     height: u32,
+    last_scratch_dir: Mutex<Option<PathBuf>>,
 }
 
 impl UlRenderer {
@@ -71,6 +76,7 @@ impl UlRenderer {
                 view_config,
                 width,
                 height,
+                last_scratch_dir: Mutex::new(None),
             })
         }
     }
@@ -88,14 +94,43 @@ impl UlRenderer {
         html: &str,
         trust: ViewTrust,
     ) -> Result<(), String> {
+        // DESIGN NOTE:
+        // - Ultralight loads asynchronously on the next `update_and_render`, so the FS
+        //   dispatcher and trust filter MUST be configured before `ulViewLoadURL` —
+        //   otherwise the load races the platform state and can resolve against the
+        //   wrong scope.
+        // - The scratch file persists on disk until the next `mount` (which overwrites
+        //   or removes it) or until `Drop` (which best-effort-removes it). We rely on
+        //   Ultralight finishing the load before a subsequent `mount` mutates the file.
+        // - The process-global `ACTIVE` slot in `fs_dispatcher` couples this renderer
+        //   to a single View at a time; multi-view support would require rework of
+        //   that dispatcher to key by view pointer.
         fs_dispatcher::set_active(OverlayFilesystem::new(overlay_root.to_path_buf()));
         unsafe { trust_filter::apply(self.view, trust); }
 
-        let scratch = overlay_root.join(".omni_current.html");
+        std::fs::create_dir_all(overlay_root).map_err(|e| {
+            format!("failed to create overlay root {}: {e}", overlay_root.display())
+        })?;
+
+        // If a previous mount used a different directory, best-effort-remove its
+        // scratch file so we don't leak orphans when switching overlays.
+        {
+            let guard = self.last_scratch_dir.lock().expect("scratch dir mutex poisoned");
+            if let Some(prev) = guard.as_ref() {
+                if prev.as_path() != overlay_root {
+                    let _ = std::fs::remove_file(prev.join(SCRATCH_NAME));
+                }
+            }
+        }
+
+        let scratch = overlay_root.join(SCRATCH_NAME);
         std::fs::write(&scratch, html)
             .map_err(|e| format!("failed to write scratch HTML to {}: {e}", scratch.display()))?;
 
-        let url = "file:///.omni_current.html";
+        *self.last_scratch_dir.lock().expect("scratch dir mutex poisoned") =
+            Some(overlay_root.to_path_buf());
+
+        let url = format!("file:///{}", SCRATCH_NAME);
         unsafe {
             let c = std::ffi::CString::new(url).map_err(|e| format!("url cstring: {e}"))?;
             let ul_url = ultralight_sys::ulCreateString(c.as_ptr());
@@ -103,21 +138,6 @@ impl UlRenderer {
             ultralight_sys::ulDestroyString(ul_url);
         }
         Ok(())
-    }
-
-    /// Load an HTML string into the view.
-    #[deprecated(note = "use mount(...) with an explicit overlay root")]
-    #[allow(dead_code)]
-    pub fn load_html(&self, html: &str) {
-        unsafe {
-            let c_html = CString::new(html).unwrap_or_else(|_| {
-                // Strip null bytes if present
-                CString::new(html.replace('\0', "")).unwrap()
-            });
-            let ul_html = ultralight_sys::ulCreateString(c_html.as_ptr());
-            ultralight_sys::ulViewLoadHTML(self.view, ul_html);
-            ultralight_sys::ulDestroyString(ul_html);
-        }
     }
 
     /// Execute a JavaScript string in the view.
@@ -200,6 +220,13 @@ impl UlRenderer {
 
 impl Drop for UlRenderer {
     fn drop(&mut self) {
+        // Best-effort-remove the scratch file from the last successful mount.
+        if let Ok(mut guard) = self.last_scratch_dir.lock() {
+            if let Some(dir) = guard.take() {
+                let _ = std::fs::remove_file(dir.join(SCRATCH_NAME));
+            }
+        }
+
         unsafe {
             ultralight_sys::ulDestroyView(self.view);
             ultralight_sys::ulDestroyViewConfig(self.view_config);
