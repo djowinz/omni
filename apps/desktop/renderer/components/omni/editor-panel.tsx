@@ -136,10 +136,15 @@ export function EditorPanel() {
 
   const backend = useBackend();
 
-  // Debounced apply: send content to backend every 400ms for live preview + markers
+  // Debounced apply: send content to backend every 400ms for live preview + markers.
+  // Only apply for overlay tabs — theme tabs contain CSS which is not a valid
+  // .omni file and would cause the host to rebuild with an empty OmniFile,
+  // blanking the preview. Theme CSS reaches the preview via the overlay's
+  // <theme src="..."/> import (host reads the file from disk on apply).
   useEffect(() => {
     const content = displayContent ?? '';
     if (!content || !editorRef.current || !monacoRef.current) return;
+    if (displayType !== 'overlay') return;
 
     const timer = setTimeout(async () => {
       try {
@@ -169,7 +174,7 @@ export function EditorPanel() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [displayContent, backend]);
+  }, [displayContent, displayType, backend]);
 
   // Handle save — delegates to state hook which handles file write + auto-apply
   const handleSave = useCallback(async () => {

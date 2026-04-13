@@ -14,7 +14,9 @@ describe('applyPreviewDiff', () => {
     applyPreviewDiff(container, {
       'omni-0': { c: 'new active' },
     });
-    expect(container.querySelector('[data-omni-id="omni-0"]')!.className).toBe('new active');
+    expect(container.querySelector('[data-omni-id="omni-0"]')!.getAttribute('class')).toBe(
+      'new active',
+    );
   });
 
   it('updates textContent on element by omni-id', () => {
@@ -31,7 +33,7 @@ describe('applyPreviewDiff', () => {
       'omni-1': { c: 'hot warning', t: '95%' },
     });
     const el = container.querySelector('[data-omni-id="omni-1"]')!;
-    expect(el.className).toBe('hot warning');
+    expect(el.getAttribute('class')).toBe('hot warning');
     expect(el.textContent).toBe('95%');
   });
 
@@ -62,6 +64,45 @@ describe('applyPreviewDiff', () => {
     // Text node updated but child span preserved
     expect(el.querySelector('[data-omni-id="omni-1"]')).not.toBeNull();
     expect(el.childNodes[0].textContent).toBe('GPU: ');
+  });
+
+  it('applies attribute updates via setAttribute', () => {
+    const container = createContainer('<svg><polyline data-omni-id="omni-0" points="0,0"/></svg>');
+    applyPreviewDiff(container, {
+      'omni-0': { a: { points: '0,50 10,40 20,30' } },
+    });
+    expect(container.querySelector('[data-omni-id="omni-0"]')!.getAttribute('points')).toBe(
+      '0,50 10,40 20,30',
+    );
+  });
+
+  it('applies multiple attributes in one update', () => {
+    const container = createContainer(
+      '<svg><rect data-omni-id="omni-0" x="0" y="0" width="10" height="10"/></svg>',
+    );
+    applyPreviewDiff(container, {
+      'omni-0': { a: { height: '42', y: '8' } },
+    });
+    const el = container.querySelector('[data-omni-id="omni-0"]')!;
+    expect(el.getAttribute('height')).toBe('42');
+    expect(el.getAttribute('y')).toBe('8');
+  });
+
+  it('combines className, textContent, and attributes in one update', () => {
+    const container = createContainer(
+      '<svg><circle data-omni-id="omni-0" r="10" class="old">label</circle></svg>',
+    );
+    applyPreviewDiff(container, {
+      'omni-0': {
+        c: 'hot',
+        t: 'label2',
+        a: { r: '20' },
+      },
+    });
+    const el = container.querySelector('[data-omni-id="omni-0"]')!;
+    expect(el.getAttribute('class')).toBe('hot');
+    expect(el.textContent).toBe('label2');
+    expect(el.getAttribute('r')).toBe('20');
   });
 
   it('updates multiple elements in one diff', () => {
