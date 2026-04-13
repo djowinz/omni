@@ -1,46 +1,14 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { notImplemented } from "../lib/errors";
 
 const app = new Hono<AppEnv>();
 
-// GET /v1/artifact/:id
-app.get("/:id", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_IMPLEMENTED",
-        message: "route GET /v1/artifact/:id is not implemented yet (sub-spec #007 skeleton)",
-      },
-    },
-    501,
-  ),
-);
+app.get("/:id", () => notImplemented("GET /v1/artifact/:id"));
 
-// PATCH /v1/artifact/:id
-app.patch("/:id", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_IMPLEMENTED",
-        message:
-          "route PATCH /v1/artifact/:id is not implemented yet (sub-spec #007 skeleton; #008 will proxy to BundleProcessor DO)",
-      },
-    },
-    501,
-  ),
-);
+// #008 will swap PATCH to proxy into env.BUNDLE_PROCESSOR (same path as uploads).
+app.patch("/:id", () => notImplemented("PATCH /v1/artifact/:id"));
 
-// DELETE /v1/artifact/:id
-app.delete("/:id", (c) =>
-  c.json(
-    {
-      error: {
-        code: "NOT_IMPLEMENTED",
-        message: "route DELETE /v1/artifact/:id is not implemented yet (sub-spec #007 skeleton)",
-      },
-    },
-    501,
-  ),
-);
+app.delete("/:id", () => notImplemented("DELETE /v1/artifact/:id"));
 
 export default app;
