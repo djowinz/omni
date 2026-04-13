@@ -12,7 +12,6 @@
 //! `MAX_PATH_DEPTH` limit because Ultralight's internal assets can be
 //! nested more than two directories deep.
 
-use std::ffi::CString;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::{Once, OnceLock, RwLock};
@@ -21,8 +20,8 @@ use tracing::{debug, warn};
 use ultralight_sys as ul;
 
 use super::overlay_fs::{OverlayFilesystem, ResolveError};
+use super::ul_string;
 
-#[allow(dead_code)]
 static INSTALL_ONCE: Once = Once::new();
 static ACTIVE: RwLock<Option<OverlayFilesystem>> = RwLock::new(None);
 static RESOURCES_FS: OnceLock<OverlayFilesystem> = OnceLock::new();
@@ -31,7 +30,6 @@ static RESOURCES_FS: OnceLock<OverlayFilesystem> = OnceLock::new();
 /// Safe to call multiple times; only the first call registers the vtable
 /// with Ultralight (subsequent calls ignore the resources arg).
 /// Must be called instead of `ulEnablePlatformFileSystem`.
-#[allow(dead_code)]
 pub fn install_with_resources(resources_dir: PathBuf) {
     if RESOURCES_FS
         .set(OverlayFilesystem::new_resources_root(resources_dir.clone()))
@@ -72,15 +70,10 @@ fn resolve_in_resources(req: &str) -> Option<PathBuf> {
 }
 
 // ── C-ABI trampolines ────────────────────────────────────────────────
-//
-// The trampolines and their helpers are only reached through the
-// Ultralight vtable registered inside `INSTALL_ONCE.call_once`. Under
-// `cargo test` no test invokes `install_with_resources`, so rustc flags
-// them as dead. They are load-bearing in production.
-#[allow(dead_code)]
+
 unsafe extern "C" fn cb_file_exists(path: ul::ULString) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        let req = ul_string_to_string(path);
+        let req = ul_string::from_ul(path);
         let guard = match ACTIVE.read() {
             Ok(g) => g,
             Err(_) => return false,
@@ -100,27 +93,24 @@ unsafe extern "C" fn cb_file_exists(path: ul::ULString) -> bool {
     .unwrap_or(false)
 }
 
-#[allow(dead_code)]
 unsafe extern "C" fn cb_file_mime_type(path: ul::ULString) -> ul::ULString {
     catch_unwind(AssertUnwindSafe(|| {
-        let req = ul_string_to_string(path);
+        let req = ul_string::from_ul(path);
         let p = Path::new(&req);
         let mime = OverlayFilesystem::mime_type(p);
-        string_to_ul(mime)
+        ul_string::to_ul(mime)
     }))
-    .unwrap_or_else(|_| string_to_ul("application/octet-stream"))
+    .unwrap_or_else(|_| ul_string::to_ul("application/octet-stream"))
 }
 
-#[allow(dead_code)]
 unsafe extern "C" fn cb_file_charset(_path: ul::ULString) -> ul::ULString {
-    catch_unwind(AssertUnwindSafe(|| string_to_ul("utf-8")))
-        .unwrap_or_else(|_| string_to_ul("utf-8"))
+    catch_unwind(AssertUnwindSafe(|| ul_string::to_ul("utf-8")))
+        .unwrap_or_else(|_| ul_string::to_ul("utf-8"))
 }
 
-#[allow(dead_code)]
 unsafe extern "C" fn cb_open_file(path: ul::ULString) -> ul::ULBuffer {
     catch_unwind(AssertUnwindSafe(|| {
-        let req = ul_string_to_string(path);
+        let req = ul_string::from_ul(path);
         let guard = match ACTIVE.read() {
             Ok(g) => g,
             Err(_) => return std::ptr::null_mut(),
@@ -145,9 +135,13 @@ unsafe extern "C" fn cb_open_file(path: ul::ULString) -> ul::ULBuffer {
 
         match std::fs::read(&path_buf) {
             Ok(bytes) => {
-                if bytes.is_empty() {
-                    return std::ptr::null_mut();
-                }
+                // Zero-length buffers are well-defined here: Ultralight's
+                // `ulCreateBufferFromCopy` performs no size assertion (see
+                // vendor/ultralight/include/CAPI/CAPI_Buffer.h), and
+                // `bytes.as_ptr()` on an empty Vec returns a non-null,
+                // aligned dangling pointer per the Rust reference — a 0-byte
+                // copy is a no-op. This preserves intentionally-empty assets
+                // (e.g. empty CSS files) instead of surfacing them as 404s.
                 ul::ulCreateBufferFromCopy(bytes.as_ptr() as *const _, bytes.len())
             }
             Err(e) => {
@@ -161,29 +155,6 @@ unsafe extern "C" fn cb_open_file(path: ul::ULString) -> ul::ULBuffer {
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-#[allow(dead_code)]
-unsafe fn ul_string_to_string(s: ul::ULString) -> String {
-    if s.is_null() {
-        return String::new();
-    }
-    let data = ul::ulStringGetData(s);
-    let len = ul::ulStringGetLength(s);
-    if data.is_null() || len == 0 {
-        return String::new();
-    }
-    let slice = std::slice::from_raw_parts(data as *const u8, len);
-    String::from_utf8_lossy(slice).into_owned()
-}
-
-#[allow(dead_code)]
-unsafe fn string_to_ul(s: &str) -> ul::ULString {
-    match CString::new(s) {
-        Ok(c) => ul::ulCreateString(c.as_ptr()),
-        Err(_) => ul::ulCreateString(c"".as_ptr()),
-    }
-}
-
-#[allow(dead_code)]
 fn log_reject(op: &str, req: &str, err: &ResolveError) {
     debug!(op, path = %req, ?err, "fs_dispatcher: rejected");
 }
@@ -191,6 +162,20 @@ fn log_reject(op: &str, req: &str, err: &ResolveError) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test-only reference to the C-ABI callbacks and helpers so that
+    /// `cargo test` builds (which don't invoke `install_with_resources`)
+    /// don't flag them as dead. They are load-bearing in production via
+    /// the Ultralight vtable registered inside `INSTALL_ONCE.call_once`.
+    #[allow(dead_code)]
+    fn _keep_alive() {
+        let _: unsafe extern "C" fn(ul::ULString) -> bool = cb_file_exists;
+        let _: unsafe extern "C" fn(ul::ULString) -> ul::ULString = cb_file_mime_type;
+        let _: unsafe extern "C" fn(ul::ULString) -> ul::ULString = cb_file_charset;
+        let _: unsafe extern "C" fn(ul::ULString) -> ul::ULBuffer = cb_open_file;
+        let _: fn(&str, &str, &ResolveError) = log_reject;
+        let _: fn(PathBuf) = install_with_resources;
+    }
 
     #[test]
     fn set_and_clear_active() {

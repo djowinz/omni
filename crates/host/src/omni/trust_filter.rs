@@ -9,6 +9,7 @@
 
 use ultralight_sys as ul;
 
+use super::ul_string;
 use super::view_trust::ViewTrust;
 
 /// Install or remove the begin-loading callback for `view` based on `trust`.
@@ -34,7 +35,7 @@ unsafe extern "C" fn cb_begin_loading(
     url: ul::ULString,
 ) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let url_str = ul_string_to_string(url);
+        let url_str = ul_string::from_ul(url);
         if url_str.is_empty() {
             tracing::debug!("trust_filter: received null/empty URL in begin_loading");
             return;
@@ -61,19 +62,6 @@ fn is_allowed_url(url: &str) -> bool {
         return true;
     }
     false
-}
-
-unsafe fn ul_string_to_string(s: ul::ULString) -> String {
-    if s.is_null() {
-        return String::new();
-    }
-    let data = ul::ulStringGetData(s);
-    let len = ul::ulStringGetLength(s);
-    if data.is_null() || len == 0 {
-        return String::new();
-    }
-    let slice = std::slice::from_raw_parts(data as *const u8, len);
-    String::from_utf8_lossy(slice).into_owned()
 }
 
 #[cfg(test)]

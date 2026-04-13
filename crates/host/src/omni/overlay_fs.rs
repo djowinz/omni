@@ -2,6 +2,7 @@
 //! Pure Rust — no FFI. The C-ABI shim lives in `fs_dispatcher.rs`.
 
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Max directory depth below the overlay root (umbrella §4.3 MAX_PATH_DEPTH).
 pub const MAX_PATH_DEPTH: usize = 2;
@@ -21,21 +22,29 @@ pub enum ResolveError {
 }
 
 pub struct OverlayFilesystem {
-    pub root: PathBuf,
-    /// Always false in production.
-    pub allow_parent_escape: bool,
-    /// When true, `MAX_PATH_DEPTH` is not enforced. Used for the
-    /// resources-dir fallback (Ultralight built-in assets may be
-    /// deeper than a bundle's `images/icons/x.png`).
-    pub allow_deep: bool,
+    root: PathBuf,
+    mode: Mode,
+    /// Lazily-computed canonical form of `root`. Cached to avoid an
+    /// extra `canonicalize` syscall on every `resolve` call (40-100
+    /// calls per overlay mount during a typical UI load).
+    canon_root: OnceLock<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Bundle / overlay mount: enforces `MAX_PATH_DEPTH`.
+    Overlay,
+    /// Ultralight built-in resources: no depth limit (Ultralight's own
+    /// `resources/` tree is deeper than a bundle).
+    Resources,
 }
 
 impl OverlayFilesystem {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            allow_parent_escape: false,
-            allow_deep: false,
+            mode: Mode::Overlay,
+            canon_root: OnceLock::new(),
         }
     }
 
@@ -46,8 +55,8 @@ impl OverlayFilesystem {
     pub fn new_resources_root(root: PathBuf) -> Self {
         Self {
             root,
-            allow_parent_escape: false,
-            allow_deep: true,
+            mode: Mode::Resources,
+            canon_root: OnceLock::new(),
         }
     }
 
@@ -92,52 +101,79 @@ impl OverlayFilesystem {
                     }
                 }
                 Component::CurDir => {}
-                Component::ParentDir if self.allow_parent_escape => depth = depth.saturating_sub(1),
                 Component::ParentDir => return Err(ResolveError::ParentEscape),
                 Component::RootDir | Component::Prefix(_) => {
                     return Err(ResolveError::AbsolutePath)
                 }
             }
         }
-        if !self.allow_deep && depth > MAX_PATH_DEPTH {
+        if self.mode == Mode::Overlay && depth > MAX_PATH_DEPTH {
             return Err(ResolveError::DepthExceeded);
         }
 
         let joined = self.root.join(p);
         let canon = joined.canonicalize().map_err(|_| ResolveError::NotFound)?;
-        let canon_root = self
-            .root
-            .canonicalize()
-            .map_err(|_| ResolveError::NotFound)?;
-        if !canon.starts_with(&canon_root) {
+        // Cache the canonical root across calls. If canonicalize fails
+        // (e.g. the root doesn't exist yet), fall back to the raw root —
+        // the subsequent `starts_with` check still rejects escapes because
+        // `canon` is absolute while a non-canonicalized relative root
+        // would never be a prefix of it.
+        let canon_root = self.canon_root.get_or_init(|| {
+            self.root
+                .canonicalize()
+                .unwrap_or_else(|_| self.root.clone())
+        });
+        if !canon.starts_with(canon_root) {
             return Err(ResolveError::Symlink);
         }
         Ok(canon)
     }
 
     pub fn mime_type(path: &Path) -> &'static str {
-        match path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_ascii_lowercase())
-        {
-            Some(ref e) if e == "ttf" => "font/ttf",
-            Some(ref e) if e == "otf" => "font/otf",
-            Some(ref e) if e == "woff" => "font/woff",
-            Some(ref e) if e == "woff2" => "font/woff2",
-            Some(ref e) if e == "png" => "image/png",
-            Some(ref e) if e == "jpg" => "image/jpeg",
-            Some(ref e) if e == "jpeg" => "image/jpeg",
-            Some(ref e) if e == "webp" => "image/webp",
-            Some(ref e) if e == "gif" => "image/gif",
-            Some(ref e) if e == "svg" => "image/svg+xml",
-            Some(ref e) if e == "css" => "text/css",
-            Some(ref e) if e == "html" => "text/html",
-            Some(ref e) if e == "htm" => "text/html",
-            Some(ref e) if e == "js" => "application/javascript",
-            Some(ref e) if e == "omni" => "application/xml",
-            _ => "application/octet-stream",
+        let ext = match path.extension().and_then(|e| e.to_str()) {
+            Some(e) => e,
+            None => return "application/octet-stream",
+        };
+        if ext.eq_ignore_ascii_case("ttf") {
+            return "font/ttf";
         }
+        if ext.eq_ignore_ascii_case("otf") {
+            return "font/otf";
+        }
+        if ext.eq_ignore_ascii_case("woff") {
+            return "font/woff";
+        }
+        if ext.eq_ignore_ascii_case("woff2") {
+            return "font/woff2";
+        }
+        if ext.eq_ignore_ascii_case("png") {
+            return "image/png";
+        }
+        if ext.eq_ignore_ascii_case("jpg") || ext.eq_ignore_ascii_case("jpeg") {
+            return "image/jpeg";
+        }
+        if ext.eq_ignore_ascii_case("webp") {
+            return "image/webp";
+        }
+        if ext.eq_ignore_ascii_case("gif") {
+            return "image/gif";
+        }
+        if ext.eq_ignore_ascii_case("svg") {
+            return "image/svg+xml";
+        }
+        if ext.eq_ignore_ascii_case("css") {
+            return "text/css";
+        }
+        if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+            return "text/html";
+        }
+        if ext.eq_ignore_ascii_case("js") {
+            return "application/javascript";
+        }
+        if ext.eq_ignore_ascii_case("omni") {
+            return "application/xml";
+        }
+        "application/octet-stream"
     }
 }
 
