@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::error::BundleError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Tag {
@@ -38,28 +40,43 @@ pub struct FileEntry {
 
 pub(crate) mod hex_sha256 {
     use serde::{Deserialize, Deserializer, Serializer};
-    use std::fmt::Write;
 
     pub fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
-        let mut out = String::with_capacity(64);
-        for b in bytes {
-            write!(out, "{:02x}", b).unwrap();
-        }
-        s.serialize_str(&out)
+        s.serialize_str(&hex::encode(bytes))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
         let s = String::deserialize(d)?;
-        if s.len() != 64 {
-            return Err(serde::de::Error::custom("sha256 hex must be 64 chars"));
-        }
-        let mut out = [0u8; 32];
-        for i in 0..32 {
-            out[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16)
-                .map_err(serde::de::Error::custom)?;
-        }
-        Ok(out)
+        let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| serde::de::Error::custom("sha256 hex must be 64 chars"))?;
+        Ok(arr)
     }
+}
+
+/// Enforce intra-manifest references: no duplicate paths; `entry_overlay`
+/// and `default_theme` (if present) must appear in `files`. Used by pack and
+/// unpack to keep their validation consistent.
+pub(crate) fn validate_manifest_references(m: &Manifest) -> Result<(), BundleError> {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for e in &m.files {
+        if !seen.insert(e.path.as_str()) {
+            return Err(BundleError::UnsafePath(format!(
+                "duplicate manifest entry: {}",
+                e.path
+            )));
+        }
+    }
+    if !m.files.iter().any(|e| e.path == m.entry_overlay) {
+        return Err(BundleError::FileMissing(m.entry_overlay.clone()));
+    }
+    if let Some(theme) = &m.default_theme {
+        if !m.files.iter().any(|e| &e.path == theme) {
+            return Err(BundleError::FileMissing(theme.clone()));
+        }
+    }
+    Ok(())
 }
 
 /// Canonical compact JSON form: object keys sorted lexicographically (recursive), no whitespace.

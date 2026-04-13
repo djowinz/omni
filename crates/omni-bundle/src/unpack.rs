@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 
-use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
 use crate::error::BundleError;
-use crate::manifest::Manifest;
+use crate::hash::sha256_of;
+use crate::manifest::{validate_manifest_references, Manifest};
 use crate::path::{check_size, validate_path};
 use crate::{
     MAX_BUNDLE_COMPRESSED, MAX_BUNDLE_UNCOMPRESSED, MAX_COMPRESSION_RATIO, MAX_ENTRIES,
@@ -91,9 +91,9 @@ pub fn unpack(
         }
 
         let kind = validate_path(&name)?;
-        check_size(kind, entry.size())?;
-
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        // Only check_size against the actual byte count; the declared
+        // entry.size() is attacker-controlled central-directory data.
+        let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes)?;
         check_size(kind, bytes.len() as u64)?;
 
@@ -134,29 +134,8 @@ fn validate_manifest_semantics(m: &Manifest) -> Result<(), BundleError> {
             m.entry_overlay
         )));
     }
-    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in &m.files {
         let _ = validate_path(&e.path)?;
-        if !seen.insert(e.path.as_str()) {
-            return Err(BundleError::UnsafePath(format!("duplicate manifest entry: {}", e.path)));
-        }
     }
-    if !m.files.iter().any(|e| e.path == m.entry_overlay) {
-        return Err(BundleError::FileMissing(m.entry_overlay.clone()));
-    }
-    if let Some(theme) = &m.default_theme {
-        if !m.files.iter().any(|e| &e.path == theme) {
-            return Err(BundleError::FileMissing(theme.clone()));
-        }
-    }
-    Ok(())
-}
-
-fn sha256_of(bytes: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(bytes);
-    let out = h.finalize();
-    let mut d = [0u8; 32];
-    d.copy_from_slice(&out);
-    d
+    validate_manifest_references(m)
 }

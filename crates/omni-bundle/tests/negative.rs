@@ -6,9 +6,7 @@ use omni_bundle::{pack, unpack, BundleError, FileEntry, Manifest, Tag};
 #[test]
 fn manifest_missing_is_reported() {
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
-    let opts = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .last_modified_time(zip::DateTime::default());
+    let opts = fixtures::test_zip_opts();
     use std::io::Write;
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(b"<x/>").unwrap();
@@ -88,9 +86,7 @@ fn invalid_tag_rejected_on_unpack() {
         }]
     });
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
-    let opts = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .last_modified_time(zip::DateTime::default());
+    let opts = fixtures::test_zip_opts();
     use std::io::Write;
     zw.start_file("manifest.json", opts).unwrap();
     zw.write_all(serde_json::to_vec(&manifest_json).unwrap().as_slice()).unwrap();
@@ -105,9 +101,7 @@ fn invalid_tag_rejected_on_unpack() {
 fn zip_bomb_or_json_rejected_on_unpack() {
     let zeros = vec![0u8; 1_000_000];
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
-    let opts = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .last_modified_time(zip::DateTime::default());
+    let opts = fixtures::test_zip_opts();
     use std::io::Write;
     zw.start_file("manifest.json", opts).unwrap();
     zw.write_all(b"{}").unwrap();
@@ -126,9 +120,7 @@ fn orphan_entry_rejected_on_unpack() {
         let cursor = std::io::Cursor::new(packed);
         let mut rz = zip::ZipArchive::new(cursor).unwrap();
         let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
-        let opts = zip::write::FileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .last_modified_time(zip::DateTime::default());
+        let opts = fixtures::test_zip_opts();
         for i in 0..rz.len() {
             let mut f = rz.by_index(i).unwrap();
             let name = f.name().to_string();
@@ -163,9 +155,7 @@ fn hash_mismatch_detected_on_unpack() {
         signature: None,
     };
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
-    let opts = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .last_modified_time(zip::DateTime::default());
+    let opts = fixtures::test_zip_opts();
     use std::io::Write;
     let manifest_bytes = serde_json::to_vec(&m).unwrap();
     zw.start_file("manifest.json", opts).unwrap();

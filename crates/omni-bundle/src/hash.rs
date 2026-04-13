@@ -4,6 +4,14 @@ use sha2::{Digest, Sha256};
 
 use crate::manifest::{canonical_manifest_bytes, Manifest};
 
+/// SHA-256 of a byte slice. Shared across pack / unpack / canonical_hash to
+/// avoid duplicated inline implementations.
+pub(crate) fn sha256_of(bytes: &[u8]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(bytes);
+    h.finalize().into()
+}
+
 /// SHA-256 over a deterministic uncompressed ustar tar stream built from the
 /// canonical manifest bytes followed by every file in sorted path order.
 /// All metadata (mode 0644, uid/gid 0, mtime 0) is fixed, so the digest is
@@ -24,11 +32,10 @@ pub fn canonical_hash(manifest: &Manifest, files: &BTreeMap<String, Vec<u8>>) ->
     }
 
     tar.finish();
-    let out = hasher.finalize();
-    let mut digest = [0u8; 32];
-    digest.copy_from_slice(&out);
-    digest
+    hasher.finalize().into()
 }
+
+const ZERO_BLOCK: [u8; 512] = [0u8; 512];
 
 struct UstarWriter<'a, W: Digest> {
     hasher: &'a mut W,
@@ -45,12 +52,13 @@ impl<'a, W: Digest> UstarWriter<'a, W> {
         self.hasher.update(data);
         let pad = (512 - (data.len() % 512)) % 512;
         if pad > 0 {
-            self.hasher.update(vec![0u8; pad]);
+            self.hasher.update(&ZERO_BLOCK[..pad]);
         }
     }
 
     fn finish(self) {
-        self.hasher.update([0u8; 1024]);
+        self.hasher.update(ZERO_BLOCK);
+        self.hasher.update(ZERO_BLOCK);
     }
 }
 
@@ -70,24 +78,32 @@ fn build_header(path: &str, size: u64) -> [u8; 512] {
     write_octal(&mut h[124..136], size, 11);
     write_octal(&mut h[136..148], 0, 11);
 
-    for b in &mut h[148..156] {
-        *b = b' ';
-    }
+    // Checksum field placeholder: 8 spaces per ustar spec.
+    h[148..156].copy_from_slice(b"        ");
     h[156] = b'0';
     h[257..263].copy_from_slice(b"ustar\0");
     h[263..265].copy_from_slice(b"00");
 
     let sum: u32 = h.iter().map(|b| *b as u32).sum();
-    let s = format!("{:06o}\0 ", sum);
-    h[148..156].copy_from_slice(s.as_bytes());
+    // Checksum stored as 6 octal digits, NUL, space — exactly 8 bytes.
+    let mut cksum = [0u8; 8];
+    write_octal(&mut cksum[..7], sum as u64, 6);
+    cksum[7] = b' ';
+    h[148..156].copy_from_slice(&cksum);
 
     h
 }
 
-fn write_octal(dst: &mut [u8], value: u64, digits: usize) {
-    let s = format!("{:0>width$o}\0", value, width = digits);
-    assert_eq!(s.len(), digits + 1);
-    dst[..s.len()].copy_from_slice(s.as_bytes());
+/// Write a fixed-width octal number followed by a trailing NUL byte into `dst`.
+/// `dst` must be exactly `digits + 1` bytes. Right-aligned, zero-padded.
+fn write_octal(dst: &mut [u8], mut value: u64, digits: usize) {
+    assert_eq!(dst.len(), digits + 1);
+    dst[digits] = 0;
+    for i in (0..digits).rev() {
+        dst[i] = b'0' + (value & 0o7) as u8;
+        value >>= 3;
+    }
+    debug_assert_eq!(value, 0, "value overflowed {digits}-digit octal");
 }
 
 #[cfg(test)]
@@ -135,26 +151,14 @@ mod tests {
         assert_ne!(before, after);
     }
 
-    /// Golden hash for the `sample()` fixture. Locks the canonical_hash byte
-    /// format (ustar header layout, field order, checksum encoding). If a future
-    /// change to `canonical_hash`, `canonical_manifest_bytes`, or the ustar
-    /// writer changes this value, the WASM Worker will compute a different
-    /// dedup hash than the host — this test catches that before merge.
+    /// Golden hash locks the canonical_hash byte format (ustar header layout,
+    /// field order, checksum encoding). Drift here breaks host/Worker dedup parity.
     #[test]
     fn canonical_hash_matches_golden() {
         let (m, f) = sample();
         let expected = "092e759315415125e73d91a682c05283934bdadcf2de5c02399de0c4d1b5d024";
         let got = canonical_hash(&m, &f);
-        assert_eq!(hex_encode(&got), expected);
-    }
-
-    fn hex_encode(b: &[u8; 32]) -> String {
-        let mut s = String::with_capacity(64);
-        for x in b {
-            use std::fmt::Write;
-            write!(s, "{:02x}", x).unwrap();
-        }
-        s
+        assert_eq!(hex::encode(got), expected);
     }
 
     #[test]
