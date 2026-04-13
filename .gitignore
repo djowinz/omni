@@ -28,3 +28,6 @@ docs/superpowers
 
 # Any documents for frontend
 apps/desktop/docs
+
+# Worker service secrets
+services/**/.dev.vars
