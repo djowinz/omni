@@ -24,11 +24,23 @@ pub struct OverlayFilesystem {
     pub root: PathBuf,
     /// Always false in production.
     pub allow_parent_escape: bool,
+    /// When true, `MAX_PATH_DEPTH` is not enforced. Used for the
+    /// resources-dir fallback (Ultralight built-in assets may be
+    /// deeper than a bundle's `images/icons/x.png`).
+    pub allow_deep: bool,
 }
 
 impl OverlayFilesystem {
     pub fn new(root: PathBuf) -> Self {
-        Self { root, allow_parent_escape: false }
+        Self { root, allow_parent_escape: false, allow_deep: false }
+    }
+
+    /// Construct the resources-dir fallback instance. Same sandboxing
+    /// policy as `new`, but with `MAX_PATH_DEPTH` disabled because
+    /// Ultralight's built-in `resources/` tree can be nested deeper
+    /// than a user bundle's two-level `images/icons/x.png` layout.
+    pub fn new_resources_root(root: PathBuf) -> Self {
+        Self { root, allow_parent_escape: false, allow_deep: true }
     }
 
     /// Request strings must be raw paths, not URL-encoded; `%`-containing
@@ -73,7 +85,7 @@ impl OverlayFilesystem {
                 Component::RootDir | Component::Prefix(_) => return Err(ResolveError::AbsolutePath),
             }
         }
-        if depth > MAX_PATH_DEPTH {
+        if !self.allow_deep && depth > MAX_PATH_DEPTH {
             return Err(ResolveError::DepthExceeded);
         }
 
@@ -213,6 +225,15 @@ mod tests {
         write(&root.join("images/icons/cpu.png"), b"png");
         let fs = OverlayFilesystem::new(root.clone());
         assert!(fs.resolve("images/icons/cpu.png").is_ok());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn allow_deep_permits_nested_resources() {
+        let root = temp_root();
+        write(&root.join("a/b/c/d/e.png"), b"x");
+        let fs = OverlayFilesystem::new_resources_root(root.clone());
+        assert!(fs.resolve("a/b/c/d/e.png").is_ok());
         fs::remove_dir_all(&root).ok();
     }
 
