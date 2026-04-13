@@ -766,24 +766,33 @@ fn desugar_chart_card(
         }
     }
 
-    // Inner chart — delegate to desugar_chart with width/height overridden
-    // to match the plot area.
+    // Inner chart. We intentionally DO NOT wrap the inner chart in a
+    // nested <svg> — a nested SVG without explicit width/height defaults
+    // to 100% × 100% of the parent viewport per SVG 1.1, which would
+    // cause the polyline/rects to stretch across the entire card area
+    // and overlap the title / axis labels. Instead, extract the shape
+    // children from desugar_chart's SVG and wrap them in a <g transform>
+    // positioned at the plot area. Polyline points and rect coordinates
+    // are already in the plot_w × plot_h user-unit space.
     let mut inner_attrs = attrs.clone();
     inner_attrs.insert("width".to_string(), plot_w.to_string());
     inner_attrs.insert("height".to_string(), plot_h.to_string());
-    let inner_chart = desugar_chart(&inner_attrs, source, pos)?;
-    // Wrap in a <g transform> so it sits inside the plot area.
+    let inner_chart_svg = desugar_chart(&inner_attrs, source, pos)?;
+    let inner_shapes = match inner_chart_svg {
+        HtmlNode::Element { children, .. } => children,
+        other => vec![other],
+    };
     children.push(HtmlNode::Element {
         tag: "g".to_string(),
         id: None,
-        classes: vec![],
+        classes: vec![format!("omni-chart-card-plot")],
         inline_style: None,
         conditional_classes: vec![],
         attributes: vec![(
             "transform".to_string(),
             format!("translate({},{})", plot_x, plot_y),
         )],
-        children: vec![inner_chart],
+        children: inner_shapes,
     });
 
     // X-axis labels (only for line charts)
@@ -1632,27 +1641,35 @@ mod tests {
                 )).count();
                 assert!(y_label_count >= 2, "should have at least 2 y-labels, got {}", y_label_count);
 
-                // Should contain the inner chart SVG (nested svg with omni-chart-line class)
-                // It may be inside a <g transform="translate(...)"> wrapper
-                let find_inner_chart = |nodes: &[crate::omni::types::HtmlNode]| -> bool {
-                    for node in nodes {
-                        if let crate::omni::types::HtmlNode::Element { tag, classes, children: inner_children, .. } = node {
-                            if tag == "svg" && classes.iter().any(|c| c == "omni-chart-line") {
-                                return true;
-                            }
-                            // Recurse one level for the <g> wrapper case
-                            for inner in inner_children {
-                                if let crate::omni::types::HtmlNode::Element { tag, classes, .. } = inner {
-                                    if tag == "svg" && classes.iter().any(|c| c == "omni-chart-line") {
-                                        return true;
-                                    }
-                                }
-                            }
+                // Should contain a <g class="omni-chart-card-plot" transform=...>
+                // wrapping the inner chart shapes directly (no nested <svg>).
+                let plot_group = children.iter().find_map(|node| {
+                    if let crate::omni::types::HtmlNode::Element {
+                        tag,
+                        classes,
+                        attributes,
+                        children: inner_children,
+                        ..
+                    } = node
+                    {
+                        if tag == "g" && classes.iter().any(|c| c == "omni-chart-card-plot") {
+                            return Some((attributes, inner_children));
                         }
                     }
-                    false
-                };
-                assert!(find_inner_chart(children), "inner chart SVG missing");
+                    None
+                });
+                let (attrs, shapes) = plot_group.expect("plot <g> wrapper missing");
+                assert!(
+                    attrs.iter().any(|(k, v)| k == "transform" && v.starts_with("translate(")),
+                    "plot group should have translate transform",
+                );
+                // The shapes inside should include a polyline for a line chart.
+                assert!(
+                    shapes.iter().any(|n| matches!(n,
+                        crate::omni::types::HtmlNode::Element { tag, .. } if tag == "polyline"
+                    )),
+                    "plot group should contain a polyline",
+                );
             }
             _ => panic!("expected svg element"),
         }
