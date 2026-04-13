@@ -3,7 +3,7 @@
 
 #![allow(non_camel_case_types)]
 
-use std::os::raw::{c_char, c_int, c_uint, c_void};
+use std::os::raw::{c_char, c_int, c_uint, c_ulonglong, c_void};
 
 // Opaque pointer types matching the C typedefs (e.g. `typedef struct C_Config* ULConfig`).
 pub type ULConfig = *mut c_void;
@@ -14,6 +14,21 @@ pub type ULSession = *mut c_void;
 pub type ULString = *mut c_void;
 pub type ULSurface = *mut c_void;
 pub type ULBitmap = *mut c_void;
+pub type ULBuffer = *mut c_void;
+
+/// Platform file-system v-table. The host installs a populated instance via
+/// `ulPlatformSetFileSystem` to intercept all resource loads performed by views.
+#[repr(C)]
+pub struct ULFileSystem {
+    pub file_exists:
+        Option<unsafe extern "C" fn(path: ULString) -> bool>,
+    pub get_file_mime_type:
+        Option<unsafe extern "C" fn(path: ULString) -> ULString>,
+    pub get_file_charset:
+        Option<unsafe extern "C" fn(path: ULString) -> ULString>,
+    pub open_file:
+        Option<unsafe extern "C" fn(path: ULString) -> ULBuffer>,
+}
 
 /// Integer rectangle (used for dirty bounds).
 /// Matches the C definition in CAPI_Defines.h.
@@ -34,6 +49,16 @@ extern "C" {
     pub fn ulCreateStringUTF8(str: *const c_char, len: usize) -> ULString;
     /// Destroy a string created with ulCreateString / ulCreateStringUTF8.
     pub fn ulDestroyString(str: ULString);
+    /// Raw UTF-8 data pointer for a ULString (not null-terminated; use with length).
+    pub fn ulStringGetData(str: ULString) -> *mut c_char;
+    /// Length in bytes of the UTF-8 data backing a ULString.
+    pub fn ulStringGetLength(str: ULString) -> usize;
+
+    // ── Buffer ──────────────────────────────────────────────────────────
+    /// Create a ULBuffer by copying `length` bytes from `data`.
+    pub fn ulCreateBufferFromCopy(data: *const c_void, length: usize) -> ULBuffer;
+    /// Destroy a buffer previously created via ulCreateBufferFromCopy.
+    pub fn ulDestroyBuffer(buffer: ULBuffer);
 
     // ── Config ──────────────────────────────────────────────────────────
     pub fn ulCreateConfig() -> ULConfig;
@@ -45,6 +70,8 @@ extern "C" {
     pub fn ulEnablePlatformFontLoader();
     pub fn ulEnablePlatformFileSystem(base_dir: ULString);
     pub fn ulEnableDefaultLogger(log_path: ULString);
+    /// Install a custom file-system v-table. The v-table must outlive all views.
+    pub fn ulPlatformSetFileSystem(file_system: ULFileSystem);
 
     // ── Renderer ────────────────────────────────────────────────────────
     pub fn ulCreateRenderer(config: ULConfig) -> ULRenderer;
@@ -70,6 +97,22 @@ extern "C" {
     ) -> ULView;
     pub fn ulDestroyView(view: ULView);
     pub fn ulViewLoadHTML(view: ULView, html_string: ULString);
+    /// Load a URL into the main frame.
+    pub fn ulViewLoadURL(view: ULView, url_string: ULString);
+    /// Register a callback fired when a frame begins loading a URL.
+    pub fn ulViewSetBeginLoadingCallback(
+        view: ULView,
+        callback: Option<
+            unsafe extern "C" fn(
+                user_data: *mut c_void,
+                caller: ULView,
+                frame_id: c_ulonglong,
+                is_main_frame: bool,
+                url: ULString,
+            ),
+        >,
+        user_data: *mut c_void,
+    );
     pub fn ulViewEvaluateScript(
         view: ULView,
         js_string: ULString,
