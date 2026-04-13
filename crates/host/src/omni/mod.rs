@@ -10,6 +10,7 @@ pub mod trust_filter;
 pub mod types;
 pub mod ul_string;
 pub mod validation;
+pub mod js_bootstrap;
 pub mod view_trust;
 
 pub use types::*;
