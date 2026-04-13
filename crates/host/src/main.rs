@@ -434,6 +434,7 @@ fn run_host() {
             &hwinfo_values,
             &hwinfo_units,
             &host.sensor_history,
+            crate::omni::ViewTrust::LocalAuthored,
         );
         let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
         if let Err(e) = ul.mount(
@@ -723,6 +724,7 @@ fn run_host() {
                 &hwinfo_values,
                 &hwinfo_units,
                 &host.sensor_history,
+                crate::omni::ViewTrust::LocalAuthored,
             );
             let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
             if let Err(e) = ul.mount(
