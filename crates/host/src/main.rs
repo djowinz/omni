@@ -430,7 +430,10 @@ fn run_host() {
             &hwinfo_values,
             &hwinfo_units,
         );
-        ul.load_html(&initial.full_document);
+        let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
+        if let Err(e) = ul.mount(&overlay_root, &initial.full_document, crate::omni::view_trust::ViewTrust::LocalAuthored) {
+            tracing::warn!(error = %e, "Failed to mount overlay");
+        }
         store_and_broadcast_preview(&ws_state, &initial);
         // Pump Ultralight for a few frames to let it initialize
         for _ in 0..10 {
@@ -656,7 +659,10 @@ fn run_host() {
                 &hwinfo_values,
                 &hwinfo_units,
             );
-            ul.load_html(&initial.full_document);
+            let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
+            if let Err(e) = ul.mount(&overlay_root, &initial.full_document, crate::omni::view_trust::ViewTrust::LocalAuthored) {
+                tracing::warn!(error = %e, "Failed to mount overlay");
+            }
             store_and_broadcast_preview(&ws_state, &initial);
             for _ in 0..10 {
                 ul.update_and_render();
