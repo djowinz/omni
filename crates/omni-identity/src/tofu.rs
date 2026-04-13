@@ -49,7 +49,10 @@ impl TofuRegistry {
             let doc: TofuDoc = serde_json::from_slice(&bytes)
                 .map_err(|e| IdentityError::Tofu(format!("parse: {e}")))?;
             if doc.version != 1 {
-                return Err(IdentityError::UnsupportedVersion(doc.version as u8));
+                return Err(IdentityError::Tofu(format!(
+                    "unsupported version: {}",
+                    doc.version
+                )));
             }
             doc
         } else {
@@ -177,7 +180,7 @@ mod tests {
         let p = dir.path().join("tofu.json");
         std::fs::write(&p, br#"{"version": 99, "entries": {}}"#).unwrap();
         let err = TofuRegistry::load(&p).unwrap_err();
-        assert!(matches!(err, IdentityError::UnsupportedVersion(99)));
+        assert!(matches!(err, IdentityError::Tofu(_)));
     }
 
     #[test]
