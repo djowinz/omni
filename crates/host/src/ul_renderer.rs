@@ -88,12 +88,7 @@ impl UlRenderer {
     ///
     /// A scratch file `.omni_current.html` is written inside `overlay_root`.
     /// Callers must have write access to that directory.
-    pub fn mount(
-        &self,
-        overlay_root: &Path,
-        html: &str,
-        trust: ViewTrust,
-    ) -> Result<(), String> {
+    pub fn mount(&self, overlay_root: &Path, html: &str, trust: ViewTrust) -> Result<(), String> {
         // DESIGN NOTE:
         // - Ultralight loads asynchronously on the next `update_and_render`, so the FS
         //   dispatcher and trust filter MUST be configured before `ulViewLoadURL` —
@@ -106,16 +101,24 @@ impl UlRenderer {
         //   to a single View at a time; multi-view support would require rework of
         //   that dispatcher to key by view pointer.
         fs_dispatcher::set_active(OverlayFilesystem::new(overlay_root.to_path_buf()));
-        unsafe { trust_filter::apply(self.view, trust); }
+        unsafe {
+            trust_filter::apply(self.view, trust);
+        }
 
         std::fs::create_dir_all(overlay_root).map_err(|e| {
-            format!("failed to create overlay root {}: {e}", overlay_root.display())
+            format!(
+                "failed to create overlay root {}: {e}",
+                overlay_root.display()
+            )
         })?;
 
         // If a previous mount used a different directory, best-effort-remove its
         // scratch file so we don't leak orphans when switching overlays.
         {
-            let guard = self.last_scratch_dir.lock().expect("scratch dir mutex poisoned");
+            let guard = self
+                .last_scratch_dir
+                .lock()
+                .expect("scratch dir mutex poisoned");
             if let Some(prev) = guard.as_ref() {
                 if prev.as_path() != overlay_root {
                     let _ = std::fs::remove_file(prev.join(SCRATCH_NAME));
@@ -127,8 +130,10 @@ impl UlRenderer {
         std::fs::write(&scratch, html)
             .map_err(|e| format!("failed to write scratch HTML to {}: {e}", scratch.display()))?;
 
-        *self.last_scratch_dir.lock().expect("scratch dir mutex poisoned") =
-            Some(overlay_root.to_path_buf());
+        *self
+            .last_scratch_dir
+            .lock()
+            .expect("scratch dir mutex poisoned") = Some(overlay_root.to_path_buf());
 
         let url = format!("file:///{}", SCRATCH_NAME);
         unsafe {

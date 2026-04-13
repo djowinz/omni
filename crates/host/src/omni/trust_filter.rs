@@ -20,11 +20,7 @@ use super::view_trust::ViewTrust;
 /// is replaced).
 pub unsafe fn apply(view: ul::ULView, trust: ViewTrust) {
     if trust.is_sandboxed() {
-        ul::ulViewSetBeginLoadingCallback(
-            view,
-            Some(cb_begin_loading),
-            std::ptr::null_mut(),
-        );
+        ul::ulViewSetBeginLoadingCallback(view, Some(cb_begin_loading), std::ptr::null_mut());
     } else {
         ul::ulViewSetBeginLoadingCallback(view, None, std::ptr::null_mut());
     }
@@ -68,10 +64,14 @@ fn is_allowed_url(url: &str) -> bool {
 }
 
 unsafe fn ul_string_to_string(s: ul::ULString) -> String {
-    if s.is_null() { return String::new(); }
+    if s.is_null() {
+        return String::new();
+    }
     let data = ul::ulStringGetData(s);
     let len = ul::ulStringGetLength(s);
-    if data.is_null() || len == 0 { return String::new(); }
+    if data.is_null() || len == 0 {
+        return String::new();
+    }
     let slice = std::slice::from_raw_parts(data as *const u8, len);
     String::from_utf8_lossy(slice).into_owned()
 }
