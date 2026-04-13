@@ -319,7 +319,11 @@ fn run_host() {
     let mut config = config::load_config(&config_path);
     let data_dir = config::data_dir();
     let scan_interval = Duration::from_millis(2000);
-    const ETW_RETRY_COOLDOWN: Duration = Duration::from_secs(5);
+    // Initial retry delay after an ETW capture failure. Doubles on each
+    // subsequent failure up to `ETW_RETRY_MAX`, so persistently-unsuccessful
+    // PIDs (e.g. 32-bit games, insufficient privileges) don't spam retries.
+    const ETW_RETRY_INITIAL: Duration = Duration::from_secs(5);
+    const ETW_RETRY_MAX: Duration = Duration::from_secs(300);
 
     // Initialize workspace folder structure (overlays/, themes/, Default overlay)
     workspace::structure::init_workspace(&data_dir);
@@ -380,7 +384,9 @@ fn run_host() {
 
     let mut etw_captures: std::collections::HashMap<u32, etw::EtwCapture> =
         std::collections::HashMap::new();
-    let mut etw_failed: std::collections::HashMap<u32, Instant> =
+    // Per-PID ETW failure state: last failure timestamp + next backoff.
+    // Backoff doubles on each consecutive failure up to ETW_RETRY_MAX.
+    let mut etw_failed: std::collections::HashMap<u32, (Instant, Duration)> =
         std::collections::HashMap::new();
 
     let mut host = HostState::new(overlay_name, data_dir.clone(), config_path.clone());
@@ -469,7 +475,7 @@ fn run_host() {
                     continue;
                 }
                 // If this PID failed recently, back off before retrying.
-                if !should_retry_etw(pid, &etw_failed, ETW_RETRY_COOLDOWN) {
+                if !should_retry_etw(pid, &etw_failed) {
                     continue;
                 }
                 match etw::EtwCapture::start(pid) {
@@ -479,13 +485,19 @@ fn run_host() {
                         etw_failed.remove(&pid);
                     }
                     Err(e) => {
+                        let next_backoff = etw_failed
+                            .get(&pid)
+                            .map(|(_, prev)| {
+                                (*prev * 2).min(ETW_RETRY_MAX)
+                            })
+                            .unwrap_or(ETW_RETRY_INITIAL);
                         warn!(
                             pid,
                             error = %e,
-                            retry_in_secs = ETW_RETRY_COOLDOWN.as_secs(),
+                            retry_in_secs = next_backoff.as_secs(),
                             "Failed to start ETW capture — will retry"
                         );
-                        etw_failed.insert(pid, Instant::now());
+                        etw_failed.insert(pid, (Instant::now(), next_backoff));
                     }
                 }
             }
@@ -811,15 +823,15 @@ fn run_host() {
 }
 
 /// Returns true if `pid` should be attempted. Either no prior failure is
-/// recorded, or the cooldown has elapsed since the last recorded failure.
+/// recorded, or the per-PID backoff (recorded alongside the failure
+/// timestamp) has elapsed since the last recorded failure.
 fn should_retry_etw(
     pid: u32,
-    failures: &std::collections::HashMap<u32, Instant>,
-    cooldown: Duration,
+    failures: &std::collections::HashMap<u32, (Instant, Duration)>,
 ) -> bool {
     match failures.get(&pid) {
         None => true,
-        Some(last) => last.elapsed() >= cooldown,
+        Some((last, backoff)) => last.elapsed() >= *backoff,
     }
 }
 
@@ -831,24 +843,26 @@ mod tests {
 
     #[test]
     fn should_retry_when_no_prior_failure() {
-        let failures: HashMap<u32, Instant> = HashMap::new();
-        assert!(should_retry_etw(1234, &failures, Duration::from_secs(5)));
+        let failures: HashMap<u32, (Instant, Duration)> = HashMap::new();
+        assert!(should_retry_etw(1234, &failures));
     }
 
     #[test]
-    fn should_not_retry_within_cooldown() {
-        let mut failures: HashMap<u32, Instant> = HashMap::new();
-        failures.insert(1234, Instant::now());
-        assert!(!should_retry_etw(1234, &failures, Duration::from_secs(5)));
+    fn should_not_retry_within_backoff() {
+        let mut failures: HashMap<u32, (Instant, Duration)> = HashMap::new();
+        failures.insert(1234, (Instant::now(), Duration::from_secs(5)));
+        assert!(!should_retry_etw(1234, &failures));
     }
 
     #[test]
-    fn should_retry_after_cooldown_elapsed() {
-        let mut failures: HashMap<u32, Instant> = HashMap::new();
-        let long_ago = Instant::now()
-            .checked_sub(Duration::from_secs(3600))
-            .unwrap_or_else(Instant::now);
-        failures.insert(1234, long_ago);
-        assert!(should_retry_etw(1234, &failures, Duration::from_secs(5)));
+    fn should_retry_after_backoff_elapsed() {
+        // Use a 10 ms backoff and sleep past it — avoids the `checked_sub`
+        // edge case where fresh boots have Instant::now() < arbitrary
+        // historical Duration, which would make a "long ago" construction
+        // fall back to `now` and break the test.
+        let mut failures: HashMap<u32, (Instant, Duration)> = HashMap::new();
+        failures.insert(1234, (Instant::now(), Duration::from_millis(10)));
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(should_retry_etw(1234, &failures));
     }
 }

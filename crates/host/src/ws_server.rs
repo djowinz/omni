@@ -484,10 +484,15 @@ fn format_f32(v: f32) -> Value {
 }
 
 /// Build the "frame" JSON object for the sensors.data payload.
+///
+/// Intentionally omits `render_width`/`render_height` — they're part of
+/// `FrameData` for host-internal viewport sizing but no Electron consumer
+/// reads them. Route all f32 fields through `format_f32` so NaN serializes
+/// as JSON `null` (the SensorReadout renderer treats null as "N/A").
 fn frame_json(frame: &omni_shared::FrameData) -> Value {
     json!({
         "available": frame.available,
-        "fps": frame.fps,
+        "fps": format_f32(frame.fps),
         "frame_time_ms": format_f32(frame.frame_time_ms),
         "frame_time_avg_ms": format_f32(frame.frame_time_avg_ms),
         "frame_time_1percent_ms": format_f32(frame.frame_time_1percent_ms),
@@ -638,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn sensors_data_json_includes_all_frame_fields() {
+    fn frame_json_serializes_all_fields_and_nan_to_null() {
         let mut snapshot = omni_shared::SensorSnapshot::default();
         snapshot.frame.available = true;
         snapshot.frame.fps = 144.0;
