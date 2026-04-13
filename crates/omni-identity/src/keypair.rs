@@ -9,11 +9,21 @@ use zeroize::Zeroizing;
 use crate::error::IdentityError;
 use crate::fingerprint::{Fingerprint, PublicKey};
 
+/// Ed25519 signing key.
+///
+/// Invariant: do not derive `Debug`, `Clone`, or `Copy`. `SigningKey` from
+/// ed25519-dalek implements `ZeroizeOnDrop` internally, which would be
+/// subverted by `Clone` (yields a non-zeroizing copy) or `Debug` (could leak
+/// key bytes through formatting).
 pub struct Keypair {
     signing: SigningKey,
 }
 
 impl Keypair {
+    // DPAPI-backed identity.key storage (per sub-spec 006 §3, Phase-2 stretch
+    // goal) is deferred to a follow-up ticket. Current on-disk protection
+    // relies on the Windows DACL set by `crate::acl::set_user_only`.
+
     pub fn generate() -> Self {
         let mut rng = OsRng;
         Self {

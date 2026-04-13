@@ -17,11 +17,21 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), IdentityErro
     };
 
     {
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&tmp)?;
+        #[cfg(unix)]
+        let mut f = {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut o = fs::OpenOptions::new();
+            o.create(true).write(true).truncate(true).mode(0o600);
+            o.open(&tmp)?
+        };
+        #[cfg(not(unix))]
+        let mut f = {
+            fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp)?
+        };
         f.write_all(bytes)?;
         f.sync_all()?;
     }
