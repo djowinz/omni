@@ -170,7 +170,28 @@ fn render_initial_node(
 ) -> String {
     match node {
         HtmlNode::Text { content } => {
-            if content.contains('{') {
+            if let Some(segments) = lower_text_to_segments(content) {
+                let mut out = String::new();
+                for seg in segments {
+                    match seg {
+                        TextSegment::Literal(s) => out.push_str(&s),
+                        TextSegment::Sensor { path, format, precision } => {
+                            let initial = super::sensor_map::get_sensor_value_with_hwinfo(
+                                &path, snapshot, hwinfo_values, hwinfo_units, Some(precision),
+                            );
+                            let formatted = format_initial(&initial, format, precision);
+                            out.push_str(&format!(
+                                r#"<span data-sensor="{path}" data-sensor-format="{format}" data-sensor-precision="{precision}">{formatted}</span>"#,
+                                path = html_escape(&path),
+                                format = format,
+                                precision = precision,
+                                formatted = html_escape(&formatted),
+                            ));
+                        }
+                    }
+                }
+                out
+            } else if content.contains('{') {
                 let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
                 interpolate(content, &ctx)
             } else {
@@ -433,6 +454,126 @@ fn collect_diff_entries(
 }
 
 // ---------------------------------------------------------------------------
+// Sensor placeholder lowering helpers
+// ---------------------------------------------------------------------------
+
+/// Parse `path` or `path(N)` from a placeholder body. Returns the path
+/// string and an optional precision override.
+fn parse_precision(body: &str) -> (&str, Option<usize>) {
+    if let Some(paren) = body.find('(') {
+        if body.ends_with(')') {
+            let path = body[..paren].trim();
+            let prec_str = body[paren + 1..body.len() - 1].trim();
+            if let Ok(n) = prec_str.parse::<usize>() {
+                return (path, Some(n));
+            }
+        }
+    }
+    (body, None)
+}
+
+/// Infer (format, default_precision) for a built-in sensor path.
+/// Returns `None` if the path is composite (e.g. `gpu.vram`) or unknown.
+fn infer_sensor_format(path: &str) -> Option<(&'static str, usize)> {
+    if path == "gpu.vram" { return None; }
+    if path.starts_with("hwinfo.") { return Some(("raw", 0)); }
+    if path.ends_with(".usage") || path.ends_with(".pct") || path.ends_with(".fan") || path == "ram.usage" {
+        return Some(("percent", 0));
+    }
+    if path.ends_with(".temp") { return Some(("temperature", 0)); }
+    if path.ends_with(".clock") || path.ends_with(".freq") || path.ends_with(".mem-clock") {
+        return Some(("raw", 0));
+    }
+    if path.starts_with("frame-time") { return Some(("raw", 1)); }
+    if path == "fps" { return Some(("raw", 0)); }
+    if path == "cpu.usage" { return Some(("percent", 0)); }
+    None
+}
+
+/// Parse `{sensor.path}` or `{sensor.path(N)}` body text into a list of
+/// segments suitable for lowering. Returns `None` if the text contains no
+/// recognizable sensor placeholders.
+///
+/// Segments are either literal text or an inferred sensor binding.
+fn lower_text_to_segments(text: &str) -> Option<Vec<TextSegment>> {
+    let mut segments: Vec<TextSegment> = Vec::new();
+    let mut buf = String::new();
+    let mut chars = text.chars().peekable();
+    let mut any_sensor = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let mut body = String::new();
+            let mut closed = false;
+            for inner in chars.by_ref() {
+                if inner == '}' { closed = true; break; }
+                body.push(inner);
+            }
+            if !closed {
+                buf.push('{');
+                buf.push_str(&body);
+                continue;
+            }
+            let (path, prec_override) = parse_precision(body.trim());
+            if let Some((fmt, default_prec)) = infer_sensor_format(path) {
+                if !buf.is_empty() {
+                    segments.push(TextSegment::Literal(std::mem::take(&mut buf)));
+                }
+                segments.push(TextSegment::Sensor {
+                    path: path.to_string(),
+                    format: fmt,
+                    precision: prec_override.unwrap_or(default_prec),
+                });
+                any_sensor = true;
+            } else {
+                // Unsupported binding — preserve original text so existing
+                // interpolation handles it.
+                buf.push('{');
+                buf.push_str(&body);
+                buf.push('}');
+            }
+        } else {
+            buf.push(ch);
+        }
+    }
+    if !buf.is_empty() { segments.push(TextSegment::Literal(buf)); }
+    if any_sensor { Some(segments) } else { None }
+}
+
+#[derive(Debug, Clone)]
+enum TextSegment {
+    Literal(String),
+    Sensor { path: String, format: &'static str, precision: usize },
+}
+
+/// Escape a value for safe HTML attribute / text inclusion.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// `sensor_map` already returns a formatted string; keep the raw string for
+/// the initial render. For numeric formats the JS bootstrap will overwrite on
+/// first tick. This function just appends the unit suffix that matches JS.
+fn format_initial(raw: &str, format: &str, _precision: usize) -> String {
+    match format {
+        "percent" if raw != "N/A" => format!("{}%", raw),
+        "temperature" if raw != "N/A" => format!("{}\u{00B0}C", raw),
+        _ => raw.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -656,5 +797,108 @@ mod tests {
         assert!(js.contains("\"t\":\"72\""));
         assert!(js.contains("\"a\":{"));
         assert!(js.contains("\"height\":\"42\""));
+    }
+}
+
+#[cfg(test)]
+mod lower_tests {
+    use super::*;
+
+    #[test]
+    fn infer_percent() { assert_eq!(infer_sensor_format("cpu.usage"), Some(("percent", 0))); }
+    #[test]
+    fn infer_temperature() { assert_eq!(infer_sensor_format("gpu.temp"), Some(("temperature", 0))); }
+    #[test]
+    fn infer_clock_raw() { assert_eq!(infer_sensor_format("gpu.clock"), Some(("raw", 0))); }
+    #[test]
+    fn composite_vram_unsupported() { assert_eq!(infer_sensor_format("gpu.vram"), None); }
+
+    #[test]
+    fn text_without_placeholder_returns_none() {
+        assert!(lower_text_to_segments("CPU:").is_none());
+    }
+
+    #[test]
+    fn simple_placeholder_lowers() {
+        let segs = lower_text_to_segments("CPU: {cpu.usage}%").unwrap();
+        assert_eq!(segs.len(), 3);
+        match &segs[0] { TextSegment::Literal(s) => assert_eq!(s, "CPU: "), _ => panic!() }
+        match &segs[1] {
+            TextSegment::Sensor { path, format, precision } => {
+                assert_eq!(path, "cpu.usage");
+                assert_eq!(*format, "percent");
+                assert_eq!(*precision, 0);
+            }
+            _ => panic!(),
+        }
+        match &segs[2] { TextSegment::Literal(s) => assert_eq!(s, "%"), _ => panic!() }
+    }
+
+    #[test]
+    fn precision_override_applies() {
+        let segs = lower_text_to_segments("{gpu.temp(2)}").unwrap();
+        match &segs[0] {
+            TextSegment::Sensor { precision, .. } => assert_eq!(*precision, 2),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn composite_placeholder_is_not_lowered() {
+        // gpu.vram returns None from infer → the whole text should be treated as
+        // un-lowered; we signal this by returning None so the old interpolation
+        // path handles it.
+        assert!(lower_text_to_segments("{gpu.vram}").is_none());
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use crate::omni::history::SensorHistory;
+    use crate::omni::types::HtmlNode;
+    use omni_shared::SensorSnapshot;
+    use std::collections::HashMap;
+
+    #[test]
+    fn text_with_sensor_placeholder_emits_span() {
+        let node = HtmlNode::Text { content: "CPU: {cpu.usage}%".into() };
+        let mut counter = 0;
+        let hwinfo_values = HashMap::new();
+        let hwinfo_units = HashMap::new();
+        let history = SensorHistory::new();
+        let mut snap = SensorSnapshot::default();
+        snap.cpu.total_usage_percent = 42.0;
+        let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
+        assert!(html.contains(r#"data-sensor="cpu.usage""#));
+        assert!(html.contains(r#"data-sensor-format="percent""#));
+        assert!(html.contains(r#"data-sensor-precision="0""#));
+        assert!(html.contains(">42%<") || html.contains(">42%</span>"));
+    }
+
+    #[test]
+    fn text_with_composite_path_falls_back_to_interpolation() {
+        let node = HtmlNode::Text { content: "{gpu.vram}".into() };
+        let mut counter = 0;
+        let hwinfo_values = HashMap::new();
+        let hwinfo_units = HashMap::new();
+        let history = SensorHistory::new();
+        let mut snap = SensorSnapshot::default();
+        snap.gpu.vram_used_mb = 4096;
+        snap.gpu.vram_total_mb = 12288;
+        let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
+        assert_eq!(html, "4096/12288");
+    }
+
+    #[test]
+    fn plain_text_unchanged() {
+        let node = HtmlNode::Text { content: "Hello".into() };
+        let mut counter = 0;
+        let hwinfo_values = HashMap::new();
+        let hwinfo_units = HashMap::new();
+        let history = SensorHistory::new();
+        let snap = SensorSnapshot::default();
+        let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
+        assert_eq!(html, "Hello");
     }
 }
