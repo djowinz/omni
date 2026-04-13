@@ -222,12 +222,63 @@ fn arg_number(args: &[Argument], idx: usize) -> Option<f64> {
     }
 }
 
+/// Convert a raw sensor value to the base unit of `target`, using the
+/// sensor's native HWiNFO unit string as the source. Returns `raw` unchanged
+/// when no conversion rule applies — this covers the common case of
+/// built-in sensors (which store values in their natural unit already) or
+/// HWiNFO sensors whose native unit matches the target.
+///
+/// Example: `hwinfo.network.current_dl_rate` reports `4813.3` with native
+/// unit `"KB/s"`. Target unit `BytesPerSec` base is bytes — so return
+/// `4813.3 * 1024 = 4,928,819` for correct bytes/s formatting.
+fn convert_to_target_base(raw: f64, native: Option<&str>, target: Unit) -> f64 {
+    let Some(native) = native.map(str::trim).filter(|s| !s.is_empty()) else {
+        return raw;
+    };
+    let multiplier: f64 = match (target, native) {
+        // ─── bytes family: KB/MB/GB/TB → bytes (binary 1024) ───────────────
+        (Unit::BytesPerSec | Unit::Bytes, "B" | "B/s" | "Bytes" | "Bytes/s") => 1.0,
+        (Unit::BytesPerSec | Unit::Bytes, "KB" | "KB/s" | "KiB" | "KiB/s") => 1024.0,
+        (Unit::BytesPerSec | Unit::Bytes, "MB" | "MB/s" | "MiB" | "MiB/s") => 1024.0 * 1024.0,
+        (Unit::BytesPerSec | Unit::Bytes, "GB" | "GB/s" | "GiB" | "GiB/s") => 1024f64.powi(3),
+        (Unit::BytesPerSec | Unit::Bytes, "TB" | "TB/s" | "TiB" | "TiB/s") => 1024f64.powi(4),
+        // ─── bits family: Kb/Mb/Gb → bits (decimal 1000) ───────────────────
+        (Unit::BitsPerSec, "b" | "b/s" | "bit" | "bit/s" | "bps") => 1.0,
+        (Unit::BitsPerSec, "Kb" | "Kb/s" | "kbit/s" | "kbps") => 1000.0,
+        (Unit::BitsPerSec, "Mb" | "Mb/s" | "Mbit/s" | "Mbps") => 1_000_000.0,
+        (Unit::BitsPerSec, "Gb" | "Gb/s" | "Gbit/s" | "Gbps") => 1_000_000_000.0,
+        // ─── cross-family: bytes ↔ bits (×8 / ÷8) ──────────────────────────
+        (Unit::BytesPerSec, "b" | "b/s" | "bps") => 1.0 / 8.0,
+        (Unit::BytesPerSec, "Kb" | "Kb/s" | "kbps") => 125.0,
+        (Unit::BytesPerSec, "Mb" | "Mb/s" | "Mbps") => 125_000.0,
+        (Unit::BytesPerSec, "Gb" | "Gb/s" | "Gbps") => 125_000_000.0,
+        (Unit::BitsPerSec, "B" | "B/s") => 8.0,
+        (Unit::BitsPerSec, "KB" | "KB/s" | "KiB/s") => 8192.0,
+        (Unit::BitsPerSec, "MB" | "MB/s" | "MiB/s") => 8_388_608.0,
+        (Unit::BitsPerSec, "GB" | "GB/s" | "GiB/s") => 8_589_934_592.0,
+        // ─── Hz family ─────────────────────────────────────────────────────
+        (Unit::Hz, "Hz") => 1.0,
+        (Unit::Hz, "kHz") => 1000.0,
+        (Unit::Hz, "MHz") => 1_000_000.0,
+        (Unit::Hz, "GHz") => 1_000_000_000.0,
+        // Everything else: pass through unchanged
+        _ => return raw,
+    };
+    raw * multiplier
+}
+
+/// Look up HWiNFO native unit for a sensor path, if any.
+fn native_unit_for<'a>(sensor: &str, ctx: &'a EvalCtx) -> Option<&'a str> {
+    ctx.hwinfo_units.get(sensor).map(String::as_str)
+}
+
 /// `format_value(sensor, unit)` or `format_value(number, unit)`
 fn eval_format_value(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     let unit = arg_unit(args, 1)?;
     let value = match args.first()? {
         Argument::SensorPath(s) | Argument::Identifier(s) => {
-            sensor_map::get_sensor_value_f64(s, ctx.snapshot, ctx.hwinfo_values)?
+            let raw = sensor_map::get_sensor_value_f64(s, ctx.snapshot, ctx.hwinfo_values)?;
+            convert_to_target_base(raw, native_unit_for(s, ctx), unit)
         }
         Argument::Number(n) => *n,
         _ => return None,
@@ -239,12 +290,13 @@ fn eval_format_value(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
 fn eval_buffer_stat(args: &[Argument], ctx: &EvalCtx, stat: BufferStat) -> Option<String> {
     let sensor = arg_sensor_path(args, 0)?;
     let unit = arg_unit(args, 1)?;
-    let value = match stat {
+    let raw = match stat {
         BufferStat::Min => ctx.history.min(sensor),
         BufferStat::Max => ctx.history.max(sensor),
         BufferStat::Avg => ctx.history.avg(sensor),
     }
     .unwrap_or(0.0);
+    let value = convert_to_target_base(raw, native_unit_for(sensor, ctx), unit);
     Some(unit.format(value))
 }
 
@@ -269,8 +321,11 @@ fn eval_nice_tick(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     let unit = arg_unit(args, 1)?;
     let index = arg_number(args, 2)? as usize;
     let count = arg_number(args, 3)? as usize;
-    let min = ctx.history.min(sensor).unwrap_or(0.0);
-    let max = ctx.history.max(sensor).unwrap_or(0.0);
+    // Convert raw buffer min/max from native HWiNFO unit to target base so
+    // labels match the polyline the user sees.
+    let native = native_unit_for(sensor, ctx);
+    let min = convert_to_target_base(ctx.history.min(sensor).unwrap_or(0.0), native, unit);
+    let max = convert_to_target_base(ctx.history.max(sensor).unwrap_or(0.0), native, unit);
     if count == 0 {
         return Some(unit.format(min));
     }
@@ -322,16 +377,27 @@ fn eval_chart_polyline(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     if range == 0.0 {
         return Some(String::new());
     }
+    // Inset the draw area by PLOT_PADDING pixels top and bottom so values
+    // at `min` (y=height) and `max` (y=0) aren't clipped by overflow:hidden
+    // against the plot edge — particularly important for stroke-width>=2
+    // where the outer half of the line would otherwise be cut off, making
+    // flat-bottom lines (all zeros) effectively invisible.
     let n = buffer.len();
     let step_x = if n > 1 { width / (n - 1) as f64 } else { 0.0 };
+    let draw_h = (height - 2.0 * PLOT_PADDING).max(0.0);
     let mut parts = Vec::with_capacity(n);
     for (i, v) in buffer.iter().enumerate() {
         let x = i as f64 * step_x;
-        let y = height - ((v - min) / range) * height;
+        let y = PLOT_PADDING + (draw_h - ((v - min) / range) * draw_h);
         parts.push(format!("{:.1},{:.1}", x, y));
     }
     Some(parts.join(" "))
 }
+
+/// Pixels of top/bottom padding inset from the plot area so min/max values
+/// don't land on the clipped edge. Chosen to comfortably fit a default
+/// stroke-width of 2 plus a little visual breathing room.
+const PLOT_PADDING: f64 = 2.0;
 
 /// `chart_path(sensor, width, height)` — SVG path `d` string for `<path>`
 fn eval_chart_path(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
@@ -349,12 +415,13 @@ fn eval_chart_path(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     }
     let n = buffer.len();
     let step_x = if n > 1 { width / (n - 1) as f64 } else { 0.0 };
+    let draw_h = (height - 2.0 * PLOT_PADDING).max(0.0);
     let points: Vec<(f64, f64)> = buffer
         .iter()
         .enumerate()
         .map(|(i, v)| {
             let x = i as f64 * step_x;
-            let y = height - ((v - min) / range) * height;
+            let y = PLOT_PADDING + (draw_h - ((v - min) / range) * draw_h);
             (x, y)
         })
         .collect();
