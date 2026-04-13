@@ -266,12 +266,15 @@ pub type UpdateDiff = HashMap<String, ElementUpdate>;
 
 /// Compute the structured diff of element updates for the current sensor state.
 /// Returns None if no elements need updating.
+///
+/// Only populates the `c` (class) field for conditional classes. Text updates
+/// now flow through `collect_sensor_values` / `format_values_js` via the
+/// bootstrap's `__omni_update(values)` API.
 pub fn compute_update_diff(
     omni_file: &OmniFile,
     snapshot: &SensorSnapshot,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
-    history: &SensorHistory,
 ) -> Option<UpdateDiff> {
     let mut diff = UpdateDiff::new();
     let mut counter: u32 = 0;
@@ -280,7 +283,7 @@ pub fn compute_update_diff(
         if !widget.enabled {
             continue;
         }
-        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units, history);
+        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units);
     }
 
     if diff.is_empty() {
@@ -290,8 +293,108 @@ pub fn compute_update_diff(
     }
 }
 
+/// Render a class-only `UpdateDiff` as a `__omni_set_classes({...})` call, or
+/// return `None` if empty.
+pub fn format_classes_js(diff: &UpdateDiff) -> Option<String> {
+    let mut ids: Vec<&String> = diff.keys().collect();
+    ids.sort_by_key(|id| {
+        id.strip_prefix("omni-").and_then(|n| n.parse::<u32>().ok()).unwrap_or(u32::MAX)
+    });
+    let mut parts = Vec::new();
+    for id in ids {
+        if let Some(c) = &diff[id].c {
+            let escaped = c.replace('\\', "\\\\").replace('"', "\\\"");
+            parts.push(format!(r#""{}":"{}""#, id, escaped));
+        }
+    }
+    if parts.is_empty() { None }
+    else { Some(format!("__omni_set_classes({{{}}})", parts.join(","))) }
+}
+
+/// Render a sensor-values map as a `__omni_update({...})` call.
+pub fn format_values_js(values: &HashMap<String, f64>) -> String {
+    let json = serde_json::to_string(values).unwrap_or_else(|_| "{}".into());
+    format!("__omni_update({})", json)
+}
+
+/// Walk the widget tree and collect every sensor path that any `data-sensor`
+/// span in the rendered document is bound to, with its current raw numeric
+/// value. Keys are sensor paths; values are `f64`.
+pub fn collect_sensor_values(
+    omni_file: &OmniFile,
+    snapshot: &SensorSnapshot,
+    hwinfo_values: &HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    let mut out: HashMap<String, f64> = HashMap::new();
+    for widget in &omni_file.widgets {
+        if !widget.enabled { continue; }
+        collect_paths(&widget.template, &mut out, snapshot, hwinfo_values);
+    }
+    out
+}
+
+fn collect_paths(
+    node: &HtmlNode,
+    out: &mut HashMap<String, f64>,
+    snapshot: &SensorSnapshot,
+    hwinfo_values: &HashMap<String, f64>,
+) {
+    match node {
+        HtmlNode::Text { content } => {
+            if let Some(segs) = lower_text_to_segments(content) {
+                for seg in segs {
+                    if let TextSegment::Sensor { path, .. } = seg {
+                        if let Some(v) = raw_value(&path, snapshot, hwinfo_values) {
+                            out.insert(path, v);
+                        }
+                    }
+                }
+            }
+        }
+        HtmlNode::Element { children, .. } => {
+            for c in children { collect_paths(c, out, snapshot, hwinfo_values); }
+        }
+    }
+}
+
+fn raw_value(
+    path: &str,
+    snapshot: &SensorSnapshot,
+    hwinfo_values: &HashMap<String, f64>,
+) -> Option<f64> {
+    if let Some(v) = hwinfo_values.get(path) { return Some(*v); }
+    Some(match path {
+        "cpu.usage" => snapshot.cpu.total_usage_percent as f64,
+        "cpu.temp" => {
+            let v = snapshot.cpu.package_temp_c as f64;
+            if v.is_nan() { return None; } else { v }
+        }
+        "gpu.usage" => snapshot.gpu.usage_percent as f64,
+        "gpu.temp" => {
+            let v = snapshot.gpu.temp_c as f64;
+            if v.is_nan() { return None; } else { v }
+        }
+        "gpu.clock" => snapshot.gpu.core_clock_mhz as f64,
+        "gpu.mem-clock" => snapshot.gpu.mem_clock_mhz as f64,
+        "gpu.vram.used" => snapshot.gpu.vram_used_mb as f64,
+        "gpu.vram.total" => snapshot.gpu.vram_total_mb as f64,
+        "gpu.power" => snapshot.gpu.power_draw_w as f64,
+        "gpu.fan" => snapshot.gpu.fan_speed_percent as f64,
+        "ram.usage" => snapshot.ram.usage_percent as f64,
+        "ram.used" => snapshot.ram.used_mb as f64,
+        "ram.total" => snapshot.ram.total_mb as f64,
+        "fps" if snapshot.frame.available => snapshot.frame.fps as f64,
+        "frame-time" if snapshot.frame.available => snapshot.frame.frame_time_ms as f64,
+        "frame-time.avg" if snapshot.frame.available => snapshot.frame.frame_time_avg_ms as f64,
+        "frame-time.1pct" if snapshot.frame.available => snapshot.frame.frame_time_1percent_ms as f64,
+        "frame-time.01pct" if snapshot.frame.available => snapshot.frame.frame_time_01percent_ms as f64,
+        _ => return None,
+    })
+}
+
 /// Convert an `UpdateDiff` into the JS string format consumed by Ultralight:
 /// `omniUpdate({"omni-0":{"c":"class1 class2","t":"72°C"},...})`
+#[deprecated(note = "use format_classes_js + format_values_js")]
 pub fn format_as_js(diff: &UpdateDiff) -> String {
     // Build entries in sorted order for deterministic output matching the
     // sequential omni-id assignment (omni-0, omni-1, ...).
@@ -343,6 +446,8 @@ pub fn format_as_js(diff: &UpdateDiff) -> String {
 }
 
 /// Walk the template tree and collect diff entries for elements that need updating.
+/// Only populates `c` (conditional classes) and `a` (attribute interpolations).
+/// Text updates now flow via `collect_sensor_values` + `format_values_js`.
 fn collect_diff_entries(
     node: &HtmlNode,
     snapshot: &SensorSnapshot,
@@ -350,11 +455,10 @@ fn collect_diff_entries(
     diff: &mut UpdateDiff,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
-    history: &SensorHistory,
 ) {
     match node {
         HtmlNode::Text { .. } => {
-            // Text nodes don't have IDs — they're updated via their parent element
+            // Text nodes don't have IDs — sensor text flows via __omni_update(values)
         }
         HtmlNode::Element {
             classes,
@@ -367,7 +471,6 @@ fn collect_diff_entries(
             *counter += 1;
 
             let mut update_c: Option<String> = None;
-            let mut update_t: Option<String> = None;
 
             // If this element has reactive classes, compute the full className
             if !conditional_classes.is_empty() {
@@ -382,18 +485,6 @@ fn collect_diff_entries(
                 update_c = Some(active_classes.join(" "));
             }
 
-            // If this element has a text child with sensor placeholders, interpolate it
-            for child in children {
-                if let HtmlNode::Text { content } = child {
-                    if content.contains('{') {
-                        let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
-                        let interpolated = interpolate(content, &ctx);
-                        update_t = Some(interpolated);
-                        break; // Only first text child
-                    }
-                }
-            }
-
             // Walk arbitrary attributes — any value containing `{...}` needs
             // to be re-evaluated each tick and emitted as an `a` update.
             // Defer HashMap allocation until the first interpolatable
@@ -403,7 +494,7 @@ fn collect_diff_entries(
                 if value.contains('{') {
                     let ctx = EvalCtx {
                         snapshot,
-                        history,
+                        history: &SensorHistory::new(),
                         hwinfo_values,
                         hwinfo_units,
                     };
@@ -414,12 +505,12 @@ fn collect_diff_entries(
                 }
             }
 
-            if update_c.is_some() || update_t.is_some() || update_a.is_some() {
+            if update_c.is_some() || update_a.is_some() {
                 diff.insert(
                     node_id,
                     ElementUpdate {
                         c: update_c,
-                        t: update_t,
+                        t: None,
                         a: update_a,
                     },
                 );
@@ -427,7 +518,7 @@ fn collect_diff_entries(
 
             // Recurse into children
             for child in children {
-                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units, history);
+                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units);
             }
         }
     }
@@ -698,16 +789,14 @@ mod tests {
 
     #[test]
     fn compute_update_diff_emits_attribute_changes() {
-        use crate::omni::history::SensorHistory;
+        // history removed from compute_update_diff in Task 7 — attributes still
+        // interpolate but history-backed min/max default to 0.
         use crate::omni::types::{HtmlNode, OmniFile, Widget};
         use omni_shared::SensorSnapshot;
         use std::collections::HashMap;
 
         let mut snapshot = SensorSnapshot::default();
         snapshot.cpu.total_usage_percent = 60.0;
-        let mut history = SensorHistory::new();
-        history.register("cpu.usage");
-        history.push_sample("cpu.usage", 60.0);
         let hv = HashMap::new();
         let hu = HashMap::new();
 
@@ -748,7 +837,7 @@ mod tests {
             }],
         };
 
-        let diff = compute_update_diff(&file, &snapshot, &hv, &hu, &history)
+        let diff = compute_update_diff(&file, &snapshot, &hv, &hu)
             .expect("expected a diff");
         let any_attr_update = diff
             .values()
@@ -965,5 +1054,71 @@ mod render_tests {
             !result.full_document.contains("function omniUpdate"),
             "full_document must not contain legacy 'function omniUpdate'"
         );
+    }
+
+    #[test]
+    fn compute_diff_populates_classes_only() {
+        use crate::omni::types::{ConditionalClass, HtmlNode, OmniFile, Widget};
+        use omni_shared::SensorSnapshot;
+        use std::collections::HashMap;
+
+        let mut snap = SensorSnapshot::default();
+        snap.cpu.total_usage_percent = 90.0;
+        let omni = OmniFile {
+            theme_src: None,
+            poll_config: Default::default(),
+            widgets: vec![Widget {
+                id: "w".into(), name: "w".into(), enabled: true,
+                template: HtmlNode::Element {
+                    tag: "div".into(), id: None, classes: vec!["base".into()],
+                    inline_style: None,
+                    attributes: vec![],
+                    conditional_classes: vec![ConditionalClass {
+                        class_name: "sensor-warn".into(),
+                        expression: "cpu.usage >= 80".into(),
+                    }],
+                    children: vec![HtmlNode::Text { content: "{cpu.usage}%".into() }],
+                },
+                style_source: String::new(),
+            }],
+        };
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let diff = compute_update_diff(&omni, &snap, &hv, &hu).expect("diff");
+        let update = diff.values().next().unwrap();
+        assert!(update.c.as_ref().unwrap().contains("sensor-warn"));
+        assert!(update.t.is_none(), "text should no longer flow through diff");
+    }
+
+    #[test]
+    fn collect_values_gathers_lowered_paths() {
+        use crate::omni::types::{HtmlNode, OmniFile, Widget};
+        use omni_shared::SensorSnapshot;
+        use std::collections::HashMap;
+
+        let mut snap = SensorSnapshot::default();
+        snap.cpu.total_usage_percent = 42.0;
+        snap.gpu.temp_c = 60.0;
+        let omni = OmniFile {
+            theme_src: None,
+            poll_config: Default::default(),
+            widgets: vec![Widget {
+                id: "w".into(), name: "w".into(), enabled: true,
+                template: HtmlNode::Element {
+                    tag: "div".into(), id: None, classes: vec![], inline_style: None,
+                    attributes: vec![],
+                    conditional_classes: vec![],
+                    children: vec![
+                        HtmlNode::Text { content: "{cpu.usage}%".into() },
+                        HtmlNode::Text { content: "{gpu.temp}\u{00B0}C".into() },
+                    ],
+                },
+                style_source: String::new(),
+            }],
+        };
+        let hv = HashMap::new();
+        let values = collect_sensor_values(&omni, &snap, &hv);
+        assert_eq!(values.get("cpu.usage"), Some(&42.0));
+        assert_eq!(values.get("gpu.temp"), Some(&60.0));
     }
 }
