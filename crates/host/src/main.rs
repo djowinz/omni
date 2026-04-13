@@ -744,30 +744,49 @@ fn run_host() {
         }
 
         // --- Ultralight: push sensor/class updates via JS, then render ---
-        // The HTML is loaded once (with styles in <head> and omniUpdate function).
-        // Each cycle we call omniUpdate({...}) to update classes and text nodes.
+        // The HTML is loaded once (bootstrap + styles + body). Each cycle we:
+        //   1. Push raw sensor values via __omni_update(values) so the bootstrap
+        //      updates all data-sensor spans — CSS animations survive DOM mutations.
+        //   2. Push conditional-class changes via __omni_set_classes for server-side
+        //      threshold expressions and attribute interpolations.
         // The DOM persists so CSS transitions animate naturally.
         let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
-        if let Some(diff) = html_builder::compute_update_diff(
+
+        // Push raw sensor values via the bootstrap's __omni_update.
+        let values = html_builder::collect_sensor_values(
+            &host.omni_file,
+            &latest_snapshot,
+            &hwinfo_values,
+        );
+        if !values.is_empty() {
+            ul.evaluate_script(&html_builder::format_values_js(&values));
+        }
+
+        // Push conditional-class updates for expressions too rich for threshold attrs.
+        let class_diff = html_builder::compute_update_diff(
             &host.omni_file,
             &latest_snapshot,
             &hwinfo_values,
             &hwinfo_units,
-            &host.sensor_history,
-        ) {
-            let js = html_builder::format_as_js(&diff);
-            ul.evaluate_script(&js);
+        );
+        let class_js = class_diff
+            .as_ref()
+            .and_then(|d| html_builder::format_classes_js(d));
+        if let Some(js) = &class_js {
+            ul.evaluate_script(js);
+        }
 
-            // Send JSON to preview subscribers
-            let subs = ws_state.preview_subscribers.lock().unwrap();
-            if !subs.is_empty() {
-                drop(subs);
-                let preview_msg = json!({
-                    "type": "preview.update",
-                    "diff": diff,
-                });
-                ws_server::broadcast_preview(&ws_state, &preview_msg.to_string());
-            }
+        // Preview subscribers keep receiving the class diff; values are also
+        // included so the Nextron editor can display live sensor readings.
+        let subs = ws_state.preview_subscribers.lock().unwrap();
+        if !subs.is_empty() {
+            drop(subs);
+            let preview_msg = json!({
+                "type": "preview.update",
+                "values": values,
+                "diff": class_diff,
+            });
+            ws_server::broadcast_preview(&ws_state, &preview_msg.to_string());
         }
         ul.update_and_render();
         ul.with_pixels(|w, h, rb, pixels, dirty| {
