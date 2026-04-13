@@ -4,7 +4,6 @@
 //!   and on hot reload). Returns `InitialHtml` with separated html/css/full_document.
 //! - `compute_update_diff` — walks the template tree with current sensor values
 //!   and returns a structured `UpdateDiff` of element updates (called every cycle).
-//! - `format_as_js` — serializes an `UpdateDiff` into a JS call for Ultralight.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -392,58 +391,6 @@ fn raw_value(
     })
 }
 
-/// Convert an `UpdateDiff` into the JS string format consumed by Ultralight:
-/// `omniUpdate({"omni-0":{"c":"class1 class2","t":"72°C"},...})`
-#[deprecated(note = "use format_classes_js + format_values_js")]
-pub fn format_as_js(diff: &UpdateDiff) -> String {
-    // Build entries in sorted order for deterministic output matching the
-    // sequential omni-id assignment (omni-0, omni-1, ...).
-    let mut ids: Vec<&String> = diff.keys().collect();
-    ids.sort_by_key(|id| {
-        id.strip_prefix("omni-")
-            .and_then(|n| n.parse::<u32>().ok())
-            .unwrap_or(u32::MAX)
-    });
-
-    let mut entries = String::new();
-    for id in &ids {
-        let update = &diff[*id];
-        let mut parts = Vec::new();
-        if let Some(ref c) = update.c {
-            let escaped = c.replace('\\', "\\\\").replace('"', "\\\"");
-            parts.push(format!(r#""c":"{}""#, escaped));
-        }
-        if let Some(ref t) = update.t {
-            let escaped = t.replace('\\', "\\\\").replace('"', "\\\"");
-            parts.push(format!(r#""t":"{}""#, escaped));
-        }
-        if let Some(ref a) = update.a {
-            if !a.is_empty() {
-                let mut attr_keys: Vec<&String> = a.keys().collect();
-                attr_keys.sort();
-                let attr_parts: Vec<String> = attr_keys
-                    .iter()
-                    .map(|k| {
-                        let v = &a[*k];
-                        let escaped_v = v.replace('\\', "\\\\").replace('"', "\\\"");
-                        format!(r#""{}":"{}""#, k, escaped_v)
-                    })
-                    .collect();
-                parts.push(format!(r#""a":{{{}}}"#, attr_parts.join(",")));
-            }
-        }
-        if !parts.is_empty() {
-            entries.push_str(&format!(r#""{}":{{{}}},"#, id, parts.join(",")));
-        }
-    }
-
-    // Remove trailing comma
-    if entries.ends_with(',') {
-        entries.pop();
-    }
-
-    format!("omniUpdate({{{}}})", entries)
-}
 
 /// Walk the template tree and collect diff entries for elements that need updating.
 /// Only populates `c` (conditional classes) and `a` (attribute interpolations).
@@ -757,35 +704,6 @@ fn simple_base64_encode(data: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn element_update_with_attributes() {
-        use std::collections::HashMap;
-        let mut attrs = HashMap::new();
-        attrs.insert("points".to_string(), "0,50 10,40 20,30".to_string());
-        let update = ElementUpdate {
-            c: None,
-            t: None,
-            a: Some(attrs),
-        };
-        let mut diff = UpdateDiff::new();
-        diff.insert("omni-0".to_string(), update);
-        let js = format_as_js(&diff);
-        assert!(js.contains("\"a\":{"), "JS output missing 'a' field: {}", js);
-        assert!(js.contains("\"points\":\"0,50 10,40 20,30\""), "JS output missing points value: {}", js);
-    }
-
-    #[test]
-    fn element_update_without_attributes_omits_a_field() {
-        let update = ElementUpdate {
-            c: Some("active".to_string()),
-            t: None,
-            a: None,
-        };
-        let mut diff = UpdateDiff::new();
-        diff.insert("omni-0".to_string(), update);
-        let js = format_as_js(&diff);
-        assert!(!js.contains("\"a\":"), "JS output should not contain 'a' field: {}", js);
-    }
 
     #[test]
     fn compute_update_diff_emits_attribute_changes() {
@@ -849,24 +767,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn element_update_with_class_text_and_attributes() {
-        use std::collections::HashMap;
-        let mut attrs = HashMap::new();
-        attrs.insert("height".to_string(), "42".to_string());
-        let update = ElementUpdate {
-            c: Some("hot".to_string()),
-            t: Some("72".to_string()),
-            a: Some(attrs),
-        };
-        let mut diff = UpdateDiff::new();
-        diff.insert("omni-0".to_string(), update);
-        let js = format_as_js(&diff);
-        assert!(js.contains("\"c\":\"hot\""));
-        assert!(js.contains("\"t\":\"72\""));
-        assert!(js.contains("\"a\":{"));
-        assert!(js.contains("\"height\":\"42\""));
-    }
 }
 
 #[cfg(test)]
