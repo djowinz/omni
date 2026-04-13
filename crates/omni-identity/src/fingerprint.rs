@@ -20,7 +20,9 @@ impl PublicKey {
 
     pub fn from_hex(s: &str) -> Option<Self> {
         let bytes = hex::decode(s).ok()?;
-        if bytes.len() != 32 { return None; }
+        if bytes.len() != 32 {
+            return None;
+        }
         let mut out = [0u8; 32];
         out.copy_from_slice(&bytes);
         Some(PublicKey(out))

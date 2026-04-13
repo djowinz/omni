@@ -102,7 +102,12 @@ pub(crate) fn decode_params_blob(b: &[u8]) -> Result<BackupParams, IdentityError
     if output_len != ARGON2_OUTPUT_LEN {
         return Err(IdentityError::Corrupt("output_len != 32".into()));
     }
-    Ok(BackupParams { m_cost_kib, t_cost, p_cost, output_len })
+    Ok(BackupParams {
+        m_cost_kib,
+        t_cost,
+        p_cost,
+        output_len,
+    })
 }
 
 #[cfg(test)]

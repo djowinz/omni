@@ -20,7 +20,10 @@ mod tests {
     #[test]
     fn all_lowercase_ascii() {
         for w in WORDS.iter() {
-            assert!(w.chars().all(|c| c.is_ascii_lowercase()), "{w} not ascii-lower");
+            assert!(
+                w.chars().all(|c| c.is_ascii_lowercase()),
+                "{w} not ascii-lower"
+            );
         }
     }
 }

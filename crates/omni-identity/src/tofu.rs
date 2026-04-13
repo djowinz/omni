@@ -14,7 +14,11 @@ use crate::fingerprint::PublicKey;
 pub enum TofuResult {
     FirstSeen,
     KnownMatch,
-    DisplayNameMismatch { known_pubkey_hex: String, seen_pubkey_hex: String, display_name: String },
+    DisplayNameMismatch {
+        known_pubkey_hex: String,
+        seen_pubkey_hex: String,
+        display_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -49,9 +53,15 @@ impl TofuRegistry {
             }
             doc
         } else {
-            TofuDoc { version: 1, entries: HashMap::new() }
+            TofuDoc {
+                version: 1,
+                entries: HashMap::new(),
+            }
         };
-        Ok(Self { path: path.to_path_buf(), doc })
+        Ok(Self {
+            path: path.to_path_buf(),
+            doc,
+        })
     }
 
     pub fn save(&self) -> Result<(), IdentityError> {
@@ -79,21 +89,20 @@ impl TofuRegistry {
             }
         }
 
-        if self.doc.entries.contains_key(&pk_hex) {
-            TofuResult::KnownMatch
-        } else {
-            let fp = pubkey.fingerprint();
-            let words = fp.to_words();
-            self.doc.entries.insert(
-                pk_hex,
-                TofuEntry {
+        use std::collections::hash_map::Entry;
+        match self.doc.entries.entry(pk_hex) {
+            Entry::Occupied(_) => TofuResult::KnownMatch,
+            Entry::Vacant(e) => {
+                let fp = pubkey.fingerprint();
+                let words = fp.to_words();
+                e.insert(TofuEntry {
                     first_seen_at: now_unix,
                     display_name: display_name.to_string(),
                     fingerprint_words: format!("{}-{}-{}", words[0], words[1], words[2]),
                     install_count: 0,
-                },
-            );
-            TofuResult::FirstSeen
+                });
+                TofuResult::FirstSeen
+            }
         }
     }
 
@@ -114,14 +123,22 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn pk(seed: u8) -> PublicKey { PublicKey([seed; 32]) }
+    fn pk(seed: u8) -> PublicKey {
+        PublicKey([seed; 32])
+    }
 
     #[test]
     fn first_seen_then_known_match() {
         let dir = tempdir().unwrap();
         let mut r = TofuRegistry::load(&dir.path().join("tofu.json")).unwrap();
-        assert_eq!(r.check_or_record(pk(1), "alice", 100), TofuResult::FirstSeen);
-        assert_eq!(r.check_or_record(pk(1), "alice", 200), TofuResult::KnownMatch);
+        assert_eq!(
+            r.check_or_record(pk(1), "alice", 100),
+            TofuResult::FirstSeen
+        );
+        assert_eq!(
+            r.check_or_record(pk(1), "alice", 200),
+            TofuResult::KnownMatch
+        );
     }
 
     #[test]

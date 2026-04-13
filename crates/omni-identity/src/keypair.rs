@@ -16,7 +16,9 @@ pub struct Keypair {
 impl Keypair {
     pub fn generate() -> Self {
         let mut rng = OsRng;
-        Self { signing: SigningKey::generate(&mut rng) }
+        Self {
+            signing: SigningKey::generate(&mut rng),
+        }
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -37,7 +39,9 @@ impl Keypair {
     }
 
     pub(crate) fn from_seed(seed: &[u8; 32]) -> Self {
-        Self { signing: SigningKey::from_bytes(seed) }
+        Self {
+            signing: SigningKey::from_bytes(seed),
+        }
     }
 
     pub fn load_or_create(path: &Path) -> Result<Self, IdentityError> {
@@ -110,7 +114,13 @@ impl Keypair {
             .map_err(|e| IdentityError::Crypto(format!("cipher key: {e}")))?;
         let nonce = XNonce::from_slice(&nonce_bytes);
         let ct_and_tag = cipher
-            .encrypt(nonce, Payload { msg: &plaintext, aad: &aad })
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: &plaintext,
+                    aad: &aad,
+                },
+            )
             .map_err(|e| IdentityError::Crypto(format!("encrypt: {e}")))?;
 
         debug_assert_eq!(ct_and_tag.len(), PLAINTEXT_LEN + TAG_LEN);
@@ -173,7 +183,13 @@ impl Keypair {
             .map_err(|e| IdentityError::Crypto(format!("cipher key: {e}")))?;
         let nonce = XNonce::from_slice(nonce_bytes);
         let plaintext = cipher
-            .decrypt(nonce, Payload { msg: ct_and_tag, aad: &aad })
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: ct_and_tag,
+                    aad: &aad,
+                },
+            )
             .map_err(|_| IdentityError::BadPassphrase)?;
         let plaintext = Zeroizing::new(plaintext);
 

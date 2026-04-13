@@ -33,7 +33,10 @@ fn tofu_flags_impersonation_across_restart() {
 
     {
         let mut r = TofuRegistry::load(&tofu_path).unwrap();
-        assert_eq!(r.check_or_record(kp_a.public_key(), "lx92", 1), TofuResult::FirstSeen);
+        assert_eq!(
+            r.check_or_record(kp_a.public_key(), "lx92", 1),
+            TofuResult::FirstSeen
+        );
         r.save().unwrap();
     }
 
