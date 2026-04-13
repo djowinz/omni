@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::io::{Cursor, Write};
 
-use sha2::{Digest, Sha256};
 use zip::write::FileOptions;
 use zip::{CompressionMethod, DateTime, ZipWriter};
 
 use crate::error::BundleError;
-use crate::manifest::{pretty_manifest_bytes, Manifest};
+use crate::hash::sha256_of;
+use crate::manifest::{pretty_manifest_bytes, validate_manifest_references, Manifest};
 use crate::path::{check_size, validate_path, FileKind};
 use crate::{MAX_BUNDLE_COMPRESSED, MAX_BUNDLE_UNCOMPRESSED, MAX_ENTRIES};
 
@@ -27,26 +27,7 @@ pub fn pack(
         return Err(BundleError::TooManyEntries { actual: total_entries });
     }
 
-    // Reject duplicate paths in the manifest (BTreeMap would silently overwrite).
-    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-    for e in &manifest.files {
-        if !seen.insert(e.path.as_str()) {
-            return Err(BundleError::UnsafePath(format!(
-                "duplicate manifest entry: {}",
-                e.path
-            )));
-        }
-    }
-
-    // entry_overlay and default_theme must be listed in files.
-    if !manifest.files.iter().any(|e| e.path == manifest.entry_overlay) {
-        return Err(BundleError::FileMissing(manifest.entry_overlay.clone()));
-    }
-    if let Some(theme) = &manifest.default_theme {
-        if !manifest.files.iter().any(|e| &e.path == theme) {
-            return Err(BundleError::FileMissing(theme.clone()));
-        }
-    }
+    validate_manifest_references(manifest)?;
 
     let entries: BTreeMap<&str, &[u8; 32]> = manifest
         .files
@@ -121,13 +102,4 @@ pub fn pack(
     }
 
     Ok(out)
-}
-
-fn sha256_of(bytes: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(bytes);
-    let out = h.finalize();
-    let mut d = [0u8; 32];
-    d.copy_from_slice(&out);
-    d
 }

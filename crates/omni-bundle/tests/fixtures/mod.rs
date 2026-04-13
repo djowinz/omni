@@ -5,12 +5,17 @@ use sha2::{Digest, Sha256};
 
 #[allow(dead_code)]
 pub fn sha256(b: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(b);
-    let out = h.finalize();
-    let mut d = [0u8; 32];
-    d.copy_from_slice(&out);
-    d
+    Sha256::digest(b).into()
+}
+
+/// Standard zip options used throughout the negative-test suite. Deterministic
+/// DateTime + Deflated matches `pack`'s own settings, so tests build bundles
+/// shaped like real ones.
+#[allow(dead_code)]
+pub fn test_zip_opts() -> zip::write::FileOptions {
+    zip::write::FileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .last_modified_time(zip::DateTime::default())
 }
 
 #[allow(dead_code)]
