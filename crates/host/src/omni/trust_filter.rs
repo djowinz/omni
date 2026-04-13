@@ -18,8 +18,6 @@ use super::view_trust::ViewTrust;
 /// `view` must be a valid ULView pointer for the full lifetime over which
 /// the callback may fire (i.e. until the View is destroyed or the callback
 /// is replaced).
-// TODO(task-7): remove this allow once UlRenderer::mount wires up `apply`.
-#[allow(dead_code)]
 pub unsafe fn apply(view: ul::ULView, trust: ViewTrust) {
     if trust.is_sandboxed() {
         ul::ulViewSetBeginLoadingCallback(

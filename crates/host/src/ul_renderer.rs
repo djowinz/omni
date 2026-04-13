@@ -5,6 +5,11 @@ use std::path::Path;
 
 use tracing::info;
 
+use crate::omni::fs_dispatcher;
+use crate::omni::overlay_fs::OverlayFilesystem;
+use crate::omni::trust_filter;
+use crate::omni::view_trust::ViewTrust;
+
 /// Safe wrapper around Ultralight renderer + view.
 pub struct UlRenderer {
     renderer: ultralight_sys::ULRenderer,
@@ -22,10 +27,7 @@ impl UlRenderer {
             // Set up platform handlers (from AppCore)
             ultralight_sys::ulEnablePlatformFontLoader();
 
-            let res_path = CString::new(resources_dir.to_string_lossy().as_ref())
-                .map_err(|e| format!("Invalid resources path: {e}"))?;
-            let res_str = ultralight_sys::ulCreateString(res_path.as_ptr());
-            ultralight_sys::ulEnablePlatformFileSystem(res_str);
+            fs_dispatcher::install_with_resources(resources_dir.to_path_buf());
 
             // Configure
             let config = ultralight_sys::ulCreateConfig();
@@ -33,7 +35,6 @@ impl UlRenderer {
             let res_prefix_str = ultralight_sys::ulCreateString(res_prefix.as_ptr());
             ultralight_sys::ulConfigSetResourcePathPrefix(config, res_prefix_str);
             ultralight_sys::ulDestroyString(res_prefix_str);
-            ultralight_sys::ulDestroyString(res_str);
 
             // Create renderer
             let renderer = ultralight_sys::ulCreateRenderer(config);
@@ -74,7 +75,39 @@ impl UlRenderer {
         }
     }
 
+    /// Mount an overlay or bundle into the View. Scopes the platform FS to
+    /// `overlay_root`, applies the trust filter, and loads `html` via a
+    /// synthetic `file:///` URL so relative `url(...)` references resolve
+    /// against the overlay directory.
+    ///
+    /// A scratch file `.omni_current.html` is written inside `overlay_root`.
+    /// Callers must have write access to that directory.
+    pub fn mount(
+        &self,
+        overlay_root: &Path,
+        html: &str,
+        trust: ViewTrust,
+    ) -> Result<(), String> {
+        fs_dispatcher::set_active(OverlayFilesystem::new(overlay_root.to_path_buf()));
+        unsafe { trust_filter::apply(self.view, trust); }
+
+        let scratch = overlay_root.join(".omni_current.html");
+        std::fs::write(&scratch, html)
+            .map_err(|e| format!("failed to write scratch HTML to {}: {e}", scratch.display()))?;
+
+        let url = "file:///.omni_current.html";
+        unsafe {
+            let c = std::ffi::CString::new(url).map_err(|e| format!("url cstring: {e}"))?;
+            let ul_url = ultralight_sys::ulCreateString(c.as_ptr());
+            ultralight_sys::ulViewLoadURL(self.view, ul_url);
+            ultralight_sys::ulDestroyString(ul_url);
+        }
+        Ok(())
+    }
+
     /// Load an HTML string into the view.
+    #[deprecated(note = "use mount(...) with an explicit overlay root")]
+    #[allow(dead_code)]
     pub fn load_html(&self, html: &str) {
         unsafe {
             let c_html = CString::new(html).unwrap_or_else(|_| {
