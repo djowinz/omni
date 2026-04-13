@@ -32,7 +32,11 @@ pub struct OverlayFilesystem {
 
 impl OverlayFilesystem {
     pub fn new(root: PathBuf) -> Self {
-        Self { root, allow_parent_escape: false, allow_deep: false }
+        Self {
+            root,
+            allow_parent_escape: false,
+            allow_deep: false,
+        }
     }
 
     /// Construct the resources-dir fallback instance. Same sandboxing
@@ -40,14 +44,22 @@ impl OverlayFilesystem {
     /// Ultralight's built-in `resources/` tree can be nested deeper
     /// than a user bundle's two-level `images/icons/x.png` layout.
     pub fn new_resources_root(root: PathBuf) -> Self {
-        Self { root, allow_parent_escape: false, allow_deep: true }
+        Self {
+            root,
+            allow_parent_escape: false,
+            allow_deep: true,
+        }
     }
 
     /// Request strings must be raw paths, not URL-encoded; `%`-containing
     /// inputs are rejected outright rather than decoded.
     pub fn resolve(&self, req: &str) -> Result<PathBuf, ResolveError> {
-        if req.is_empty() { return Err(ResolveError::Empty); }
-        if req.contains('\0') { return Err(ResolveError::NullByte); }
+        if req.is_empty() {
+            return Err(ResolveError::Empty);
+        }
+        if req.contains('\0') {
+            return Err(ResolveError::NullByte);
+        }
 
         let stripped = strip_file_scheme(req);
 
@@ -82,7 +94,9 @@ impl OverlayFilesystem {
                 Component::CurDir => {}
                 Component::ParentDir if self.allow_parent_escape => depth = depth.saturating_sub(1),
                 Component::ParentDir => return Err(ResolveError::ParentEscape),
-                Component::RootDir | Component::Prefix(_) => return Err(ResolveError::AbsolutePath),
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(ResolveError::AbsolutePath)
+                }
             }
         }
         if !self.allow_deep && depth > MAX_PATH_DEPTH {
@@ -91,7 +105,10 @@ impl OverlayFilesystem {
 
         let joined = self.root.join(p);
         let canon = joined.canonicalize().map_err(|_| ResolveError::NotFound)?;
-        let canon_root = self.root.canonicalize().map_err(|_| ResolveError::NotFound)?;
+        let canon_root = self
+            .root
+            .canonicalize()
+            .map_err(|_| ResolveError::NotFound)?;
         if !canon.starts_with(&canon_root) {
             return Err(ResolveError::Symlink);
         }
@@ -99,29 +116,35 @@ impl OverlayFilesystem {
     }
 
     pub fn mime_type(path: &Path) -> &'static str {
-        match path.extension().and_then(|e| e.to_str()).map(|s| s.to_ascii_lowercase()) {
-            Some(ref e) if e == "ttf"   => "font/ttf",
-            Some(ref e) if e == "otf"   => "font/otf",
-            Some(ref e) if e == "woff"  => "font/woff",
+        match path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+        {
+            Some(ref e) if e == "ttf" => "font/ttf",
+            Some(ref e) if e == "otf" => "font/otf",
+            Some(ref e) if e == "woff" => "font/woff",
             Some(ref e) if e == "woff2" => "font/woff2",
-            Some(ref e) if e == "png"   => "image/png",
-            Some(ref e) if e == "jpg"   => "image/jpeg",
-            Some(ref e) if e == "jpeg"  => "image/jpeg",
-            Some(ref e) if e == "webp"  => "image/webp",
-            Some(ref e) if e == "gif"   => "image/gif",
-            Some(ref e) if e == "svg"   => "image/svg+xml",
-            Some(ref e) if e == "css"   => "text/css",
-            Some(ref e) if e == "html"  => "text/html",
-            Some(ref e) if e == "htm"   => "text/html",
-            Some(ref e) if e == "js"    => "application/javascript",
-            Some(ref e) if e == "omni"  => "application/xml",
+            Some(ref e) if e == "png" => "image/png",
+            Some(ref e) if e == "jpg" => "image/jpeg",
+            Some(ref e) if e == "jpeg" => "image/jpeg",
+            Some(ref e) if e == "webp" => "image/webp",
+            Some(ref e) if e == "gif" => "image/gif",
+            Some(ref e) if e == "svg" => "image/svg+xml",
+            Some(ref e) if e == "css" => "text/css",
+            Some(ref e) if e == "html" => "text/html",
+            Some(ref e) if e == "htm" => "text/html",
+            Some(ref e) if e == "js" => "application/javascript",
+            Some(ref e) if e == "omni" => "application/xml",
             _ => "application/octet-stream",
         }
     }
 }
 
 fn strip_file_scheme(s: &str) -> &str {
-    s.strip_prefix("file:///").or_else(|| s.strip_prefix("file://")).unwrap_or(s)
+    s.strip_prefix("file:///")
+        .or_else(|| s.strip_prefix("file://"))
+        .unwrap_or(s)
 }
 
 fn has_non_file_scheme(s: &str) -> bool {
@@ -148,14 +171,18 @@ mod tests {
     fn temp_root() -> PathBuf {
         let id = std::process::id();
         let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("omni_ofs_{id}_{stamp}"));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
 
     fn write(p: &Path, bytes: &[u8]) {
-        if let Some(parent) = p.parent() { fs::create_dir_all(parent).unwrap(); }
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
         fs::write(p, bytes).unwrap();
     }
 
@@ -173,7 +200,10 @@ mod tests {
         let root = temp_root();
         let fs = OverlayFilesystem::new(root.clone());
         assert_eq!(fs.resolve("../secret.png"), Err(ResolveError::ParentEscape));
-        assert_eq!(fs.resolve("fonts/../../secret"), Err(ResolveError::ParentEscape));
+        assert_eq!(
+            fs.resolve("fonts/../../secret"),
+            Err(ResolveError::ParentEscape)
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -189,8 +219,14 @@ mod tests {
     fn absolute_windows_rejected() {
         let root = temp_root();
         let fs = OverlayFilesystem::new(root.clone());
-        assert_eq!(fs.resolve("C:/Windows/System32/cmd.exe"), Err(ResolveError::AbsolutePath));
-        assert_eq!(fs.resolve("C:\\Windows\\System32\\cmd.exe"), Err(ResolveError::AbsolutePath));
+        assert_eq!(
+            fs.resolve("C:/Windows/System32/cmd.exe"),
+            Err(ResolveError::AbsolutePath)
+        );
+        assert_eq!(
+            fs.resolve("C:\\Windows\\System32\\cmd.exe"),
+            Err(ResolveError::AbsolutePath)
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -207,8 +243,14 @@ mod tests {
     fn http_scheme_rejected() {
         let root = temp_root();
         let fs = OverlayFilesystem::new(root.clone());
-        assert_eq!(fs.resolve("http://evil.com/x.png"), Err(ResolveError::UnsupportedScheme));
-        assert_eq!(fs.resolve("https://evil.com/x.png"), Err(ResolveError::UnsupportedScheme));
+        assert_eq!(
+            fs.resolve("http://evil.com/x.png"),
+            Err(ResolveError::UnsupportedScheme)
+        );
+        assert_eq!(
+            fs.resolve("https://evil.com/x.png"),
+            Err(ResolveError::UnsupportedScheme)
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -265,7 +307,10 @@ mod tests {
     fn unc_verbatim_rejected() {
         let root = temp_root();
         let fs = OverlayFilesystem::new(root.clone());
-        assert_eq!(fs.resolve(r"\\?\C:\Windows\System32\cmd.exe"), Err(ResolveError::AbsolutePath));
+        assert_eq!(
+            fs.resolve(r"\\?\C:\Windows\System32\cmd.exe"),
+            Err(ResolveError::AbsolutePath)
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -274,7 +319,10 @@ mod tests {
     fn unc_server_share_rejected() {
         let root = temp_root();
         let fs = OverlayFilesystem::new(root.clone());
-        assert_eq!(fs.resolve(r"\\server\share\secret"), Err(ResolveError::AbsolutePath));
+        assert_eq!(
+            fs.resolve(r"\\server\share\secret"),
+            Err(ResolveError::AbsolutePath)
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -282,8 +330,14 @@ mod tests {
     fn percent_encoded_rejected() {
         let root = temp_root();
         let fs = OverlayFilesystem::new(root.clone());
-        assert_eq!(fs.resolve("%2e%2e/secret"), Err(ResolveError::UnsupportedScheme));
-        assert_eq!(fs.resolve("file:///%2e%2e/etc/passwd"), Err(ResolveError::UnsupportedScheme));
+        assert_eq!(
+            fs.resolve("%2e%2e/secret"),
+            Err(ResolveError::UnsupportedScheme)
+        );
+        assert_eq!(
+            fs.resolve("file:///%2e%2e/etc/passwd"),
+            Err(ResolveError::UnsupportedScheme)
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -298,12 +352,33 @@ mod tests {
 
     #[test]
     fn mime_types() {
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.ttf")), "font/ttf");
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.woff2")), "font/woff2");
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.png")), "image/png");
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.JPG")), "image/jpeg");
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.css")), "text/css");
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.omni")), "application/xml");
-        assert_eq!(OverlayFilesystem::mime_type(Path::new("a/b.xyz")), "application/octet-stream");
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.ttf")),
+            "font/ttf"
+        );
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.woff2")),
+            "font/woff2"
+        );
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.png")),
+            "image/png"
+        );
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.JPG")),
+            "image/jpeg"
+        );
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.css")),
+            "text/css"
+        );
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.omni")),
+            "application/xml"
+        );
+        assert_eq!(
+            OverlayFilesystem::mime_type(Path::new("a/b.xyz")),
+            "application/octet-stream"
+        );
     }
 }

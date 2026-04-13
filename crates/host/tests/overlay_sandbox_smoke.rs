@@ -57,10 +57,7 @@ impl BufWriter {
         String::from_utf8_lossy(&guard).into_owned()
     }
     fn clear(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 }
 
@@ -138,16 +135,19 @@ fn sample_center(ul: &UlRenderer) -> Option<[u8; 4]> {
         let y = (h / 2) as usize;
         let idx = y * row_bytes as usize + x * 4;
         if idx + 3 < pixels.len() {
-            out = Some([pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3]]);
+            out = Some([
+                pixels[idx],
+                pixels[idx + 1],
+                pixels[idx + 2],
+                pixels[idx + 3],
+            ]);
         }
     });
     out
 }
 
 fn skip_msg(name: &str) {
-    eprintln!(
-        "skipped {name}: set ULTRALIGHT_SMOKE=1 and OMNI_UL_RESOURCES=... to run"
-    );
+    eprintln!("skipped {name}: set ULTRALIGHT_SMOKE=1 and OMNI_UL_RESOURCES=... to run");
 }
 
 #[test]

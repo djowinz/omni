@@ -139,7 +139,9 @@ unsafe extern "C" fn cb_open_file(path: ul::ULString) -> ul::ULBuffer {
             resolve_in_resources(&req)
         };
 
-        let Some(path_buf) = resolved else { return std::ptr::null_mut(); };
+        let Some(path_buf) = resolved else {
+            return std::ptr::null_mut();
+        };
 
         match std::fs::read(&path_buf) {
             Ok(bytes) => {
@@ -161,10 +163,14 @@ unsafe extern "C" fn cb_open_file(path: ul::ULString) -> ul::ULBuffer {
 
 #[allow(dead_code)]
 unsafe fn ul_string_to_string(s: ul::ULString) -> String {
-    if s.is_null() { return String::new(); }
+    if s.is_null() {
+        return String::new();
+    }
     let data = ul::ulStringGetData(s);
     let len = ul::ulStringGetLength(s);
-    if data.is_null() || len == 0 { return String::new(); }
+    if data.is_null() || len == 0 {
+        return String::new();
+    }
     let slice = std::slice::from_raw_parts(data as *const u8, len);
     String::from_utf8_lossy(slice).into_owned()
 }
@@ -173,9 +179,7 @@ unsafe fn ul_string_to_string(s: ul::ULString) -> String {
 unsafe fn string_to_ul(s: &str) -> ul::ULString {
     match CString::new(s) {
         Ok(c) => ul::ulCreateString(c.as_ptr()),
-        Err(_) => {
-            ul::ulCreateString(c"".as_ptr())
-        }
+        Err(_) => ul::ulCreateString(c"".as_ptr()),
     }
 }
 

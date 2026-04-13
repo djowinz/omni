@@ -161,7 +161,9 @@ fn list_overlay_assets(
                 continue;
             }
             let file_name = entry.file_name();
-            let Some(name) = file_name.to_str() else { continue; };
+            let Some(name) = file_name.to_str() else {
+                continue;
+            };
             let ext_ok = Path::new(name)
                 .extension()
                 .and_then(|e| e.to_str())

@@ -422,7 +422,11 @@ fn run_host() {
             &hwinfo_units,
         );
         let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
-        if let Err(e) = ul.mount(&overlay_root, &initial.full_document, omni_host::omni::view_trust::ViewTrust::LocalAuthored) {
+        if let Err(e) = ul.mount(
+            &overlay_root,
+            &initial.full_document,
+            omni_host::omni::view_trust::ViewTrust::LocalAuthored,
+        ) {
             tracing::warn!(error = %e, "Failed to mount overlay");
         }
         store_and_broadcast_preview(&ws_state, &initial);
@@ -651,7 +655,11 @@ fn run_host() {
                 &hwinfo_units,
             );
             let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
-            if let Err(e) = ul.mount(&overlay_root, &initial.full_document, omni_host::omni::view_trust::ViewTrust::LocalAuthored) {
+            if let Err(e) = ul.mount(
+                &overlay_root,
+                &initial.full_document,
+                omni_host::omni::view_trust::ViewTrust::LocalAuthored,
+            ) {
                 tracing::warn!(error = %e, "Failed to mount overlay");
             }
             store_and_broadcast_preview(&ws_state, &initial);
@@ -669,7 +677,10 @@ fn run_host() {
         // The DOM persists so CSS transitions animate naturally.
         let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
         if let Some(diff) = html_builder::compute_update_diff(
-            &host.omni_file, &latest_snapshot, &hwinfo_values, &hwinfo_units,
+            &host.omni_file,
+            &latest_snapshot,
+            &hwinfo_values,
+            &hwinfo_units,
         ) {
             let js = html_builder::format_as_js(&diff);
             ul.evaluate_script(&js);
