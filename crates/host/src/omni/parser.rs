@@ -394,6 +394,10 @@ fn parse_html_element(
     // laid-out SVG subtree with title, axis labels, and an inner chart.
     if tag == "chart-card" {
         let chart_attrs = collect_chart_attrs(start);
+        tracing::debug!(
+            attrs = ?chart_attrs,
+            "intercepting <chart-card> (non-self-closing) for desugaring"
+        );
         let pos = reader.buffer_position() as usize;
         let node = desugar_chart_card(&chart_attrs, source, pos)?;
         loop {
@@ -493,6 +497,10 @@ fn parse_empty_html_element(source: &str, pos: usize, start: &BytesStart) -> Res
     // Intercept <chart-card/> self-closing and desugar at parse time.
     if tag == "chart-card" {
         let chart_attrs = collect_chart_attrs(start);
+        tracing::debug!(
+            attrs = ?chart_attrs,
+            "intercepting <chart-card/> (self-closing) for desugaring"
+        );
         return desugar_chart_card(&chart_attrs, source, pos);
     }
 
@@ -1672,6 +1680,50 @@ mod tests {
                 );
             }
             _ => panic!("expected svg element"),
+        }
+    }
+
+    #[test]
+    fn chart_card_deeply_nested_still_desugars() {
+        // Reproduce a user-like scenario where <chart-card> sits several
+        // levels deep inside the template, both self-closing and with
+        // explicit end tag. No <chart-card> element should remain in the
+        // resulting tree — desugar runs at every nesting level.
+        let source = r#"<widget id="wrap" name="Wrap">
+<template>
+  <div class="outer">
+    <div class="inner">
+      <chart-card type="line" sensor="hwinfo.network.current_dl_rate" unit="bytes/s" title="Net"/>
+      <chart-card type="bar" sensor="cpu.usage" min="0" max="100" title="CPU"></chart-card>
+    </div>
+  </div>
+</template>
+<style></style>
+</widget>"#;
+        let (file, diagnostics) = parse_omni_with_diagnostics_hwinfo(source, false);
+        let file = file.expect("parse succeeded");
+
+        // Assert no `chart-card` tag anywhere in the tree.
+        fn walk_assert(node: &crate::omni::types::HtmlNode) {
+            if let crate::omni::types::HtmlNode::Element { tag, children, .. } = node {
+                assert_ne!(tag, "chart-card", "raw <chart-card> leaked into tree");
+                assert_ne!(tag, "chart", "raw <chart> leaked into tree");
+                for c in children {
+                    walk_assert(c);
+                }
+            }
+        }
+        for w in &file.widgets {
+            walk_assert(&w.template);
+        }
+
+        // Assert no "unknown element" diagnostics for chart-card/chart.
+        for d in &diagnostics {
+            assert!(
+                !d.message.contains("<chart-card>") && !d.message.contains("<chart>"),
+                "unexpected diagnostic mentioning raw chart tag: {}",
+                d.message
+            );
         }
     }
 }
