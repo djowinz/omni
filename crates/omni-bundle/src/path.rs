@@ -46,7 +46,7 @@ pub(crate) fn validate_path(path: &str) -> Result<FileKind, BundleError> {
     if path.starts_with('/') || path.starts_with('\\') {
         return Err(BundleError::UnsafePath("absolute".into()));
     }
-    for seg in path.split(|c| c == '/' || c == '\\') {
+    for seg in path.split(['/', '\\']) {
         if seg == ".." {
             return Err(BundleError::UnsafePath("parent traversal".into()));
         }
@@ -57,7 +57,7 @@ pub(crate) fn validate_path(path: &str) -> Result<FileKind, BundleError> {
             return Err(BundleError::UnsafePath("empty segment".into()));
         }
     }
-    let components: Vec<&str> = path.split(|c| c == '/' || c == '\\').collect();
+    let components: Vec<&str> = path.split(['/', '\\']).collect();
     if components.len() > MAX_PATH_DEPTH + 1 {
         return Err(BundleError::UnsafePath(format!("depth {}", components.len())));
     }
