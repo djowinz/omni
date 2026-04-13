@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { errorResponse } from "../lib/errors";
 
 /**
  * Single sanitize entry point for every upload (theme + bundle), per retro
@@ -25,15 +26,10 @@ export class BundleProcessor {
     // `_`-prefix rename, which would obscure the field names #008 expects.
     void this.state;
     void this.env;
-    return new Response(
-      JSON.stringify({
-        error: {
-          code: "NOT_IMPLEMENTED",
-          message:
-            "BundleProcessor sanitize pipeline is not yet implemented (sub-spec #008)",
-        },
-      }),
-      { status: 501, headers: { "content-type": "application/json; charset=utf-8" } },
+    return errorResponse(
+      501,
+      "NOT_IMPLEMENTED",
+      "BundleProcessor sanitize pipeline is not yet implemented (sub-spec #008)",
     );
   }
 }
