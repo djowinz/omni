@@ -15,5 +15,8 @@ pub mod validation;
 pub mod js_bootstrap;
 pub mod view_trust;
 
+#[cfg(test)]
+mod pipeline_e2e;
+
 pub use types::*;
 pub use view_trust::ViewTrust;
