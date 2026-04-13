@@ -158,6 +158,39 @@ impl UlRenderer {
         }
     }
 
+    /// Evaluate JS and return its string result, or the exception message.
+    /// Safe wrapper over ulViewEvaluateScript that reads the ULString result.
+    pub fn evaluate_script_result(&self, js: &str) -> Result<String, String> {
+        unsafe {
+            let c_js = std::ffi::CString::new(js)
+                .unwrap_or_else(|_| std::ffi::CString::new(js.replace('\0', "")).unwrap());
+            let ul_js = ultralight_sys::ulCreateString(c_js.as_ptr());
+            let mut exception: ultralight_sys::ULString = std::ptr::null_mut();
+            let result = ultralight_sys::ulViewEvaluateScript(self.view, ul_js, &mut exception);
+            ultralight_sys::ulDestroyString(ul_js);
+
+            let read_ul_string = |s: ultralight_sys::ULString| -> Option<String> {
+                if s.is_null() {
+                    return None;
+                }
+                let data = ultralight_sys::ulStringGetData(s);
+                let len = ultralight_sys::ulStringGetLength(s);
+                if data.is_null() || len == 0 {
+                    return Some(String::new());
+                }
+                let bytes = std::slice::from_raw_parts(data as *const u8, len);
+                Some(String::from_utf8_lossy(bytes).into_owned())
+            };
+
+            // UL owns these ULStrings; don't destroy.
+            if !exception.is_null() {
+                let msg = read_ul_string(exception).unwrap_or_default();
+                return Err(msg);
+            }
+            Ok(read_ul_string(result).unwrap_or_default())
+        }
+    }
+
     /// Update timers, begin a new display frame, then render.
     /// The three-step sequence is required for CSS transitions and animations:
     /// 1. ulUpdate — advance internal timers and dispatch callbacks
