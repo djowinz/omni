@@ -157,6 +157,9 @@ fn list_overlay_assets(
     let mut names = Vec::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                continue;
+            }
             let file_name = entry.file_name();
             let Some(name) = file_name.to_str() else { continue; };
             let ext_ok = Path::new(name)
