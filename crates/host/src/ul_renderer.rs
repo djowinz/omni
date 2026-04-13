@@ -183,9 +183,15 @@ impl UlRenderer {
             };
 
             // UL owns these ULStrings; don't destroy.
+            // ulViewEvaluateScript may set exception to a non-null empty string
+            // when there is no actual exception (it pre-allocates the out-param).
+            // Only treat it as an error when the exception string is non-empty.
             if !exception.is_null() {
-                let msg = read_ul_string(exception).unwrap_or_default();
-                return Err(msg);
+                let len = ultralight_sys::ulStringGetLength(exception);
+                if len > 0 {
+                    let msg = read_ul_string(exception).unwrap_or_default();
+                    return Err(msg);
+                }
             }
             Ok(read_ul_string(result).unwrap_or_default())
         }
