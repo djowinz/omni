@@ -37,6 +37,10 @@ pub(crate) fn validate_path(path: &str) -> Result<FileKind, BundleError> {
     if path.is_empty() {
         return Err(BundleError::UnsafePath("empty".into()));
     }
+    // ustar simple-header limit; canonical_hash relies on this.
+    if path.len() > 100 {
+        return Err(BundleError::UnsafePath(format!("path too long: {} bytes", path.len())));
+    }
     if path.contains('\0') {
         return Err(BundleError::UnsafePath("null byte".into()));
     }
@@ -165,6 +169,14 @@ mod tests {
         assert!(validate_path("").is_err());
         assert!(validate_path("themes//x.css").is_err());
         assert!(validate_path("./themes/x.css").is_err());
+    }
+
+    #[test]
+    fn rejects_paths_longer_than_ustar_limit() {
+        // 101-byte path passes depth/ASCII/segment checks but exceeds ustar header.
+        let long = format!("themes/{}.css", "a".repeat(90));
+        assert!(long.len() > 100);
+        assert!(matches!(validate_path(&long), Err(BundleError::UnsafePath(_))));
     }
 
     #[test]

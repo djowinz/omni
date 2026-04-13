@@ -55,9 +55,11 @@ impl<'a, W: Digest> UstarWriter<'a, W> {
 }
 
 fn build_header(path: &str, size: u64) -> [u8; 512] {
+    // validate_path() rejects paths >100 bytes. Callers of canonical_hash must
+    // have run validate_path (via pack/unpack or directly) on every path first.
     assert!(
         path.len() <= 100,
-        "canonical tar: path longer than 100 bytes not supported: {path}"
+        "canonical_hash: path >100 bytes — caller must validate_path first: {path}"
     );
     let mut h = [0u8; 512];
     h[..path.len()].copy_from_slice(path.as_bytes());
@@ -131,6 +133,28 @@ mod tests {
         f.insert("overlay.omni".into(), b"<overlay2/>".to_vec());
         let after = canonical_hash(&m, &f);
         assert_ne!(before, after);
+    }
+
+    /// Golden hash for the `sample()` fixture. Locks the canonical_hash byte
+    /// format (ustar header layout, field order, checksum encoding). If a future
+    /// change to `canonical_hash`, `canonical_manifest_bytes`, or the ustar
+    /// writer changes this value, the WASM Worker will compute a different
+    /// dedup hash than the host — this test catches that before merge.
+    #[test]
+    fn canonical_hash_matches_golden() {
+        let (m, f) = sample();
+        let expected = "092e759315415125e73d91a682c05283934bdadcf2de5c02399de0c4d1b5d024";
+        let got = canonical_hash(&m, &f);
+        assert_eq!(hex_encode(&got), expected);
+    }
+
+    fn hex_encode(b: &[u8; 32]) -> String {
+        let mut s = String::with_capacity(64);
+        for x in b {
+            use std::fmt::Write;
+            write!(s, "{:02x}", x).unwrap();
+        }
+        s
     }
 
     #[test]
