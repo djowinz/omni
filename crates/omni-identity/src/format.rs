@@ -51,6 +51,60 @@ pub(crate) fn decode_identity_key(bytes: &[u8]) -> Result<Zeroizing<[u8; 32]>, I
     Ok(seed)
 }
 
+// --- .omniid backup format (identity-file-format.md §2) ---
+
+pub(crate) const BACKUP_LEN: usize = 173;
+pub(crate) const BACKUP_MAGIC: &[u8; 10] = b"OMNI-IDBAK";
+pub(crate) const BACKUP_VERSION: u8 = 0x01;
+
+pub(crate) const ARGON2_M_COST_KIB: u32 = 65_536; // 64 MiB
+pub(crate) const ARGON2_T_COST: u32 = 3;
+pub(crate) const ARGON2_P_COST: u32 = 4;
+pub(crate) const ARGON2_OUTPUT_LEN: u32 = 32;
+
+pub(crate) const OFFSET_MAGIC: usize = 0;
+pub(crate) const OFFSET_VERSION: usize = 10;
+pub(crate) const OFFSET_SALT: usize = 11;
+pub(crate) const OFFSET_NONCE: usize = 27;
+pub(crate) const OFFSET_PARAMS: usize = 51;
+pub(crate) const OFFSET_CIPHERTEXT: usize = 83;
+pub(crate) const SALT_LEN: usize = 16;
+pub(crate) const NONCE_LEN: usize = 24;
+pub(crate) const PARAMS_LEN: usize = 32;
+pub(crate) const PLAINTEXT_LEN: usize = IDENTITY_KEY_LEN; // 74
+pub(crate) const TAG_LEN: usize = 16;
+
+pub(crate) fn encode_params_blob() -> [u8; PARAMS_LEN] {
+    let mut b = [0u8; PARAMS_LEN];
+    b[0..4].copy_from_slice(&ARGON2_M_COST_KIB.to_le_bytes());
+    b[4..8].copy_from_slice(&ARGON2_T_COST.to_le_bytes());
+    b[8..12].copy_from_slice(&ARGON2_P_COST.to_le_bytes());
+    b[12..16].copy_from_slice(&ARGON2_OUTPUT_LEN.to_le_bytes());
+    b
+}
+
+#[derive(Debug)]
+pub(crate) struct BackupParams {
+    pub m_cost_kib: u32,
+    pub t_cost: u32,
+    pub p_cost: u32,
+    pub output_len: u32,
+}
+
+pub(crate) fn decode_params_blob(b: &[u8]) -> Result<BackupParams, IdentityError> {
+    if b.len() != PARAMS_LEN {
+        return Err(IdentityError::Corrupt("params blob len".into()));
+    }
+    let m_cost_kib = u32::from_le_bytes(b[0..4].try_into().unwrap());
+    let t_cost = u32::from_le_bytes(b[4..8].try_into().unwrap());
+    let p_cost = u32::from_le_bytes(b[8..12].try_into().unwrap());
+    let output_len = u32::from_le_bytes(b[12..16].try_into().unwrap());
+    if output_len != ARGON2_OUTPUT_LEN {
+        return Err(IdentityError::Corrupt("output_len != 32".into()));
+    }
+    Ok(BackupParams { m_cost_kib, t_cost, p_cost, output_len })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +155,35 @@ mod tests {
     fn magic_matches_spec() {
         assert_eq!(IDENTITY_KEY_MAGIC, b"OMNI-IDv1");
         assert_eq!(IDENTITY_KEY_LEN, 74);
+    }
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::*;
+
+    #[test]
+    fn params_blob_round_trip() {
+        let b = encode_params_blob();
+        let p = decode_params_blob(&b).unwrap();
+        assert_eq!(p.m_cost_kib, 65_536);
+        assert_eq!(p.t_cost, 3);
+        assert_eq!(p.p_cost, 4);
+        assert_eq!(p.output_len, 32);
+    }
+
+    #[test]
+    fn params_blob_rejects_bad_output_len() {
+        let mut b = encode_params_blob();
+        b[12] = 16; // output_len = 16 instead of 32
+        let err = decode_params_blob(&b).unwrap_err();
+        assert!(matches!(err, IdentityError::Corrupt(_)));
+    }
+
+    #[test]
+    fn backup_constants_match_spec() {
+        assert_eq!(BACKUP_LEN, 173);
+        assert_eq!(BACKUP_MAGIC, b"OMNI-IDBAK");
+        assert_eq!(OFFSET_CIPHERTEXT + PLAINTEXT_LEN + TAG_LEN, BACKUP_LEN);
     }
 }
