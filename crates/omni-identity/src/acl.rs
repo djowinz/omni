@@ -6,8 +6,6 @@
 //! current user or SYSTEM. Tracked in a follow-up ticket opened after sub-spec
 //! 006 lands.
 
-#![cfg(windows)]
-
 use std::path::Path;
 
 use crate::error::IdentityError;
@@ -15,13 +13,10 @@ use crate::error::IdentityError;
 pub(crate) fn set_user_only(path: &Path) -> Result<(), IdentityError> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{GetLastError, PSID};
-    use windows_sys::Win32::Security::Authorization::{
-        SetNamedSecurityInfoW, SE_FILE_OBJECT,
-    };
+    use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
     use windows_sys::Win32::Security::{
-        AddAccessAllowedAce, CreateWellKnownSid, InitializeAcl, WinCreatorOwnerSid,
-        ACL, ACL_REVISION, DACL_SECURITY_INFORMATION,
-        PROTECTED_DACL_SECURITY_INFORMATION,
+        AddAccessAllowedAce, CreateWellKnownSid, InitializeAcl, WinCreatorOwnerSid, ACL,
+        ACL_REVISION, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
     };
     use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 
