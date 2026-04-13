@@ -1,10 +1,12 @@
 pub mod default;
 pub mod expression;
+pub mod fs_dispatcher;
 pub mod html_builder;
 pub mod interpolation;
 pub mod overlay_fs;
 pub mod parser;
 pub mod sensor_map;
+pub mod trust_filter;
 pub mod types;
 pub mod validation;
 pub mod view_trust;
