@@ -220,10 +220,7 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                         "used_mb": snapshot.ram.used_mb,
                         "total_mb": snapshot.ram.total_mb,
                     },
-                    "frame": {
-                        "available": snapshot.frame.available,
-                        "fps": snapshot.frame.fps,
-                    },
+                    "frame": frame_json(&snapshot.frame),
                     "hwinfo": {
                         "connected": hwinfo.connected,
                         "sensor_count": hwinfo.sensor_count,
@@ -486,6 +483,18 @@ fn format_f32(v: f32) -> Value {
     }
 }
 
+/// Build the "frame" JSON object for the sensors.data payload.
+fn frame_json(frame: &omni_shared::FrameData) -> Value {
+    json!({
+        "available": frame.available,
+        "fps": frame.fps,
+        "frame_time_ms": format_f32(frame.frame_time_ms),
+        "frame_time_avg_ms": format_f32(frame.frame_time_avg_ms),
+        "frame_time_1percent_ms": format_f32(frame.frame_time_1percent_ms),
+        "frame_time_01percent_ms": format_f32(frame.frame_time_01percent_ms),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,6 +635,28 @@ mod tests {
         assert_eq!(resp["type"], "config.data");
         assert!(resp["config"].is_object());
         assert!(resp["config"]["active_overlay"].is_string());
+    }
+
+    #[test]
+    fn sensors_data_json_includes_all_frame_fields() {
+        let mut snapshot = omni_shared::SensorSnapshot::default();
+        snapshot.frame.available = true;
+        snapshot.frame.fps = 144.0;
+        snapshot.frame.frame_time_ms = 6.9;
+        snapshot.frame.frame_time_avg_ms = 7.2;
+        snapshot.frame.frame_time_1percent_ms = 12.5;
+        snapshot.frame.frame_time_01percent_ms = f32::NAN;
+
+        let json = frame_json(&snapshot.frame);
+        assert_eq!(json["available"], true);
+        assert_eq!(json["fps"], 144.0);
+        assert!((json["frame_time_ms"].as_f64().unwrap() - 6.9_f64).abs() < 1e-4);
+        assert!((json["frame_time_avg_ms"].as_f64().unwrap() - 7.2_f64).abs() < 1e-4);
+        assert!((json["frame_time_1percent_ms"].as_f64().unwrap() - 12.5_f64).abs() < 1e-4);
+        assert!(
+            json["frame_time_01percent_ms"].is_null(),
+            "NaN should serialize as null"
+        );
     }
 
     #[test]
