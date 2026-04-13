@@ -8,6 +8,7 @@ pub mod parser;
 pub mod sensor_map;
 pub mod trust_filter;
 pub mod types;
+pub mod ul_string;
 pub mod validation;
 pub mod view_trust;
 
