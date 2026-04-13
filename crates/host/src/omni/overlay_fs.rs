@@ -31,6 +31,8 @@ impl OverlayFilesystem {
         Self { root, allow_parent_escape: false }
     }
 
+    /// Request strings must be raw paths, not URL-encoded; `%`-containing
+    /// inputs are rejected outright rather than decoded.
     pub fn resolve(&self, req: &str) -> Result<PathBuf, ResolveError> {
         if req.is_empty() { return Err(ResolveError::Empty); }
         if req.contains('\0') { return Err(ResolveError::NullByte); }
@@ -43,29 +45,35 @@ impl OverlayFilesystem {
             return Err(ResolveError::AbsolutePath);
         }
 
+        // Reject percent-encoded inputs (e.g. `file:///%2e%2e/etc/passwd`).
+        // Simpler and safer than decoding.
+        if stripped.contains('%') {
+            return Err(ResolveError::UnsupportedScheme);
+        }
+
         if has_non_file_scheme(stripped) {
             return Err(ResolveError::UnsupportedScheme);
         }
 
         let p = Path::new(stripped);
-        if p.is_absolute() {
-            if has_drive_letter(stripped) {
-                return Err(ResolveError::AbsolutePath);
-            }
-            return Err(ResolveError::AbsolutePath);
-        }
 
+        let components: Vec<Component> = p.components().collect();
         let mut depth: usize = 0;
-        for comp in p.components() {
+        for (i, comp) in components.iter().enumerate() {
             match comp {
-                Component::Normal(_) => depth += 1,
+                Component::Normal(_) => {
+                    // Don't count the last component (it's the filename).
+                    if i + 1 < components.len() {
+                        depth += 1;
+                    }
+                }
                 Component::CurDir => {}
                 Component::ParentDir if self.allow_parent_escape => depth = depth.saturating_sub(1),
                 Component::ParentDir => return Err(ResolveError::ParentEscape),
                 Component::RootDir | Component::Prefix(_) => return Err(ResolveError::AbsolutePath),
             }
         }
-        if depth > MAX_PATH_DEPTH + 1 {
+        if depth > MAX_PATH_DEPTH {
             return Err(ResolveError::DepthExceeded);
         }
 
@@ -229,6 +237,42 @@ mod tests {
         assert_eq!(fs.resolve("link"), Err(ResolveError::Symlink));
         fs::remove_dir_all(&root).ok();
         fs::remove_dir_all(&outside).ok();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn unc_verbatim_rejected() {
+        let root = temp_root();
+        let fs = OverlayFilesystem::new(root.clone());
+        assert_eq!(fs.resolve(r"\\?\C:\Windows\System32\cmd.exe"), Err(ResolveError::AbsolutePath));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn unc_server_share_rejected() {
+        let root = temp_root();
+        let fs = OverlayFilesystem::new(root.clone());
+        assert_eq!(fs.resolve(r"\\server\share\secret"), Err(ResolveError::AbsolutePath));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn percent_encoded_rejected() {
+        let root = temp_root();
+        let fs = OverlayFilesystem::new(root.clone());
+        assert_eq!(fs.resolve("%2e%2e/secret"), Err(ResolveError::UnsupportedScheme));
+        assert_eq!(fs.resolve("file:///%2e%2e/etc/passwd"), Err(ResolveError::UnsupportedScheme));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn curdir_segments_allowed() {
+        let root = temp_root();
+        write(&root.join("fonts/x.ttf"), b"");
+        let fs = OverlayFilesystem::new(root.clone());
+        assert!(fs.resolve("./fonts/x.ttf").is_ok());
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]
