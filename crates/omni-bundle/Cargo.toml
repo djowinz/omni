@@ -15,3 +15,4 @@ hex = "0.4"
 
 [dev-dependencies]
 proptest = "1"
+jsonschema = { version = "0.26", default-features = false }
