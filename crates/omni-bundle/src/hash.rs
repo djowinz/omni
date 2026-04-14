@@ -92,14 +92,16 @@ mod tests {
         assert_ne!(before, after);
     }
 
+    /// Golden hash for the `sample()` fixture. Locks the canonical-hash byte
+    /// format (RFC 8785 JCS serialization + SHA-256). If this value changes, the
+    /// Worker's WASM copy of canonical_hash will compute a different dedup key
+    /// than the native host — host/Worker dedup parity breaks. Authoritative
+    /// algorithm: `docs/superpowers/specs/contracts/canonical-hash-algorithm.md`.
     #[test]
-    #[ignore = "golden regenerated in Task 9 after full D1–D11 refactor"]
     fn canonical_hash_matches_golden() {
-        // Intentionally `todo!` — if someone runs `cargo test -- --ignored`
-        // before Task 9 regenerates the expected hash, this must fail loudly
-        // rather than silently pass. Task 9 replaces this body with the real
-        // golden value.
-        let (_m, _f) = sample();
-        todo!("golden hash is regenerated in Task 9 after all retro refactors land");
+        let (m, f) = sample();
+        let expected = "a31d0150e9817450f012a2a8941e3232a0b1527dab386d6a34312f265ee4c548";
+        let got = canonical_hash(&m, &f);
+        assert_eq!(hex::encode(got), expected);
     }
 }

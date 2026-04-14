@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Cursor, Read};
 
 use zip::ZipArchive;
@@ -153,7 +153,7 @@ pub fn unpack<'a>(
         manifest,
         declared,
         next_index: 0,
-        seen: BTreeMap::new(),
+        seen: BTreeSet::new(),
     })
 }
 
@@ -163,7 +163,7 @@ pub struct Unpack<'a> {
     declared: BTreeMap<String, [u8; 32]>,
     next_index: usize,
     /// Track which declared files have been yielded for missing-file check.
-    seen: BTreeMap<String, ()>,
+    seen: BTreeSet<String>,
 }
 
 impl std::fmt::Debug for Unpack<'_> {
@@ -198,7 +198,7 @@ impl<'a> Unpack<'a> {
     /// wasn't present in the zip.
     pub fn finalize(&self) -> Result<(), BundleError> {
         for path in self.declared.keys() {
-            if !self.seen.contains_key(path) {
+            if !self.seen.contains(path.as_str()) {
                 return Err(BundleError::Integrity {
                     kind: IntegrityKind::FileMissing,
                     detail: path.clone(),
@@ -283,7 +283,7 @@ impl<'u, 'a> Iterator for Files<'u, 'a> {
                 }));
             }
 
-            self.unpack.seen.insert(name.clone(), ());
+            self.unpack.seen.insert(name.clone());
             return Some(Ok(UnpackedFile { path: name, bytes }));
         }
     }
