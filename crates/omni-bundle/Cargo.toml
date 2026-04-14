@@ -8,6 +8,7 @@ publish = false
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+serde_jcs = "0.2"
 semver = { version = "1", features = ["serde"] }
 sha2 = "0.10"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
