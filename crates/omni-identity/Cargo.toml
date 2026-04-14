@@ -33,3 +33,7 @@ windows-sys = { version = "0.52", features = [
 
 [dev-dependencies]
 tempfile = "3"
+ed25519-dalek = "2"
+jsonwebtoken = "9"
+omni-bundle = { path = "../omni-bundle" }
+serde = { version = "1", features = ["derive"] }
