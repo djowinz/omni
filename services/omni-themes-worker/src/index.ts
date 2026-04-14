@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./types";
 import { errorResponse } from "./lib/errors";
-import upload from "./routes/upload";
-import download from "./routes/download";
-import list from "./routes/list";
 import artifact from "./routes/artifact";
-import report from "./routes/report";
+import config from "./routes/config";
+import download from "./routes/download";
 import gallery from "./routes/gallery";
+import list from "./routes/list";
+import report from "./routes/report";
+import upload from "./routes/upload";
 
 export { BundleProcessor } from "./do/bundle_processor";
 
@@ -16,6 +17,7 @@ app.route("/v1/upload", upload);
 app.route("/v1/download", download);
 app.route("/v1/list", list);
 app.route("/v1/artifact", artifact);
+app.route("/v1/config", config);
 app.route("/v1/report", report);
 app.route("/v1/me/gallery", gallery);
 
