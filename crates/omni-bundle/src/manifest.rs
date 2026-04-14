@@ -83,38 +83,23 @@ pub(crate) fn validate_manifest_references(m: &Manifest) -> Result<(), BundleErr
     Ok(())
 }
 
-/// Canonical compact JSON form: object keys sorted lexicographically (recursive), no whitespace.
+/// RFC 8785 (JCS) canonical form: deterministic JSON suitable for hashing
+/// and signing. Object keys sorted in Unicode code-point order, no
+/// insignificant whitespace, normalized number representation.
 pub(crate) fn canonical_manifest_bytes(m: &Manifest) -> Result<Vec<u8>, serde_json::Error> {
-    let v = serde_json::to_value(m)?;
-    let sorted = sort_value(v);
-    serde_json::to_vec(&sorted)
+    serde_jcs::to_vec(m)
 }
 
-/// Pretty human-readable form for the zip `manifest.json` entry. Sorted keys, 2-space indent, trailing newline.
+/// Pretty-printed form for the human-readable `manifest.json` entry inside
+/// the .omnipkg zip. Keys sorted (via JCS roundtrip) for determinism in the
+/// zip output; this is distinct from the canonical form above (which is
+/// what the hash consumes).
 pub(crate) fn pretty_manifest_bytes(m: &Manifest) -> Result<Vec<u8>, serde_json::Error> {
-    let v = serde_json::to_value(m)?;
-    let sorted = sort_value(v);
-    let mut out = serde_json::to_vec_pretty(&sorted)?;
+    let canonical = serde_jcs::to_vec(m)?;
+    let value: serde_json::Value = serde_json::from_slice(&canonical)?;
+    let mut out = serde_json::to_vec_pretty(&value)?;
     out.push(b'\n');
     Ok(out)
-}
-
-fn sort_value(v: serde_json::Value) -> serde_json::Value {
-    use serde_json::Value;
-    match v {
-        Value::Object(map) => {
-            let mut entries: Vec<(String, Value)> =
-                map.into_iter().map(|(k, val)| (k, sort_value(val))).collect();
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-            let mut out = serde_json::Map::new();
-            for (k, val) in entries {
-                out.insert(k, val);
-            }
-            Value::Object(out)
-        }
-        Value::Array(arr) => Value::Array(arr.into_iter().map(sort_value).collect()),
-        other => other,
-    }
 }
 
 #[cfg(test)]
