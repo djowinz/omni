@@ -1,7 +1,7 @@
 mod fixtures;
 
 use fixtures::{sample_bundle, sha256};
-use omni_bundle::{pack, unpack, BundleError, FileEntry, IntegrityKind, Manifest, Tag, UnsafeKind};
+use omni_bundle::{pack, unpack, BundleError, BundleLimits, FileEntry, IntegrityKind, Manifest, Tag, UnsafeKind};
 
 #[test]
 fn manifest_missing_is_reported() {
@@ -11,7 +11,7 @@ fn manifest_missing_is_reported() {
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(b"<x/>").unwrap();
     let bytes = zw.finish().unwrap().into_inner();
-    let err = unpack(&bytes).unwrap_err();
+    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Integrity { kind: IntegrityKind::ManifestMissing, .. }),
         "{err:?}"
@@ -22,7 +22,7 @@ fn manifest_missing_is_reported() {
 fn file_missing_and_orphan_detected_on_pack() {
     let (mut m, mut f) = sample_bundle();
     m.files.push(FileEntry { path: "themes/ghost.css".into(), sha256: [0u8; 32] });
-    let err = pack(&m, &f).unwrap_err();
+    let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(
             err,
@@ -34,7 +34,7 @@ fn file_missing_and_orphan_detected_on_pack() {
 
     m.files.pop();
     f.insert("themes/orphan.css".into(), b"body{}".to_vec());
-    let err = pack(&m, &f).unwrap_err();
+    let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(
             err,
@@ -49,7 +49,7 @@ fn file_missing_and_orphan_detected_on_pack() {
 fn hash_mismatch_rejected_on_pack() {
     let (mut m, f) = sample_bundle();
     m.files[0].sha256 = [0xff; 32];
-    let err = pack(&m, &f).unwrap_err();
+    let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Integrity { kind: IntegrityKind::HashMismatch, .. }),
         "{err:?}"
@@ -59,10 +59,10 @@ fn hash_mismatch_rejected_on_pack() {
 #[test]
 fn size_exceeded_rejected() {
     let (mut m, mut f) = sample_bundle();
-    let big = vec![0u8; (omni_bundle::MAX_CSS + 1) as usize];
+    let big = vec![0u8; 131_073usize];
     f.insert("themes/big.css".into(), big.clone());
     m.files.push(FileEntry { path: "themes/big.css".into(), sha256: sha256(&big) });
-    let err = pack(&m, &f).unwrap_err();
+    let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }),
         "{err:?}"
@@ -75,7 +75,7 @@ fn unsafe_path_rejected() {
     let v = b"x".to_vec();
     f.insert("../evil.css".into(), v.clone());
     m.files.push(FileEntry { path: "../evil.css".into(), sha256: sha256(&v) });
-    let err = pack(&m, &f).unwrap_err();
+    let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Unsafe { kind: UnsafeKind::Path, .. }),
         "{err:?}"
@@ -85,13 +85,13 @@ fn unsafe_path_rejected() {
 #[test]
 fn too_many_entries_rejected() {
     let (mut m, mut f) = sample_bundle();
-    for i in 0..omni_bundle::MAX_ENTRIES {
+    for i in 0..BundleLimits::DEFAULT.max_entries {
         let name = format!("themes/t{i}.css");
         let content = format!("/*{i}*/").into_bytes();
         m.files.push(FileEntry { path: name.clone(), sha256: sha256(&content) });
         f.insert(name, content);
     }
-    let err = pack(&m, &f).unwrap_err();
+    let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Unsafe { kind: UnsafeKind::TooManyEntries, .. }),
         "{err:?}"
@@ -122,7 +122,7 @@ fn invalid_tag_rejected_on_unpack() {
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(b"<x/>").unwrap();
     let bytes = zw.finish().unwrap().into_inner();
-    let err = unpack(&bytes).unwrap_err();
+    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
     assert!(matches!(err, BundleError::Malformed { .. }), "{err:?}");
 }
 
@@ -137,7 +137,7 @@ fn zip_bomb_or_json_rejected_on_unpack() {
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(&zeros).unwrap();
     let bytes = zw.finish().unwrap().into_inner();
-    let err = unpack(&bytes).unwrap_err();
+    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(
             err,
@@ -150,7 +150,7 @@ fn zip_bomb_or_json_rejected_on_unpack() {
 #[test]
 fn orphan_entry_rejected_on_unpack() {
     let (manifest, files) = sample_bundle();
-    let packed = pack(&manifest, &files).unwrap();
+    let packed = pack(&manifest, &files, &BundleLimits::DEFAULT).unwrap();
     let bytes = {
         let cursor = std::io::Cursor::new(packed);
         let mut rz = zip::ZipArchive::new(cursor).unwrap();
@@ -167,7 +167,7 @@ fn orphan_entry_rejected_on_unpack() {
         zw.write_all(b"/* orphan */").unwrap();
         zw.finish().unwrap().into_inner()
     };
-    let err = unpack(&bytes).unwrap_err();
+    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Integrity { kind: IntegrityKind::FileOrphan, .. }),
         "{err:?}"
@@ -200,7 +200,7 @@ fn hash_mismatch_detected_on_unpack() {
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(&overlay).unwrap();
     let bytes = zw.finish().unwrap().into_inner();
-    let err = unpack(&bytes).unwrap_err();
+    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(err, BundleError::Integrity { kind: IntegrityKind::HashMismatch, .. }),
         "{err:?}"

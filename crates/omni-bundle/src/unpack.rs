@@ -7,23 +7,26 @@ use crate::error::{BundleError, IntegrityKind, UnsafeKind};
 use crate::hash::sha256_of;
 use crate::manifest::{validate_manifest_references, Manifest};
 use crate::path::{check_size, validate_path};
-use crate::{
-    MAX_BUNDLE_COMPRESSED, MAX_BUNDLE_UNCOMPRESSED, MAX_COMPRESSION_RATIO, MAX_ENTRIES,
-};
+use crate::{BundleLimits, MAX_COMPRESSION_RATIO};
 
 pub fn unpack(
     zip_bytes: &[u8],
+    limits: &BundleLimits,
 ) -> Result<(Manifest, BTreeMap<String, Vec<u8>>), BundleError> {
-    if (zip_bytes.len() as u64) > MAX_BUNDLE_COMPRESSED {
+    if (zip_bytes.len() as u64) > limits.max_bundle_compressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
-            detail: format!("bundle-compressed={} > {MAX_BUNDLE_COMPRESSED}", zip_bytes.len()),
+            detail: format!(
+                "bundle-compressed={} > {}",
+                zip_bytes.len(),
+                limits.max_bundle_compressed
+            ),
         });
     }
 
     let mut zip = ZipArchive::new(Cursor::new(zip_bytes)).map_err(BundleError::from)?;
 
-    if zip.len() > MAX_ENTRIES {
+    if zip.len() > limits.max_entries {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::TooManyEntries,
             detail: format!("{} entries", zip.len()),
@@ -63,10 +66,10 @@ pub fn unpack(
         }
         declared_total = declared_total.saturating_add(uncompressed);
     }
-    if declared_total > MAX_BUNDLE_UNCOMPRESSED {
+    if declared_total > limits.max_bundle_uncompressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
-            detail: format!("bundle-uncompressed={declared_total} > {MAX_BUNDLE_UNCOMPRESSED}"),
+            detail: format!("bundle-uncompressed={declared_total} > {}", limits.max_bundle_uncompressed),
         });
     }
 

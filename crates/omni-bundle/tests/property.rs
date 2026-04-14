@@ -3,7 +3,7 @@ mod fixtures;
 use std::collections::BTreeMap;
 
 use fixtures::sha256;
-use omni_bundle::{pack, unpack, FileEntry, Manifest, Tag};
+use omni_bundle::{pack, unpack, BundleLimits, FileEntry, Manifest, Tag};
 use proptest::prelude::*;
 
 fn arb_css_bytes() -> impl Strategy<Value = Vec<u8>> {
@@ -49,8 +49,8 @@ proptest! {
             files: entries,
         };
 
-        let bytes = pack(&manifest, &files).expect("pack");
-        let (m2, f2) = unpack(&bytes).expect("unpack");
+        let bytes = pack(&manifest, &files, &BundleLimits::DEFAULT).expect("pack");
+        let (m2, f2) = unpack(&bytes, &BundleLimits::DEFAULT).expect("unpack");
         prop_assert_eq!(m2, manifest);
         prop_assert_eq!(f2, files);
     }

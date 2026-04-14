@@ -1,7 +1,7 @@
 mod fixtures;
 
 use fixtures::{sha256, test_zip_opts};
-use omni_bundle::{pack, unpack, FileEntry, Manifest, Tag, MAX_BUNDLE_COMPRESSED};
+use omni_bundle::{pack, unpack, BundleLimits, FileEntry, Manifest, Tag};
 use std::collections::BTreeMap;
 
 #[test]
@@ -54,15 +54,15 @@ fn realistic_bundle_round_trips_under_budget() {
         files: entries,
     };
 
-    let bytes = pack(&manifest, &files).expect("pack realistic");
+    let bytes = pack(&manifest, &files, &BundleLimits::DEFAULT).expect("pack realistic");
     assert!(
-        (bytes.len() as u64) <= MAX_BUNDLE_COMPRESSED,
-        "realistic bundle exceeded MAX_BUNDLE_COMPRESSED: {} bytes > {}",
+        (bytes.len() as u64) <= BundleLimits::DEFAULT.max_bundle_compressed,
+        "realistic bundle exceeded max_bundle_compressed: {} bytes > {}",
         bytes.len(),
-        MAX_BUNDLE_COMPRESSED
+        BundleLimits::DEFAULT.max_bundle_compressed
     );
 
-    let (m2, f2) = unpack(&bytes).expect("unpack realistic");
+    let (m2, f2) = unpack(&bytes, &BundleLimits::DEFAULT).expect("unpack realistic");
     assert_eq!(m2, manifest);
     assert_eq!(f2, files);
 }
