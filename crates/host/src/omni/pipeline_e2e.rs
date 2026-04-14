@@ -123,8 +123,9 @@ fn class_diff_pipeline_produces_set_classes_call() {
     snap.cpu.total_usage_percent = 90.0;
     let hv: HashMap<String, f64> = HashMap::new();
     let hu: HashMap<String, String> = HashMap::new();
+    let history = crate::omni::history::SensorHistory::new();
 
-    let diff = compute_update_diff(&omni, &snap, &hv, &hu).expect("diff");
+    let diff = compute_update_diff(&omni, &snap, &hv, &hu, &history).expect("diff");
     let js = format_classes_js(&diff).expect("classes js");
     assert!(js.starts_with("__omni_set_classes("));
     assert!(js.contains("sensor-warn"));

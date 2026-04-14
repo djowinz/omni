@@ -126,6 +126,33 @@
     }
   };
 
+  window.__omni_set_text = function (diff) {
+    if (!diff) return;
+    for (const id in diff) {
+      const el = ID_INDEX.get(id);
+      if (!el) continue;
+      const text = diff[id];
+      for (const n of el.childNodes) {
+        if (n.nodeType === 3 && n.textContent !== text) {
+          n.textContent = text;
+          break;
+        }
+      }
+    }
+  };
+
+  window.__omni_set_attrs = function (diff) {
+    if (!diff) return;
+    for (const id in diff) {
+      const el = ID_INDEX.get(id);
+      if (!el) continue;
+      const attrs = diff[id];
+      for (const name in attrs) {
+        el.setAttribute(name, attrs[name]);
+      }
+    }
+  };
+
   window.__omni_set_theme = function (vars) {
     if (!vars) return;
     const root = document.documentElement;

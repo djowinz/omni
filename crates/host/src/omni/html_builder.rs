@@ -274,6 +274,7 @@ pub fn compute_update_diff(
     snapshot: &SensorSnapshot,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
+    history: &SensorHistory,
 ) -> Option<UpdateDiff> {
     let mut diff = UpdateDiff::new();
     let mut counter: u32 = 0;
@@ -282,7 +283,7 @@ pub fn compute_update_diff(
         if !widget.enabled {
             continue;
         }
-        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units);
+        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units, history);
     }
 
     if diff.is_empty() {
@@ -308,6 +309,50 @@ pub fn format_classes_js(diff: &UpdateDiff) -> Option<String> {
     }
     if parts.is_empty() { None }
     else { Some(format!("__omni_set_classes({{{}}})", parts.join(","))) }
+}
+
+/// Render the text-update portion of an `UpdateDiff` as an
+/// `__omni_set_text({...})` call, or `None` if no element has a text update.
+/// Used for function-call text interpolations like `{chart_y_max(sensor)}`;
+/// simple sensor-path placeholders flow through `__omni_update(values)` instead.
+pub fn format_text_js(diff: &UpdateDiff) -> Option<String> {
+    let mut ids: Vec<&String> = diff.keys().collect();
+    ids.sort_by_key(|id| {
+        id.strip_prefix("omni-").and_then(|n| n.parse::<u32>().ok()).unwrap_or(u32::MAX)
+    });
+    let mut entries = Vec::new();
+    for id in ids {
+        if let Some(t) = &diff[id].t {
+            let escaped = t.replace('\\', "\\\\").replace('"', "\\\"");
+            entries.push(format!(r#""{}":"{}""#, id, escaped));
+        }
+    }
+    if entries.is_empty() { None }
+    else { Some(format!("__omni_set_text({{{}}})", entries.join(","))) }
+}
+
+/// Render the attribute-update portion of an `UpdateDiff` as an
+/// `__omni_set_attrs({...})` call, or `None` if no element has attribute changes.
+pub fn format_attrs_js(diff: &UpdateDiff) -> Option<String> {
+    let mut ids: Vec<&String> = diff.keys().collect();
+    ids.sort_by_key(|id| {
+        id.strip_prefix("omni-").and_then(|n| n.parse::<u32>().ok()).unwrap_or(u32::MAX)
+    });
+    let mut entries = Vec::new();
+    for id in ids {
+        let Some(a) = &diff[id].a else { continue };
+        if a.is_empty() { continue; }
+        let mut keys: Vec<&String> = a.keys().collect();
+        keys.sort();
+        let attr_parts: Vec<String> = keys.iter().map(|k| {
+            let v = &a[*k];
+            let escaped = v.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(r#""{}":"{}""#, k, escaped)
+        }).collect();
+        entries.push(format!(r#""{}":{{{}}}"#, id, attr_parts.join(",")));
+    }
+    if entries.is_empty() { None }
+    else { Some(format!("__omni_set_attrs({{{}}})", entries.join(","))) }
 }
 
 /// Render a sensor-values map as a `__omni_update({...})` call.
@@ -402,6 +447,7 @@ fn collect_diff_entries(
     diff: &mut UpdateDiff,
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
+    history: &SensorHistory,
 ) {
     match node {
         HtmlNode::Text { .. } => {
@@ -432,6 +478,22 @@ fn collect_diff_entries(
                 update_c = Some(active_classes.join(" "));
             }
 
+            // If the element has a text child with a function-call interpolation
+            // (e.g. `{chart_y_max(sensor)}`), re-evaluate it each tick. Simple
+            // `{sensor.path}` placeholders are handled separately via
+            // `__omni_update(values)` + data-sensor spans, so they're skipped
+            // here (`lower_text_to_segments` returns Some for those).
+            let mut update_t: Option<String> = None;
+            for child in children {
+                if let HtmlNode::Text { content } = child {
+                    if content.contains('{') && lower_text_to_segments(content).is_none() {
+                        let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
+                        update_t = Some(interpolate(content, &ctx));
+                        break;
+                    }
+                }
+            }
+
             // Walk arbitrary attributes — any value containing `{...}` needs
             // to be re-evaluated each tick and emitted as an `a` update.
             // Defer HashMap allocation until the first interpolatable
@@ -441,7 +503,7 @@ fn collect_diff_entries(
                 if value.contains('{') {
                     let ctx = EvalCtx {
                         snapshot,
-                        history: &SensorHistory::new(),
+                        history,
                         hwinfo_values,
                         hwinfo_units,
                     };
@@ -452,12 +514,12 @@ fn collect_diff_entries(
                 }
             }
 
-            if update_c.is_some() || update_a.is_some() {
+            if update_c.is_some() || update_t.is_some() || update_a.is_some() {
                 diff.insert(
                     node_id,
                     ElementUpdate {
                         c: update_c,
-                        t: None,
+                        t: update_t,
                         a: update_a,
                     },
                 );
@@ -465,7 +527,7 @@ fn collect_diff_entries(
 
             // Recurse into children
             for child in children {
-                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units);
+                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units, history);
             }
         }
     }
@@ -707,14 +769,16 @@ mod tests {
 
     #[test]
     fn compute_update_diff_emits_attribute_changes() {
-        // history removed from compute_update_diff in Task 7 — attributes still
-        // interpolate but history-backed min/max default to 0.
+        use crate::omni::history::SensorHistory;
         use crate::omni::types::{HtmlNode, OmniFile, Widget};
         use omni_shared::SensorSnapshot;
         use std::collections::HashMap;
 
         let mut snapshot = SensorSnapshot::default();
         snapshot.cpu.total_usage_percent = 60.0;
+        let mut history = SensorHistory::new();
+        history.register("cpu.usage");
+        history.push_sample("cpu.usage", 60.0);
         let hv = HashMap::new();
         let hu = HashMap::new();
 
@@ -755,7 +819,7 @@ mod tests {
             }],
         };
 
-        let diff = compute_update_diff(&file, &snapshot, &hv, &hu)
+        let diff = compute_update_diff(&file, &snapshot, &hv, &hu, &history)
             .expect("expected a diff");
         let any_attr_update = diff
             .values()
@@ -984,7 +1048,8 @@ mod render_tests {
         };
         let hv = HashMap::new();
         let hu = HashMap::new();
-        let diff = compute_update_diff(&omni, &snap, &hv, &hu).expect("diff");
+        let history = SensorHistory::new();
+        let diff = compute_update_diff(&omni, &snap, &hv, &hu, &history).expect("diff");
         let update = diff.values().next().unwrap();
         assert!(update.c.as_ref().unwrap().contains("sensor-warn"));
         assert!(update.t.is_none(), "text should no longer flow through diff");

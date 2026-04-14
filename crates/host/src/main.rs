@@ -310,6 +310,11 @@ fn run_host() {
     let mut config = config::load_config(&config_path);
     let data_dir = config::data_dir();
     let scan_interval = Duration::from_millis(2000);
+    // Initial retry delay after an ETW capture failure. Doubles on each
+    // subsequent failure up to `ETW_RETRY_MAX`, so persistently-unsuccessful
+    // PIDs (e.g. 32-bit games, insufficient privileges) don't spam retries.
+    const ETW_RETRY_INITIAL: Duration = Duration::from_secs(5);
+    const ETW_RETRY_MAX: Duration = Duration::from_secs(300);
 
     // Initialize workspace folder structure (overlays/, themes/, Default overlay)
     workspace::structure::init_workspace(&data_dir);
@@ -370,7 +375,10 @@ fn run_host() {
 
     let mut etw_captures: std::collections::HashMap<u32, etw::EtwCapture> =
         std::collections::HashMap::new();
-    let mut etw_failed: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // Per-PID ETW failure state: last failure timestamp + next backoff.
+    // Backoff doubles on each consecutive failure up to ETW_RETRY_MAX.
+    let mut etw_failed: std::collections::HashMap<u32, (Instant, Duration)> =
+        std::collections::HashMap::new();
 
     let mut host = HostState::new(overlay_name, data_dir.clone(), config_path.clone());
 
@@ -462,23 +470,40 @@ fn run_host() {
 
             // Start ETW capture for newly tracked external overlay processes
             for &pid in scanner_instance.tracked_pids() {
-                if !etw_captures.contains_key(&pid) && !etw_failed.contains(&pid) {
-                    match etw::EtwCapture::start(pid) {
-                        Ok(capture) => {
-                            info!(pid, "Started ETW frame capture");
-                            etw_captures.insert(pid, capture);
-                        }
-                        Err(e) => {
-                            warn!(pid, error = %e, "Failed to start ETW capture — frame metrics unavailable for this process");
-                            etw_failed.insert(pid);
-                        }
+                if etw_captures.contains_key(&pid) {
+                    continue;
+                }
+                // If this PID failed recently, back off before retrying.
+                if !should_retry_etw(pid, &etw_failed) {
+                    continue;
+                }
+                match etw::EtwCapture::start(pid) {
+                    Ok(capture) => {
+                        info!(pid, "Started ETW frame capture");
+                        etw_captures.insert(pid, capture);
+                        etw_failed.remove(&pid);
+                    }
+                    Err(e) => {
+                        let next_backoff = etw_failed
+                            .get(&pid)
+                            .map(|(_, prev)| {
+                                (*prev * 2).min(ETW_RETRY_MAX)
+                            })
+                            .unwrap_or(ETW_RETRY_INITIAL);
+                        warn!(
+                            pid,
+                            error = %e,
+                            retry_in_secs = next_backoff.as_secs(),
+                            "Failed to start ETW capture — will retry"
+                        );
+                        etw_failed.insert(pid, (Instant::now(), next_backoff));
                     }
                 }
             }
 
             // Clean up ETW sessions and failure tracking for exited processes
             etw_captures.retain(|pid, _| scanner_instance.is_tracked(*pid));
-            etw_failed.retain(|pid| scanner_instance.is_tracked(*pid));
+            etw_failed.retain(|pid, _| scanner_instance.is_tracked(*pid));
 
             if let Ok(mut game) = ws_state.active_game.lock() {
                 *game = scanner_instance.last_game_exe().map(|s| s.to_string());
@@ -508,10 +533,16 @@ fn run_host() {
         }
 
         // Drain the poller's snapshot channel. Each delivered snapshot represents
-        // one poll cycle, so push samples into the chart history ONCE per snapshot.
+        // one poll cycle, so push samples into the chart history ONCE per snapshot
+        // (not once per main-loop iteration). This keeps the 60-sample buffer
+        // aligned with sensor poll intervals — at the default 1 Hz, 60 samples
+        // is 60 seconds of history.
         while let Ok(snapshot) = sensor_rx.try_recv() {
             latest_snapshot = snapshot;
 
+            // Collecting to owned Strings here avoids a mutable/immutable
+            // borrow conflict — we iterate registered paths then push_sample
+            // mutates the same struct.
             let registered: Vec<String> = host
                 .sensor_history
                 .registered_iter()
@@ -768,11 +799,30 @@ fn run_host() {
             &latest_snapshot,
             &hwinfo_values,
             &hwinfo_units,
+            &host.sensor_history,
         );
         let class_js = class_diff
             .as_ref()
-            .and_then(|d| html_builder::format_classes_js(d));
+            .and_then(html_builder::format_classes_js);
         if let Some(js) = &class_js {
+            ul.evaluate_script(js);
+        }
+
+        // Push text updates for function-call interpolations (e.g. chart Y-axis
+        // labels like {chart_y_max(sensor)}). Simple {sensor.path} placeholders
+        // flow through __omni_update(values) via data-sensor spans instead.
+        let text_js = class_diff
+            .as_ref()
+            .and_then(html_builder::format_text_js);
+        if let Some(js) = &text_js {
+            ul.evaluate_script(js);
+        }
+
+        // Push per-element attribute updates (chart SVG width/points/d, etc.).
+        let attrs_js = class_diff
+            .as_ref()
+            .and_then(html_builder::format_attrs_js);
+        if let Some(js) = &attrs_js {
             ul.evaluate_script(js);
         }
 
@@ -811,4 +861,49 @@ fn run_host() {
         warn!("WebSocket server thread panicked: {e:?}");
     }
     info!("Omni host stopped");
+}
+
+/// Returns true if `pid` should be attempted. Either no prior failure is
+/// recorded, or the per-PID backoff (recorded alongside the failure
+/// timestamp) has elapsed since the last recorded failure.
+fn should_retry_etw(
+    pid: u32,
+    failures: &std::collections::HashMap<u32, (Instant, Duration)>,
+) -> bool {
+    match failures.get(&pid) {
+        None => true,
+        Some((last, backoff)) => last.elapsed() >= *backoff,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_retry_etw;
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn should_retry_when_no_prior_failure() {
+        let failures: HashMap<u32, (Instant, Duration)> = HashMap::new();
+        assert!(should_retry_etw(1234, &failures));
+    }
+
+    #[test]
+    fn should_not_retry_within_backoff() {
+        let mut failures: HashMap<u32, (Instant, Duration)> = HashMap::new();
+        failures.insert(1234, (Instant::now(), Duration::from_secs(5)));
+        assert!(!should_retry_etw(1234, &failures));
+    }
+
+    #[test]
+    fn should_retry_after_backoff_elapsed() {
+        // Use a 10 ms backoff and sleep past it — avoids the `checked_sub`
+        // edge case where fresh boots have Instant::now() < arbitrary
+        // historical Duration, which would make a "long ago" construction
+        // fall back to `now` and break the test.
+        let mut failures: HashMap<u32, (Instant, Duration)> = HashMap::new();
+        failures.insert(1234, (Instant::now(), Duration::from_millis(10)));
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(should_retry_etw(1234, &failures));
+    }
 }

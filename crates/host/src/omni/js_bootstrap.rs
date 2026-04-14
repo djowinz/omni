@@ -50,6 +50,8 @@ mod tests {
         let js = render(ViewTrust::LocalAuthored);
         assert!(js.contains("window.__omni_update"));
         assert!(js.contains("window.__omni_set_classes"));
+        assert!(js.contains("window.__omni_set_text"));
+        assert!(js.contains("window.__omni_set_attrs"));
         assert!(js.contains("window.__omni_set_theme"));
         assert!(js.contains("window.__omni_rescan"));
     }
