@@ -28,6 +28,11 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure SSH for omni-guard git dep
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.OMNI_GUARD_DEPLOY_KEY }}
+
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -38,6 +43,40 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Build Stage 1 (reference binary; no strict-integrity)
+        shell: bash
+        run: cargo build --release --package omni-host --features guard
+
+      - name: Extract .text SHA-256 from Stage 1 binary
+        id: integrity
+        shell: bash
+        run: |
+          HASH=$(cargo run --package integrity-hash --release --quiet -- target/release/omni-host.exe)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Stage 1 .text SHA-256: $HASH"
+
+      - name: Build Stage 2 (release binary; strict-integrity)
+        shell: bash
+        env:
+          OMNI_GUARD_TEXT_SHA256: ${{ steps.integrity.outputs.hash }}
+        run: cargo build --release --package omni-host --features guard,strict-integrity
+
+      - name: Verify Stage 1 and Stage 2 .text bytes match
+        shell: bash
+        run: |
+          STAGE2_HASH=$(cargo run --package integrity-hash --release --quiet -- target/release/omni-host.exe)
+          if [ "$STAGE2_HASH" != "${{ steps.integrity.outputs.hash }}" ]; then
+            echo "ERROR: Stage 1 vs Stage 2 .text drift. Stage 1=${{ steps.integrity.outputs.hash }}, Stage 2=$STAGE2_HASH" >&2
+            exit 1
+          fi
+          echo "Stage 1 == Stage 2 .text bytes — OK."
+
+      - name: Verify integrity poison fires with wrong expected hash
+        shell: bash
+        env:
+          OMNI_GUARD_TEXT_SHA256: "0000000000000000000000000000000000000000000000000000000000000000"
+        run: cargo test -p omni-guard --features strict-integrity --test integrity_negative
 
       - name: Install Node.js
         uses: actions/setup-node@v4

@@ -17,6 +17,14 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Verify default build without guard feature
+        shell: bash
+        run: |
+          cargo build --package omni-host
+          cargo test --package omni-host
+          cargo test --package omni-guard-trait
+          cargo test --package omni-guard-trait --features serde
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
