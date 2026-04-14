@@ -147,4 +147,27 @@ mod tests {
             assert!(format!("{e}").contains(&format!("{k:?}")));
         }
     }
+
+    #[test]
+    fn malformed_from_zip_preserves_source() {
+        let zip_err = zip::result::ZipError::InvalidArchive("test");
+        let e: BundleError = zip_err.into();
+        use std::error::Error;
+        assert!(
+            e.source().is_some(),
+            "zip error source must be preserved through From<ZipError>"
+        );
+    }
+
+    #[test]
+    fn malformed_from_json_preserves_source() {
+        // Serde rejects this as invalid JSON.
+        let json_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        let e: BundleError = json_err.into();
+        use std::error::Error;
+        assert!(
+            e.source().is_some(),
+            "serde_json error source must be preserved through From<serde_json::Error>"
+        );
+    }
 }
