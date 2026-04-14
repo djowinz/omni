@@ -71,9 +71,12 @@ pub fn unpack(
     }
 
     let manifest_bytes = {
-        let mut m = zip.by_name("manifest.json").map_err(|_| BundleError::Integrity {
-            kind: IntegrityKind::ManifestMissing,
-            detail: String::new(),
+        let mut m = zip.by_name("manifest.json").map_err(|e| match e {
+            zip::result::ZipError::FileNotFound => BundleError::Integrity {
+                kind: IntegrityKind::ManifestMissing,
+                detail: String::new(),
+            },
+            other => BundleError::from(other),
         })?;
         let mut buf = Vec::with_capacity(m.size() as usize);
         m.read_to_end(&mut buf)?;
