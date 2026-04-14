@@ -1,13 +1,55 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::{BundleError, IntegrityKind};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Tag {
-    Dark, Light, Minimal, Gaming, Neon, Retro, Cyberpunk,
-    Pastel, HighContrast, Monospace, Racing, Flightsim,
-    Mmo, Fps, Productivity, Creative,
+/// Format-validated tag string. Semantic vocabulary (which tags are recognized)
+/// is enforced server-side via the Worker's `config:vocab` KV, per retro-005 D6.
+/// This type only enforces format: kebab-case, 2–32 chars, starts with a letter.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Tag(String);
+
+impl Tag {
+    pub fn new(s: impl Into<String>) -> Result<Self, crate::error::BundleError> {
+        let s = s.into();
+        if !Self::is_valid(&s) {
+            return Err(crate::error::BundleError::Malformed {
+                message: format!("tag format invalid: {s:?}"),
+                source: None,
+            });
+        }
+        Ok(Tag(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn is_valid(s: &str) -> bool {
+        // ^[a-z][a-z0-9-]{1,31}$
+        let bytes = s.as_bytes();
+        if bytes.len() < 2 || bytes.len() > 32 {
+            return false;
+        }
+        if !bytes[0].is_ascii_lowercase() {
+            return false;
+        }
+        bytes[1..]
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+    }
+}
+
+impl Serialize for Tag {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Tag {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Tag::new(&s).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -113,7 +155,7 @@ mod tests {
             version: "1.0.0".parse().unwrap(),
             omni_min_version: "0.1.0".parse().unwrap(),
             description: "d".into(),
-            tags: vec![Tag::Dark, Tag::HighContrast],
+            tags: vec![Tag::new("dark").unwrap(), Tag::new("high-contrast").unwrap()],
             license: "MIT".into(),
             entry_overlay: "overlay.omni".into(),
             default_theme: Some("themes/default.css".into()),
@@ -123,9 +165,40 @@ mod tests {
     }
 
     #[test]
-    fn tag_serializes_kebab_case() {
-        let s = serde_json::to_string(&Tag::HighContrast).unwrap();
-        assert_eq!(s, "\"high-contrast\"");
+    fn tag_accepts_valid_formats() {
+        assert!(Tag::new("dark").is_ok());
+        assert!(Tag::new("high-contrast").is_ok());
+        assert!(Tag::new("a1").is_ok());
+        assert!(Tag::new("my-cool-theme").is_ok());
+    }
+
+    #[test]
+    fn tag_rejects_invalid_formats() {
+        assert!(Tag::new("").is_err());
+        assert!(Tag::new("a").is_err()); // too short
+        assert!(Tag::new(&"a".repeat(33)).is_err()); // too long
+        assert!(Tag::new("1starts-with-digit").is_err());
+        assert!(Tag::new("-starts-with-hyphen").is_err());
+        assert!(Tag::new("has space").is_err());
+        assert!(Tag::new("UPPERCASE").is_err());
+        assert!(Tag::new("snake_case").is_err());
+    }
+
+    #[test]
+    fn tag_serializes_as_plain_string() {
+        let t = Tag::new("dark").unwrap();
+        assert_eq!(serde_json::to_string(&t).unwrap(), "\"dark\"");
+    }
+
+    #[test]
+    fn tag_deserializes_from_valid_string() {
+        let t: Tag = serde_json::from_str("\"dark\"").unwrap();
+        assert_eq!(t.as_str(), "dark");
+    }
+
+    #[test]
+    fn tag_deserialize_rejects_invalid_string() {
+        assert!(serde_json::from_str::<Tag>("\"UPPERCASE\"").is_err());
     }
 
     #[test]
