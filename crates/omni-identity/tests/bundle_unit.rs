@@ -59,8 +59,7 @@ fn pack_unpack_roundtrip() {
     assert_eq!(signed.manifest().name, "t");
     // author_pubkey() returns &PublicKey; .0 is pub [u8; 32]
     assert_eq!(signed.author_pubkey().0, kp.public_key().0);
-    // fingerprint() returns &Fingerprint
-    assert_eq!(signed.fingerprint(), &kp.public_key().fingerprint());
+    assert_eq!(signed.fingerprint(), kp.public_key().fingerprint());
 
     let (_m2, files_map) = signed.into_files_map();
     assert!(files_map.contains_key("overlay.omni"));
@@ -127,6 +126,6 @@ fn fingerprint_matches_pubkey_derivation() {
     let (m, f) = fixture();
     let bytes = pack_signed_bundle(&m, &f, &kp, &BundleLimits::DEFAULT).unwrap();
     let signed = unpack_signed_bundle(&bytes, None, &BundleLimits::DEFAULT).unwrap();
-    assert_eq!(signed.fingerprint(), &kp.public_key().fingerprint());
+    assert_eq!(signed.fingerprint(), kp.public_key().fingerprint());
     assert_eq!(signed.author_pubkey().0, kp.public_key().0);
 }

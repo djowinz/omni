@@ -44,7 +44,6 @@ pub struct SignedBundle {
     manifest: Manifest,
     files: BTreeMap<String, Vec<u8>>,
     author_pubkey: PublicKey,
-    fingerprint: Fingerprint,
 }
 
 impl SignedBundle {
@@ -56,8 +55,8 @@ impl SignedBundle {
         &self.author_pubkey
     }
 
-    pub fn fingerprint(&self) -> &Fingerprint {
-        &self.fingerprint
+    pub fn fingerprint(&self) -> Fingerprint {
+        self.author_pubkey.fingerprint()
     }
 
     /// Streaming iterator over bundle files (invariant #19b). Peak memory
@@ -83,19 +82,13 @@ pub fn pack_signed_bundle(
     keypair: &Keypair,
     limits: &BundleLimits,
 ) -> Result<Vec<u8>, IdentityError> {
-    // 1. Clone + canonicalize (sort files) BEFORE hashing. `unpack_signed_bundle`
-    //    reconstructs the original manifest by stripping `signature.jws` from
-    //    the post-pack (already sorted) manifest, so pack must hash the same
-    //    sorted order or signatures won't verify for callers that pass an
-    //    unsorted manifest.
+    // Sort manifest.files BEFORE hashing so unpack's strip-and-rehash path
+    // produces the same digest regardless of caller's original ordering.
     let mut pre_sig_manifest = manifest.clone();
     pre_sig_manifest.files.sort_by(|a, b| a.path.cmp(&b.path));
     let digest = canonical_hash(&pre_sig_manifest, files);
-    let digest_hex = hex::encode(digest);
-    let payload = SignaturePayload { canonical_hash_hex: digest_hex };
+    let payload = SignaturePayload { canonical_hash_hex: hex::encode(digest) };
 
-    // 2. Build JWS header with the author's public key embedded as an OKP JWK.
-    //    This allows verifiers to extract the pubkey without a key registry.
     let pubkey = keypair.public_key();
     let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pubkey.0);
     let jwk = Jwk {
@@ -109,25 +102,20 @@ pub fn pack_signed_bundle(
     let mut header = Header::new(Algorithm::EdDSA);
     header.jwk = Some(jwk);
 
-    // 3. Sign.
     let jws_compact = keypair
         .sign_jws(&payload, &header)
         .map_err(|e| IdentityError::Jws(format!("sign: {e}")))?;
 
-    // 4. Append signature.jws entry to the (already sorted) manifest, then re-sort.
-    let sig_sha = sha256_bytes(jws_compact.as_bytes());
     let mut amended_manifest = pre_sig_manifest;
     amended_manifest.files.push(FileEntry {
         path: SIGNATURE_FILENAME.into(),
-        sha256: sig_sha,
+        sha256: sha256_bytes(jws_compact.as_bytes()),
     });
     amended_manifest.files.sort_by(|a, b| a.path.cmp(&b.path));
 
-    // 5. Insert signature.jws into files map.
     let mut amended_files = files.clone();
     amended_files.insert(SIGNATURE_FILENAME.into(), jws_compact.into_bytes());
 
-    // 6. Pack.
     let bytes = bundle_pack(&amended_manifest, &amended_files, limits)?;
     Ok(bytes)
 }
@@ -143,36 +131,28 @@ pub fn unpack_signed_bundle(
     expected_pubkey: Option<&PublicKey>,
     limits: &BundleLimits,
 ) -> Result<SignedBundle, IdentityError> {
-    // 1. Unpack the zip; collect all files into a map.
     let unpack = bundle_unpack(bytes, limits)?;
     let (amended_manifest, mut files_map) = unpack.into_map()?;
 
-    // 2. Remove signature.jws; absence is a hard error.
     let jws_bytes = files_map
         .remove(SIGNATURE_FILENAME)
         .ok_or(IdentityError::MissingSignature)?;
     let jws_str = std::str::from_utf8(&jws_bytes)
         .map_err(|e| IdentityError::Jws(format!("non-utf8 jws: {e}")))?;
 
-    // 3. Reconstruct the original manifest by removing the signature.jws entry.
-    let mut original_manifest = amended_manifest.clone();
+    let mut original_manifest = amended_manifest;
     original_manifest.files.retain(|f| f.path != SIGNATURE_FILENAME);
 
-    // 4. Compute the expected canonical hash. The second argument is ignored by
-    //    canonical_hash (it hashes the manifest only); we pass an empty map.
-    let expected_digest = canonical_hash(&original_manifest, &BTreeMap::new());
-    let expected_hex = hex::encode(expected_digest);
+    let expected_hex = hex::encode(canonical_hash(&original_manifest, &BTreeMap::new()));
 
-    // 5. Extract the author pubkey from the JWS header (unauthenticated read;
-    //    the signature verification below provides authentication).
+    // Extract pubkey from the JWS header (unauthenticated parse), then verify
+    // the signature with it — verify_jws authenticates; the extracted key is
+    // trusted only after verify_jws returns Ok.
     let author_pubkey = extract_jws_pubkey(jws_str)?;
+    let payload = verify_jws::<SignaturePayload>(jws_str, &author_pubkey)
+        .map_err(|e| IdentityError::Jws(format!("verify: {e}")))?
+        .claims;
 
-    // 6. Verify the JWS signature with the extracted pubkey.
-    let token_data = verify_jws::<SignaturePayload>(jws_str, &author_pubkey)
-        .map_err(|e| IdentityError::Jws(format!("verify: {e}")))?;
-    let payload = token_data.claims;
-
-    // 7. Confirm the signed hash matches the reconstructed manifest hash.
     if payload.canonical_hash_hex != expected_hex {
         return Err(IdentityError::Bundle(BundleError::Integrity {
             kind: IntegrityKind::HashMismatch,
@@ -183,20 +163,16 @@ pub fn unpack_signed_bundle(
         }));
     }
 
-    // 8. Optionally enforce a pinned expected pubkey.
     if let Some(expected) = expected_pubkey {
         if expected.0 != author_pubkey.0 {
             return Err(IdentityError::Jws("pubkey mismatch".into()));
         }
     }
 
-    let fingerprint = author_pubkey.fingerprint();
-
     Ok(SignedBundle {
         manifest: original_manifest,
         files: files_map,
         author_pubkey,
-        fingerprint,
     })
 }
 

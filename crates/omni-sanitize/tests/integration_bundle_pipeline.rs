@@ -6,15 +6,9 @@ use std::collections::BTreeMap;
 use omni_bundle::{BundleLimits, FileEntry, ResourceKind};
 use omni_identity::{pack_signed_bundle, unpack_signed_bundle, IdentityError};
 use omni_sanitize::{sanitize_bundle, SanitizeError};
-use sha2::{Digest, Sha256};
 
 mod common;
-
-fn sha256(b: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(b);
-    h.finalize().into()
-}
+use common::sha256;
 
 /// Case A: omni_bundle::pack → unpack → sanitize_bundle — verify
 /// SanitizeReport.sanitized_sha256 matches each sanitized file's content.
