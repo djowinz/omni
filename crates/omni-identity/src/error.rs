@@ -36,26 +36,13 @@ impl From<io::Error> for IdentityError {
     }
 }
 
-/// Map `omni_bundle::BundleError` categories into identity-level semantics.
-///
-/// Hand-written per retro-005 D9: do NOT use `#[from]`. Each category is
-/// deliberately translated so that `IdentityError`'s public surface stays
-/// stable even if `BundleError` categories evolve. Today every variant maps
-/// pass-through; in follow-up work (signed-bundle surface), `Manifest` or
-/// `HashMismatch` may translate to more specific identity semantics.
+/// Map `omni_bundle::BundleError` categories (retro-005 D9 shape) into
+/// identity-level semantics. Hand-written per retro D9: no `#[from]`. The
+/// public surface of `IdentityError` stays stable even if `BundleError`
+/// sub-kinds evolve.
 impl From<omni_bundle::BundleError> for IdentityError {
     fn from(e: omni_bundle::BundleError) -> Self {
-        use omni_bundle::BundleError as B;
-        match e {
-            B::Zip(_)
-            | B::Manifest(_)
-            | B::MissingFile(_)
-            | B::HashMismatch { .. }
-            | B::SizeExceeded { .. }
-            | B::TooManyEntries(_)
-            | B::UnsafePath(_)
-            | B::Io(_) => IdentityError::Bundle(e),
-        }
+        IdentityError::Bundle(e)
     }
 }
 
@@ -95,13 +82,17 @@ mod tests {
 
     #[test]
     fn bundle_error_from_preserves_category() {
-        let be = omni_bundle::BundleError::UnsafePath("../evil".into());
+        let be = omni_bundle::BundleError::Unsafe {
+            kind: omni_bundle::UnsafeKind::Path,
+            detail: "../evil".into(),
+        };
         let ie: IdentityError = be.into();
         match ie {
-            IdentityError::Bundle(omni_bundle::BundleError::UnsafePath(p)) => {
-                assert_eq!(p, "../evil");
+            IdentityError::Bundle(omni_bundle::BundleError::Unsafe { kind, detail }) => {
+                assert_eq!(kind, omni_bundle::UnsafeKind::Path);
+                assert_eq!(detail, "../evil");
             }
-            other => panic!("expected Bundle(UnsafePath), got {other}"),
+            other => panic!("expected Bundle(Unsafe), got {other}"),
         }
     }
 }
