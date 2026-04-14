@@ -12,7 +12,7 @@ pub(crate) mod theme;
 use font::FontHandler;
 use image::ImageHandler;
 use overlay::OverlayHandler;
-use theme::ThemeHandler;
+pub(crate) use theme::ThemeHandler;
 
 pub(crate) trait Handler: Sync {
     fn kind(&self) -> &'static str;
@@ -40,7 +40,7 @@ pub(crate) fn dispatch_for_path(
 ) -> Result<(&'static dyn Handler, u64), SanitizeError> {
     if let Some(decls) = declared {
         for (kind_name, rk) in decls {
-            if matches_rk(path, &rk.dir, &rk.extensions) {
+            if matches_dir_ext(path, &rk.dir, rk.extensions.iter().map(String::as_str)) {
                 let handler = HANDLERS
                     .iter()
                     .copied()
@@ -54,8 +54,7 @@ pub(crate) fn dispatch_for_path(
         }
     }
     for h in HANDLERS {
-        let exts: Vec<String> = h.default_extensions().iter().map(|s| s.to_string()).collect();
-        if matches_rk(path, h.default_dir(), &exts) {
+        if matches_dir_ext(path, h.default_dir(), h.default_extensions().iter().copied()) {
             return Ok((*h, h.default_max_size()));
         }
     }
@@ -65,17 +64,25 @@ pub(crate) fn dispatch_for_path(
     })
 }
 
-fn matches_rk(path: &str, dir: &str, exts: &[String]) -> bool {
-    let ext_ok = exts.iter().any(|e| path.ends_with(&format!(".{e}")));
+fn matches_dir_ext<'a, I>(path: &str, dir: &str, exts: I) -> bool
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let ext_ok = exts.into_iter().any(|e| {
+        path.len() > e.len() + 1
+            && path.ends_with(e)
+            && path.as_bytes()[path.len() - e.len() - 1] == b'.'
+    });
     if !ext_ok {
         return false;
     }
     if dir.is_empty() {
         !path.contains('/')
     } else {
-        path.starts_with(&format!("{dir}/")) && {
-            let after = &path[dir.len() + 1..];
-            !after.contains('/')
-        }
+        let prefix_len = dir.len() + 1;
+        path.len() > prefix_len
+            && path.as_bytes()[dir.len()] == b'/'
+            && path.starts_with(dir)
+            && !path[prefix_len..].contains('/')
     }
 }

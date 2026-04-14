@@ -23,7 +23,8 @@ impl Handler for ThemeHandler {
             source: Some(Box::new(e)),
         })?;
 
-        if contains_import(src) {
+        let lower = src.to_ascii_lowercase();
+        if lower.contains("@import") {
             return Err(SanitizeError::Handler {
                 kind: self.kind(),
                 path: path.into(),
@@ -31,7 +32,7 @@ impl Handler for ThemeHandler {
                 source: None,
             });
         }
-        scan_urls(self.kind(), path, src)?;
+        scan_urls(self.kind(), path, src, &lower)?;
 
         let sheet = StyleSheet::parse(src, ParserOptions::default()).map_err(|e| {
             SanitizeError::Handler {
@@ -55,12 +56,7 @@ impl Handler for ThemeHandler {
     }
 }
 
-fn contains_import(src: &str) -> bool {
-    src.to_ascii_lowercase().contains("@import")
-}
-
-fn scan_urls(kind: &'static str, path: &str, src: &str) -> Result<(), SanitizeError> {
-    let lower = src.to_ascii_lowercase();
+fn scan_urls(kind: &'static str, path: &str, src: &str, lower: &str) -> Result<(), SanitizeError> {
     let mut i = 0;
     while let Some(idx) = lower[i..].find("url(") {
         let start = i + idx + 4;

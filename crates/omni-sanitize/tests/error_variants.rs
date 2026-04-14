@@ -2,14 +2,10 @@
 
 use omni_bundle::{FileEntry, Manifest, ResourceKind};
 use omni_sanitize::{sanitize_bundle, sanitize_theme, SanitizeError};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-fn sha256(b: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(b);
-    h.finalize().into()
-}
+mod common;
+use common::sha256;
 
 fn minimal_manifest(files: &BTreeMap<String, Vec<u8>>, schema: u32) -> Manifest {
     Manifest {

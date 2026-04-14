@@ -3,14 +3,10 @@
 use omni_bundle::{FileEntry, Manifest};
 use omni_sanitize::sanitize_bundle;
 use proptest::prelude::*;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-fn sha256(b: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(b);
-    h.finalize().into()
-}
+mod common;
+use common::sha256;
 
 fn manifest_with(files: &BTreeMap<String, Vec<u8>>) -> Manifest {
     Manifest {

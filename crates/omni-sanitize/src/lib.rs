@@ -22,27 +22,20 @@ use std::collections::BTreeMap;
 use omni_bundle::Manifest;
 use sha2::{Digest, Sha256};
 
-use crate::handlers::{dispatch_for_path, supported_kind_names, HANDLERS};
-use crate::magic::{hex_of, reject_executable_magic};
+use crate::handlers::{dispatch_for_path, supported_kind_names, Handler, ThemeHandler, HANDLERS};
+use crate::magic::reject_executable_magic;
 
-/// Sanitize a single standalone CSS theme file.
-///
-/// Runs the executable-magic deny-list first (invariant #19c defense-in-depth),
-/// then invokes the theme handler directly.
+/// Sanitize a single standalone CSS theme. Runs the executable-magic deny-list
+/// (invariant #19c) before invoking the theme handler.
 pub fn sanitize_theme(css_bytes: &[u8]) -> Result<(Vec<u8>, SanitizeReport), SanitizeError> {
     if let Err(sig) = reject_executable_magic(css_bytes) {
         return Err(SanitizeError::RejectedExecutableMagic {
-            prefix_hex: hex_of(sig),
+            prefix_hex: hex::encode(sig),
             path: "theme.css".into(),
         });
     }
     let original_sha256 = sha256(css_bytes);
-    let handler = HANDLERS
-        .iter()
-        .copied()
-        .find(|h| h.kind() == "theme")
-        .expect("theme handler registered");
-    let out = handler.sanitize("theme.css", css_bytes)?;
+    let out = ThemeHandler.sanitize("theme.css", css_bytes)?;
     let sanitized_sha256 = sha256(&out);
     let report = SanitizeReport {
         version: SANITIZE_VERSION,
@@ -91,7 +84,7 @@ pub fn sanitize_bundle(
     for (path, bytes) in files {
         if let Err(sig) = reject_executable_magic(&bytes) {
             return Err(SanitizeError::RejectedExecutableMagic {
-                prefix_hex: hex_of(sig),
+                prefix_hex: hex::encode(sig),
                 path,
             });
         }

@@ -18,6 +18,3 @@ pub(crate) fn reject_executable_magic(data: &[u8]) -> Result<(), &'static [u8]> 
     Ok(())
 }
 
-pub(crate) fn hex_of(bytes: &[u8]) -> String {
-    hex::encode(bytes)
-}
