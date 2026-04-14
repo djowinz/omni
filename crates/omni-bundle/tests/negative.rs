@@ -59,14 +59,18 @@ fn hash_mismatch_rejected_on_pack() {
 #[test]
 fn size_exceeded_rejected() {
     let (mut m, mut f) = sample_bundle();
-    let big = vec![0u8; 131_073usize];
+    // Create a file that alone exceeds max_bundle_uncompressed (10 MB default).
+    // Pseudo-random bytes so the zip doesn't compress and trip zip-bomb check.
+    let mut big = vec![0u8; 10_485_761];
+    let mut x: u64 = 0x12345678;
+    for byte in big.iter_mut() {
+        x = x.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
+        *byte = (x >> 24) as u8;
+    }
     f.insert("themes/big.css".into(), big.clone());
     m.files.push(FileEntry { path: "themes/big.css".into(), sha256: sha256(&big) });
     let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
-    assert!(
-        matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }),
-        "{err:?}"
-    );
+    assert!(matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }), "{err:?}");
 }
 
 #[test]
@@ -190,6 +194,7 @@ fn hash_mismatch_detected_on_unpack() {
         default_theme: None,
         sensor_requirements: vec![],
         files: vec![FileEntry { path: "overlay.omni".into(), sha256: bad_sha }],
+        resource_kinds: None,
     };
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
     let opts = fixtures::test_zip_opts();

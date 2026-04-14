@@ -7,7 +7,7 @@ use zip::{CompressionMethod, DateTime, ZipWriter};
 use crate::error::{BundleError, IntegrityKind, UnsafeKind};
 use crate::hash::sha256_of;
 use crate::manifest::{pretty_manifest_bytes, validate_manifest_references, Manifest};
-use crate::path::{check_size, validate_path, FileKind};
+use crate::path::validate_path;
 use crate::BundleLimits;
 
 /// Pack a manifest + file map into a deterministic `.omnipkg` zip.
@@ -59,8 +59,7 @@ pub fn pack(
 
     let mut total_uncompressed: u64 = 0;
     for (path, bytes) in files.iter() {
-        let kind = validate_path(path)?;
-        check_size(kind, bytes.len() as u64)?;
+        validate_path(path)?;
         total_uncompressed = total_uncompressed.saturating_add(bytes.len() as u64);
 
         let expected = entries[path.as_str()];
@@ -78,7 +77,6 @@ pub fn pack(
     }
 
     let manifest_bytes = pretty_manifest_bytes(manifest).map_err(BundleError::from)?;
-    check_size(FileKind::Manifest, manifest_bytes.len() as u64)?;
     total_uncompressed = total_uncompressed.saturating_add(manifest_bytes.len() as u64);
     if total_uncompressed > limits.max_bundle_uncompressed {
         return Err(BundleError::Unsafe {

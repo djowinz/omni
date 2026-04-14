@@ -2,6 +2,18 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::{BundleError, IntegrityKind};
 
+/// Per-bundle resource-kind declaration. The bundle announces its own
+/// dispatch table so `omni-sanitize` can route files to handlers without
+/// hardcoded placement rules. Unknown kinds produce a clear sanitize-level
+/// error, supporting older hosts via `omni_min_version`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceKind {
+    pub dir: String,
+    pub extensions: Vec<String>,
+    pub max_size_bytes: u64,
+}
+
 /// Format-validated tag string. Semantic vocabulary (which tags are recognized)
 /// is enforced server-side via the Worker's `config:vocab` KV, per retro-005 D6.
 /// This type only enforces format: kebab-case, 2–32 chars, starts with a letter.
@@ -68,6 +80,8 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sensor_requirements: Vec<String>,
     pub files: Vec<FileEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_kinds: Option<std::collections::BTreeMap<String, ResourceKind>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,6 +180,7 @@ mod tests {
             default_theme: Some("themes/default.css".into()),
             sensor_requirements: vec!["cpu.usage".into()],
             files: vec![FileEntry { path: "overlay.omni".into(), sha256: [1u8; 32] }],
+            resource_kinds: None,
         }
     }
 

@@ -1,57 +1,40 @@
 use crate::error::{BundleError, UnsafeKind};
-use crate::MAX_PATH_DEPTH;
+use crate::{MAX_PATH_DEPTH, MAX_PATH_LENGTH};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FileKind {
-    Manifest,
-    Overlay,
-    Css,
-    Font,
-    Image,
-}
-
-impl FileKind {
-    pub(crate) fn max_size(self) -> u64 {
-        match self {
-            FileKind::Manifest => 131_072,
-            FileKind::Overlay => 131_072,
-            FileKind::Css => 131_072,
-            FileKind::Font => 1_572_864,
-            FileKind::Image => 1_048_576,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            FileKind::Manifest => "manifest",
-            FileKind::Overlay => "overlay",
-            FileKind::Css => "css",
-            FileKind::Font => "font",
-            FileKind::Image => "image",
-        }
-    }
-}
-
-/// Validate an intra-bundle path and infer the file kind for size-cap checks.
-pub(crate) fn validate_path(path: &str) -> Result<FileKind, BundleError> {
+/// Universal path-safety validator. Rejects traversal, non-ASCII, null bytes,
+/// absolute paths, excessive depth, and ustar header-incompatible lengths.
+/// Does NOT validate directory placement or file extensions — those rules
+/// belong to omni-sanitize per retro-005 D5.
+pub(crate) fn validate_path(path: &str) -> Result<(), BundleError> {
     if path.is_empty() {
-        return Err(BundleError::Unsafe { kind: UnsafeKind::Path, detail: "empty".into() });
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::Path,
+            detail: "empty path".into(),
+        });
     }
-    // ustar simple-header limit; canonical_hash relies on this.
-    if path.len() > 100 {
+    if path.len() > MAX_PATH_LENGTH {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::PathTooLong,
-            detail: format!("path too long: {} bytes", path.len()),
+            detail: format!("{} bytes > {}", path.len(), MAX_PATH_LENGTH),
         });
     }
     if path.contains('\0') {
-        return Err(BundleError::Unsafe { kind: UnsafeKind::Path, detail: "null byte".into() });
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::Path,
+            detail: "null byte".into(),
+        });
     }
     if !path.is_ascii() {
-        return Err(BundleError::Unsafe { kind: UnsafeKind::NonAscii, detail: path.into() });
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::NonAscii,
+            detail: format!("non-ascii path ({} bytes)", path.len()),
+        });
     }
     if path.starts_with('/') || path.starts_with('\\') {
-        return Err(BundleError::Unsafe { kind: UnsafeKind::Path, detail: "absolute".into() });
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::Path,
+            detail: format!("absolute: {path}"),
+        });
     }
     for seg in path.split(['/', '\\']) {
         if seg == ".." {
@@ -74,79 +57,27 @@ pub(crate) fn validate_path(path: &str) -> Result<FileKind, BundleError> {
         }
     }
     let components: Vec<&str> = path.split(['/', '\\']).collect();
-    if components.len() > MAX_PATH_DEPTH + 1 {
+    if components.len() > MAX_PATH_DEPTH {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::PathTooDeep,
             detail: format!("depth {}", components.len()),
         });
     }
-    validate_placement(&components)
-}
-
-fn validate_placement(components: &[&str]) -> Result<FileKind, BundleError> {
-    match components {
-        ["manifest.json"] => Ok(FileKind::Manifest),
-        ["overlay.omni"] => Ok(FileKind::Overlay),
-        [dir, file] => match *dir {
-            "themes" if file.ends_with(".css") => Ok(FileKind::Css),
-            "fonts"
-                if file.ends_with(".ttf") || file.ends_with(".otf") || file.ends_with(".woff2") =>
-            {
-                Ok(FileKind::Font)
-            }
-            "images"
-                if file.ends_with(".png")
-                    || file.ends_with(".jpg")
-                    || file.ends_with(".jpeg")
-                    || file.ends_with(".webp") =>
-            {
-                Ok(FileKind::Image)
-            }
-            _ => Err(BundleError::Unsafe {
-                kind: UnsafeKind::Path,
-                detail: format!("{dir}/{file}"),
-            }),
-        },
-        _ => Err(BundleError::Unsafe {
-            kind: UnsafeKind::Path,
-            detail: components.join("/"),
-        }),
-    }
-}
-
-pub(crate) fn check_size(kind: FileKind, actual: u64) -> Result<(), BundleError> {
-    let limit = kind.max_size();
-    if actual > limit {
-        Err(BundleError::Unsafe {
-            kind: UnsafeKind::SizeExceeded,
-            detail: format!("{}={actual} > {limit}", kind.as_str()),
-        })
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::UnsafeKind;
 
     #[test]
-    fn accepts_manifest_and_overlay_at_root() {
-        assert_eq!(validate_path("manifest.json").unwrap(), FileKind::Manifest);
-        assert_eq!(validate_path("overlay.omni").unwrap(), FileKind::Overlay);
-    }
-
-    #[test]
-    fn accepts_themes_fonts_images() {
-        assert_eq!(validate_path("themes/default.css").unwrap(), FileKind::Css);
-        assert_eq!(validate_path("fonts/x.ttf").unwrap(), FileKind::Font);
-        assert_eq!(validate_path("fonts/x.otf").unwrap(), FileKind::Font);
-        assert_eq!(validate_path("fonts/x.woff2").unwrap(), FileKind::Font);
-        assert_eq!(validate_path("images/x.png").unwrap(), FileKind::Image);
-        assert_eq!(validate_path("images/x.jpg").unwrap(), FileKind::Image);
-        assert_eq!(validate_path("images/x.jpeg").unwrap(), FileKind::Image);
-        assert_eq!(validate_path("images/x.webp").unwrap(), FileKind::Image);
+    fn accepts_safe_paths() {
+        assert!(validate_path("manifest.json").is_ok());
+        assert!(validate_path("overlay.omni").is_ok());
+        assert!(validate_path("themes/default.css").is_ok());
+        assert!(validate_path("fonts/x.ttf").is_ok());
+        assert!(validate_path("sounds/beep.ogg").is_ok()); // NEW: no placement rules
+        assert!(validate_path("shaders/blur.glsl").is_ok()); // NEW: no placement rules
     }
 
     #[test]
@@ -155,63 +86,47 @@ mod tests {
             validate_path("../etc/passwd"),
             Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
         ));
+    }
+
+    #[test]
+    fn rejects_absolute() {
         assert!(matches!(
-            validate_path("themes/../x.css"),
+            validate_path("/etc/passwd"),
+            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+        ));
+        assert!(matches!(
+            validate_path("\\windows"),
             Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
         ));
     }
 
     #[test]
-    fn rejects_absolute_paths() {
-        assert!(validate_path("/etc/passwd").is_err());
-        assert!(validate_path("\\windows").is_err());
-    }
-
-    #[test]
-    fn rejects_null_byte_and_non_ascii() {
-        assert!(validate_path("themes/a\0b.css").is_err());
-        assert!(validate_path("themes/café.css").is_err());
-    }
-
-    #[test]
-    fn rejects_over_max_depth() {
-        assert!(validate_path("a/b/c.css").is_err());
-    }
-
-    #[test]
-    fn rejects_unknown_directory() {
-        assert!(validate_path("scripts/evil.js").is_err());
-    }
-
-    #[test]
-    fn rejects_unknown_extension_in_known_dir() {
-        assert!(validate_path("themes/x.js").is_err());
-        assert!(validate_path("fonts/x.bin").is_err());
-        assert!(validate_path("images/x.bmp").is_err());
-    }
-
-    #[test]
-    fn rejects_empty_segments() {
-        assert!(validate_path("").is_err());
-        assert!(validate_path("themes//x.css").is_err());
-        assert!(validate_path("./themes/x.css").is_err());
-    }
-
-    #[test]
-    fn rejects_paths_longer_than_ustar_limit() {
-        // 101-byte path passes depth/ASCII/segment checks but exceeds ustar header.
-        let long = format!("themes/{}.css", "a".repeat(90));
-        assert!(long.len() > 100);
+    fn rejects_non_ascii_and_null() {
         assert!(matches!(
-            validate_path(&long),
-            Err(BundleError::Unsafe { kind: UnsafeKind::PathTooLong, .. })
+            validate_path("themes/café.css"),
+            Err(BundleError::Unsafe { kind: UnsafeKind::NonAscii, .. })
+        ));
+        assert!(matches!(
+            validate_path("themes/a\0b.css"),
+            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
         ));
     }
 
     #[test]
-    fn check_size_respects_cap() {
-        assert!(check_size(FileKind::Css, 10).is_ok());
-        let err = check_size(FileKind::Css, 131_073).unwrap_err();
-        assert!(matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }));
+    fn rejects_too_deep() {
+        assert!(matches!(
+            validate_path("a/b/c.css"),
+            Err(BundleError::Unsafe { kind: UnsafeKind::PathTooDeep, .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_too_long() {
+        let long = format!("themes/{}.css", "a".repeat(90));
+        assert!(long.len() > MAX_PATH_LENGTH);
+        assert!(matches!(
+            validate_path(&long),
+            Err(BundleError::Unsafe { kind: UnsafeKind::PathTooLong, .. })
+        ));
     }
 }

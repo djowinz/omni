@@ -63,6 +63,22 @@
         }
       }
     },
-    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" },
+    "resource_kinds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["dir", "extensions", "max_size_bytes"],
+        "additionalProperties": false,
+        "properties": {
+          "dir": { "type": "string", "minLength": 1 },
+          "extensions": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "max_size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
   }
 }

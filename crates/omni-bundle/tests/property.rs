@@ -47,6 +47,7 @@ proptest! {
             default_theme: None,
             sensor_requirements: vec![],
             files: entries,
+            resource_kinds: None,
         };
 
         let bytes = pack(&manifest, &files, &BundleLimits::DEFAULT).expect("pack");
