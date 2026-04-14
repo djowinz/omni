@@ -3,11 +3,59 @@
 use std::path::Path;
 
 use ed25519_dalek::{Signer, SigningKey};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use rand::rngs::OsRng;
+use serde::{de::DeserializeOwned, Serialize};
 use zeroize::Zeroizing;
 
 use crate::error::IdentityError;
 use crate::fingerprint::{Fingerprint, PublicKey};
+
+/// Wrap a 32-byte Ed25519 seed in a minimal PKCS#8 v1 private-key DER envelope.
+///
+/// Layout (RFC 8410):
+///   SEQUENCE {
+///     INTEGER 0,                              -- version
+///     AlgorithmIdentifier { OID 1.3.101.112 }, -- id-Ed25519
+///     OCTET STRING (OCTET STRING seed)         -- nested
+///   }
+fn pkcs8_ed25519_private(seed: &[u8; 32]) -> Zeroizing<Vec<u8>> {
+    // Fixed-length PKCS#8 prefix for Ed25519 private keys (48 bytes total).
+    const PREFIX: &[u8] = &[
+        0x30, 0x2e, // SEQUENCE, length 46
+        0x02, 0x01, 0x00, // INTEGER version=0
+        0x30, 0x05, // SEQUENCE (AlgorithmIdentifier), length 5
+        0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
+        0x04, 0x22, // OCTET STRING, length 34
+        0x04, 0x20, // inner OCTET STRING, length 32
+    ];
+    let mut out = Zeroizing::new(Vec::with_capacity(PREFIX.len() + 32));
+    out.extend_from_slice(PREFIX);
+    out.extend_from_slice(seed);
+    out
+}
+
+/// Verify a JWS compact string signed with EdDSA against `pubkey`, returning
+/// the decoded claims.
+///
+/// Returns `IdentityError::Jws` on header/alg mismatch, signature failure, or
+/// decode error. The pubkey is the author's raw 32-byte Ed25519 key.
+pub fn verify_jws<T: DeserializeOwned>(
+    jws: &str,
+    pubkey: &PublicKey,
+) -> Result<TokenData<T>, IdentityError> {
+    // jsonwebtoken's `from_ed_der` for the decoding path passes bytes directly
+    // to ring's `UnparsedPublicKey::new(&ED25519, key).verify(...)`, which
+    // requires exactly 32 raw bytes. The name `from_ed_der` is misleading for
+    // the public-key case — raw bytes are what ring expects here.
+    let key = DecodingKey::from_ed_der(&pubkey.0);
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.validate_exp = false; // callers opt in to exp via their own claims type
+    validation.validate_nbf = false;
+    validation.required_spec_claims.clear();
+    jsonwebtoken::decode::<T>(jws, &key, &validation)
+        .map_err(|e| IdentityError::Jws(format!("decode: {e}")))
+}
 
 /// Ed25519 signing key.
 ///
@@ -41,6 +89,43 @@ impl Keypair {
 
     pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
         self.signing.sign(msg).to_bytes()
+    }
+
+    /// Single signing authority for host→Worker request payloads.
+    ///
+    /// Per retro-004 D-004-A, `omni-identity::Keypair` signs all system payloads
+    /// (bundle canonical hashes AND request bodies). This is a thin alias over
+    /// [`Keypair::sign`] kept separate so call sites document their intent; if
+    /// the request envelope ever switches to JWS (open question for sub-spec
+    /// #008), callers move to [`Keypair::sign_jws`] without touching this one.
+    pub fn sign_request(&self, canonical_bytes: &[u8]) -> [u8; 64] {
+        self.sign(canonical_bytes)
+    }
+
+    /// JWS compact-serialize `claims` with `EdDSA` and return the compact string.
+    ///
+    /// The caller constructs `header` via `jsonwebtoken::Header::new(Algorithm::EdDSA)`
+    /// and MAY set `kid`, `typ`, `cty`. The `alg` field is forced to `EdDSA`
+    /// defensively — any other value returns `IdentityError::Jws`.
+    ///
+    /// Per retro-005 D3, this wraps an off-the-shelf JWS crate rather than
+    /// hand-rolling the envelope.
+    pub fn sign_jws<T: Serialize>(
+        &self,
+        claims: &T,
+        header: &Header,
+    ) -> Result<String, IdentityError> {
+        if header.alg != Algorithm::EdDSA {
+            return Err(IdentityError::Jws(format!(
+                "alg must be EdDSA, got {:?}",
+                header.alg
+            )));
+        }
+        let seed = self.seed();
+        let der = pkcs8_ed25519_private(&seed);
+        let key = EncodingKey::from_ed_der(&der);
+        jsonwebtoken::encode(header, claims, &key)
+            .map_err(|e| IdentityError::Jws(format!("encode: {e}")))
     }
 
     /// Expose the 32-byte seed. Callers MUST zeroize after use.
@@ -212,6 +297,14 @@ impl Keypair {
 mod tests {
     use super::*;
     use ed25519_dalek::{Verifier, VerifyingKey};
+    use jsonwebtoken::{Algorithm, Header};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+    struct TestClaims {
+        h: String,
+        iat: u64,
+    }
 
     #[test]
     fn generate_produces_distinct_keys() {
@@ -333,5 +426,83 @@ mod tests {
         let kp = Keypair::generate();
         let s: zeroize::Zeroizing<[u8; 32]> = kp.seed();
         assert_eq!(s.len(), 32);
+    }
+
+    #[test]
+    fn sign_request_is_alias_for_sign() {
+        let kp = Keypair::generate();
+        let msg = b"canonical-request-body";
+        assert_eq!(kp.sign_request(msg), kp.sign(msg));
+    }
+
+    #[test]
+    fn jws_round_trip_with_typed_claims() {
+        let kp = Keypair::generate();
+        let claims = TestClaims {
+            h: "deadbeef".into(),
+            iat: 1_700_000_000,
+        };
+        let header = Header::new(Algorithm::EdDSA);
+        let jws = kp.sign_jws(&claims, &header).unwrap();
+        // Compact JWS has exactly two dots (3 base64url segments).
+        assert_eq!(jws.matches('.').count(), 2);
+        let decoded = super::verify_jws::<TestClaims>(&jws, &kp.public_key()).unwrap();
+        assert_eq!(decoded.claims, claims);
+        assert_eq!(decoded.header.alg, Algorithm::EdDSA);
+    }
+
+    #[test]
+    fn jws_rejects_non_eddsa_header() {
+        let kp = Keypair::generate();
+        let claims = TestClaims {
+            h: "x".into(),
+            iat: 0,
+        };
+        let mut header = Header::new(Algorithm::HS256);
+        // NOTE: Header::new(HS256) is accepted by jsonwebtoken for HMAC; we
+        // reject defensively in sign_jws.
+        let err = kp.sign_jws(&claims, &header).unwrap_err();
+        assert!(matches!(err, IdentityError::Jws(_)));
+        // sanity: EdDSA path works
+        header = Header::new(Algorithm::EdDSA);
+        kp.sign_jws(&claims, &header).unwrap();
+    }
+
+    #[test]
+    fn jws_rejects_wrong_pubkey() {
+        let signer = Keypair::generate();
+        let attacker_view = Keypair::generate(); // different keypair
+        let claims = TestClaims {
+            h: "x".into(),
+            iat: 0,
+        };
+        let header = Header::new(Algorithm::EdDSA);
+        let jws = signer.sign_jws(&claims, &header).unwrap();
+        let err = super::verify_jws::<TestClaims>(&jws, &attacker_view.public_key()).unwrap_err();
+        assert!(matches!(err, IdentityError::Jws(_)));
+    }
+
+    #[test]
+    fn jws_rejects_tampered_payload() {
+        let kp = Keypair::generate();
+        let claims = TestClaims {
+            h: "x".into(),
+            iat: 0,
+        };
+        let header = Header::new(Algorithm::EdDSA);
+        let jws = kp.sign_jws(&claims, &header).unwrap();
+        // Tamper with the signature segment (third part). The Ed25519 signature
+        // encodes as 86 base64url chars, guaranteed to have a wide variety of
+        // bytes. Flip the first char: if it's alphanumeric use '_', otherwise
+        // use 'A'. Either mutation produces an invalid signature.
+        let mut parts: Vec<String> = jws.split('.').map(str::to_owned).collect();
+        assert_eq!(parts.len(), 3);
+        let mut sig = parts[2].clone().into_bytes();
+        // Replace the first byte with a guaranteed-different valid base64url byte.
+        sig[0] = if sig[0] == b'A' { b'B' } else { b'A' };
+        parts[2] = String::from_utf8(sig).unwrap();
+        let tampered = parts.join(".");
+        let err = super::verify_jws::<TestClaims>(&tampered, &kp.public_key()).unwrap_err();
+        assert!(matches!(err, IdentityError::Jws(_)));
     }
 }
