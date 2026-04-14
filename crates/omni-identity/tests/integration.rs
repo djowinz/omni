@@ -149,15 +149,21 @@ fn bundle_error_from_impl_public_surface() {
     // The From<BundleError> impl is part of the public API; exercise it via
     // the ? operator shape callers will use.
     fn wrap() -> Result<(), IdentityError> {
-        Err(omni_bundle::BundleError::UnsafePath("../x".into()))?;
+        Err(omni_bundle::BundleError::Unsafe {
+            kind: omni_bundle::UnsafeKind::Path,
+            detail: "../x".into(),
+        })?;
         Ok(())
     }
     let err = wrap().unwrap_err();
     match err {
-        IdentityError::Bundle(omni_bundle::BundleError::UnsafePath(p)) => {
-            assert_eq!(p, "../x");
+        IdentityError::Bundle(omni_bundle::BundleError::Unsafe {
+            kind: omni_bundle::UnsafeKind::Path,
+            detail,
+        }) => {
+            assert_eq!(detail, "../x");
         }
-        other => panic!("expected Bundle(UnsafePath), got {other}"),
+        other => panic!("expected Bundle(Unsafe {{ Path }}), got {other}"),
     }
 }
 
@@ -169,7 +175,10 @@ fn error_variants_display_stably() {
         IdentityError::MissingSignature.to_string(),
         "missing signature"
     );
-    let be = omni_bundle::BundleError::TooManyEntries(64);
+    let be = omni_bundle::BundleError::Unsafe {
+        kind: omni_bundle::UnsafeKind::TooManyEntries,
+        detail: "64".into(),
+    };
     let ie: IdentityError = be.into();
     assert!(ie.to_string().starts_with("bundle:"));
 }
