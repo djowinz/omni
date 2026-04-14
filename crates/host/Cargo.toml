@@ -13,6 +13,10 @@ path = "src/main.rs"
 
 [features]
 default = []
+# `guard` enables the RealGuard wiring. Resolution of the `omni-guard` crate
+# is handled by the workspace-level `[patch]` (retro D-004-K): default
+# contributor builds resolve to `stubs/omni-guard/` (no-op behavior); release
+# CI overrides the patch via `--config` to pull the real private crate.
 guard = ["dep:omni-guard"]
 
 [dependencies]

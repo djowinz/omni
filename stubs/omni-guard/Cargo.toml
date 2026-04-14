@@ -3,3 +3,11 @@ name = "omni-guard"
 version = "0.1.0"
 edition = "2021"
 publish = false
+description = "Public stub for the private omni-guard crate. See retro D-004-K."
+
+[features]
+default = []
+strict-integrity = []
+
+[dependencies]
+omni-guard-trait = { path = "../../crates/omni-guard-trait" }
