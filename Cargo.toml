@@ -20,6 +20,16 @@ resolver = "2"
 [patch."ssh://git@github.com/djowinz/omni-guard.git"]
 omni-guard = { path = "stubs/omni-guard" }
 
+# Paired with the omni-guard patch above: the private omni-guard crate
+# depends on `omni-guard-trait` via a git URL pointing at this same repo
+# (branch = "theme-sharing"). When release CI resolves the real private
+# crate, this patch redirects its trait dep back to the local workspace
+# crate, collapsing the two-copy problem cargo would otherwise hit.
+# Harmless for default builds — nothing in the workspace consumes from
+# this git URL except via the patched private crate.
+[patch."ssh://git@github.com/djowinz/omni.git"]
+omni-guard-trait = { path = "crates/omni-guard-trait" }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
