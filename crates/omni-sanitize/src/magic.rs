@@ -19,9 +19,5 @@ pub(crate) fn reject_executable_magic(data: &[u8]) -> Result<(), &'static [u8]> 
 }
 
 pub(crate) fn hex_of(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out
+    hex::encode(bytes)
 }
