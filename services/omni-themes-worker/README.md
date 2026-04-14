@@ -12,12 +12,19 @@ These three choices were ratified during retro-validation of #007 (2026-04-12). 
 2. **All uploads route through `BundleProcessor` Durable Object** — theme and bundle alike. One auditable sanitize path. See umbrella §2.3 and §7 risk #7.
 3. **Test strategy = two tiers.** Tier C: `app.request()` in-process for route/envelope logic. Tier B: `@cloudflare/vitest-pool-workers` for anything touching `env` or the DO. No `wrangler.unstable_dev`.
 
+A fourth decision was added during retro v3 (2026-04-14) per retro-005 D6/D7: **KV config seeding via `npm run bootstrap` + versioned `seed/*.json` files.** Zero Worker hot-path logic; re-runnable post-redeploy. See "KV bootstrap" below.
+
 ## Layout
 
 ```
 wrangler.toml              # bindings: BLOBS (R2), META (D1), STATE (KV), BUNDLE_PROCESSOR (DO)
 migrations/
   0001_initial_schema.sql  # D1 schema (umbrella §6.2)
+seed/
+  vocab.json               # config:vocab KV seed (admin-editable via #012)
+  limits.json              # config:limits KV seed (admin-editable via #012)
+scripts/
+  bootstrap-kv.mjs         # run once per deploy to write the seeds to KV
 src/
   index.ts                 # Hono app entry; mounts sub-routers; exports BundleProcessor
   env.ts                   # typed Env interface
@@ -39,8 +46,9 @@ Requires Node ≥ 20.
 ```bash
 cd services/omni-themes-worker
 npm install
-npm test                   # 13 tests across tier C + tier B
+npm test                   # 15 tests across tier C + tier B
 npx wrangler dev --local   # interactive local dev at http://127.0.0.1:8787
+node scripts/bootstrap-kv.mjs --local  # seed local KV
 ```
 
 `wrangler dev --local` and `vitest-pool-workers` both use miniflare — no real Cloudflare IDs required.
@@ -50,16 +58,42 @@ npx wrangler dev --local   # interactive local dev at http://127.0.0.1:8787
 These mutate the user's Cloudflare account and are NOT automated.
 
 ```bash
+# 1. Authenticate
 npx wrangler login
+
+# 2. Create the R2 bucket
 npx wrangler r2 bucket create omni-themes-blobs
-npx wrangler d1 create omni-themes-meta              # record the UUID
-npx wrangler kv:namespace create OMNI_THEMES_STATE   # record the ID
-# Paste the D1 UUID and KV ID into wrangler.toml placeholders.
+
+# 3. Create the D1 database (records its UUID)
+npx wrangler d1 create omni-themes-meta
+
+# 4. Create the KV namespace (records its ID)
+npx wrangler kv:namespace create OMNI_THEMES_STATE
+
+# 5. Paste the D1 UUID and KV ID into wrangler.toml placeholders.
+
+# 6. Apply the D1 schema remotely
 npm run migrate:remote
+
+# 7. Seed KV config (config:vocab + config:limits)
+npm run bootstrap
+
+# 8. Deploy
 npx wrangler deploy
 ```
 
 Uncomment the `route =` lines in `wrangler.toml` with the user's real zone before prod deploy.
+
+### KV bootstrap
+
+The Worker depends on two KV entries under `STATE`:
+
+- `config:vocab` — admin-editable tag vocabulary; clients fetch via `GET /v1/config/vocab` and cache for 24h.
+- `config:limits` — admin-editable bundle-size policy; clients fetch via `GET /v1/config/limits`. `max_bundle_compressed` is also the HTTP upload-body cap.
+
+Seed values live at `seed/vocab.json` and `seed/limits.json`. `npm run bootstrap` writes both via `wrangler kv:key put`. Re-run any time you want to reset to seed values — admin edits via the #012 CLI are overwritten. Local-dev equivalent: `node scripts/bootstrap-kv.mjs --local`.
+
+Security-level constants (path depth, compression ratio, path length) are NOT in KV — they stay compile-time in `omni-bundle`.
 
 ## Environment variables
 
@@ -70,10 +104,10 @@ Uncomment the `route =` lines in `wrangler.toml` with the user's real zone befor
 
 ## Contract references
 
-- HTTP surface: `docs/superpowers/specs/contracts/worker-api.md`
+- HTTP surface: `docs/superpowers/specs/contracts/worker-api.md` (includes §4.9 + §4.10 for config endpoints)
 - D1 schema source-of-truth: umbrella §6.2
 - Umbrella: `docs/superpowers/specs/2026-04-10-theme-sharing-umbrella.md`
-- Sub-spec: `docs/superpowers/specs/2026-04-10-theme-sharing-007-worker-infrastructure.md` (includes §Retro findings)
+- Sub-spec: `docs/superpowers/specs/2026-04-10-theme-sharing-007-worker-infrastructure.md` (includes §Retro findings + 2026-04-14 D6/D7 refinement)
 
 ## What this sub-spec does NOT do
 
@@ -81,5 +115,6 @@ Uncomment the `route =` lines in `wrangler.toml` with the user's real zone befor
 - Rate limiting (`src/lib/rate_limit.ts` is a throwing stub — #008)
 - Sanitize pipeline (`src/lib/sanitize.ts` is a throwing stub — #008 inside the DO)
 - Upload proxying to `BundleProcessor` (route wired, body is still 501 — #008 swaps the body)
+- Config endpoint handlers (`GET /v1/config/vocab`, `GET /v1/config/limits`) — 501 stubs; #008 wires them to `env.STATE.get(...)`
 - Moderation / admin endpoints (#012)
 - Any real business logic for any endpoint (#008)
