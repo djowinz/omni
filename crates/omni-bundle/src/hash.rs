@@ -80,12 +80,25 @@ mod tests {
         assert_eq!(before, after, "hash depends on manifest only, not files map");
     }
 
-    /// Marked ignored; regenerated in Task 9 after full D1–D11 refactor.
+    #[test]
+    fn canonical_hash_changes_when_file_entry_hash_changes() {
+        // Proves the hash is sensitive to the Merkle payload, not just top-level
+        // string fields. Mutating a FileEntry.sha256 must yield a different hash.
+        let (mut m, f) = sample();
+        let before = canonical_hash(&m, &f);
+        m.files[0].sha256 = [0x42u8; 32];
+        let after = canonical_hash(&m, &f);
+        assert_ne!(before, after);
+    }
+
     #[test]
     #[ignore = "golden regenerated in Task 9 after full D1–D11 refactor"]
     fn canonical_hash_matches_golden() {
-        let (m, f) = sample();
-        let got = canonical_hash(&m, &f);
-        let _ = got; // regenerated in Task 9
+        // Intentionally `todo!` — if someone runs `cargo test -- --ignored`
+        // before Task 9 regenerates the expected hash, this must fail loudly
+        // rather than silently pass. Task 9 replaces this body with the real
+        // golden value.
+        let (_m, _f) = sample();
+        todo!("golden hash is regenerated in Task 9 after all retro refactors land");
     }
 }
