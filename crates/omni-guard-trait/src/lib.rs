@@ -1,12 +1,39 @@
 //! Guard trait + deterministic `StubGuard` for dev builds.
+//!
+//! Per retro/2026-04-13-theme-sharing-004-design-retro.md (D-004-A), the
+//! `Guard` trait is probe-only: it does not sign. Signing lives in
+//! `omni-identity::Keypair`. Per D-004-E, this crate holds only the contract
+//! (types + trait + stub impl), nothing else.
+
+use std::fmt;
 
 use sha2::{Digest, Sha256};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeviceId(pub [u8; 32]);
 
-#[derive(Debug, Clone, Copy)]
-pub struct Signature(pub [u8; 64]);
+impl fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for b in &self.0 {
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for DeviceId {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for DeviceId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(DeviceId(<[u8; 32]>::deserialize(d)?))
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum GuardError {
@@ -22,7 +49,6 @@ pub enum GuardError {
 
 pub trait Guard: Send + Sync {
     fn device_id(&self) -> Result<DeviceId, GuardError>;
-    fn sign(&self, payload: &[u8]) -> Result<Signature, GuardError>;
     fn verify_self_integrity(&self) -> Result<(), GuardError>;
     fn is_vm(&self) -> bool;
 }
@@ -30,26 +56,11 @@ pub trait Guard: Send + Sync {
 /// Deterministic in-repo stub. NEVER used in release builds with the real guard.
 pub struct StubGuard;
 
-/// Hardcoded dev-only seed. Documented as insecure — real builds use `omni-guard`.
-const STUB_SEED: [u8; 32] = [
-    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-    0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
-];
-
 impl Guard for StubGuard {
     fn device_id(&self) -> Result<DeviceId, GuardError> {
         let mut h = Sha256::new();
         h.update(b"dev-stub-device-id");
         Ok(DeviceId(h.finalize().into()))
-    }
-
-    fn sign(&self, payload: &[u8]) -> Result<Signature, GuardError> {
-        use ed25519_dalek::{Signer, SigningKey};
-        let sk = SigningKey::from_bytes(&STUB_SEED);
-        let sig = sk.sign(payload);
-        Ok(Signature(sig.to_bytes()))
     }
 
     fn verify_self_integrity(&self) -> Result<(), GuardError> {
