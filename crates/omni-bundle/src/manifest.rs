@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::error::BundleError;
+use crate::error::{BundleError, IntegrityKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -62,18 +62,24 @@ pub(crate) fn validate_manifest_references(m: &Manifest) -> Result<(), BundleErr
     let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for e in &m.files {
         if !seen.insert(e.path.as_str()) {
-            return Err(BundleError::UnsafePath(format!(
-                "duplicate manifest entry: {}",
-                e.path
-            )));
+            return Err(BundleError::Integrity {
+                kind: IntegrityKind::DuplicatePath,
+                detail: e.path.clone(),
+            });
         }
     }
     if !m.files.iter().any(|e| e.path == m.entry_overlay) {
-        return Err(BundleError::FileMissing(m.entry_overlay.clone()));
+        return Err(BundleError::Integrity {
+            kind: IntegrityKind::FileMissing,
+            detail: m.entry_overlay.clone(),
+        });
     }
     if let Some(theme) = &m.default_theme {
         if !m.files.iter().any(|e| &e.path == theme) {
-            return Err(BundleError::FileMissing(theme.clone()));
+            return Err(BundleError::Integrity {
+                kind: IntegrityKind::FileMissing,
+                detail: theme.clone(),
+            });
         }
     }
     Ok(())

@@ -1,4 +1,4 @@
-use crate::error::BundleError;
+use crate::error::{BundleError, UnsafeKind};
 use crate::{MAX_CSS, MAX_FONT, MAX_IMAGE_REENCODED, MAX_OVERLAY, MAX_PATH_DEPTH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,35 +35,50 @@ impl FileKind {
 /// Validate an intra-bundle path and infer the file kind for size-cap checks.
 pub(crate) fn validate_path(path: &str) -> Result<FileKind, BundleError> {
     if path.is_empty() {
-        return Err(BundleError::UnsafePath("empty".into()));
+        return Err(BundleError::Unsafe { kind: UnsafeKind::Path, detail: "empty".into() });
     }
     // ustar simple-header limit; canonical_hash relies on this.
     if path.len() > 100 {
-        return Err(BundleError::UnsafePath(format!("path too long: {} bytes", path.len())));
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::PathTooLong,
+            detail: format!("path too long: {} bytes", path.len()),
+        });
     }
     if path.contains('\0') {
-        return Err(BundleError::UnsafePath("null byte".into()));
+        return Err(BundleError::Unsafe { kind: UnsafeKind::Path, detail: "null byte".into() });
     }
     if !path.is_ascii() {
-        return Err(BundleError::UnsafePath("non-ascii".into()));
+        return Err(BundleError::Unsafe { kind: UnsafeKind::NonAscii, detail: path.into() });
     }
     if path.starts_with('/') || path.starts_with('\\') {
-        return Err(BundleError::UnsafePath("absolute".into()));
+        return Err(BundleError::Unsafe { kind: UnsafeKind::Path, detail: "absolute".into() });
     }
     for seg in path.split(['/', '\\']) {
         if seg == ".." {
-            return Err(BundleError::UnsafePath("parent traversal".into()));
+            return Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                detail: "parent traversal".into(),
+            });
         }
         if seg == "." {
-            return Err(BundleError::UnsafePath("current-dir segment".into()));
+            return Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                detail: "current-dir segment".into(),
+            });
         }
         if seg.is_empty() {
-            return Err(BundleError::UnsafePath("empty segment".into()));
+            return Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                detail: "empty segment".into(),
+            });
         }
     }
     let components: Vec<&str> = path.split(['/', '\\']).collect();
     if components.len() > MAX_PATH_DEPTH + 1 {
-        return Err(BundleError::UnsafePath(format!("depth {}", components.len())));
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::PathTooDeep,
+            detail: format!("depth {}", components.len()),
+        });
     }
     validate_placement(&components)
 }
@@ -87,19 +102,24 @@ fn validate_placement(components: &[&str]) -> Result<FileKind, BundleError> {
             {
                 Ok(FileKind::Image)
             }
-            _ => Err(BundleError::UnsafePath(format!("{dir}/{file}"))),
+            _ => Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                detail: format!("{dir}/{file}"),
+            }),
         },
-        _ => Err(BundleError::UnsafePath(components.join("/"))),
+        _ => Err(BundleError::Unsafe {
+            kind: UnsafeKind::Path,
+            detail: components.join("/"),
+        }),
     }
 }
 
 pub(crate) fn check_size(kind: FileKind, actual: u64) -> Result<(), BundleError> {
     let limit = kind.max_size();
     if actual > limit {
-        Err(BundleError::SizeExceeded {
-            kind: kind.as_str().into(),
-            actual,
-            limit,
+        Err(BundleError::Unsafe {
+            kind: UnsafeKind::SizeExceeded,
+            detail: format!("{}={actual} > {limit}", kind.as_str()),
         })
     } else {
         Ok(())
@@ -109,6 +129,7 @@ pub(crate) fn check_size(kind: FileKind, actual: u64) -> Result<(), BundleError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::UnsafeKind;
     use crate::MAX_CSS;
 
     #[test]
@@ -131,8 +152,14 @@ mod tests {
 
     #[test]
     fn rejects_parent_traversal() {
-        assert!(matches!(validate_path("../etc/passwd"), Err(BundleError::UnsafePath(_))));
-        assert!(matches!(validate_path("themes/../x.css"), Err(BundleError::UnsafePath(_))));
+        assert!(matches!(
+            validate_path("../etc/passwd"),
+            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+        ));
+        assert!(matches!(
+            validate_path("themes/../x.css"),
+            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+        ));
     }
 
     #[test]
@@ -176,13 +203,16 @@ mod tests {
         // 101-byte path passes depth/ASCII/segment checks but exceeds ustar header.
         let long = format!("themes/{}.css", "a".repeat(90));
         assert!(long.len() > 100);
-        assert!(matches!(validate_path(&long), Err(BundleError::UnsafePath(_))));
+        assert!(matches!(
+            validate_path(&long),
+            Err(BundleError::Unsafe { kind: UnsafeKind::PathTooLong, .. })
+        ));
     }
 
     #[test]
     fn check_size_respects_cap() {
         assert!(check_size(FileKind::Css, 10).is_ok());
         let err = check_size(FileKind::Css, MAX_CSS + 1).unwrap_err();
-        assert!(matches!(err, BundleError::SizeExceeded { .. }));
+        assert!(matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }));
     }
 }

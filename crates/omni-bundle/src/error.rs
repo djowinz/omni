@@ -1,33 +1,79 @@
-use crate::MAX_ENTRIES;
+use std::io;
 
+/// Top-level error for the omni-bundle crate. Categories map to consumer
+/// decisions: malformed = "bytes aren't a valid bundle"; unsafe = "structurally
+/// valid but actively dangerous"; integrity = "doesn't match its own manifest";
+/// io = "caller's environment failed". Third-party errors (zip, serde_json,
+/// io) ride in the `#[source]` chain for diagnostic logs, not as public
+/// variants.
 #[derive(Debug, thiserror::Error)]
 pub enum BundleError {
-    #[error("zip error: {0}")]
-    Zip(#[from] zip::result::ZipError),
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("json error: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("manifest missing from bundle")]
+    #[error("malformed bundle: {message}")]
+    Malformed {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    },
+
+    #[error("unsafe bundle: {kind:?} — {detail}")]
+    Unsafe { kind: UnsafeKind, detail: String },
+
+    #[error("integrity failure: {kind:?} — {detail}")]
+    Integrity { kind: IntegrityKind, detail: String },
+
+    #[error("io error ({kind:?}): {message}")]
+    Io {
+        kind: io::ErrorKind,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsafeKind {
+    Path,
+    PathTooDeep,
+    PathTooLong,
+    NonAscii,
+    TooManyEntries,
+    ZipBomb,
+    SizeExceeded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegrityKind {
     ManifestMissing,
-    #[error("file listed in manifest not present in zip: {0}")]
-    FileMissing(String),
-    #[error("file in zip not listed in manifest: {0}")]
-    FileOrphan(String),
-    #[error("hash mismatch for {path}: manifest={manifest}, actual={actual}")]
-    HashMismatch { path: String, manifest: String, actual: String },
-    #[error("size limit exceeded: {kind}={actual} > {limit}")]
-    SizeExceeded { kind: String, actual: u64, limit: u64 },
-    #[error("unsafe path: {0}")]
-    UnsafePath(String),
-    #[error("too many entries: {actual} > {limit}", limit = MAX_ENTRIES)]
-    TooManyEntries { actual: usize },
-    #[error("zip bomb: compression ratio {0}:1 exceeds 100:1")]
-    ZipBomb(u64),
-    #[error("tag not in controlled vocabulary: {0}")]
-    InvalidTag(String),
-    #[error("invalid semver: {0}")]
-    InvalidVersion(String),
+    FileMissing,
+    FileOrphan,
+    HashMismatch,
+    SchemaVersionUnsupported,
+    DuplicatePath,
+}
+
+impl From<zip::result::ZipError> for BundleError {
+    fn from(e: zip::result::ZipError) -> Self {
+        BundleError::Malformed {
+            message: format!("zip: {e}"),
+            source: Some(Box::new(e)),
+        }
+    }
+}
+
+impl From<serde_json::Error> for BundleError {
+    fn from(e: serde_json::Error) -> Self {
+        BundleError::Malformed {
+            message: format!("json: {e}"),
+            source: Some(Box::new(e)),
+        }
+    }
+}
+
+impl From<io::Error> for BundleError {
+    fn from(e: io::Error) -> Self {
+        BundleError::Io {
+            kind: e.kind(),
+            message: e.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -35,26 +81,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_variant_formats() {
+    fn every_category_formats() {
         let cases: Vec<BundleError> = vec![
-            BundleError::ManifestMissing,
-            BundleError::FileMissing("x".into()),
-            BundleError::FileOrphan("y".into()),
-            BundleError::HashMismatch {
-                path: "a".into(),
-                manifest: "aa".into(),
-                actual: "bb".into(),
+            BundleError::Malformed {
+                message: "bad zip".into(),
+                source: None,
             },
-            BundleError::SizeExceeded { kind: "font".into(), actual: 99, limit: 10 },
-            BundleError::UnsafePath("../x".into()),
-            BundleError::TooManyEntries { actual: 100 },
-            BundleError::ZipBomb(500),
-            BundleError::InvalidTag("foo".into()),
-            BundleError::InvalidVersion("1".into()),
+            BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                detail: "../etc/passwd".into(),
+            },
+            BundleError::Integrity {
+                kind: IntegrityKind::HashMismatch,
+                detail: "themes/x.css".into(),
+            },
+            BundleError::Io {
+                kind: io::ErrorKind::NotFound,
+                message: "missing".into(),
+            },
         ];
-        for c in cases {
-            let s = format!("{c}");
-            assert!(!s.is_empty());
+        for c in &cases {
+            assert!(!format!("{c}").is_empty());
+            if matches!(c, BundleError::Malformed { .. }) {
+                use std::error::Error;
+                let _ = c.source();
+            }
+        }
+    }
+
+    #[test]
+    fn every_unsafe_kind_roundtrips() {
+        let kinds = [
+            UnsafeKind::Path,
+            UnsafeKind::PathTooDeep,
+            UnsafeKind::PathTooLong,
+            UnsafeKind::NonAscii,
+            UnsafeKind::TooManyEntries,
+            UnsafeKind::ZipBomb,
+            UnsafeKind::SizeExceeded,
+        ];
+        for k in kinds {
+            let e = BundleError::Unsafe {
+                kind: k,
+                detail: "x".into(),
+            };
+            assert!(format!("{e}").contains(&format!("{k:?}")));
+        }
+    }
+
+    #[test]
+    fn every_integrity_kind_roundtrips() {
+        let kinds = [
+            IntegrityKind::ManifestMissing,
+            IntegrityKind::FileMissing,
+            IntegrityKind::FileOrphan,
+            IntegrityKind::HashMismatch,
+            IntegrityKind::SchemaVersionUnsupported,
+            IntegrityKind::DuplicatePath,
+        ];
+        for k in kinds {
+            let e = BundleError::Integrity {
+                kind: k,
+                detail: "x".into(),
+            };
+            assert!(format!("{e}").contains(&format!("{k:?}")));
         }
     }
 }
