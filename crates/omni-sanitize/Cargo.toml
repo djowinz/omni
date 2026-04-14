@@ -3,8 +3,26 @@ name = "omni-sanitize"
 version = "0.1.0"
 edition = "2021"
 publish = false
+description = "Sanitization pipeline for Omni theme/bundle content (public, WASM-compatible)."
 
 [dependencies]
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sha2 = "0.10"
+lightningcss = "1.0.0-alpha.56"
+quick-xml = { version = "0.31", features = ["serialize"] }
+ammonia = "4"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp"] }
+ttf-parser = "0.20"
+hex = "0.4"
+omni-bundle = { path = "../omni-bundle" }
+
+[dev-dependencies]
+hex-literal = "0.4"
+omni-identity = { path = "../omni-identity" }
+proptest = "1"
+semver = { version = "1", features = ["serde"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
