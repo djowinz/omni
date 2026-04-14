@@ -31,3 +31,6 @@ apps/desktop/docs
 
 # Worker service secrets
 services/**/.dev.vars
+
+# Wrangler Cache
+.wrangler

@@ -184,6 +184,41 @@ Response:
 Auth: required. Paginated list filtered to authoring pubkey.
 Same shape as `/v1/list`.
 
+### 4.9 `GET /v1/config/vocab`
+
+Auth: optional. Unauthenticated reads return the current tag vocabulary. Added per retro-005 D6 — clients fetch-and-cache instead of compiling in; admins edit via `/v1/admin/*` (#012).
+
+Response:
+```json
+{
+  "tags": ["dark", "light", "minimal", "gaming", "..."],
+  "version": 1
+}
+```
+
+Client caching: tolerable for 24h. `version` increments on admin edit; clients refetch on mismatch.
+
+Errors: none in happy path. `SERVER_ERROR` only on KV read failure.
+
+### 4.10 `GET /v1/config/limits`
+
+Auth: optional. Returns the current bundle-size policy. Added per retro-005 D7 — `max_bundle_compressed` also serves as the HTTP request-body cap for uploads. Security-level constants (path depth, compression ratio, path length) are NOT returned here; those stay compile-time in `omni-bundle`.
+
+Response:
+```json
+{
+  "max_bundle_compressed": 5242880,
+  "max_bundle_uncompressed": 10485760,
+  "max_entries": 32,
+  "version": 1,
+  "updated_at": 1760000000
+}
+```
+
+Client caching: same as `/v1/config/vocab`.
+
+Errors: none in happy path. `SERVER_ERROR` only on KV read failure.
+
 ## 5. Pagination cursor
 
 Cursors are opaque base64url of JSON `{ "t": <updated_at>, "i": "<artifact_id>" }`. Clients MUST treat as opaque; server MAY change format without notice.

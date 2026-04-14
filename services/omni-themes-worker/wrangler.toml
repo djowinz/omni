@@ -16,12 +16,12 @@ bucket_name = "omni-themes-blobs"
 [[d1_databases]]
 binding = "META"
 database_name = "omni-themes-meta"
-database_id = "00000000-0000-0000-0000-000000000000"  # <fill-in-after-provisioning>
+database_id = "d7441e7c-7b2f-4c3a-9135-1c5168eb5fc8"  # <fill-in-after-provisioning>
 migrations_dir = "migrations"
 
 [[kv_namespaces]]
 binding = "STATE"
-id = "00000000000000000000000000000000"  # <fill-in-after-provisioning> (32-char hex)
+id = "2b3585177aab403e8f372d0f9ccbe7cf"  # <fill-in-after-provisioning> (32-char hex)
 
 [[durable_objects.bindings]]
 name = "BUNDLE_PROCESSOR"
