@@ -171,7 +171,8 @@ fn orphan_entry_rejected_on_unpack() {
         zw.write_all(b"/* orphan */").unwrap();
         zw.finish().unwrap().into_inner()
     };
-    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
+    let u = unpack(&bytes, &BundleLimits::DEFAULT).expect("initial unpack ok");
+    let err = u.into_map().expect_err("expected orphan error");
     assert!(
         matches!(err, BundleError::Integrity { kind: IntegrityKind::FileOrphan, .. }),
         "{err:?}"
@@ -205,7 +206,8 @@ fn hash_mismatch_detected_on_unpack() {
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(&overlay).unwrap();
     let bytes = zw.finish().unwrap().into_inner();
-    let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
+    let u = unpack(&bytes, &BundleLimits::DEFAULT).expect("initial unpack ok");
+    let err = u.into_map().expect_err("expected hash mismatch");
     assert!(
         matches!(err, BundleError::Integrity { kind: IntegrityKind::HashMismatch, .. }),
         "{err:?}"
