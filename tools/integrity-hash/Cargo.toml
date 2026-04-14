@@ -1,0 +1,10 @@
+[package]
+name = "integrity-hash"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Extract SHA-256 of the .text section from a PE executable for the omni-host two-stage integrity build."
+
+[dependencies]
+goblin = "0.8"
+sha2 = "0.10"
