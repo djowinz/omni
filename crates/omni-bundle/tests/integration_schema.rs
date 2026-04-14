@@ -1,7 +1,7 @@
 mod fixtures;
 
 use fixtures::sample_bundle;
-use omni_bundle::pack;
+use omni_bundle::{pack, BundleLimits};
 use std::io::Read;
 
 #[test]
@@ -18,7 +18,7 @@ fn packed_manifest_matches_json_schema() {
 
     // Pack a realistic bundle and extract manifest.json from the zip.
     let (manifest, files) = sample_bundle();
-    let bytes = pack(&manifest, &files).expect("pack");
+    let bytes = pack(&manifest, &files, &BundleLimits::DEFAULT).expect("pack");
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip parse");
     let mut mf = archive.by_name("manifest.json").expect("manifest present");

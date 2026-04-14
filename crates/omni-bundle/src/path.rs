@@ -1,5 +1,5 @@
 use crate::error::{BundleError, UnsafeKind};
-use crate::{MAX_CSS, MAX_FONT, MAX_IMAGE_REENCODED, MAX_OVERLAY, MAX_PATH_DEPTH};
+use crate::MAX_PATH_DEPTH;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FileKind {
@@ -13,11 +13,11 @@ pub(crate) enum FileKind {
 impl FileKind {
     pub(crate) fn max_size(self) -> u64 {
         match self {
-            FileKind::Manifest => MAX_OVERLAY,
-            FileKind::Overlay => MAX_OVERLAY,
-            FileKind::Css => MAX_CSS,
-            FileKind::Font => MAX_FONT,
-            FileKind::Image => MAX_IMAGE_REENCODED,
+            FileKind::Manifest => 131_072,
+            FileKind::Overlay => 131_072,
+            FileKind::Css => 131_072,
+            FileKind::Font => 1_572_864,
+            FileKind::Image => 1_048_576,
         }
     }
 
@@ -130,7 +130,6 @@ pub(crate) fn check_size(kind: FileKind, actual: u64) -> Result<(), BundleError>
 mod tests {
     use super::*;
     use crate::error::UnsafeKind;
-    use crate::MAX_CSS;
 
     #[test]
     fn accepts_manifest_and_overlay_at_root() {
@@ -212,7 +211,7 @@ mod tests {
     #[test]
     fn check_size_respects_cap() {
         assert!(check_size(FileKind::Css, 10).is_ok());
-        let err = check_size(FileKind::Css, MAX_CSS + 1).unwrap_err();
+        let err = check_size(FileKind::Css, 131_073).unwrap_err();
         assert!(matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }));
     }
 }

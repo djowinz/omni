@@ -8,12 +8,13 @@ use crate::error::{BundleError, IntegrityKind, UnsafeKind};
 use crate::hash::sha256_of;
 use crate::manifest::{pretty_manifest_bytes, validate_manifest_references, Manifest};
 use crate::path::{check_size, validate_path, FileKind};
-use crate::{MAX_BUNDLE_COMPRESSED, MAX_BUNDLE_UNCOMPRESSED, MAX_ENTRIES};
+use crate::BundleLimits;
 
 /// Pack a manifest + file map into a deterministic `.omnipkg` zip.
 pub fn pack(
     manifest: &Manifest,
     files: &BTreeMap<String, Vec<u8>>,
+    limits: &BundleLimits,
 ) -> Result<Vec<u8>, BundleError> {
     if files.contains_key("manifest.json") {
         return Err(BundleError::Unsafe {
@@ -24,7 +25,7 @@ pub fn pack(
 
     // Fast-fail structural checks before any hashing.
     let total_entries = files.len() + 1;
-    if total_entries > MAX_ENTRIES {
+    if total_entries > limits.max_entries {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::TooManyEntries,
             detail: format!("{total_entries} entries"),
@@ -79,10 +80,10 @@ pub fn pack(
     let manifest_bytes = pretty_manifest_bytes(manifest).map_err(BundleError::from)?;
     check_size(FileKind::Manifest, manifest_bytes.len() as u64)?;
     total_uncompressed = total_uncompressed.saturating_add(manifest_bytes.len() as u64);
-    if total_uncompressed > MAX_BUNDLE_UNCOMPRESSED {
+    if total_uncompressed > limits.max_bundle_uncompressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
-            detail: format!("bundle-uncompressed={total_uncompressed} > {MAX_BUNDLE_UNCOMPRESSED}"),
+            detail: format!("bundle-uncompressed={total_uncompressed} > {}", limits.max_bundle_uncompressed),
         });
     }
 
@@ -105,10 +106,10 @@ pub fn pack(
     let cursor = zw.finish().map_err(BundleError::from)?;
     let out = cursor.into_inner();
 
-    if (out.len() as u64) > MAX_BUNDLE_COMPRESSED {
+    if (out.len() as u64) > limits.max_bundle_compressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
-            detail: format!("bundle-compressed={} > {MAX_BUNDLE_COMPRESSED}", out.len()),
+            detail: format!("bundle-compressed={} > {}", out.len(), limits.max_bundle_compressed),
         });
     }
 

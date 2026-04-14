@@ -15,16 +15,34 @@ pub use manifest::{FileEntry, Manifest, Tag};
 pub use pack::pack;
 pub use unpack::unpack;
 
-// ---------- Size / structural limits (authoritative) ----------
+// ---------- Security invariants (compile-time; changes require security review) ----------
 
-pub const MAX_BUNDLE_COMPRESSED: u64 = 5 * 1024 * 1024;
-pub const MAX_BUNDLE_UNCOMPRESSED: u64 = 10 * 1024 * 1024;
-pub const MAX_FONT: u64 = 1_572_864;
-pub const MAX_IMAGE_RAW: u64 = 1_572_864;
-pub const MAX_IMAGE_REENCODED: u64 = 1_048_576;
-pub const MAX_CSS: u64 = 131_072;
-pub const MAX_OVERLAY: u64 = 131_072;
-pub const MAX_THEME_ONLY: u64 = 65_536;
-pub const MAX_ENTRIES: usize = 32;
+/// SECURITY INVARIANT — do not change without coordinated security review and version bump.
 pub const MAX_PATH_DEPTH: usize = 2;
+/// SECURITY INVARIANT — do not change without coordinated security review and version bump.
 pub const MAX_COMPRESSION_RATIO: u64 = 100;
+/// SECURITY INVARIANT — do not change without coordinated security review and version bump.
+pub const MAX_PATH_LENGTH: usize = 100;
+
+// ---------- Policy limits (runtime; fetched from Worker config:limits KV) ----------
+
+/// Runtime-configurable size-policy limits. Per retro-005 D7, the Worker's
+/// `config:limits` KV is the authority; callers fetch current values and
+/// pass them into pack/unpack. `BundleLimits::DEFAULT` exists for local dev
+/// and unit tests where no Worker is available.
+#[derive(Debug, Clone, Copy)]
+pub struct BundleLimits {
+    pub max_bundle_compressed: u64,
+    pub max_bundle_uncompressed: u64,
+    pub max_entries: usize,
+}
+
+impl BundleLimits {
+    /// Conservative defaults matching the shipped values. Use for local work
+    /// where Worker policy is not available.
+    pub const DEFAULT: BundleLimits = BundleLimits {
+        max_bundle_compressed: 5 * 1024 * 1024,
+        max_bundle_uncompressed: 10 * 1024 * 1024,
+        max_entries: 32,
+    };
+}

@@ -181,7 +181,7 @@ mod tests {
     fn tag_rejects_invalid_formats() {
         assert!(Tag::new("").is_err());
         assert!(Tag::new("a").is_err()); // too short
-        assert!(Tag::new(&"a".repeat(33)).is_err()); // too long
+        assert!(Tag::new("a".repeat(33)).is_err()); // too long
         assert!(Tag::new("1starts-with-digit").is_err());
         assert!(Tag::new("-starts-with-hyphen").is_err());
         assert!(Tag::new("has space").is_err());

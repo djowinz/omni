@@ -1,4 +1,4 @@
-use omni_bundle::unpack;
+use omni_bundle::{unpack, BundleLimits};
 use proptest::prelude::*;
 
 proptest! {
@@ -7,7 +7,7 @@ proptest! {
     #[test]
     fn unpack_never_panics_on_arbitrary_bytes(data in prop::collection::vec(any::<u8>(), 0..16_384)) {
         // Must not panic. Either Ok (vanishingly unlikely) or Err is fine.
-        let _ = unpack(&data);
+        let _ = unpack(&data, &BundleLimits::DEFAULT);
     }
 
     #[test]
@@ -26,6 +26,6 @@ proptest! {
         let bytes = zw.finish().unwrap().into_inner();
 
         let cut = bytes.len().saturating_sub(truncation);
-        let _ = unpack(&bytes[..cut]);
+        let _ = unpack(&bytes[..cut], &BundleLimits::DEFAULT);
     }
 }
