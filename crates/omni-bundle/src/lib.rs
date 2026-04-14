@@ -11,7 +11,7 @@ mod unpack;
 
 pub use error::{BundleError, IntegrityKind, UnsafeKind};
 pub use hash::canonical_hash;
-pub use manifest::{FileEntry, Manifest, Tag};
+pub use manifest::{FileEntry, Manifest, ResourceKind, Tag};
 pub use pack::pack;
 pub use unpack::unpack;
 

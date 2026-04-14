@@ -6,7 +6,7 @@ use zip::ZipArchive;
 use crate::error::{BundleError, IntegrityKind, UnsafeKind};
 use crate::hash::sha256_of;
 use crate::manifest::{validate_manifest_references, Manifest};
-use crate::path::{check_size, validate_path};
+use crate::path::validate_path;
 use crate::{BundleLimits, MAX_COMPRESSION_RATIO};
 
 pub fn unpack(
@@ -102,12 +102,11 @@ pub fn unpack(
             continue;
         }
 
-        let kind = validate_path(&name)?;
-        // Only check_size against the actual byte count; the declared
-        // entry.size() is attacker-controlled central-directory data.
+        validate_path(&name)?;
+        // Actual byte count is the trust boundary; declared entry.size() is
+        // attacker-controlled central-directory data.
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes)?;
-        check_size(kind, bytes.len() as u64)?;
 
         let expected = declared
             .get(&name)
@@ -156,7 +155,7 @@ fn validate_manifest_semantics(m: &Manifest) -> Result<(), BundleError> {
         });
     }
     for e in &m.files {
-        let _ = validate_path(&e.path)?;
+        validate_path(&e.path)?;
     }
     validate_manifest_references(m)
 }

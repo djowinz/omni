@@ -42,6 +42,7 @@ pub fn sample_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
             FileEntry { path: "overlay.omni".into(), sha256: sha256(&overlay) },
             FileEntry { path: "themes/default.css".into(), sha256: sha256(&css) },
         ],
+        resource_kinds: None,
     };
     (manifest, files)
 }

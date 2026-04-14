@@ -49,6 +49,7 @@ mod tests {
                 FileEntry { path: "overlay.omni".into(), sha256: [0u8; 32] },
                 FileEntry { path: "themes/default.css".into(), sha256: [0u8; 32] },
             ],
+            resource_kinds: None,
         };
         (m, files)
     }
