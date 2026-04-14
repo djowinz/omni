@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "migrate:local": "wrangler d1 migrations apply META --local",
-    "migrate:remote": "wrangler d1 migrations apply META --remote"
+    "migrate:remote": "wrangler d1 migrations apply META --remote",
+    "bootstrap": "node scripts/bootstrap-kv.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"
