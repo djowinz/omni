@@ -43,7 +43,7 @@ function seedVocab() {
   const body = readFileSync("seed/vocab.json", "utf8");
   writeFileSync(tmpPath, body);
   run(
-    `npx wrangler kv:key put --binding=STATE ${localFlag} ${envFlag} config:vocab --path="${tmpPath}"`.trim(),
+    `npx wrangler kv key put --binding=STATE ${localFlag} ${envFlag} config:vocab --path="${tmpPath}"`.trim(),
     "seedVocab",
   );
 }
@@ -54,7 +54,7 @@ function seedLimits() {
   seed.updated_at = Math.floor(Date.now() / 1000);
   writeFileSync(tmpPath, JSON.stringify(seed));
   run(
-    `npx wrangler kv:key put --binding=STATE ${localFlag} ${envFlag} config:limits --path="${tmpPath}"`.trim(),
+    `npx wrangler kv key put --binding=STATE ${localFlag} ${envFlag} config:limits --path="${tmpPath}"`.trim(),
     "seedLimits",
   );
 }

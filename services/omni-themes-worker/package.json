@@ -22,7 +22,8 @@
     "@cloudflare/workers-types": "^4.20260401.0",
     "@hono/zod-validator": "^0.4.0",
     "typescript": "^5.4.5",
-    "wrangler": "^3.57.0",
+    "vitest": "^2.1.9",
+    "wrangler": "^4.82.2",
     "zod": "^3.23.0"
   }
 }

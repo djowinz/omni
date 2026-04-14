@@ -68,7 +68,7 @@ npx wrangler r2 bucket create omni-themes-blobs
 npx wrangler d1 create omni-themes-meta
 
 # 4. Create the KV namespace (records its ID)
-npx wrangler kv:namespace create OMNI_THEMES_STATE
+npx wrangler kv namespace create OMNI_THEMES_STATE
 
 # 5. Paste the D1 UUID and KV ID into wrangler.toml placeholders.
 
@@ -91,7 +91,7 @@ The Worker depends on two KV entries under `STATE`:
 - `config:vocab` — admin-editable tag vocabulary; clients fetch via `GET /v1/config/vocab` and cache for 24h.
 - `config:limits` — admin-editable bundle-size policy; clients fetch via `GET /v1/config/limits`. `max_bundle_compressed` is also the HTTP upload-body cap.
 
-Seed values live at `seed/vocab.json` and `seed/limits.json`. `npm run bootstrap` writes both via `wrangler kv:key put`. Re-run any time you want to reset to seed values — admin edits via the #012 CLI are overwritten. Local-dev equivalent: `node scripts/bootstrap-kv.mjs --local`.
+Seed values live at `seed/vocab.json` and `seed/limits.json`. `npm run bootstrap` writes both via `wrangler kv key put`. Re-run any time you want to reset to seed values — admin edits via the #012 CLI are overwritten. Local-dev equivalent: `node scripts/bootstrap-kv.mjs --local`.
 
 Security-level constants (path depth, compression ratio, path length) are NOT in KV — they stay compile-time in `omni-bundle`.
 
