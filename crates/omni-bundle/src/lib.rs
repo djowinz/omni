@@ -1,6 +1,18 @@
-//! Omni bundle manifest + pack/unpack.
+//! Omni bundle format: `.omnipkg` pack/unpack, canonical hashing, manifest types.
 //!
-//! See `docs/superpowers/specs/2026-04-10-theme-sharing-005-omni-bundle.md`.
+//! This crate is **format-only and crypto-free**. Per `omni-architecture-invariants`
+//! rules 4 and 6a:
+//!
+//! - **Signing / verification** lives in `omni-identity` (`pack_signed_bundle`,
+//!   `unpack_signed_bundle`). `omni_bundle::pack` / `unpack` are low-level
+//!   primitives that every other sub-system consumes *through* `omni-identity`.
+//! - **Per-kind content validation** (what CSS is valid, what PNG bytes are
+//!   valid, executable magic-byte deny-list) lives in `omni-sanitize`. This
+//!   crate only enforces universal path safety, size limits, and structural
+//!   integrity (hashes match manifest).
+//!
+//! See `docs/superpowers/specs/contracts/canonical-hash-algorithm.md` for the
+//! authoritative hash algorithm spec (schema_version = 1).
 
 mod error;
 mod hash;
