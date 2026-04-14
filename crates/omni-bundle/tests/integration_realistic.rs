@@ -63,7 +63,10 @@ fn realistic_bundle_round_trips_under_budget() {
         BundleLimits::DEFAULT.max_bundle_compressed
     );
 
-    let (m2, f2) = unpack(&bytes, &BundleLimits::DEFAULT).expect("unpack realistic");
+    let (m2, f2) = unpack(&bytes, &BundleLimits::DEFAULT)
+        .expect("unpack realistic")
+        .into_map()
+        .expect("collect realistic");
     assert_eq!(m2, manifest);
     assert_eq!(f2, files);
 }

@@ -51,7 +51,10 @@ proptest! {
         };
 
         let bytes = pack(&manifest, &files, &BundleLimits::DEFAULT).expect("pack");
-        let (m2, f2) = unpack(&bytes, &BundleLimits::DEFAULT).expect("unpack");
+        let (m2, f2) = unpack(&bytes, &BundleLimits::DEFAULT)
+            .expect("unpack")
+            .into_map()
+            .expect("collect");
         prop_assert_eq!(m2, manifest);
         prop_assert_eq!(f2, files);
     }

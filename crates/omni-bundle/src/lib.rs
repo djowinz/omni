@@ -13,7 +13,7 @@ pub use error::{BundleError, IntegrityKind, UnsafeKind};
 pub use hash::canonical_hash;
 pub use manifest::{FileEntry, Manifest, ResourceKind, Tag};
 pub use pack::pack;
-pub use unpack::unpack;
+pub use unpack::{unpack, unpack_manifest, Unpack, UnpackedFile};
 
 // ---------- Security invariants (compile-time; changes require security review) ----------
 
