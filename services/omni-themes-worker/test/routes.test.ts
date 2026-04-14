@@ -51,6 +51,16 @@ describe("worker routes — every contract endpoint returns 501", () => {
     await assertNotImplemented(res, "POST /v1/report");
   });
 
+  it("GET /v1/config/vocab", async () => {
+    const res = await app.request("/v1/config/vocab", { method: "GET" });
+    await assertNotImplemented(res, "GET /v1/config/vocab");
+  });
+
+  it("GET /v1/config/limits", async () => {
+    const res = await app.request("/v1/config/limits", { method: "GET" });
+    await assertNotImplemented(res, "GET /v1/config/limits");
+  });
+
   it("GET /v1/me/gallery", async () => {
     const res = await app.request("/v1/me/gallery", { method: "GET" });
     await assertNotImplemented(res, "GET /v1/me/gallery");
