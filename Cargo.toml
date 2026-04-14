@@ -12,6 +12,11 @@ members = [
 ]
 resolver = "2"
 
+# Private-crate resolution — retro D-004-K. `omni-host` declares `omni-guard`
+# as an optional git-URL dep pointing at the private repo; this patch swaps
+# the default resolution target to the public stub at `stubs/omni-guard/`
+# so contributors without SSH access to the private repo still build.
+# Release CI overrides this patch via `--config` to point at the real crate.
 [patch."ssh://git@github.com/djowinz/omni-guard.git"]
 omni-guard = { path = "stubs/omni-guard" }
 
