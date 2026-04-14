@@ -32,6 +32,7 @@ struct HostState {
     file_watcher: Option<watcher::FileWatcher>,
     data_dir: PathBuf,
     config_path: PathBuf,
+    sensor_history: omni::history::SensorHistory,
 }
 
 impl HostState {
@@ -42,7 +43,18 @@ impl HostState {
             file_watcher: None,
             data_dir,
             config_path,
+            sensor_history: omni::history::SensorHistory::new(),
         }
+    }
+
+    /// Sync `sensor_history` registrations to the sensors referenced by charts
+    /// in the currently loaded `omni_file`. Call after any overlay load/reload.
+    fn sync_chart_sensor_registrations(&mut self) {
+        let chart_sensors = omni::parser::collect_chart_sensors(&self.omni_file);
+        for s in &chart_sensors {
+            self.sensor_history.register(s);
+        }
+        self.sensor_history.clear_unregistered(&chart_sensors);
     }
 
     /// Attempt to load the current overlay from disk and apply it.
@@ -364,6 +376,7 @@ fn run_host() {
 
     // Load the initial overlay
     host.reload_overlay();
+    host.sync_chart_sensor_registrations();
     if let Ok(mut overlay) = ws_state.active_overlay.lock() {
         *overlay = host.current_overlay.clone();
     }
@@ -420,6 +433,7 @@ fn run_host() {
             &host.current_overlay,
             &hwinfo_values,
             &hwinfo_units,
+            &host.sensor_history,
         );
         let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
         if let Err(e) = ul.mount(
@@ -485,24 +499,72 @@ fn run_host() {
                     "Game-specific overlay switch"
                 );
                 host.switch_overlay(&new_overlay);
+                host.sync_chart_sensor_registrations();
                 if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                     *overlay = host.current_overlay.clone();
                 }
             }
         }
 
+        // Drain the poller's snapshot channel. Each delivered snapshot represents
+        // one poll cycle, so push samples into the chart history ONCE per snapshot.
         while let Ok(snapshot) = sensor_rx.try_recv() {
             latest_snapshot = snapshot;
+
+            let registered: Vec<String> = host
+                .sensor_history
+                .registered_iter()
+                .map(str::to_string)
+                .collect();
+            if !registered.is_empty() {
+                let hwinfo_values_snapshot = ws_state
+                    .hwinfo_state
+                    .lock()
+                    .map(|s| s.values.clone())
+                    .unwrap_or_default();
+                for path in &registered {
+                    if let Some(v) = omni::sensor_map::get_sensor_value_f64(
+                        path,
+                        &latest_snapshot,
+                        &hwinfo_values_snapshot,
+                    ) {
+                        host.sensor_history.push_sample(path, v);
+                    }
+                }
+            }
         }
 
         // Receive HWiNFO state updates
+        let mut hwinfo_updated = false;
         while let Ok((new_hwinfo_state, sensors_changed)) = hwinfo_rx.try_recv() {
             if let Ok(mut hwinfo_state) = ws_state.hwinfo_state.lock() {
                 *hwinfo_state = new_hwinfo_state;
             }
+            hwinfo_updated = true;
             if sensors_changed {
                 if let Ok(mut changed) = ws_state.hwinfo_sensors_changed.lock() {
                     *changed = true;
+                }
+            }
+        }
+
+        // Push HWiNFO-referenced chart sensor samples into history on update
+        if hwinfo_updated {
+            let registered: Vec<String> = host
+                .sensor_history
+                .registered_iter()
+                .map(str::to_string)
+                .collect();
+            if !registered.is_empty() {
+                let hwinfo_values_now = ws_state
+                    .hwinfo_state
+                    .lock()
+                    .map(|s| s.values.clone())
+                    .unwrap_or_default();
+                for path in &registered {
+                    if let Some(v) = hwinfo_values_now.get(path) {
+                        host.sensor_history.push_sample(path, *v);
+                    }
                 }
             }
         }
@@ -545,6 +607,7 @@ fn run_host() {
         }
 
         // Check for widget updates from WebSocket (Electron app)
+        let mut overlay_changed = false;
         if let Ok(mut active) = ws_state.active_omni_file.lock() {
             if let Some(new_file) = active.take() {
                 info!(
@@ -554,7 +617,11 @@ fn run_host() {
                 );
                 host.omni_file = new_file;
                 ul_needs_reload = true;
+                overlay_changed = true;
             }
+        }
+        if overlay_changed {
+            host.sync_chart_sensor_registrations();
         }
 
         // Handle file watcher events (hot-reload)
@@ -568,6 +635,7 @@ fn run_host() {
                 watcher::ReloadEvent::Overlay => {
                     info!("Overlay file changed — reloading");
                     host.reload_overlay();
+                    host.sync_chart_sensor_registrations();
                     ul_needs_reload = true;
                 }
                 watcher::ReloadEvent::Theme => {
@@ -592,6 +660,7 @@ fn run_host() {
                             "Active overlay changed — switching"
                         );
                         host.switch_overlay(&new_overlay);
+                        host.sync_chart_sensor_registrations();
                         if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                             *overlay = host.current_overlay.clone();
                         }
@@ -653,6 +722,7 @@ fn run_host() {
                 &host.current_overlay,
                 &hwinfo_values,
                 &hwinfo_units,
+                &host.sensor_history,
             );
             let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
             if let Err(e) = ul.mount(
@@ -681,6 +751,7 @@ fn run_host() {
             &latest_snapshot,
             &hwinfo_values,
             &hwinfo_units,
+            &host.sensor_history,
         ) {
             let js = html_builder::format_as_js(&diff);
             ul.evaluate_script(&js);
