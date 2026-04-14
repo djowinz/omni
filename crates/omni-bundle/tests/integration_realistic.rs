@@ -46,7 +46,7 @@ fn realistic_bundle_round_trips_under_budget() {
         version: "1.0.0".parse().unwrap(),
         omni_min_version: "0.1.0".parse().unwrap(),
         description: "realistic-size bundle under budget".into(),
-        tags: vec![Tag::Dark, Tag::Gaming],
+        tags: vec![Tag::new("dark").unwrap(), Tag::new("gaming").unwrap()],
         license: "MIT".into(),
         entry_overlay: "overlay.omni".into(),
         default_theme: Some("themes/theme0.css".into()),

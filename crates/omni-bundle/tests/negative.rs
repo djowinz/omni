@@ -106,7 +106,7 @@ fn invalid_tag_rejected_on_unpack() {
         "version": "1.0.0",
         "omni_min_version": "0.1.0",
         "description": "",
-        "tags": ["not-a-real-tag"],
+        "tags": ["NotValid Tag Contains Spaces"],
         "license": "MIT",
         "entry_overlay": "overlay.omni",
         "files": [{
@@ -184,7 +184,7 @@ fn hash_mismatch_detected_on_unpack() {
         version: "1.0.0".parse().unwrap(),
         omni_min_version: "0.1.0".parse().unwrap(),
         description: "".into(),
-        tags: vec![Tag::Dark],
+        tags: vec![Tag::new("dark").unwrap()],
         license: "MIT".into(),
         entry_overlay: "overlay.omni".into(),
         default_theme: None,

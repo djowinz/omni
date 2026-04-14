@@ -33,7 +33,7 @@ pub fn sample_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
         version: "1.0.0".parse().unwrap(),
         omni_min_version: "0.1.0".parse().unwrap(),
         description: "d".into(),
-        tags: vec![Tag::Dark, Tag::HighContrast],
+        tags: vec![Tag::new("dark").unwrap(), Tag::new("high-contrast").unwrap()],
         license: "MIT".into(),
         entry_overlay: "overlay.omni".into(),
         default_theme: Some("themes/default.css".into()),
