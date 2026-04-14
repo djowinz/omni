@@ -11,7 +11,13 @@ path = "src/lib.rs"
 name = "omni-host"
 path = "src/main.rs"
 
+[features]
+default = []
+guard = ["dep:omni-guard"]
+
 [dependencies]
+omni-guard-trait = { path = "../omni-guard-trait" }
+omni-guard = { git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main", optional = true }
 omni-shared = { path = "../shared" }
 ts-rs = { version = "10", features = ["serde-compat"] }
 tracing = "0.1"

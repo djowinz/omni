@@ -5,6 +5,7 @@
 pub mod config;
 pub mod error;
 pub mod etw;
+pub mod guard;
 pub mod hotkey;
 pub mod ipc;
 pub mod omni;
