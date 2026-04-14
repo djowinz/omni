@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "omni-desktop",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Omni game overlay desktop app",
   "author": "Omni Contributors",
   "main": "app/main.js",
