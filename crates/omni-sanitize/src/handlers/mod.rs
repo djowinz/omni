@@ -34,9 +34,9 @@ pub(crate) fn supported_kind_names() -> Vec<&'static str> {
     HANDLERS.iter().map(|h| h.kind()).collect()
 }
 
-pub(crate) fn dispatch_for_path<'a>(
+pub(crate) fn dispatch_for_path(
     path: &str,
-    declared: Option<&'a std::collections::BTreeMap<String, omni_bundle::ResourceKind>>,
+    declared: Option<&std::collections::BTreeMap<String, omni_bundle::ResourceKind>>,
 ) -> Result<(&'static dyn Handler, u64), SanitizeError> {
     if let Some(decls) = declared {
         for (kind_name, rk) in decls {

@@ -1,4 +1,5 @@
 //! Shared fixture builders for sanitize tests.
+#![allow(dead_code)]
 
 use omni_bundle::{FileEntry, Manifest};
 use omni_identity::Keypair;
