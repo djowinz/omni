@@ -1,67 +1,35 @@
-//! Omni bundle/theme sanitization — public API stubs for Phase 0.
+//! Omni theme / bundle sanitization pipeline.
 //!
-//! All function bodies are `todo!()` and will be implemented in sub-spec 003.
+//! Consumes (Manifest, files) produced by omni_identity::unpack_signed_bundle,
+//! dispatches each file to a per-kind handler via manifest.resource_kinds
+//! (retro-005 D5 / invariant #5), runs the executable-magic deny-list
+//! (retro-005 D11 / invariant #19c), and returns sanitized file contents
+//! plus a SanitizeReport. Re-packing and signing are done upstream by
+//! omni_identity::pack_signed_bundle.
+//!
+//! WASM-clean: no std::fs, no threading, no IO.
 
-use serde::{Deserialize, Serialize};
+mod error;
+mod handlers;
+mod magic;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SanitizeVersion(pub u32);
+pub use error::{
+    FileKind, FileReport, SanitizeError, SanitizeReport, SanitizeVersion, SANITIZE_VERSION,
+};
 
-pub const SANITIZE_VERSION: SanitizeVersion = SanitizeVersion(1);
+use std::collections::BTreeMap;
 
-#[derive(Debug, thiserror::Error)]
-pub enum SanitizeError {
-    #[error("zip structural error: {0}")]
-    ZipStructural(String),
-    #[error("manifest validation failed: {0}")]
-    Manifest(String),
-    #[error("font sanitization failed for {path}: {reason}")]
-    Font { path: String, reason: String },
-    #[error("image decode/encode failed for {path}: {reason}")]
-    Image { path: String, reason: String },
-    #[error("css parse failed for {path}: {reason}")]
-    Css { path: String, reason: String },
-    #[error("xml parse failed for {path}: {reason}")]
-    Xml { path: String, reason: String },
-    #[error("html sanitization failed for {path}: {reason}")]
-    Html { path: String, reason: String },
-    #[error("size limit exceeded: {kind}={actual} > {limit}")]
-    SizeExceeded { kind: String, actual: u64, limit: u64 },
-    #[error("path safety violation: {0}")]
-    UnsafePath(String),
-    #[error("zip bomb: compression ratio {ratio}:1 exceeds 100:1")]
-    ZipBomb { ratio: u64 },
-}
+use omni_bundle::Manifest;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SanitizeReport {
-    pub version: SanitizeVersion,
-    pub original_size: u64,
-    pub sanitized_size: u64,
-    pub files: Vec<FileReport>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileReport {
-    pub path: String,
-    pub kind: FileKind,
-    pub original_sha256: [u8; 32],
-    pub sanitized_sha256: [u8; 32],
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileKind {
-    Overlay,
-    Css,
-    Font,
-    Image,
-    Manifest,
-}
-
+/// Sanitize a single standalone CSS theme. Task 9 wires the body.
 pub fn sanitize_theme(_css_bytes: &[u8]) -> Result<(Vec<u8>, SanitizeReport), SanitizeError> {
-    todo!("implemented in sub-spec 003")
+    todo!("wired in Task 9")
 }
 
-pub fn sanitize_bundle(_zip_bytes: &[u8]) -> Result<(Vec<u8>, SanitizeReport), SanitizeError> {
-    todo!("implemented in sub-spec 003")
+/// Sanitize an already-verified bundle. Task 9 wires the body.
+pub fn sanitize_bundle(
+    _manifest: &Manifest,
+    _files: BTreeMap<String, Vec<u8>>,
+) -> Result<(BTreeMap<String, Vec<u8>>, SanitizeReport), SanitizeError> {
+    todo!("wired in Task 9")
 }
