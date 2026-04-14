@@ -190,7 +190,6 @@ fn hash_mismatch_detected_on_unpack() {
         default_theme: None,
         sensor_requirements: vec![],
         files: vec![FileEntry { path: "overlay.omni".into(), sha256: bad_sha }],
-        signature: None,
     };
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
     let opts = fixtures::test_zip_opts();

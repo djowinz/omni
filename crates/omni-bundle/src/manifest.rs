@@ -26,8 +26,6 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sensor_requirements: Vec<String>,
     pub files: Vec<FileEntry>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -136,7 +134,6 @@ mod tests {
             default_theme: Some("themes/default.css".into()),
             sensor_requirements: vec!["cpu.usage".into()],
             files: vec![FileEntry { path: "overlay.omni".into(), sha256: [1u8; 32] }],
-            signature: None,
         }
     }
 
