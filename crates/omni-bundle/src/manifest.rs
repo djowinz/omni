@@ -136,6 +136,11 @@ pub(crate) fn canonical_manifest_bytes(m: &Manifest) -> Result<Vec<u8>, serde_js
 /// the .omnipkg zip. Keys sorted (via JCS roundtrip) for determinism in the
 /// zip output; this is distinct from the canonical form above (which is
 /// what the hash consumes).
+///
+/// LOAD-BEARING: depends on `serde_json`'s `preserve_order` feature (enabled
+/// in Cargo.toml). Without it, `from_slice` would re-hash keys into a
+/// BTreeMap/HashMap and we'd lose the JCS-sorted order through the roundtrip,
+/// breaking byte-deterministic `pack` output.
 pub(crate) fn pretty_manifest_bytes(m: &Manifest) -> Result<Vec<u8>, serde_json::Error> {
     let canonical = serde_jcs::to_vec(m)?;
     let value: serde_json::Value = serde_json::from_slice(&canonical)?;
