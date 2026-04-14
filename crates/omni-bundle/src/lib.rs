@@ -9,7 +9,7 @@ mod pack;
 mod path;
 mod unpack;
 
-pub use error::BundleError;
+pub use error::{BundleError, IntegrityKind, UnsafeKind};
 pub use hash::canonical_hash;
 pub use manifest::{FileEntry, Manifest, Tag};
 pub use pack::pack;

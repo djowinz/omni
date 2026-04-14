@@ -4,7 +4,7 @@ use std::io::{Cursor, Write};
 use zip::write::FileOptions;
 use zip::{CompressionMethod, DateTime, ZipWriter};
 
-use crate::error::BundleError;
+use crate::error::{BundleError, IntegrityKind, UnsafeKind};
 use crate::hash::sha256_of;
 use crate::manifest::{pretty_manifest_bytes, validate_manifest_references, Manifest};
 use crate::path::{check_size, validate_path, FileKind};
@@ -16,15 +16,19 @@ pub fn pack(
     files: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>, BundleError> {
     if files.contains_key("manifest.json") {
-        return Err(BundleError::UnsafePath(
-            "manifest.json is a reserved name; remove it from files map".into(),
-        ));
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::Path,
+            detail: "manifest.json is a reserved name; remove it from files map".into(),
+        });
     }
 
     // Fast-fail structural checks before any hashing.
     let total_entries = files.len() + 1;
     if total_entries > MAX_ENTRIES {
-        return Err(BundleError::TooManyEntries { actual: total_entries });
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::TooManyEntries,
+            detail: format!("{total_entries} entries"),
+        });
     }
 
     validate_manifest_references(manifest)?;
@@ -37,12 +41,18 @@ pub fn pack(
 
     for entry_path in entries.keys() {
         if !files.contains_key(*entry_path) {
-            return Err(BundleError::FileMissing((*entry_path).to_string()));
+            return Err(BundleError::Integrity {
+                kind: IntegrityKind::FileMissing,
+                detail: (*entry_path).to_string(),
+            });
         }
     }
     for fkey in files.keys() {
         if !entries.contains_key(fkey.as_str()) {
-            return Err(BundleError::FileOrphan(fkey.clone()));
+            return Err(BundleError::Integrity {
+                kind: IntegrityKind::FileOrphan,
+                detail: fkey.clone(),
+            });
         }
     }
 
@@ -55,22 +65,24 @@ pub fn pack(
         let expected = entries[path.as_str()];
         let actual = sha256_of(bytes);
         if actual != *expected {
-            return Err(BundleError::HashMismatch {
-                path: path.clone(),
-                manifest: hex::encode(expected),
-                actual: hex::encode(actual),
+            return Err(BundleError::Integrity {
+                kind: IntegrityKind::HashMismatch,
+                detail: format!(
+                    "{path}: manifest={}, actual={}",
+                    hex::encode(expected),
+                    hex::encode(actual)
+                ),
             });
         }
     }
 
-    let manifest_bytes = pretty_manifest_bytes(manifest).map_err(BundleError::Json)?;
+    let manifest_bytes = pretty_manifest_bytes(manifest).map_err(BundleError::from)?;
     check_size(FileKind::Manifest, manifest_bytes.len() as u64)?;
     total_uncompressed = total_uncompressed.saturating_add(manifest_bytes.len() as u64);
     if total_uncompressed > MAX_BUNDLE_UNCOMPRESSED {
-        return Err(BundleError::SizeExceeded {
-            kind: "bundle-uncompressed".into(),
-            actual: total_uncompressed,
-            limit: MAX_BUNDLE_UNCOMPRESSED,
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::SizeExceeded,
+            detail: format!("bundle-uncompressed={total_uncompressed} > {MAX_BUNDLE_UNCOMPRESSED}"),
         });
     }
 
@@ -82,22 +94,21 @@ pub fn pack(
         .last_modified_time(DateTime::default())
         .unix_permissions(0o644);
 
-    zw.start_file("manifest.json", options).map_err(BundleError::Zip)?;
+    zw.start_file("manifest.json", options).map_err(BundleError::from)?;
     zw.write_all(&manifest_bytes)?;
 
     for (path, bytes) in files.iter() {
-        zw.start_file(path.as_str(), options).map_err(BundleError::Zip)?;
+        zw.start_file(path.as_str(), options).map_err(BundleError::from)?;
         zw.write_all(bytes)?;
     }
 
-    let cursor = zw.finish().map_err(BundleError::Zip)?;
+    let cursor = zw.finish().map_err(BundleError::from)?;
     let out = cursor.into_inner();
 
     if (out.len() as u64) > MAX_BUNDLE_COMPRESSED {
-        return Err(BundleError::SizeExceeded {
-            kind: "bundle-compressed".into(),
-            actual: out.len() as u64,
-            limit: MAX_BUNDLE_COMPRESSED,
+        return Err(BundleError::Unsafe {
+            kind: UnsafeKind::SizeExceeded,
+            detail: format!("bundle-compressed={} > {MAX_BUNDLE_COMPRESSED}", out.len()),
         });
     }
 
