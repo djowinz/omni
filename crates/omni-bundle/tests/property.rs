@@ -47,7 +47,6 @@ proptest! {
             default_theme: None,
             sensor_requirements: vec![],
             files: entries,
-            signature: None,
         };
 
         let bytes = pack(&manifest, &files).expect("pack");

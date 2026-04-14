@@ -52,7 +52,6 @@ fn realistic_bundle_round_trips_under_budget() {
         default_theme: Some("themes/theme0.css".into()),
         sensor_requirements: vec!["cpu.usage".into(), "gpu.usage".into()],
         files: entries,
-        signature: None,
     };
 
     let bytes = pack(&manifest, &files).expect("pack realistic");
