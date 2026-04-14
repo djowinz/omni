@@ -83,10 +83,14 @@ pub fn pack_signed_bundle(
     keypair: &Keypair,
     limits: &BundleLimits,
 ) -> Result<Vec<u8>, IdentityError> {
-    // 1. Canonical hash over the original manifest (before signature.jws entry).
-    //    `canonical_hash` accepts a files map for API symmetry but hashes the
-    //    manifest only; we pass the caller's files map.
-    let digest = canonical_hash(manifest, files);
+    // 1. Clone + canonicalize (sort files) BEFORE hashing. `unpack_signed_bundle`
+    //    reconstructs the original manifest by stripping `signature.jws` from
+    //    the post-pack (already sorted) manifest, so pack must hash the same
+    //    sorted order or signatures won't verify for callers that pass an
+    //    unsorted manifest.
+    let mut pre_sig_manifest = manifest.clone();
+    pre_sig_manifest.files.sort_by(|a, b| a.path.cmp(&b.path));
+    let digest = canonical_hash(&pre_sig_manifest, files);
     let digest_hex = hex::encode(digest);
     let payload = SignaturePayload { canonical_hash_hex: digest_hex };
 
@@ -110,9 +114,9 @@ pub fn pack_signed_bundle(
         .sign_jws(&payload, &header)
         .map_err(|e| IdentityError::Jws(format!("sign: {e}")))?;
 
-    // 4. Append signature.jws entry to manifest, then sort.
+    // 4. Append signature.jws entry to the (already sorted) manifest, then re-sort.
     let sig_sha = sha256_bytes(jws_compact.as_bytes());
-    let mut amended_manifest = manifest.clone();
+    let mut amended_manifest = pre_sig_manifest;
     amended_manifest.files.push(FileEntry {
         path: SIGNATURE_FILENAME.into(),
         sha256: sig_sha,
