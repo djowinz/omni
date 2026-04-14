@@ -20,16 +20,113 @@ pub use error::{
 use std::collections::BTreeMap;
 
 use omni_bundle::Manifest;
+use sha2::{Digest, Sha256};
 
-/// Sanitize a single standalone CSS theme. Task 9 wires the body.
-pub fn sanitize_theme(_css_bytes: &[u8]) -> Result<(Vec<u8>, SanitizeReport), SanitizeError> {
-    todo!("wired in Task 9")
+use crate::handlers::{dispatch_for_path, supported_kind_names, HANDLERS};
+use crate::magic::{hex_of, reject_executable_magic};
+
+/// Sanitize a single standalone CSS theme file.
+///
+/// Runs the executable-magic deny-list first (invariant #19c defense-in-depth),
+/// then invokes the theme handler directly.
+pub fn sanitize_theme(css_bytes: &[u8]) -> Result<(Vec<u8>, SanitizeReport), SanitizeError> {
+    if let Err(sig) = reject_executable_magic(css_bytes) {
+        return Err(SanitizeError::RejectedExecutableMagic {
+            prefix_hex: hex_of(sig),
+            path: "theme.css".into(),
+        });
+    }
+    let original_sha256 = sha256(css_bytes);
+    let handler = HANDLERS
+        .iter()
+        .copied()
+        .find(|h| h.kind() == "theme")
+        .expect("theme handler registered");
+    let out = handler.sanitize("theme.css", css_bytes)?;
+    let sanitized_sha256 = sha256(&out);
+    let report = SanitizeReport {
+        version: SANITIZE_VERSION,
+        original_size: css_bytes.len() as u64,
+        sanitized_size: out.len() as u64,
+        files: vec![FileReport {
+            path: "theme.css".into(),
+            kind: FileKind::Theme,
+            original_sha256,
+            sanitized_sha256,
+        }],
+    };
+    Ok((out, report))
 }
 
-/// Sanitize an already-verified bundle. Task 9 wires the body.
+/// Sanitize an already-verified bundle.
 pub fn sanitize_bundle(
-    _manifest: &Manifest,
-    _files: BTreeMap<String, Vec<u8>>,
+    manifest: &Manifest,
+    files: BTreeMap<String, Vec<u8>>,
 ) -> Result<(BTreeMap<String, Vec<u8>>, SanitizeReport), SanitizeError> {
-    todo!("wired in Task 9")
+    if manifest.schema_version != 1 {
+        return Err(SanitizeError::Malformed {
+            message: format!("unsupported schema_version {}", manifest.schema_version),
+            source: Some(Box::new(omni_bundle::BundleError::Integrity {
+                kind: omni_bundle::IntegrityKind::SchemaVersionUnsupported,
+                detail: format!("schema_version={}", manifest.schema_version),
+            })),
+        });
+    }
+
+    if let Some(rk) = manifest.resource_kinds.as_ref() {
+        for kind_name in rk.keys() {
+            if !HANDLERS.iter().any(|h| h.kind() == kind_name.as_str()) {
+                return Err(SanitizeError::UnknownResourceKind {
+                    kind: kind_name.clone(),
+                    supported: supported_kind_names(),
+                });
+            }
+        }
+    }
+
+    let original_size: u64 = files.values().map(|v| v.len() as u64).sum();
+    let mut out: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut reports: Vec<FileReport> = Vec::new();
+
+    for (path, bytes) in files {
+        if let Err(sig) = reject_executable_magic(&bytes) {
+            return Err(SanitizeError::RejectedExecutableMagic {
+                prefix_hex: hex_of(sig),
+                path,
+            });
+        }
+        let (handler, max_size) = dispatch_for_path(&path, manifest.resource_kinds.as_ref())?;
+        if (bytes.len() as u64) > max_size {
+            return Err(SanitizeError::SizeExceeded {
+                path,
+                actual: bytes.len() as u64,
+                limit: max_size,
+            });
+        }
+        let original_sha256 = sha256(&bytes);
+        let sanitized = handler.sanitize(&path, &bytes)?;
+        let sanitized_sha256 = sha256(&sanitized);
+        reports.push(FileReport {
+            path: path.clone(),
+            kind: handler.file_kind(),
+            original_sha256,
+            sanitized_sha256,
+        });
+        out.insert(path, sanitized);
+    }
+
+    let sanitized_size: u64 = out.values().map(|v| v.len() as u64).sum();
+    let report = SanitizeReport {
+        version: SANITIZE_VERSION,
+        original_size,
+        sanitized_size,
+        files: reports,
+    };
+    Ok((out, report))
+}
+
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(bytes);
+    h.finalize().into()
 }
