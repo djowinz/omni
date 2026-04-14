@@ -18,5 +18,5 @@ mod acl;
 pub use error::IdentityError;
 // Re-exports below are enabled as their modules are implemented in later tasks.
 pub use fingerprint::{Fingerprint, PublicKey};
-pub use keypair::Keypair;
+pub use keypair::{verify_jws, Keypair};
 pub use tofu::{TofuEntry, TofuRegistry, TofuResult};
