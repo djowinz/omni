@@ -1,28 +1,25 @@
 /**
- * Sanitize pipeline entrypoints for the Worker.
+ * Sanitize pipeline entrypoint for the Worker.
  *
- * Two paths exist, both returning an identical shape:
+ * `sanitizeViaDO` routes the raw bundle bytes through the `BUNDLE_PROCESSOR`
+ * Durable Object (DF-keyed for queue fairness; see architectural invariant
+ * #10 — DF, not pubkey, is the durable rate-limit anchor). The DO performs
+ * sanitize + manifest-file-hash rewrite + repack on the post-sanitize bytes;
+ * this rehash is mandatory because sanitizers mutate file bytes and
+ * `bundle.pack` validates `manifest.files[*].sha256`.
  *
- * - `sanitizeInline`: theme-only fast path. The bundle has already been
- *   verified as a signed bundle by the caller (JWS auth middleware + the
- *   `omni-identity::unpack_signed_bundle` WASM fn). We stream files out of
- *   the handle, pass the map to `omni-sanitize::sanitizeBundle`, and re-pack
- *   as an **unsigned** omni-bundle. The Worker never holds author priv-keys,
- *   so re-signing happens at install time on the consumer host (per invariant
- *   #1: omni-identity is the single signing authority).
+ * The Worker never holds an author private key, so the repacked bundle is
+ * **unsigned** (per invariant #1: omni-identity is the single signing
+ * authority). Downstream consumers verify integrity via `canonical_hash`
+ * stored in D1 (`content_hash` column), not via an embedded JWS.
  *
- * - `sanitizeViaDO`: routes the raw bytes through the `BUNDLE_PROCESSOR`
- *   Durable Object (DF-keyed for queue fairness; see architectural invariant
- *   #10 — DF, not pubkey, is the durable rate-limit anchor). Bundles with
- *   fonts / images / large payloads go through here because the per-isolate
- *   128 MB ceiling makes inline processing unsafe at the request-handler level.
+ * An earlier design proposed an inline theme-only fast path; it was removed
+ * 2026-04-15 because the post-sanitize rehash must run in every code path.
  *
- * Both return `{ sanitizedBundleBytes, sanitizeReport, canonicalHash }`.
- * The canonical hash is computed from the (post-sanitize) manifest per
- * architectural invariant #6.
+ * Returns `{ sanitizedBundleBytes, sanitizeReport, canonicalHash }`; the
+ * canonical hash is computed from the post-sanitize manifest per invariant #6.
  */
 import type { Env } from "../env";
-import { loadWasm } from "./wasm";
 
 export interface SanitizeReport {
   version: number;
@@ -34,54 +31,6 @@ export interface SanitizeResult {
   sanitizedBundleBytes: Uint8Array;
   sanitizeReport: SanitizeReport;
   canonicalHash: Uint8Array;
-}
-
-/**
- * Inline sanitize path. Caller is responsible for having authenticated the
- * uploader and budget-checked the bundle size. Peak memory for this path is
- * the full uncompressed file set — only call for theme-only bundles within
- * the Worker's comfortable single-request budget.
- */
-export async function sanitizeInline(
-  bundleBytes: Uint8Array,
-  manifest: object,
-): Promise<SanitizeResult> {
-  const { bundle, identity, sanitize } = await loadWasm();
-
-  // Re-open the signed bundle to iterate files (authoritative vs relying on a
-  // caller-passed manifest+files dict). The caller already validated the
-  // signature; we pay the reopen cost to guarantee manifest/files consistency
-  // at the sanitize boundary.
-  const handle = identity.unpackSignedBundle(bundleBytes, undefined);
-  const verifiedManifest = handle.manifest();
-  const files: Record<string, Uint8Array> = {};
-  // Iterate via `nextFile()` — returns `{path, bytes}` or `null` at EOF.
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const entry = handle.nextFile() as { path: string; bytes: Uint8Array } | null;
-    if (entry === null) break;
-    files[entry.path] = entry.bytes;
-  }
-  handle.free?.();
-
-  const manifestToUse = manifest ?? verifiedManifest;
-
-  const result = sanitize.sanitizeBundle(manifestToUse, files) as {
-    sanitized: Record<string, Uint8Array>;
-    report: SanitizeReport;
-  };
-
-  // Re-pack as unsigned omni-bundle. The worker never re-signs (invariant #1).
-  // `undefined` limits => BundleLimits::DEFAULT, safe for theme-only fast path.
-  const sanitizedBundleBytes = bundle.pack(manifestToUse, result.sanitized, undefined);
-
-  const canonicalHash = bundle.canonicalHash(manifestToUse);
-
-  return {
-    sanitizedBundleBytes,
-    sanitizeReport: result.report,
-    canonicalHash,
-  };
 }
 
 /**

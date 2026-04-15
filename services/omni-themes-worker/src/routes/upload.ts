@@ -9,7 +9,9 @@
  *   5. Manifest-only fast path (omni_bundle.unpackManifest via identity handle)
  *   6. Tag vocab validation (suggested_alternatives)
  *   7. Content signature verify (omni_identity.unpackSignedBundle) + kid match
- *   8. Sanitize path (inline for theme-only; DO otherwise)
+ *   8. Sanitize path (always via BundleProcessor DO — post-sanitize manifest
+ *      file-hash rewriting is required because sanitizers mutate bytes; the DO
+ *      centralises the rehash+repack. There is no inline fast path.)
  *   9. canonical_hash(manifest)
  *  10. Dedup/tombstone
  *  11. Per-author name uniqueness
@@ -26,7 +28,7 @@ import { checkAndIncrement, type RateLimitAction } from "../lib/rate_limit";
 import { parseMultipart, MultipartError } from "../lib/multipart";
 import { loadWasm } from "../lib/wasm";
 import { canonicalHash } from "../lib/canonical";
-import { sanitizeInline, sanitizeViaDO } from "../lib/sanitize";
+import { sanitizeViaDO } from "../lib/sanitize";
 
 const app = new Hono<AppEnv>();
 
@@ -268,11 +270,15 @@ app.post("/", async (c) => {
     }
   }
 
-  // Release the handle — sanitizeInline will re-open (it needs its own iterator).
+  // Release the handle — the DO re-opens the bundle to iterate files.
   try { signedHandle?.free?.(); } catch { /* swallow */ }
   signedHandle = null;
 
-  // Step 8 — sanitize path
+  // Step 8 — sanitize path. All uploads route through the BundleProcessor DO.
+  // Sanitizers mutate file bytes, which invalidates `manifest.files[*].sha256`;
+  // the DO centralises the post-sanitize rehash + repack so every upload
+  // produces a consistent bundle. There is no inline fast path (spec §4.8
+  // 2026-04-15 post-review simplification).
   const themeOnly = isThemeOnly(manifest);
 
   // Non-theme bundles also count against `upload_new_bundle`.
@@ -286,11 +292,6 @@ app.post("/", async (c) => {
     }
   }
 
-  // Both paths sanitize+repack. We use the DO path in all cases — the inline
-  // fast path from W2T7 cannot currently recompute manifest file hashes
-  // post-sanitize and produces integrity-invalid bundles when handlers
-  // transform bytes. The DO's sanitize+repack reuses `omni_identity`'s
-  // authoritative hasher so the repacked bundle is always consistent.
   let sanitized;
   try {
     sanitized = await sanitizeViaDO(env, parts.bundle, dfHex);
@@ -298,8 +299,6 @@ app.post("/", async (c) => {
     const cat = categorizeBundleError(e);
     return errorFromKind(cat.kind, cat.detail, cat.msg);
   }
-  // Suppress unused-import lint when inline path is disabled.
-  void sanitizeInline;
 
   // Step 9 — canonical hash (native hex)
   const hashBytes = await canonicalHash(manifest);
@@ -360,11 +359,15 @@ app.post("/", async (c) => {
      ON CONFLICT(pubkey) DO UPDATE SET total_uploads = total_uploads + 1`,
   ).bind(authorPubkeyBlob, now).run();
 
-  // Signature is content-JWS — we hand back what arrived. We don't pull it out
-  // of the zip per invariant #6a; store the full sanitized bundle and its
-  // content hash. `signature` blob column is retained for legacy rows; use the
-  // content hash as the placeholder signature marker.
-  const signaturePlaceholder = new Uint8Array(thumbHashBuf);
+  // The D1 `signature` column is a legacy denormalization. The real content
+  // signature lives inside the stored `.omnipkg` (the `signature.jws` zip
+  // entry) and is not extracted to D1 today. The schema declares this column
+  // NOT NULL (pre-launch, no data migration concern), so we write an empty
+  // blob as a sentinel — callers MUST NOT treat this as a real signature.
+  // When/if a hot path needs it, add a DO-side extraction step in a follow-up
+  // and either repopulate this column or add a new `content_signature_jws`
+  // column alongside (this field stays empty to avoid silent contract drift).
+  const signatureEmpty = new Uint8Array(0);
 
   await env.META.prepare(
     `INSERT INTO artifacts
@@ -384,7 +387,7 @@ app.post("/", async (c) => {
     manifest.license ?? null,
     manifest.version,
     manifest.omni_min_version,
-    signaturePlaceholder,
+    signatureEmpty,
     now,
     now,
   ).run();
