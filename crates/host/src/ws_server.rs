@@ -30,6 +30,11 @@ pub struct WsSharedState {
     pub hwinfo_sensors_changed: Mutex<bool>,
     pub preview_subscribers: Mutex<Vec<mpsc::Sender<String>>>,
     pub latest_initial_html: Mutex<Option<(String, String)>>,  // (html, css)
+    /// Share-surface context (sub-spec #009). None when upload pipeline not configured.
+    pub share_ctx: Mutex<Option<Arc<crate::share::ws_messages::ShareContext>>>,
+    /// Tokio runtime used to drive async share-surface handlers from the sync WS loop.
+    /// Lazily created on first share dispatch.
+    pub share_runtime: Mutex<Option<tokio::runtime::Runtime>>,
 }
 
 impl WsSharedState {
@@ -52,6 +57,16 @@ impl WsSharedState {
             hwinfo_sensors_changed: Mutex::new(false),
             preview_subscribers: Mutex::new(Vec::new()),
             latest_initial_html: Mutex::new(None),
+            share_ctx: Mutex::new(None),
+            share_runtime: Mutex::new(None),
+        }
+    }
+
+    /// Install the share-surface context. Call once during host startup after
+    /// the identity keypair, guard, and ShareClient are constructed.
+    pub fn set_share_ctx(&self, ctx: Arc<crate::share::ws_messages::ShareContext>) {
+        if let Ok(mut slot) = self.share_ctx.lock() {
+            *slot = Some(ctx);
         }
     }
 }
@@ -131,11 +146,21 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                         let msg_type = serde_json::from_str::<Value>(text_str).ok()
                             .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string()));
 
-                        if let Some(response) =
-                            handle_message(text_str, state, &mut sensor_subscribed)
-                        {
-                            if ws.send(Message::Text(response.into())).is_err() {
-                                break; // Client disconnected
+                        // Route share-surface messages to crates/host/src/share/ws_messages.rs
+                        // (sub-spec #009). Falls through to `handle_message` for non-share types.
+                        let share_handled = if is_share_message_type(msg_type.as_deref()) {
+                            dispatch_share_message(text_str, state, preview_tx.clone())
+                        } else {
+                            false
+                        };
+
+                        if !share_handled {
+                            if let Some(response) =
+                                handle_message(text_str, state, &mut sensor_subscribed)
+                            {
+                                if ws.send(Message::Text(response.into())).is_err() {
+                                    break; // Client disconnected
+                                }
                             }
                         }
 
@@ -465,6 +490,83 @@ fn handle_message(
             )
         }
     }
+}
+
+/// Is this message type handled by the share-surface dispatcher?
+fn is_share_message_type(ty: Option<&str>) -> bool {
+    matches!(
+        ty,
+        Some("upload.pack")
+            | Some("upload.publish")
+            | Some("upload.update")
+            | Some("upload.delete")
+            | Some("identity.show")
+            | Some("identity.backup")
+            | Some("identity.import")
+            | Some("identity.rotate")
+            | Some("config.vocab")
+            | Some("config.limits")
+            | Some("report.submit")
+    )
+}
+
+/// Dispatch a share-surface message. Synchronous results (and all progress frames)
+/// are pushed onto the provided mpsc sender; the WS loop drains it every tick and
+/// forwards frames to the client. Returns true if the message was routed (i.e.
+/// share context exists); false means caller should fall through to `handle_message`.
+fn dispatch_share_message(
+    text: &str,
+    state: &Arc<WsSharedState>,
+    send_tx: mpsc::Sender<String>,
+) -> bool {
+    let Some(ctx) = state
+        .share_ctx
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().cloned())
+    else {
+        // No share context configured — treat as unrouted so normal error path runs.
+        return false;
+    };
+
+    let Ok(msg) = serde_json::from_str::<Value>(text) else {
+        return false;
+    };
+
+    // Ensure a tokio runtime exists for driving async handlers.
+    let mut rt_slot = match state.share_runtime.lock() {
+        Ok(g) => g,
+        Err(_) => return false,
+    };
+    if rt_slot.is_none() {
+        match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(2)
+            .thread_name("omni-share")
+            .build()
+        {
+            Ok(rt) => *rt_slot = Some(rt),
+            Err(e) => {
+                warn!(error = %e, "failed to build share tokio runtime");
+                return false;
+            }
+        }
+    }
+    let handle = rt_slot.as_ref().unwrap().handle().clone();
+    drop(rt_slot);
+
+    let send_for_dispatch = send_tx.clone();
+    let send_fn = move |s: String| {
+        let _ = send_for_dispatch.send(s);
+    };
+
+    handle.spawn(async move {
+        let reply = crate::share::ws_messages::dispatch(&ctx, &msg, send_fn).await;
+        if let Some(text) = reply {
+            let _ = send_tx.send(text);
+        }
+    });
+    true
 }
 
 /// Broadcast a preview message to all active subscribers.
