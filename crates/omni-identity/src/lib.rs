@@ -21,4 +21,6 @@ pub use error::IdentityError;
 // Re-exports below are enabled as their modules are implemented in later tasks.
 pub use fingerprint::{Fingerprint, PublicKey};
 pub use keypair::{verify_jws, Keypair};
+pub mod http_jws;
+pub use http_jws::{sign_http_jws, HttpJwsClaims};
 pub use tofu::{TofuEntry, TofuRegistry, TofuResult};
