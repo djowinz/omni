@@ -14,11 +14,15 @@
 use std::collections::BTreeMap;
 
 use omni_bundle::{BundleLimits, FileEntry, Manifest, Tag};
+use std::sync::Arc;
+
+use omni_guard_trait::{Guard, StubGuard};
 use omni_host::share::client::ShareClient;
 use omni_host::share::install::{install, InstallRequest};
 use omni_host::share::registry::{RegistryHandle, RegistryKind};
 use omni_host::share::tofu::TofuStore;
 use omni_identity::{pack_signed_bundle, Keypair};
+use url::Url;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -83,7 +87,11 @@ async fn worker_to_host_to_workspace_roundtrip() {
     let app_data = TempDir::new().unwrap();
 
     // ---- 4. Construct the host-side dependencies ---------------------------
-    let client = ShareClient::new(server.uri()).unwrap();
+    let client = ShareClient::new(
+        Url::parse(&server.uri()).unwrap(),
+        Arc::new(Keypair::generate()),
+        Arc::new(StubGuard) as Arc<dyn Guard>,
+    );
     let mut tofu = TofuStore::open(app_data.path()).unwrap();
     let mut registry = RegistryHandle::load(app_data.path(), RegistryKind::Themes).unwrap();
 

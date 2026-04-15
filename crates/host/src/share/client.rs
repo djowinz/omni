@@ -3,6 +3,10 @@
 //!
 //! Do not strip this wrapper "for simplicity" in a later pass; scattering signing
 //! across call-sites is the anti-pattern this file exists to prevent.
+//!
+//! Also hosts the `download` method used by the install pipeline; see
+//! [`ShareClient::download`] for the streaming GET of `/v1/download/:id`
+//! (optional-auth per worker-api §4.2).
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -82,6 +86,12 @@ pub struct VocabDoc {
     pub tags: Vec<String>,
     pub version: u32,
 }
+
+/// Upper bound on downloaded bytes. Defends against a hostile or buggy Worker
+/// advertising a huge `Content-Length` (pre-alloc OOM) or streaming more bytes
+/// than the bundle limits allow. 32 MiB — comfortably above `BundleLimits`'
+/// uncompressed ceiling yet well below any host OOM threshold.
+const MAX_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Failure modes for [`ShareClient::download`]. Upload/install pipelines carve
 /// richer domain errors atop these.
@@ -580,13 +590,20 @@ impl ShareClient {
             });
         }
         let total = resp.content_length().unwrap_or(0);
-        // Cap pre-allocation so a malicious/huge Content-Length cannot OOM us.
-        const MAX_PREALLOC: u64 = 16 * 1024 * 1024;
-        let mut buf = Vec::with_capacity(total.min(MAX_PREALLOC) as usize);
+        // Cap pre-allocation: a hostile server advertising a huge Content-Length
+        // must not tip us into an OOM before the first byte arrives.
+        let preallocate = total.min(MAX_DOWNLOAD_BYTES) as usize;
+        let mut buf = Vec::with_capacity(preallocate);
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(DownloadError::Http)?;
             buf.extend_from_slice(&chunk);
+            if buf.len() as u64 > MAX_DOWNLOAD_BYTES {
+                return Err(DownloadError::Status {
+                    status: 0,
+                    body: format!("download exceeded max bytes ({MAX_DOWNLOAD_BYTES})"),
+                });
+            }
             on_chunk(buf.len() as u64, total);
         }
         Ok(buf)

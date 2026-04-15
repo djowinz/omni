@@ -31,7 +31,7 @@ impl Drop for ManualTempDirGuard {
 /// Dropping without `commit` removes the staging directory. `commit` renames
 /// the staging directory onto `final_path` atomically on the same volume.
 pub struct AtomicDir {
-    temp: Option<ManualTempDirGuard>,
+    temp: ManualTempDirGuard,
     final_path: PathBuf,
 }
 
@@ -50,17 +50,17 @@ impl AtomicDir {
         let staging_path = parent.join(format!("{}{}", STAGING_PREFIX, Uuid::new_v4()));
         fs::create_dir(&staging_path)?;
         Ok(Self {
-            temp: Some(ManualTempDirGuard {
+            temp: ManualTempDirGuard {
                 path: staging_path,
                 armed: true,
-            }),
+            },
             final_path: final_path.to_path_buf(),
         })
     }
 
     /// Path to the staging directory. Write files here before calling `commit`.
     pub fn path(&self) -> &Path {
-        &self.temp.as_ref().expect("staging guard present").path
+        &self.temp.path
     }
 
     /// Commit the staging directory onto `final_path`.
@@ -84,17 +84,13 @@ impl AtomicDir {
             }
         }
         // Disarm before rename so Drop doesn't try to remove the renamed path.
-        let guard = self.temp.as_mut().expect("staging guard present");
-        guard.armed = false;
-        let staging_path = guard.path.clone();
-        fs::rename(&staging_path, &self.final_path)?;
+        self.temp.armed = false;
+        fs::rename(&self.temp.path, &self.final_path)?;
         Ok(())
     }
 
     /// Explicitly discard the staging directory (equivalent to dropping).
-    pub fn discard(self) {
-        // Drop handles cleanup.
-    }
+    pub fn discard(self) {}
 }
 
 /// Remove all top-level `.omni-staging-*` directories in `workspace_root`.

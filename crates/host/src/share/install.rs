@@ -34,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::share::client::{DownloadError, ShareClient};
 use crate::share::registry::{InstalledEntry, RegistryHandle, RegistryKind};
-use crate::share::tofu::{fingerprint_hex, TofuStore};
+use crate::share::tofu::TofuStore;
 use crate::workspace::atomic_dir::AtomicDir;
 
 #[derive(Debug, Error)]
@@ -118,24 +118,18 @@ pub async fn install(
     cancel: CancellationToken,
     mut progress: impl FnMut(InstallProgress),
 ) -> Result<InstallOutcome, InstallError> {
-    // ---- 1. Download (with cancellation) --------------------------------
     let bytes = tokio::select! {
         _ = cancel.cancelled() => return Err(InstallError::Cancelled),
         r = client.download(&req.artifact_id, |rx, total| {
             progress(InstallProgress::Downloading { received: rx, total });
         }) => r.map_err(client_to_install_error)?,
     };
-    if cancel.is_cancelled() {
-        return Err(InstallError::Cancelled);
-    }
 
-    // ---- 2. Verify + unpack (invariant #9) ------------------------------
     progress(InstallProgress::Verifying);
     let signed: SignedBundle =
         unpack_signed_bundle(&bytes, req.expected_pubkey.as_ref(), limits)
             .map_err(identity_to_install_error)?;
 
-    // ---- 2b. Version gate -----------------------------------------------
     let required = signed.manifest().omni_min_version.clone();
     if *current_version < required {
         return Err(InstallError::VersionMismatch {
@@ -144,7 +138,8 @@ pub async fn install(
         });
     }
 
-    // ---- 3. TOFU check (before any filesystem work) ---------------------
+    // TOFU check must run before any filesystem work so a mismatch never
+    // leaves partial state behind.
     let author_pubkey = *signed.author_pubkey();
     let display_name = signed.manifest().name.clone();
     let tofu_result = tofu
@@ -161,52 +156,89 @@ pub async fn install(
             seen: seen_pubkey_hex.clone(),
         });
     }
-    if cancel.is_cancelled() {
-        return Err(InstallError::Cancelled);
-    }
 
-    // ---- 4. Re-sanitize as a GATE (invariant #7; spec §2 step 4) --------
+    sanitize_stage_and_commit(&signed, &req.target_path, req.overwrite, &cancel, &mut progress)
+        .await?;
+
+    let content_hash = sha256_of(&bytes);
+    let entry = InstalledEntry {
+        artifact_id: req.artifact_id.clone(),
+        content_hash: hex::encode(content_hash),
+        author_pubkey: author_pubkey.to_hex(),
+        fingerprint_hex: author_pubkey.fingerprint().to_hex(),
+        source_url: format!("download://{}", req.artifact_id),
+        installed_at: now_unix(),
+        installed_version: signed.manifest().version.clone(),
+        omni_min_version: signed.manifest().omni_min_version.clone(),
+    };
+    let key = match registry_kind {
+        RegistryKind::Themes => display_name.clone(),
+        RegistryKind::Bundles => format!("{}-{}", &author_pubkey.to_hex()[..8], display_name),
+    };
+    registry.upsert(key, entry);
+    registry
+        .save()
+        .map_err(|e| InstallError::IoFailure(io::Error::other(e.to_string())))?;
+
+    tofu.record_install(&author_pubkey)
+        .map_err(identity_to_install_error)?;
+
+    Ok(InstallOutcome {
+        installed_path: req.target_path,
+        content_hash,
+        author_pubkey,
+        fingerprint: author_pubkey.fingerprint(),
+        tofu: tofu_result,
+        warnings: vec![],
+    })
+}
+
+/// Sanitize gate → stage → per-file hash + stream → commit. Shared between
+/// `install` and the test-only inline helper so the streaming loop body
+/// (invariant #19b) lives in exactly one place.
+async fn sanitize_stage_and_commit(
+    signed: &SignedBundle,
+    target_path: &std::path::Path,
+    overwrite: bool,
+    cancel: &CancellationToken,
+    progress: &mut impl FnMut(InstallProgress),
+) -> Result<(), InstallError> {
     progress(InstallProgress::Sanitizing);
+    // Sanitize is a GATE (invariant #7, spec §2 step 4): its error surface is
+    // the defense. The Ok'd sanitized map is dropped — installed bytes are
+    // the signed originals, which the manifest's per-file sha256 values cover.
     let files_map: BTreeMap<String, Vec<u8>> = signed
         .files()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let manifest_clone = signed.manifest().clone();
-    match sanitize_bundle(&manifest_clone, files_map) {
-        Ok(_) => { /* sanitized map dropped; proceed with the signed bytes */ }
-        Err(e) => return Err(sanitize_to_install_error(e)),
+    if let Err(e) = sanitize_bundle(signed.manifest(), files_map) {
+        return Err(sanitize_to_install_error(e));
     }
     if cancel.is_cancelled() {
         return Err(InstallError::Cancelled);
     }
 
-    // ---- 5. Stage --------------------------------------------------------
-    let staging = AtomicDir::stage(&req.target_path)?;
-    let expected_files: HashMap<&str, &FileEntry> = signed
+    let staging = AtomicDir::stage(target_path)?;
+    let expected: HashMap<&str, &FileEntry> = signed
         .manifest()
         .files
         .iter()
         .map(|f| (f.path.as_str(), f))
         .collect();
-    let total = expected_files.len();
+    let total = expected.len();
 
-    // ---- 6. Stream files (invariant #19b — per-entry hash inside loop) --
     for (index, (path, body)) in signed.files().enumerate() {
         if cancel.is_cancelled() {
             return Err(InstallError::Cancelled);
         }
-        let entry =
-            expected_files
-                .get(path.as_str())
-                .ok_or_else(|| InstallError::BadBundle {
-                    kind: BadBundleKind::Integrity,
-                    detail: format!("file not in manifest: {path}"),
-                    source: None,
-                })?;
-        let mut hasher = Sha256::new();
-        hasher.update(body);
-        let got: [u8; 32] = hasher.finalize().into();
-        if got != entry.sha256 {
+        let entry = expected
+            .get(path.as_str())
+            .ok_or_else(|| InstallError::BadBundle {
+                kind: BadBundleKind::Integrity,
+                detail: format!("file not in manifest: {path}"),
+                source: None,
+            })?;
+        if sha256_of(body) != entry.sha256 {
             return Err(InstallError::BadBundle {
                 kind: BadBundleKind::Integrity,
                 detail: format!("hash mismatch for {path}"),
@@ -225,45 +257,9 @@ pub async fn install(
         });
     }
 
-    // ---- 7. Commit -------------------------------------------------------
     progress(InstallProgress::Committing);
-    staging.commit(req.overwrite)?;
-
-    // ---- 8. Register -----------------------------------------------------
-    let content_hash = sha256_of(&bytes);
-    let entry = InstalledEntry {
-        artifact_id: req.artifact_id.clone(),
-        content_hash: hex::encode(content_hash),
-        author_pubkey: hex::encode(author_pubkey.0),
-        fingerprint_hex: fingerprint_hex(&author_pubkey.fingerprint()),
-        source_url: format!("download://{}", req.artifact_id),
-        installed_at: now_unix(),
-        installed_version: signed.manifest().version.clone(),
-        omni_min_version: signed.manifest().omni_min_version.clone(),
-    };
-    let key = match registry_kind {
-        RegistryKind::Themes => display_name.clone(),
-        RegistryKind::Bundles => {
-            format!("{}-{}", hex::encode(&author_pubkey.0[..4]), display_name)
-        }
-    };
-    registry.upsert(key, entry);
-    registry
-        .save()
-        .map_err(|e| InstallError::IoFailure(io::Error::other(e.to_string())))?;
-
-    // ---- 9. Record install + return --------------------------------------
-    tofu.record_install(&author_pubkey)
-        .map_err(identity_to_install_error)?;
-
-    Ok(InstallOutcome {
-        installed_path: req.target_path,
-        content_hash,
-        author_pubkey,
-        fingerprint: author_pubkey.fingerprint(),
-        tofu: tofu_result,
-        warnings: vec![],
-    })
+    staging.commit(overwrite)?;
+    Ok(())
 }
 
 // ---- Error mappers ----------------------------------------------------------
@@ -375,14 +371,10 @@ async fn install_inline_for_tests(
     cancel: CancellationToken,
     current_version: semver::Version,
 ) -> Result<InstallOutcome, InstallError> {
-    // Duplicates the post-download steps of `install` so tests don't need a
-    // network or an on-disk TOFU store / registry. Skips TOFU state and
-    // registry writes (intentional duplication per plan Task 7 implementer note).
+    // Test-only seam: skips network, TOFU state, and registry writes. The
+    // pipeline proper (sanitize → stage → stream → commit) runs through the
+    // shared `sanitize_stage_and_commit` helper.
     let limits = BundleLimits::DEFAULT;
-    if cancel.is_cancelled() {
-        return Err(InstallError::Cancelled);
-    }
-
     let signed =
         unpack_signed_bundle(bytes, None, &limits).map_err(identity_to_install_error)?;
     let required = signed.manifest().omni_min_version.clone();
@@ -393,60 +385,12 @@ async fn install_inline_for_tests(
         });
     }
 
-    // Sanitize gate (see §2 step 4).
-    let files_map: BTreeMap<String, Vec<u8>> = signed
-        .files()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    let manifest_clone = signed.manifest().clone();
-    if let Err(e) = sanitize_bundle(&manifest_clone, files_map) {
-        return Err(sanitize_to_install_error(e));
-    }
-    if cancel.is_cancelled() {
-        return Err(InstallError::Cancelled);
-    }
+    sanitize_stage_and_commit(&signed, target, false, &cancel, &mut |_| {}).await?;
 
-    let staging = AtomicDir::stage(target)?;
-    let expected: HashMap<&str, &FileEntry> = signed
-        .manifest()
-        .files
-        .iter()
-        .map(|f| (f.path.as_str(), f))
-        .collect();
-    for (path, body) in signed.files() {
-        if cancel.is_cancelled() {
-            return Err(InstallError::Cancelled);
-        }
-        let entry = expected
-            .get(path.as_str())
-            .ok_or_else(|| InstallError::BadBundle {
-                kind: BadBundleKind::Integrity,
-                detail: format!("file not in manifest: {path}"),
-                source: None,
-            })?;
-        let mut h = Sha256::new();
-        h.update(body);
-        let got: [u8; 32] = h.finalize().into();
-        if got != entry.sha256 {
-            return Err(InstallError::BadBundle {
-                kind: BadBundleKind::Integrity,
-                detail: format!("hash mismatch for {path}"),
-                source: None,
-            });
-        }
-        let dest = staging.path().join(path);
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(dest, body)?;
-    }
-    staging.commit(false)?;
-
-    let content_hash = sha256_of(bytes);
     let pk = *signed.author_pubkey();
     Ok(InstallOutcome {
         installed_path: target.to_path_buf(),
-        content_hash,
+        content_hash: sha256_of(bytes),
         author_pubkey: pk,
         fingerprint: pk.fingerprint(),
         tofu: TofuResult::FirstSeen,

@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omni_identity::{Fingerprint, IdentityError, PublicKey, TofuRegistry, TofuResult};
+use omni_identity::{IdentityError, PublicKey, TofuRegistry, TofuResult};
 
 pub struct TofuStore {
     inner: TofuRegistry,
@@ -41,12 +41,6 @@ impl TofuStore {
     pub fn path(&self) -> &Path {
         &self.path
     }
-}
-
-/// 12-char lowercase hex rendering of a `Fingerprint` (invariant #20).
-/// Used for `InstalledEntry::fingerprint_hex` and D-004-J error details.
-pub fn fingerprint_hex(fp: &Fingerprint) -> String {
-    fp.to_hex()
 }
 
 #[cfg(test)]
