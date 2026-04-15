@@ -101,14 +101,13 @@ pub fn map_install_error(err: &InstallError) -> ErrorPayload {
     }
 }
 
-/// Envelope returned by `explorer.*` dispatcher arms when the host's
-/// `InstallContext` is not yet constructed (pre-async-bridge chore).
+/// Envelope returned by `explorer.*` dispatcher arms when `share_ctx` is
+/// `None` or the async-bridge chore hasn't wired install handlers yet.
 ///
-/// Mirrors sub-spec #009's `ShareContext`-None pattern: dispatcher arms
-/// always emit this envelope today; once the async-bridge chore wires
-/// `InstallContext` onto `WsSharedState` each arm will branch on
-/// `state.install_context().is_some()` and only fall through to this
-/// helper when the context really is missing.
+/// Dispatcher arms always emit this envelope today; once the async-bridge
+/// chore wires explorer.* handlers onto `ShareContext`, each arm will
+/// branch on `share_ctx.is_some()` and only fall through to this helper
+/// when the context really is missing.
 pub fn install_context_unavailable() -> ErrorPayload {
     ErrorPayload {
         code: "service_unavailable",

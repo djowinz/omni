@@ -490,10 +490,16 @@ fn handle_message(
         | "explorer.cancelPreview"
         | "explorer.list"
         | "explorer.get" => {
-            // Stub arms: `InstallContext` isn't wired onto `WsSharedState`
-            // yet (that lands in the post-Phase-2 async-bridge chore that
-            // also wires sub-spec #009's `ShareContext`). Every call
-            // returns the D-004-J `service_unavailable` envelope for now.
+            // When `share_ctx` is `Some`, the async-bridge chore will route
+            // here to the install/preview handlers on `ShareContext`. Until
+            // those handlers land, every call returns the D-004-J
+            // `service_unavailable` envelope regardless of `share_ctx` state.
+            let ctx_ready = state
+                .share_ctx
+                .lock()
+                .map(|g| g.is_some())
+                .unwrap_or(false);
+            let _ = ctx_ready; // TODO(async-bridge): dispatch to ShareContext when ctx_ready.
             let payload = crate::share::handlers::install_context_unavailable();
             let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
             Some(
