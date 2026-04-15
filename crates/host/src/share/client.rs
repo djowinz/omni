@@ -173,10 +173,11 @@ impl ShareClient {
             self.sanitize_version,
         );
 
-        let compact = sign_http_jws(&self.identity, &claims).map_err(|e| UploadError::Integrity {
-            msg: "JWS signing failed".into(),
-            source: Some(Box::new(e)),
-        })?;
+        let compact =
+            sign_http_jws(&self.identity, &claims).map_err(|e| UploadError::Integrity {
+                msg: "JWS signing failed".into(),
+                source: Some(Box::new(e)),
+            })?;
 
         Ok(builder
             .header("Authorization", format!("Omni-JWS {compact}"))
@@ -277,13 +278,7 @@ impl ShareClient {
 
     pub async fn download(&self, artifact_id: &str) -> Result<DownloadResult, UploadError> {
         let path = format!("/v1/download/{artifact_id}");
-        let builder = self.sign(
-            &Method::GET,
-            &path,
-            "",
-            &[],
-            self.http.get(self.url(&path)),
-        )?;
+        let builder = self.sign(&Method::GET, &path, "", &[], self.http.get(self.url(&path)))?;
         let resp = self.send_with_retry(builder).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
@@ -331,8 +326,7 @@ impl ShareClient {
             }
         }
         let query = url.query().unwrap_or("").to_string();
-        let builder = self
-            .sign(&Method::GET, "/v1/list", &query, &[], self.http.get(url))?;
+        let builder = self.sign(&Method::GET, "/v1/list", &query, &[], self.http.get(url))?;
         let resp = self.send_with_retry(builder).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
@@ -345,13 +339,7 @@ impl ShareClient {
 
     pub async fn get(&self, id: &str) -> Result<ArtifactDetail, UploadError> {
         let path = format!("/v1/artifact/{id}");
-        let builder = self.sign(
-            &Method::GET,
-            &path,
-            "",
-            &[],
-            self.http.get(self.url(&path)),
-        )?;
+        let builder = self.sign(&Method::GET, &path, "", &[], self.http.get(self.url(&path)))?;
         let resp = self.send_with_retry(builder).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
@@ -463,8 +451,7 @@ impl ShareClient {
 
     pub async fn gallery(&self) -> Result<Vec<ArtifactDetail>, UploadError> {
         let path = "/v1/me/gallery";
-        let builder =
-            self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
+        let builder = self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
         let resp = self.send_with_retry(builder).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
@@ -476,8 +463,7 @@ impl ShareClient {
 
     pub async fn config_vocab(&self) -> Result<VocabDoc, UploadError> {
         let path = "/v1/config/vocab";
-        let builder =
-            self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
+        let builder = self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
         let resp = self.send_with_retry(builder).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
@@ -493,8 +479,7 @@ impl ShareClient {
             max_bundle_uncompressed: u64,
             max_entries: usize,
         }
-        let builder =
-            self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
+        let builder = self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
         let resp = self.send_with_retry(builder).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
@@ -515,26 +500,40 @@ impl ShareClient {
         &self,
         builder: RequestBuilder,
     ) -> Result<reqwest::Response, UploadError> {
-        use backon::Retryable;
-        let policy = self.retry_policy;
-        // Capture a clonable builder for the closure; transient retries send a fresh clone.
-        let base = builder.try_clone().ok_or_else(|| UploadError::BadInput {
-            msg: "request not cloneable (streaming body)".into(),
-            source: None,
-        })?;
-        let attempt = move || {
-            let b = base
-                .try_clone()
-                .expect("builder cloneable (verified before retry loop)");
-            async move { b.send().await }
-        };
-        attempt
-            .retry(policy)
-            .when(|e: &reqwest::Error| {
-                e.is_connect() || e.is_timeout() || e.is_request()
-            })
-            .await
-            .map_err(UploadError::Network)
+        use backon::BackoffBuilder;
+        // Transient = network error (connect/timeout/request) OR HTTP 429 / 5xx response.
+        // Spec §9: "429 with Retry-After, 5xx, connection reset" retry through backon.
+        let mut backoff = self.retry_policy.build();
+        loop {
+            let b = builder.try_clone().ok_or_else(|| UploadError::BadInput {
+                msg: "request not cloneable (streaming body)".into(),
+                source: None,
+            })?;
+            match b.send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let transient = status == 429 || (500..=599).contains(&status);
+                    if !transient {
+                        return Ok(resp);
+                    }
+                    match backoff.next() {
+                        Some(delay) => tokio::time::sleep(delay).await,
+                        // Budget exhausted — surface the structured error from body.
+                        None => return Ok(resp),
+                    }
+                }
+                Err(e) => {
+                    let transient = e.is_connect() || e.is_timeout() || e.is_request();
+                    if !transient {
+                        return Err(UploadError::Network(e));
+                    }
+                    match backoff.next() {
+                        Some(delay) => tokio::time::sleep(delay).await,
+                        None => return Err(UploadError::Network(e)),
+                    }
+                }
+            }
+        }
     }
 
     async fn decode_error(resp: reqwest::Response) -> UploadError {
@@ -550,7 +549,9 @@ impl ShareClient {
             Some(b) => (
                 b.error.code,
                 b.error.message,
-                b.error.kind.unwrap_or_else(|| default_kind_for_status(status).into()),
+                b.error
+                    .kind
+                    .unwrap_or_else(|| default_kind_for_status(status).into()),
                 b.error.detail,
                 b.error
                     .retry_after
@@ -650,9 +651,7 @@ pub(crate) fn serialize_multipart(parts: &[MultipartPart]) -> (Vec<u8>, String) 
             )
             .as_bytes(),
         );
-        out.extend_from_slice(
-            format!("Content-Type: {}\r\n\r\n", p.content_type).as_bytes(),
-        );
+        out.extend_from_slice(format!("Content-Type: {}\r\n\r\n", p.content_type).as_bytes());
         out.extend_from_slice(&p.bytes);
         out.extend_from_slice(b"\r\n");
     }
