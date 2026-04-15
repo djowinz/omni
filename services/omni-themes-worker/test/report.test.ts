@@ -137,6 +137,8 @@ async function mkRequest(
     opts.rawBody ?? new TextEncoder().encode(JSON.stringify(bodyObj));
   const headers = new Headers({
     "content-type": "application/json",
+    "X-Omni-Version": "0.1.0",
+    "X-Omni-Sanitize-Version": "1",
   });
   if (opts.includeAuth !== false) {
     const jws = await signJws({

@@ -177,7 +177,12 @@ async function uploadReq(bundle: Uint8Array, opts: {
   const jws = await signJws({ method, path, body, seed: opts.seed, kidHex: opts.kidHex });
   return SELF.fetch(`https://worker.test${path}`, {
     method,
-    headers: { "Authorization": `Omni-JWS ${jws}`, "Content-Type": contentType },
+    headers: {
+      "Authorization": `Omni-JWS ${jws}`,
+      "Content-Type": contentType,
+      "X-Omni-Version": "0.1.0",
+      "X-Omni-Sanitize-Version": "1",
+    },
     body,
   });
 }
@@ -366,7 +371,12 @@ describe("POST /v1/upload — SIZE_EXCEEDED", () => {
     const jws = await signJws({ method: "POST", path: "/v1/upload", body });
     const res = await SELF.fetch("https://worker.test/v1/upload", {
       method: "POST",
-      headers: { "Authorization": `Omni-JWS ${jws}`, "Content-Type": contentType },
+      headers: {
+        "Authorization": `Omni-JWS ${jws}`,
+        "Content-Type": contentType,
+        "X-Omni-Version": "0.1.0",
+        "X-Omni-Sanitize-Version": "1",
+      },
       body,
     });
     expect(res.status).toBe(413);
@@ -380,7 +390,13 @@ describe("POST /v1/upload — auth failures", () => {
     const bundle = await buildSignedBundle();
     const { body, contentType } = buildMultipart(bundle, TINY_PNG);
     const res = await SELF.fetch("https://worker.test/v1/upload", {
-      method: "POST", headers: { "Content-Type": contentType }, body,
+      method: "POST",
+      headers: {
+        "Content-Type": contentType,
+        "X-Omni-Version": "0.1.0",
+        "X-Omni-Sanitize-Version": "1",
+      },
+      body,
     });
     expect(res.status).toBe(401);
     const j = (await res.json()) as { error: { code: string } };

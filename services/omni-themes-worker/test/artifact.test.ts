@@ -17,7 +17,18 @@
  * Full end-to-end PATCH happy-path lives in the W4 integration suite.
  */
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { env, SELF } from "cloudflare:test";
+import { env, SELF as RAW_SELF } from "cloudflare:test";
+
+// Inject the global client-version headers (W4T14) into every Miniflare
+// request unless the test already set them.
+const SELF = {
+  fetch(input: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (!headers.has("X-Omni-Version")) headers.set("X-Omni-Version", "0.1.0");
+    if (!headers.has("X-Omni-Sanitize-Version")) headers.set("X-Omni-Sanitize-Version", "1");
+    return RAW_SELF.fetch(input, { ...init, headers });
+  },
+};
 import * as ed from "@noble/ed25519";
 import type { Env } from "../src/env";
 
@@ -223,7 +234,13 @@ describe("GET /v1/artifact/:id — moderator JWS", () => {
     const modEnv = { ...env, OMNI_ADMIN_PUBKEYS: modPubHex };
     const res = await app.request(
       "/v1/artifact/art1",
-      { headers: { Authorization: `Omni-JWS ${jws}` } },
+      {
+        headers: {
+          Authorization: `Omni-JWS ${jws}`,
+          "X-Omni-Version": "0.1.0",
+          "X-Omni-Sanitize-Version": "1",
+        },
+      },
       modEnv,
     );
     expect(res.status).toBe(200);

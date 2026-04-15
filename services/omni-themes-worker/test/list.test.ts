@@ -11,7 +11,17 @@
  *   - Cache-Control: public, max-age=60
  */
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { env, SELF } from "cloudflare:test";
+import { env, SELF as RAW_SELF } from "cloudflare:test";
+
+// Inject the W4T14 client-version headers into every Miniflare request.
+const SELF = {
+  fetch(input: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (!headers.has("X-Omni-Version")) headers.set("X-Omni-Version", "0.1.0");
+    if (!headers.has("X-Omni-Sanitize-Version")) headers.set("X-Omni-Sanitize-Version", "1");
+    return RAW_SELF.fetch(input, { ...init, headers });
+  },
+};
 import type { Env } from "../src/env";
 import { decodeCursor } from "../src/lib/cursor";
 
