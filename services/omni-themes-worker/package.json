@@ -12,7 +12,11 @@
     "typecheck": "tsc --noEmit",
     "migrate:local": "wrangler d1 migrations apply META --local",
     "migrate:remote": "wrangler d1 migrations apply META --remote",
-    "bootstrap": "node scripts/bootstrap-kv.mjs"
+    "bootstrap": "node scripts/bootstrap-kv.mjs",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "predev": "pnpm build:wasm",
+    "prebuild": "pnpm build:wasm",
+    "pretest": "pnpm build:wasm"
   },
   "dependencies": {
     "hono": "^4.6.0"

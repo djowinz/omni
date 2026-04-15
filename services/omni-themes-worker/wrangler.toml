@@ -42,3 +42,8 @@ OMNI_THEMES_RATE_LIMIT_SCALE = "1"
 [env.dev.vars]
 OMNI_THEMES_ENV = "dev"
 OMNI_THEMES_RATE_LIMIT_SCALE = "10"
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true

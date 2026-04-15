@@ -34,3 +34,8 @@ services/**/.dev.vars
 
 # Wrangler Cache
 .wrangler
+
+# Worker WASM build outputs
+services/omni-themes-worker/src/wasm/*.wasm
+services/omni-themes-worker/src/wasm/*.js
+services/omni-themes-worker/src/wasm/*.d.ts
