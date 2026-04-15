@@ -10,6 +10,9 @@
 //!   4. stream `files()` to a `tempfile::TempDir`
 //!   5. render via `render_omni_to_png`
 
+pub mod bundle;
+pub mod theme;
+
 use std::collections::HashMap;
 use std::path::Path;
 
