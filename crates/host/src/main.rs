@@ -319,6 +319,16 @@ fn run_host() {
     // Initialize workspace folder structure (overlays/, themes/, Default overlay)
     workspace::structure::init_workspace(&data_dir);
 
+    // Sweep orphaned `.omni-staging-*` directories left behind by prior
+    // host crashes mid-install. Invariant: this only removes directories
+    // matching the staging prefix at the workspace root — no recursion
+    // into user content. Non-fatal on failure.
+    match workspace::atomic_dir::sweep_orphans(&data_dir) {
+        Ok(0) => {}
+        Ok(n) => info!("startup: cleaned {n} orphaned staging directories"),
+        Err(e) => warn!("startup: sweep_orphans failed: {e}"),
+    }
+
     ctrlc::set_handler(|| {
         RUNNING.store(false, Ordering::Relaxed);
     })
