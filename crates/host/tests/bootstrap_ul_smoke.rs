@@ -122,7 +122,7 @@ fn push_update(ul: &UlRenderer, values: &HashMap<String, f64>) {
 
 fn run_group_a(ul: &UlRenderer, failures: &mut Vec<String>) {
     let (file_opt, diags) = parse_omni_with_diagnostics(DEFAULT_OMNI);
-    let file = file_opt.unwrap_or_else(|| panic!("parse DEFAULT_OMNI: {:?}", diags));
+    let file = file_opt.unwrap_or_else(|| panic!("parse DEFAULT_OMNI: {diags:?}"));
     let snap = SensorSnapshot::default();
     let hv: HashMap<String, f64> = HashMap::new();
     let hu: HashMap<String, String> = HashMap::new();
@@ -151,7 +151,7 @@ fn run_group_a(ul: &UlRenderer, failures: &mut Vec<String>) {
     );
     if check_exists != "found" {
         failures.push(
-            "A.sanity: data-sensor='cpu.usage' element missing from DOM after load — scan may not have run".to_string()
+            "A.sanity: data-sensor='cpu.usage' element missing from DOM after load — scan may not have run".into(),
         );
         // If the element is missing, subsequent selectors will all fail; push a
         // placeholder so the report is obvious about the root cause.
