@@ -57,15 +57,22 @@ export function notImplemented(route: string): Response {
  * `SchemaVersionUnsupported`, etc.). When the detail directly corresponds to
  * a contract-listed error code, the matching code is selected; otherwise the
  * kind's default code is used and `detail` travels in the body verbatim.
+ *
+ * `extras.retryAfter` is threaded through to the response body's
+ * `error.retry_after` field only when the mapped code is `RATE_LIMITED`
+ * (i.e. `kind === "Quota"` with rate-limit detail). For all other kinds it
+ * is ignored — a stray `retry_after` on a non-429 response would violate
+ * the worker-api.md §3 envelope.
  */
 export function errorFromKind(
   kind: ErrorKind,
   detail: string | undefined,
   message: string,
+  extras?: { retryAfter?: number },
 ): Response {
   const [status, code] = mapKindDetail(kind, detail);
   const retryAfter =
-    code === "RATE_LIMITED" ? /* caller should override */ undefined : undefined;
+    code === "RATE_LIMITED" ? extras?.retryAfter : undefined;
   return errorResponse(status, code, message, {
     kind,
     detail,

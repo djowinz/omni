@@ -97,6 +97,28 @@ describe("errorFromKind — quota category (§3)", () => {
     const body = (await res.json()) as ErrorBody;
     expect(body.error.code).toBe("TURNSTILE_REQUIRED");
   });
+  it("Quota/RateLimited threads retryAfter through to error.retry_after", async () => {
+    const res = errorFromKind("Quota", "RateLimited", "slow", { retryAfter: 42 });
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe("RATE_LIMITED");
+    expect(body.error.retry_after).toBe(42);
+  });
+  it("Quota/RateLimited without extras has no retry_after field", async () => {
+    const res = errorFromKind("Quota", "RateLimited", "slow");
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.retry_after).toBeUndefined();
+  });
+  it("non-RATE_LIMITED kinds ignore retryAfter (no stray retry_after)", async () => {
+    const res = errorFromKind("Auth", "BadSignature", "nope", { retryAfter: 99 });
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.retry_after).toBeUndefined();
+  });
+  it("Quota/TurnstileRequired ignores retryAfter (only RATE_LIMITED threads it)", async () => {
+    const res = errorFromKind("Quota", "TurnstileRequired", "captcha", { retryAfter: 10 });
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.retry_after).toBeUndefined();
+  });
 });
 
 describe("errorFromKind — malformed category (§3)", () => {
