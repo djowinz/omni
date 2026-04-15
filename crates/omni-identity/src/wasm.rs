@@ -25,6 +25,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::fingerprint::PublicKey;
+use crate::wasm_jws_core::JwsHeader;
 
 const SIGNATURE_FILENAME: &str = "signature.jws";
 const B64: base64::engine::general_purpose::GeneralPurpose =
@@ -129,24 +130,12 @@ fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
 }
 
 // ---------------------------------------------------------------------------
-// JWS compact EdDSA with embedded OKP jwk header — byte-equivalent to the
-// native path's jsonwebtoken output (header key order is `alg, typ, jwk`).
+// JWS compact EdDSA with embedded OKP jwk header. `JwsHeader` / `OkpJwk` live
+// in `wasm_jws_core` because their field order is byte-parity-locked against
+// the native `jsonwebtoken` oracle (see `tests/jws_native_wasm_parity.rs`).
+// Keeping a single definition prevents future callers from accidentally
+// signing with a divergent shape.
 // ---------------------------------------------------------------------------
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct OkpJwk {
-    crv: String,
-    kty: String,
-    x: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct JwsHeader {
-    alg: String,
-    typ: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jwk: Option<OkpJwk>,
-}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SignaturePayload {
