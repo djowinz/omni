@@ -64,6 +64,18 @@ const PROD_LIMITS: Record<RateLimitAction, Limits> = {
 const VELOCITY_LIMIT_DISTINCT_PUBKEYS = 3;
 const VELOCITY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** Per-minute rate-limit window. */
+const MINUTE_WINDOW_SECONDS = 60;
+/**
+ * TTL slop on top of the raw window. Invariant #0 accepts the read-then-write
+ * race; we keep counters around past rollover so a late writer can't roll the
+ * bucket over and recharge the quota mid-window.
+ */
+const MINUTE_TTL_SLOP_SECONDS = 60;
+const DAY_TTL_SLOP_SECONDS = 60;
+/** Cloudflare KV requires `expirationTtl >= 60`. */
+const KV_MIN_TTL_SECONDS = 60;
+
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
@@ -75,7 +87,12 @@ function dayWindow(now: Date): Window {
   const suffix = `${yyyy}-${mm}-${dd}`;
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const secondsUntilRollover = Math.max(1, Math.ceil((next - now.getTime()) / 1000));
-  return { kind: "day", suffix, secondsUntilRollover, ttl: Math.max(60, secondsUntilRollover + 60) };
+  return {
+    kind: "day",
+    suffix,
+    secondsUntilRollover,
+    ttl: Math.max(KV_MIN_TTL_SECONDS, secondsUntilRollover + DAY_TTL_SLOP_SECONDS),
+  };
 }
 
 function minuteWindow(now: Date): Window {
@@ -93,7 +110,12 @@ function minuteWindow(now: Date): Window {
     now.getUTCMinutes() + 1,
   );
   const secondsUntilRollover = Math.max(1, Math.ceil((next - now.getTime()) / 1000));
-  return { kind: "minute", suffix, secondsUntilRollover, ttl: 120 };
+  return {
+    kind: "minute",
+    suffix,
+    secondsUntilRollover,
+    ttl: MINUTE_WINDOW_SECONDS + MINUTE_TTL_SLOP_SECONDS,
+  };
 }
 
 function scale(env: Env): number {

@@ -20,6 +20,8 @@
  * canonical hash is computed from the post-sanitize manifest per invariant #6.
  */
 import type { Env } from "../env";
+import { b64urlDecode } from "./base64url";
+import { hexDecode } from "./hex";
 
 export interface SanitizeReport {
   version: number;
@@ -68,25 +70,8 @@ export async function sanitizeViaDO(
     canonical_hash: string; // hex
   };
   return {
-    sanitizedBundleBytes: base64UrlDecode(body.sanitized_bundle),
+    sanitizedBundleBytes: b64urlDecode(body.sanitized_bundle),
     sanitizeReport: body.sanitize_report,
     canonicalHash: hexDecode(body.canonical_hash),
   };
-}
-
-function base64UrlDecode(s: string): Uint8Array {
-  // RFC 4648 §5 — restore '=' padding to a multiple of 4.
-  const pad = s.length % 4 === 2 ? "==" : s.length % 4 === 3 ? "=" : "";
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  const raw = atob(b64);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-  return out;
-}
-
-function hexDecode(s: string): Uint8Array {
-  if (s.length % 2 !== 0) throw new Error("canonical_hash hex: odd length");
-  const out = new Uint8Array(s.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
-  return out;
 }

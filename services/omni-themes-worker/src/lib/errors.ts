@@ -39,13 +39,86 @@ export function errorResponse(
   });
 }
 
-/** 501 skeleton response; route name is interpolated into the message. */
-export function notImplemented(route: string): Response {
-  return errorResponse(
-    501,
-    "NOT_IMPLEMENTED",
-    `route ${route} is not implemented yet (sub-spec #007 skeleton)`,
-  );
+/**
+ * Classify a thrown value from the WASM sanitize / bundle / identity bindings
+ * into a `{kind, detail, message}` tuple. Single source of truth for the
+ * substring-match table that used to live duplicated in `routes/upload.ts`
+ * (`categorizeBundleError`) and `do/bundle_processor.ts`
+ * (`classifyUnpackError` / `classifySanitizeError`).
+ *
+ * Per invariant #19a (domain carving), callers feed the tuple into
+ * `errorFromKind(kind, detail, message)` so every WASM-origin error exits
+ * through the same mapping table used by structured exceptions.
+ *
+ * The order of checks matters: more specific substrings come first so a
+ * message like "rejected executable magic (unsafe)" classifies as
+ * `RejectedExecutableMagic`, not generic `Unsafe`.
+ */
+export function classifyWasmError(
+  e: unknown,
+): { kind: ErrorKind; detail: string; message: string } {
+  const message = wasmErrMessage(e);
+  const lower = message.toLowerCase();
+
+  // Unsafe: executable magic reject from omni-bundle / omni-sanitize.
+  if (lower.includes("rejected executable magic") || lower.includes("executable magic")) {
+    return { kind: "Unsafe", detail: "RejectedExecutableMagic", message };
+  }
+  // Unsafe: zip-bomb guard in omni-bundle.
+  if (lower.includes("zipbomb") || lower.includes("zip bomb") || lower.includes("compression bomb")) {
+    return { kind: "Unsafe", detail: "ZipBomb", message };
+  }
+  // Integrity: signature / JWS binding failures from omni-identity / omni-bundle.
+  if (
+    lower.includes("signature") ||
+    lower.includes("jws") ||
+    lower.includes("missing signature")
+  ) {
+    return { kind: "Integrity", detail: "SignatureInvalid", message };
+  }
+  // Integrity: canonical-hash / file-hash mismatch from bundle.pack verification.
+  if (
+    lower.includes("canonical_hash mismatch") ||
+    lower.includes("hash mismatch") ||
+    lower.includes("sha256 mismatch")
+  ) {
+    return { kind: "Integrity", detail: "HashMismatch", message };
+  }
+  // Integrity: manifest-missing (bundle unpack without a manifest).
+  if (lower.includes("manifest missing") || lower.includes("missing manifest")) {
+    return { kind: "Integrity", detail: "ManifestMissing", message };
+  }
+  // Malformed: schema / JSON / manifest parse failures.
+  if (
+    lower.includes("unknown resource kind") ||
+    lower.includes("unknownkind") ||
+    lower.includes("unknown kind")
+  ) {
+    return { kind: "Malformed", detail: "UnknownKind", message };
+  }
+  if (lower.includes("size exceeded") || lower.includes("sizeexceeded")) {
+    return { kind: "Malformed", detail: "SizeExceeded", message };
+  }
+  if (
+    lower.includes("manifest") ||
+    lower.includes("schema") ||
+    lower.includes("json") ||
+    lower.includes("malformed")
+  ) {
+    return { kind: "Malformed", detail: "ManifestInvalid", message };
+  }
+  // Fallback — unexplained failure from the WASM surface is an Io/Generic.
+  return { kind: "Io", detail: "Generic", message };
+}
+
+function wasmErrMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try {
+    return String(e);
+  } catch {
+    return "<unrepresentable error>";
+  }
 }
 
 /**

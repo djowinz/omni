@@ -26,18 +26,15 @@
  */
 import type { Env } from "../env";
 import type { ErrorCode } from "../types";
+import { b64urlDecode } from "./base64url";
+import { hexDecode, hexEncode } from "./hex";
 
 /** Server's required sanitize-pipeline version. Bumped in lockstep with the
  *  sanitize crate; defaults to 1 when `EXPECTED_SANITIZE_VERSION` is unset. */
 const DEFAULT_EXPECTED_SANITIZE_VERSION = 1;
 
 /** Maximum tolerated clock skew between host and Worker, in seconds. Contract §2 step 5. */
-const MAX_TS_DRIFT_SECONDS = 300;
-
-/** The exact JWS header bytes the oracle produces. Byte-for-byte identical to
- *  `serde_json::to_vec(&WasmJwsHeader{ typ:"JWT", alg:"EdDSA", jwk:None })` —
- *  field order (`typ` then `alg`) is load-bearing. */
-const ORACLE_HEADER_JSON = '{"typ":"JWT","alg":"EdDSA"}';
+export const MAX_TS_DRIFT_SECONDS = 300;
 
 /**
  * Successful verification result handed to route handlers. `pubkey` is the
@@ -69,77 +66,9 @@ export class AuthError extends Error {
   }
 }
 
-/** Legacy stub surface kept for pre-#008 call sites. Throws the same
- *  `AuthError` that middleware already handles. */
-export class AuthNotImplementedError extends AuthError {
-  constructor() {
-    super(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "auth.verifySignature is a stub — use verifyJws",
-    );
-  }
-}
-
-/** Legacy alias of `AuthedRequest` for pre-#008 callers. */
-export interface VerifiedRequest {
-  pubkey: Uint8Array;
-  deviceFingerprint: Uint8Array;
-  timestamp: number;
-  sanitizeVersion: number;
-}
-
-/**
- * Legacy adapter — call `verifyJws` and translate the result. Kept so the
- * #007 skeleton's route modules keep compiling through the #008 transition.
- */
-export async function verifySignature(
-  req: Request,
-  env: Env,
-  body: ArrayBuffer,
-): Promise<VerifiedRequest> {
-  const a = await verifyJws(req, env, body);
-  return {
-    pubkey: a.pubkey,
-    deviceFingerprint: a.device_fp,
-    timestamp: a.ts,
-    sanitizeVersion: a.sanitize_version,
-  };
-}
-
 // ---------------------------------------------------------------------------
-// Encoding helpers
+// Hashing helpers (encoding helpers now live in src/lib/{hex,base64url}.ts)
 // ---------------------------------------------------------------------------
-
-function b64urlDecode(s: string): Uint8Array {
-  // RFC 4648 §5 (URL-safe, no padding). Restore `=` padding then swap
-  // `-_` for `+/` so we can delegate to `atob`.
-  const pad = s.length % 4 === 2 ? "==" : s.length % 4 === 3 ? "=" : "";
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function hexDecode(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0) throw new Error("hex: odd length");
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    const byte = parseInt(hex.substr(i * 2, 2), 16);
-    if (Number.isNaN(byte)) throw new Error("hex: bad char");
-    out[i] = byte;
-  }
-  return out;
-}
-
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) {
-    s += bytes[i]!.toString(16).padStart(2, "0");
-  }
-  return s;
-}
 
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -440,9 +369,3 @@ function parseSanitizeVersion(v: string | undefined): number | null {
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 }
-
-// ---------------------------------------------------------------------------
-// Exports used by routes/middleware that adapt AuthError → errorFromKind.
-// ---------------------------------------------------------------------------
-
-export { ORACLE_HEADER_JSON as _ORACLE_HEADER_JSON_FOR_TESTS };

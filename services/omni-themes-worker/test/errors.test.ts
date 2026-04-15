@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { errorResponse, errorFromKind, notImplemented } from "../src/lib/errors";
+import { errorResponse, errorFromKind, classifyWasmError } from "../src/lib/errors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ErrorBody } from "../src/types";
 
@@ -49,13 +49,42 @@ describe("errorResponse", () => {
   });
 });
 
-describe("notImplemented", () => {
-  it("returns 501 NOT_IMPLEMENTED with the route in the message", async () => {
-    const res = notImplemented("/v1/upload");
-    expect(res.status).toBe(501);
-    const body = (await res.json()) as ErrorBody;
-    expect(body.error.code).toBe("NOT_IMPLEMENTED");
-    expect(body.error.message).toContain("/v1/upload");
+describe("classifyWasmError", () => {
+  const cases: Array<[string, string, string]> = [
+    ["rejected executable magic: MZ header", "Unsafe", "RejectedExecutableMagic"],
+    ["ZipBomb: compression ratio exceeded", "Unsafe", "ZipBomb"],
+    ["compression bomb", "Unsafe", "ZipBomb"],
+    ["signature did not verify", "Integrity", "SignatureInvalid"],
+    ["JWS header decode failed", "Integrity", "SignatureInvalid"],
+    ["canonical_hash mismatch at file theme.css", "Integrity", "HashMismatch"],
+    ["sha256 mismatch for manifest file", "Integrity", "HashMismatch"],
+    ["manifest missing from bundle", "Integrity", "ManifestMissing"],
+    ["unknown resource kind: wallpaper", "Malformed", "UnknownKind"],
+    ["UnknownKind", "Malformed", "UnknownKind"],
+    ["size exceeded: bundle > 5MB", "Malformed", "SizeExceeded"],
+    ["manifest schema error", "Malformed", "ManifestInvalid"],
+    ["JSON parse error", "Malformed", "ManifestInvalid"],
+    ["something completely unexpected", "Io", "Generic"],
+  ];
+  for (const [msg, kind, detail] of cases) {
+    it(`classifies "${msg}" → ${kind}/${detail}`, () => {
+      const out = classifyWasmError(new Error(msg));
+      expect(out.kind).toBe(kind);
+      expect(out.detail).toBe(detail);
+      expect(out.message).toBe(msg);
+    });
+  }
+
+  it("accepts a bare string thrown value", () => {
+    const out = classifyWasmError("rejected executable magic");
+    expect(out.kind).toBe("Unsafe");
+    expect(out.detail).toBe("RejectedExecutableMagic");
+  });
+
+  it("falls back to Io/Generic on unrepresentable values", () => {
+    const out = classifyWasmError({ weird: true });
+    expect(out.kind).toBe("Io");
+    expect(out.detail).toBe("Generic");
   });
 });
 
