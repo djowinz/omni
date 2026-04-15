@@ -101,6 +101,23 @@ pub fn map_install_error(err: &InstallError) -> ErrorPayload {
     }
 }
 
+/// Envelope returned by `explorer.*` dispatcher arms when the host's
+/// `InstallContext` is not yet constructed (pre-async-bridge chore).
+///
+/// Mirrors sub-spec #009's `ShareContext`-None pattern: dispatcher arms
+/// always emit this envelope today; once the async-bridge chore wires
+/// `InstallContext` onto `WsSharedState` each arm will branch on
+/// `state.install_context().is_some()` and only fall through to this
+/// helper when the context really is missing.
+pub fn install_context_unavailable() -> ErrorPayload {
+    ErrorPayload {
+        code: "service_unavailable",
+        kind: "HostLocal",
+        detail: "install_context_not_constructed".into(),
+        message: "Install service is not available yet.",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +169,18 @@ mod tests {
             expected,
             "every InstallError variant must map to a unique code; got {codes:?}"
         );
+    }
+
+    #[test]
+    fn install_context_unavailable_envelope_is_pinned() {
+        // This test pins the wire-format constants the editor binds to.
+        // If either `code` or `kind` changes, every editor consumer must
+        // update in lockstep — failing this test forces a coordinated
+        // update.
+        let payload = install_context_unavailable();
+        assert_eq!(payload.code, "service_unavailable");
+        assert_eq!(payload.kind, "HostLocal");
+        assert_eq!(payload.detail, "install_context_not_constructed");
     }
 
     #[test]

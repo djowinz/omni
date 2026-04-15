@@ -485,6 +485,31 @@ fn handle_message(
                 ),
             }
         }
+        "explorer.install"
+        | "explorer.preview"
+        | "explorer.cancelPreview"
+        | "explorer.list"
+        | "explorer.get" => {
+            // Stub arms: `InstallContext` isn't wired onto `WsSharedState`
+            // yet (that lands in the post-Phase-2 async-bridge chore that
+            // also wires sub-spec #009's `ShareContext`). Every call
+            // returns the D-004-J `service_unavailable` envelope for now.
+            let payload = crate::share::handlers::install_context_unavailable();
+            let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            Some(
+                json!({
+                    "id": id,
+                    "type": "error",
+                    "error": {
+                        "code": payload.code,
+                        "kind": payload.kind,
+                        "detail": payload.detail,
+                        "message": payload.message,
+                    },
+                })
+                .to_string(),
+            )
+        }
         "log.path" => {
             let log_path = state.data_dir.join("logs").join("omni-host.log");
             Some(
@@ -646,6 +671,49 @@ mod tests {
 
         let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
         assert_eq!(resp["type"], "error");
+    }
+
+    #[test]
+    fn explorer_install_returns_service_unavailable_stub() {
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
+        let mut subscribed = false;
+
+        let response = handle_message(
+            r#"{"type": "explorer.install", "id": "req-42"}"#,
+            &state,
+            &mut subscribed,
+        );
+
+        let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+        assert_eq!(resp["type"], "error");
+        assert_eq!(resp["id"], "req-42");
+        assert_eq!(resp["error"]["code"], "service_unavailable");
+        assert_eq!(resp["error"]["kind"], "HostLocal");
+        assert_eq!(resp["error"]["detail"], "install_context_not_constructed");
+    }
+
+    #[test]
+    fn explorer_preview_and_list_share_stub_envelope() {
+        // Smoke-check the rest of the arms so a future split doesn't
+        // silently regress one of them.
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
+        let mut subscribed = false;
+
+        for msg_type in [
+            "explorer.preview",
+            "explorer.cancelPreview",
+            "explorer.list",
+            "explorer.get",
+        ] {
+            let msg = format!(r#"{{"type": "{msg_type}"}}"#);
+            let response = handle_message(&msg, &state, &mut subscribed);
+            let resp: Value = serde_json::from_str(&response.unwrap()).unwrap();
+            assert_eq!(resp["type"], "error", "{msg_type} missing error type");
+            assert_eq!(
+                resp["error"]["code"], "service_unavailable",
+                "{msg_type} wrong code"
+            );
+        }
     }
 
     #[test]
