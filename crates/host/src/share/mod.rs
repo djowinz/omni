@@ -13,6 +13,7 @@
 pub mod cache;
 pub mod client;
 pub mod error;
+pub mod handlers;
 pub mod install;
 pub mod preview;
 pub mod progress;
