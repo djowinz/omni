@@ -175,8 +175,22 @@ describe("GET /v1/download/:id — happy path unauthenticated", () => {
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
     expect(res.headers.get("X-Omni-Content-Hash")).toBe(contentHash);
     expect(res.headers.get("X-Omni-Author-Pubkey")).toBe(PUBKEY_HEX);
-    expect(res.headers.get("X-Omni-Signature")).toBeTruthy();
-    expect(res.headers.get("X-Omni-Manifest")).toBeTruthy();
+    // X-Omni-Signature: the current WASM `WasmSignedBundleHandle` surface does
+    // not expose the raw Ed25519 signature, and Worker-repacked blobs strip the
+    // JWS entirely (invariant #1). The contract (§4.2) says the header must
+    // carry the real signature or be absent — never empty-string, never a
+    // placeholder. Assert absence here until the WASM surface grows a
+    // `signatureBytes()` accessor.
+    expect(res.headers.get("X-Omni-Signature")).toBeNull();
+    // X-Omni-Manifest must be a non-empty base64 string whose decode parses as
+    // JSON and carries the expected manifest identity fields.
+    const manifestB64 = res.headers.get("X-Omni-Manifest");
+    expect(manifestB64).toBeTruthy();
+    const manifestJson = JSON.parse(atob(manifestB64!)) as Record<string, unknown>;
+    expect(manifestJson.name).toBe("download-test");
+    expect(manifestJson.version).toBe("1.0.0");
+    expect(manifestJson.schema_version).toBe(1);
+    expect(Array.isArray(manifestJson.files)).toBe(true);
     const bytes = new Uint8Array(await res.arrayBuffer());
     expect(bytes.byteLength).toBeGreaterThan(0);
 

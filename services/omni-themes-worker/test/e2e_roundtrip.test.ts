@@ -328,13 +328,20 @@ describe("miniflare end-to-end: upload → list → download (W4T16)", () => {
     expect(dlRes.headers.get("content-type")).toContain("application/octet-stream");
     expect(dlRes.headers.get("X-Omni-Content-Hash")).toBe(uploadBody.content_hash);
     expect(dlRes.headers.get("X-Omni-Author-Pubkey")).toBe(PUBKEY_HEX);
-    // X-Omni-Signature / X-Omni-Manifest are populated only when the stored
-    // blob still carries a valid signature.jws. Worker sanitize repack strips
-    // it (invariant #1 — Worker cannot re-sign), so these headers are present
-    // but empty in the round-trip path. Asserting `!== null` proves they are
-    // emitted; tolerating empty values encodes the DONE_WITH_CONCERNS caveat.
-    expect(dlRes.headers.get("X-Omni-Signature")).not.toBeNull();
-    expect(dlRes.headers.get("X-Omni-Manifest")).not.toBeNull();
+    // X-Omni-Signature: the Worker's sanitize repack strips the JWS entry
+    // (invariant #1 — the Worker cannot re-sign) and the current WASM surface
+    // does not expose the raw signature either way. Per contract §4.2 the
+    // header is omitted entirely rather than emitted with a placeholder.
+    expect(dlRes.headers.get("X-Omni-Signature")).toBeNull();
+    // X-Omni-Manifest must parse as JSON (via base64) and match the uploaded
+    // manifest's identity fields. The unsigned-fast-path `bundle.unpackManifest`
+    // populates this header even on stripped-JWS blobs.
+    const dlManifestB64 = dlRes.headers.get("X-Omni-Manifest");
+    expect(dlManifestB64).toBeTruthy();
+    const dlHeaderManifest = JSON.parse(atob(dlManifestB64!)) as Record<string, unknown>;
+    expect(dlHeaderManifest.name).toBe(manifest.name);
+    expect(dlHeaderManifest.version).toBe(manifest.version);
+    expect(dlHeaderManifest.schema_version).toBe(manifest.schema_version);
 
     const downloadedBytes = new Uint8Array(await dlRes.arrayBuffer());
     expect(downloadedBytes.byteLength).toBeGreaterThan(0);
