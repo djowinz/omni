@@ -23,7 +23,7 @@ import { checkAndIncrement } from "../lib/rate_limit";
 import { parseMultipart, MultipartError } from "../lib/multipart";
 import { loadWasm } from "../lib/wasm";
 import { hexEncode } from "../lib/hex";
-import { b64urlDecode } from "../lib/base64url";
+import { b64urlDecode, b64urlEncodeJson } from "../lib/base64url";
 
 const app = new Hono<AppEnv>();
 
@@ -241,14 +241,26 @@ app.patch("/:id", async (c) => {
   }
 
   // 6/7. Sanitize + repack via the BundleProcessor DO (keyed per DF per
-  // invariant #10). The DO returns JSON
-  // `{sanitized_bundle: base64url, sanitize_report, canonical_hash: hex}`
-  // on success, or a structured error envelope otherwise.
+  // invariant #10). Runtime `config:limits` are forwarded to the DO via
+  // `X-Omni-Bundle-Limits` so server-policy caps apply at unpack+repack
+  // time (invariant #9b). Fail-closed if the KV is unseeded. The DO
+  // returns JSON `{sanitized_bundle: base64url, sanitize_report,
+  // canonical_hash: hex}` on success, or a structured error envelope.
+  const limitsRaw = await env.STATE.get("config:limits");
+  if (!limitsRaw) {
+    return errorResponse(500, "SERVER_ERROR", "config:limits not seeded", {
+      kind: "Io", detail: "Generic",
+    });
+  }
+  const limits = JSON.parse(limitsRaw);
   const doId = env.BUNDLE_PROCESSOR.idFromName(dfHex);
   const stub = env.BUNDLE_PROCESSOR.get(doId);
   const doRes = await stub.fetch("https://do.internal/sanitize", {
     method: "POST",
-    headers: { "content-type": "application/octet-stream" },
+    headers: {
+      "content-type": "application/octet-stream",
+      "X-Omni-Bundle-Limits": b64urlEncodeJson(limits),
+    },
     body: parts.bundle,
   });
 

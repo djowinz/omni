@@ -174,6 +174,17 @@ beforeAll(async () => {
 beforeEach(async () => {
   await resetD1();
   await resetKv();
+  // PATCH routes config:limits through to the DO; fail-closed if unseeded.
+  await env.STATE.put(
+    "config:limits",
+    JSON.stringify({
+      max_bundle_compressed: 5_242_880,
+      max_bundle_uncompressed: 10_485_760,
+      max_entries: 32,
+      version: 1,
+      updated_at: 0,
+    }),
+  );
   AUTHOR_PUB ||= await ed.getPublicKeyAsync(AUTHOR_SEED);
   OTHER_PUB ||= await ed.getPublicKeyAsync(OTHER_SEED);
   MOD_PUB ||= await ed.getPublicKeyAsync(MOD_SEED);

@@ -283,7 +283,7 @@ app.post("/", async (c) => {
 
   let sanitized;
   try {
-    sanitized = await sanitizeViaDO(env, parts.bundle, dfHex);
+    sanitized = await sanitizeViaDO(env, parts.bundle, dfHex, limits);
   } catch (e) {
     const cat = classifyWasmError(e);
     return errorFromKind(cat.kind, cat.detail, cat.message);
