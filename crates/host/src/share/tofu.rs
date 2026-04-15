@@ -43,11 +43,10 @@ impl TofuStore {
     }
 }
 
-/// Stable rendering of a `Fingerprint` (invariant #20 stable Display).
-/// Uses `omni_identity::Fingerprint`'s own `Display` impl (three dash-separated
-/// BIP-39 words) so every consumer renders fingerprints identically.
+/// 12-char lowercase hex rendering of a `Fingerprint` (invariant #20).
+/// Used for `InstalledEntry::fingerprint_hex` and D-004-J error details.
 pub fn fingerprint_hex(fp: &Fingerprint) -> String {
-    format!("{fp}")
+    fp.to_hex()
 }
 
 #[cfg(test)]
