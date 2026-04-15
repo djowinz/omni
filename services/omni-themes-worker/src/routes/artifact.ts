@@ -8,13 +8,11 @@
  *
  * PATCH / DELETE are author-only. Authored pubkey MUST equal the JWS `kid`.
  *
- * NOTE on PATCH pipeline reuse: W3T10 (upload) is being written concurrently
- * in Wave C. At the time of this change, `processUploadBody` did NOT exist
- * as a shared helper, so this file implements the owner + hash-compare half
- * of the PATCH flow natively and defers the full sanitize/repack pipeline to
- * the `BundleProcessor` DO — the same DO the upload route invokes. W4 cleanup
- * should factor the `multipart → DO → persist` code path into a shared helper
- * in `src/lib/upload_pipeline.ts` once both routes are in-tree. See report.
+ * NOTE on PATCH pipeline reuse: this route shares the multipart → DO →
+ * persist shape with the upload route (§4) but inlines the call because the
+ * persist half (update existing row vs insert new) differs materially. W4
+ * cleanup could factor the `multipart parse → DO sanitize → decode` prefix
+ * into a shared helper in `src/lib/upload_pipeline.ts`.
  */
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
@@ -22,6 +20,8 @@ import { errorResponse, errorFromKind } from "../lib/errors";
 import { verifyJws, AuthError } from "../lib/auth";
 import { isModerator } from "../lib/moderator";
 import { checkAndIncrement } from "../lib/rate_limit";
+import { parseMultipart, MultipartError } from "../lib/multipart";
+import { loadWasm } from "../lib/wasm";
 
 const app = new Hono<AppEnv>();
 
@@ -93,7 +93,11 @@ async function loadArtifact(
     .first<ArtifactFullRow>();
 }
 
-function artifactResponse(row: ArtifactFullRow, includeReports: boolean): unknown {
+function artifactResponse(
+  row: ArtifactFullRow,
+  includeReports: boolean,
+  manifest: object | null,
+): unknown {
   const pubHex = hexEncode(new Uint8Array(row.author_pubkey));
   const body: Record<string, unknown> = {
     artifact_id: row.id,
@@ -104,11 +108,14 @@ function artifactResponse(row: ArtifactFullRow, includeReports: boolean): unknow
     license: row.license ?? "",
     version: row.version,
     omni_min_version: row.omni_min_version,
-    manifest: null, // filled on a best-effort basis from R2 in a later pass;
-    // §8 lists `manifest` as a field but building it requires cracking the
-    // bundle open. The download route exposes the manifest via
-    // X-Omni-Manifest; the artifact GET here stays metadata-only until W4T14
-    // wires the shared manifest-extraction helper.
+    // Extracted fresh from R2 per GET via the unsigned fast path
+    // (`bundle.unpackManifest`, invariant #19b). Worker-repacked blobs are
+    // unsigned (invariant #1) so the unsigned path is correct. Cost: one R2
+    // read + manifest-only parse per GET. If this becomes a hot-path concern,
+    // add a `manifest_json` column + migration in a follow-up; not doing it
+    // now avoids D1 schema churn for a route that is mainly reached from
+    // client detail-view navigations.
+    manifest,
     content_hash: row.content_hash,
     r2_url: `/v1/download/${row.id}`,
     thumbnail_url: `/v1/thumbnail/${row.thumbnail_hash}`,
@@ -151,7 +158,28 @@ app.get("/:id", async (c) => {
     }
   }
 
-  return new Response(JSON.stringify(artifactResponse(row, includeReports)), {
+  // Manifest extraction from R2. Worker-stored blobs are unsigned repacked
+  // bundles (invariant #1), so the unsigned fast path `bundle.unpackManifest`
+  // is the correct reader — no signature to verify against. Failure to fetch
+  // or parse degrades to `manifest: null`; the metadata columns still answer
+  // the bulk of the contract.
+  let manifest: object | null = null;
+  try {
+    const r2Obj = await env.BLOBS.get(`bundles/${row.content_hash}.omnipkg`);
+    if (r2Obj) {
+      const bytes = new Uint8Array(await r2Obj.arrayBuffer());
+      const { bundle } = await loadWasm();
+      try {
+        manifest = bundle.unpackManifest(bytes, undefined) as object;
+      } catch {
+        manifest = null;
+      }
+    }
+  } catch {
+    manifest = null;
+  }
+
+  return new Response(JSON.stringify(artifactResponse(row, includeReports, manifest)), {
     status: 200,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
@@ -196,23 +224,38 @@ app.patch("/:id", async (c) => {
     });
   }
 
-  // 5/6/7. The sanitize + repack pipeline lives in the BundleProcessor DO
-  // (§5). The DO is keyed on device fingerprint. We forward the multipart
-  // body verbatim; the DO returns `{sanitized_bundle, canonical_hash, ...}`
-  // on success. If the new canonical_hash equals the existing row's
-  // content_hash, this is a content-noop update → return {status:"unchanged"}
-  // without replacing the R2 blob.
+  // 5. Unwrap multipart. The DO (`do/bundle_processor.ts`) expects raw bundle
+  // bytes as `application/octet-stream` — same call shape as the upload
+  // route's `sanitizeViaDO` helper. Forwarding the multipart envelope
+  // verbatim would land the DO's `req.arrayBuffer()` on the multipart
+  // framing, not the bundle bytes, and trip `unpackSignedBundle`.
+  const formReq = new Request(c.req.raw.url, {
+    method: c.req.raw.method,
+    headers: c.req.raw.headers,
+    body,
+  });
+  let parts;
+  try {
+    parts = await parseMultipart(formReq);
+  } catch (e) {
+    if (e instanceof MultipartError) {
+      return errorFromKind("Malformed", "BadRequest", `multipart: ${e.message}`);
+    }
+    throw e;
+  }
+
+  // 6/7. Sanitize + repack via the BundleProcessor DO (keyed per DF per
+  // invariant #10). The DO returns JSON
+  // `{sanitized_bundle: base64url, sanitize_report, canonical_hash: hex}`
+  // on success, or a structured error envelope otherwise.
   const doId = env.BUNDLE_PROCESSOR.idFromName(dfHex);
   const stub = env.BUNDLE_PROCESSOR.get(doId);
   const doRes = await stub.fetch("https://do.internal/sanitize", {
     method: "POST",
-    headers: c.req.raw.headers,
-    body,
+    headers: { "content-type": "application/octet-stream" },
+    body: parts.bundle,
   });
 
-  // While W3T9 is in-flight the DO still returns 501; surface the response
-  // verbatim in that case so integration tests see a stable error envelope
-  // instead of a partially-updated row.
   if (doRes.status >= 400) {
     const text = await doRes.text();
     return new Response(text, {
@@ -222,10 +265,9 @@ app.patch("/:id", async (c) => {
   }
 
   const doBody = (await doRes.json()) as {
+    sanitized_bundle: string;
+    sanitize_report?: unknown;
     canonical_hash: string;
-    sanitized_bundle_key?: string;
-    thumbnail_key?: string;
-    manifest?: { version?: string };
   };
 
   if (doBody.canonical_hash === row.content_hash) {
@@ -235,11 +277,24 @@ app.patch("/:id", async (c) => {
     );
   }
 
-  // Replace R2 blob (old hash) and update D1 row.
+  // Decode the sanitized bundle and extract the post-sanitize version from
+  // its manifest (unsigned fast path per invariant #19b — repacked blobs are
+  // unsigned per invariant #1).
+  const sanitizedBytes = base64UrlDecode(doBody.sanitized_bundle);
+  let newVersion = row.version;
+  try {
+    const { bundle } = await loadWasm();
+    const m = bundle.unpackManifest(sanitizedBytes, undefined) as { version?: string };
+    if (typeof m.version === "string") newVersion = m.version;
+  } catch {
+    // keep existing version
+  }
+
+  // Replace R2 blob (old hash → new hash) and update D1 row.
   const now = Math.floor(Date.now() / 1000);
-  const newVersion = doBody.manifest?.version ?? row.version;
   await Promise.all([
     env.BLOBS.delete(`bundles/${row.content_hash}.omnipkg`),
+    env.BLOBS.put(`bundles/${doBody.canonical_hash}.omnipkg`, sanitizedBytes),
     env.META.prepare(
       `UPDATE artifacts
          SET content_hash = ?, version = ?, updated_at = ?
@@ -260,6 +315,15 @@ app.patch("/:id", async (c) => {
     { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
   );
 });
+
+function base64UrlDecode(s: string): Uint8Array {
+  const pad = s.length % 4 === 2 ? "==" : s.length % 4 === 3 ? "=" : "";
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // DELETE /v1/artifact/:id  (author-only soft delete)
