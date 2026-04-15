@@ -1,0 +1,13 @@
+/* High-contrast test theme. Deliberately extreme values so the resulting
+   pixels are visibly (and byte-level) distinct from the default theme. */
+:root {
+  --bg: #000000;
+  --bg-light: #111111;
+  --text: #ffff00;
+  --text-dim: #ffcc00;
+  --accent: #ff00ff;
+  --warning: #00ffff;
+  --critical: #ff0000;
+  --font: 'Segoe UI';
+  --font-size: 28px;
+}

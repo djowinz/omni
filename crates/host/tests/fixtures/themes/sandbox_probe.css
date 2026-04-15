@@ -1,0 +1,8 @@
+/* Sandbox-probe theme. Attempts to reference a resource OUTSIDE the bundle
+   root via url(); OverlayFilesystem scoping (sub-spec #001) should refuse it.
+   This file itself is benign — the probe is a negative test: the renderer must
+   not resolve the traversal. */
+:root {
+  --bg: url("../../../../etc/passwd");
+  --text: #ffffff;
+}
