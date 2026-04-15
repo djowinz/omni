@@ -1,4 +1,5 @@
 import type { AppProps } from 'next/app';
+import { Toaster } from 'sonner';
 import '../styles/globals.css';
 import { OmniProvider } from '@/hooks/use-omni-state';
 import { Header } from '@/components/omni/header';
@@ -34,6 +35,7 @@ export default function App({ Component, pageProps }: AppProps) {
           <Component {...pageProps} />
         </AppLayout>
       </OmniProvider>
+      <Toaster richColors position="bottom-right" />
     </div>
   );
 }
