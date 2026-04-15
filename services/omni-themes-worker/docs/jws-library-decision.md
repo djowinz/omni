@@ -76,3 +76,18 @@ verifier). workerd's Web Crypto exposes `Ed25519` for sign as well,
 so production paths should prefer `crypto.subtle`; noble stays in
 `dependencies` for now but can be moved to `devDependencies` once
 fixture generation consolidates under the WASM fixture harness (Task 3).
+
+## Cleanup (post-decision)
+
+Following the `FALLBACK_WEBCRYPTO` decision above, the cleanup pass:
+
+- **Uninstalled** `@tsndr/cloudflare-worker-jwt` via `pnpm remove`. It
+  cannot verify EdDSA, so Task 5 will call `crypto.subtle.verify`
+  directly; keeping the dep as "maybe useful for HS256 later" is
+  speculative and contradicts writing-lessons #16 (don't keep unused
+  deps). If a future task needs HS256 admin tokens, reinstalling is
+  one command.
+- **Moved `@noble/ed25519` to `devDependencies`.** Production signing
+  uses workerd's `crypto.subtle.sign('Ed25519', …)`; noble is only
+  imported from test fixtures / the probe script, so shipping it in
+  the Worker bundle is unnecessary weight.
