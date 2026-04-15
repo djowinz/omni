@@ -36,6 +36,14 @@ quick-xml = "0.37"
 notify = "7"
 regex-lite = "0.1"
 ultralight-sys = { path = "../ultralight-sys" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart", "stream"] }
+moka = { version = "0.12", features = ["future"] }
+backon = "1"
+url = "2"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
 
 [dependencies.windows]
 version = "0.58"
