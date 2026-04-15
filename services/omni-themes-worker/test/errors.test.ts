@@ -156,7 +156,8 @@ describe("errorFromKind — admin category (§3)", () => {
   const cases: Array<[string, ContentfulStatusCode, string]> = [
     ["NotModerator", 403, "ADMIN_NOT_MODERATOR"],
     ["BadTag", 400, "ADMIN_BAD_TAG"],
-    ["WouldOrphanArtifacts", 400, "ADMIN_WOULD_ORPHAN_ARTIFACTS"],
+    // Spec §9b + plan W3T12: this is a conflict with existing resource state → 409.
+    ["WouldOrphanArtifacts", 409, "ADMIN_WOULD_ORPHAN_ARTIFACTS"],
     ["BadValue", 400, "ADMIN_BAD_VALUE"],
     ["NoOp", 400, "ADMIN_NO_OP"],
   ];

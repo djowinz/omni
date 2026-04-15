@@ -164,7 +164,8 @@ function mapAdmin(detail: string | undefined): [ContentfulStatusCode, ErrorCode]
     case "BadTag":
       return [400, "ADMIN_BAD_TAG"];
     case "WouldOrphanArtifacts":
-      return [400, "ADMIN_WOULD_ORPHAN_ARTIFACTS"];
+      // Plan #008 W3T12 / spec §9b: conflict with existing resource state → 409.
+      return [409, "ADMIN_WOULD_ORPHAN_ARTIFACTS"];
     case "BadValue":
       return [400, "ADMIN_BAD_VALUE"];
     case "NoOp":

@@ -126,7 +126,9 @@ export async function sanitizeViaDO(
 }
 
 function base64UrlDecode(s: string): Uint8Array {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "==".slice((s.length + 3) % 4);
+  // RFC 4648 §5 — restore '=' padding to a multiple of 4.
+  const pad = s.length % 4 === 2 ? "==" : s.length % 4 === 3 ? "=" : "";
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
   const raw = atob(b64);
   const out = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
