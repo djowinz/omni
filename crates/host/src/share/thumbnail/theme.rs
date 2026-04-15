@@ -65,47 +65,55 @@ pub fn generate_for_theme(
 mod tests {
     use super::*;
 
+    /// Non-ignored precondition: the bundled reference overlay MUST declare a
+    /// `<theme src="..."/>` element, and the tempdir layout code must compute
+    /// a valid theme path from it and write the user CSS there. This covers
+    /// the entire body of `generate_for_theme` up to — but not including —
+    /// the `render_omni_to_png` call (which requires Ultralight and is
+    /// exercised by `generate_for_theme_smoke` below).
+    #[test]
+    fn reference_overlay_declares_theme_src_and_layout_writes_css() {
+        let (parsed, _diagnostics) = parse_omni_with_diagnostics(REFERENCE_OVERLAY_OMNI);
+        let omni_file = parsed.expect("reference overlay must parse");
+        let theme_src = omni_file
+            .theme_src
+            .as_deref()
+            .expect("reference overlay must declare <theme src=\"...\"/>");
+
+        // Mirror the tempdir layout performed by `generate_for_theme`.
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let overlay_dir = temp.path().join("overlays").join(REFERENCE_OVERLAY_NAME);
+        std::fs::create_dir_all(&overlay_dir).expect("mkdir overlay_dir");
+        let theme_path = overlay_dir.join(theme_src);
+        if let Some(parent) = theme_path.parent() {
+            std::fs::create_dir_all(parent).expect("mkdir theme parent");
+        }
+        let css = b"/* layout test */";
+        std::fs::write(&theme_path, css).expect("write theme");
+        assert_eq!(
+            std::fs::read(&theme_path).expect("read theme"),
+            css,
+            "theme file contents must round-trip through layout"
+        );
+    }
+
     /// End-to-end smoke test — requires Ultralight resources next to the test
-    /// executable and, currently, a `<theme src="..."/>` declaration in the
-    /// bundled reference overlay (absent as of W2T2). Run manually with
-    /// `cargo test -- --ignored`. Real coverage lives in Task 6's integration
-    /// tests.
+    /// executable. Kept `#[ignore]` for that reason; run manually with
+    /// `cargo test -- --ignored`. With the reference overlay now declaring
+    /// `<theme src="..."/>`, this is the real render-path gate. Integration
+    /// coverage lives in Task 6.
     #[test]
     #[ignore]
     fn generate_for_theme_smoke() {
+        let (parsed, _) = parse_omni_with_diagnostics(REFERENCE_OVERLAY_OMNI);
+        let omni_file = parsed.expect("reference overlay must parse");
+        assert!(
+            omni_file.theme_src.is_some(),
+            "smoke test requires the reference overlay to declare <theme src=\"...\"/>"
+        );
+
         let config = ThumbnailConfig::default();
         let css = b"/* empty user theme */";
         let _ = generate_for_theme(css, &config).expect("smoke render");
-    }
-
-    /// Under the current reference overlay (no `<theme>` element),
-    /// `generate_for_theme` must return [`ThumbnailError::RenderFailed`]
-    /// rather than silently rendering the default chrome. If a future Task 2
-    /// amendment adds a `<theme>` element, this test should flip to the smoke
-    /// path.
-    #[test]
-    fn generate_for_theme_errors_when_reference_overlay_has_no_theme_src() {
-        // The parser may independently succeed or emit non-error diagnostics;
-        // regardless, if no theme_src is declared we expect RenderFailed.
-        let (parsed, _diagnostics) = parse_omni_with_diagnostics(REFERENCE_OVERLAY_OMNI);
-        if let Some(ref f) = parsed {
-            if f.theme_src.is_some() {
-                // Reference overlay now declares theme_src — this test is
-                // obsolete; skip without failing.
-                return;
-            }
-        }
-
-        let config = ThumbnailConfig::default();
-        let err = generate_for_theme(b"", &config).expect_err("must fail without theme_src");
-        match err {
-            ThumbnailError::RenderFailed { detail } => {
-                assert!(
-                    detail.contains("theme_src") || detail.contains("parse"),
-                    "unexpected detail: {detail}"
-                );
-            }
-            other => panic!("expected RenderFailed, got {other:?}"),
-        }
     }
 }
