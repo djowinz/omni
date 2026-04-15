@@ -83,6 +83,16 @@ pub struct VocabDoc {
     pub version: u32,
 }
 
+/// Failure modes for [`ShareClient::download`]. Upload/install pipelines carve
+/// richer domain errors atop these.
+#[derive(Debug, thiserror::Error)]
+pub enum DownloadError {
+    #[error("http error: {0}")]
+    Http(#[source] reqwest::Error),
+    #[error("server returned status {status}: {body}")]
+    Status { status: u16, body: String },
+}
+
 /// Server response for `POST /v1/upload` and `PATCH /v1/artifact/:id`.
 #[derive(Debug, Clone, Deserialize)]
 struct UploadResponseBody {
@@ -537,6 +547,51 @@ impl ShareClient {
         }
     }
 
+    /// Download the raw bundle bytes for `artifact_id` from `/v1/download/:id`.
+    ///
+    /// Progress is streamed through `on_chunk(received, total)` as each chunk
+    /// arrives. The download endpoint is optional-auth per worker-api §4.2, so
+    /// this issues an unsigned GET (JWS is attached only on signed routes).
+    ///
+    /// Returns a [`DownloadError`] carved from the HTTPS failure modes: network
+    /// I/O (`Http`) vs. non-2xx status (`Status { status, body }`).
+    pub async fn download<F: FnMut(u64, u64)>(
+        &self,
+        artifact_id: &str,
+        mut on_chunk: F,
+    ) -> Result<Vec<u8>, DownloadError> {
+        use futures_util::StreamExt;
+        let url = self
+            .base_url
+            .join(&format!("v1/download/{artifact_id}"))
+            .expect("base_url is pre-validated; join cannot fail for static path");
+        let resp = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(DownloadError::Http)?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(DownloadError::Status {
+                status: status.as_u16(),
+                body,
+            });
+        }
+        let total = resp.content_length().unwrap_or(0);
+        // Cap pre-allocation so a malicious/huge Content-Length cannot OOM us.
+        const MAX_PREALLOC: u64 = 16 * 1024 * 1024;
+        let mut buf = Vec::with_capacity(total.min(MAX_PREALLOC) as usize);
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(DownloadError::Http)?;
+            buf.extend_from_slice(&chunk);
+            on_chunk(buf.len() as u64, total);
+        }
+        Ok(buf)
+    }
+
     async fn decode_error(resp: reqwest::Response) -> UploadError {
         let status = resp.status().as_u16();
         let header_retry_after = resp
@@ -652,4 +707,57 @@ pub(crate) fn serialize_multipart(parts: Vec<MultipartPart>) -> (Vec<u8>, String
 
     let content_type = format!("multipart/form-data; boundary={boundary}");
     (out, content_type)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omni_guard_trait::StubGuard;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn test_client(base: &str) -> ShareClient {
+        ShareClient::new(
+            Url::parse(base).unwrap(),
+            Arc::new(Keypair::generate()),
+            Arc::new(StubGuard) as Arc<dyn Guard>,
+        )
+    }
+
+    #[tokio::test]
+    async fn download_returns_bytes_and_reports_progress() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/download/abc"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"hello".to_vec()))
+            .mount(&server)
+            .await;
+
+        let client = test_client(&server.uri());
+        let mut seen = 0u64;
+        let bytes = client
+            .download("abc", |rx, _total| {
+                seen = rx;
+            })
+            .await
+            .unwrap();
+        assert_eq!(bytes, b"hello");
+        assert_eq!(seen, 5);
+    }
+
+    #[tokio::test]
+    async fn download_surfaces_non_200_as_status_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/download/missing"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let err = client.download("missing", |_, _| {}).await.unwrap_err();
+        match err {
+            DownloadError::Status { status, .. } => assert_eq!(status, 404),
+            _ => panic!("expected DownloadError::Status"),
+        }
+    }
 }
