@@ -21,6 +21,14 @@ mod bundle;
 #[cfg(windows)]
 mod acl;
 
+// Pure-Rust algorithmic core of the wasm JWS signer. Split out so the byte
+// layout of the signed envelope is inspectable independent of the wasm-bindgen
+// surface. Byte-for-byte equivalence with the native `jsonwebtoken` path is
+// enforced by `tests/jws_native_wasm_parity.rs`, which re-implements this
+// algorithm inline and diffs both against the native oracle.
+#[cfg(feature = "wasm")]
+pub(crate) mod wasm_jws_core;
+
 #[cfg(feature = "wasm")]
 pub mod wasm;
 

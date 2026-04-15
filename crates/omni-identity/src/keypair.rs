@@ -144,6 +144,19 @@ impl Keypair {
         }
     }
 
+    /// Deterministic constructor for tests / fixtures only. Production code
+    /// MUST use [`Keypair::generate`] or [`Keypair::load_or_create`] — a
+    /// fixed seed has zero entropy and trivially leaks the private key.
+    ///
+    /// Exposed as `#[doc(hidden)]` so it doesn't appear in public docs. The
+    /// native↔wasm JWS byte-parity regression test in
+    /// `tests/jws_native_wasm_parity.rs` needs it to bind the native oracle
+    /// path (`Keypair::sign_jws`) to the same seed the WASM path uses.
+    #[doc(hidden)]
+    pub fn from_seed_for_test(seed: &[u8; 32]) -> Self {
+        Self::from_seed(seed)
+    }
+
     pub fn load_or_create(path: &Path) -> Result<Self, IdentityError> {
         if path.exists() {
             let bytes = std::fs::read(path)?;

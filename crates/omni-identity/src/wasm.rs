@@ -16,7 +16,7 @@
 use std::collections::BTreeMap;
 
 use base64::Engine;
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Verifier, VerifyingKey};
 use omni_bundle::{
     canonical_hash, pack as bundle_pack, unpack as bundle_unpack, BundleLimits, FileEntry, Manifest,
 };
@@ -158,29 +158,10 @@ fn sign_jws_compact(
     seed: &[u8; 32],
     embed_jwk: bool,
 ) -> Result<String, JsValue> {
-    let sk = SigningKey::from_bytes(seed);
-    let pk = sk.verifying_key().to_bytes();
-    let header = JwsHeader {
-        alg: "EdDSA".into(),
-        typ: "JWT".into(),
-        jwk: if embed_jwk {
-            Some(OkpJwk {
-                crv: "Ed25519".into(),
-                kty: "OKP".into(),
-                x: B64.encode(pk),
-            })
-        } else {
-            None
-        },
-    };
-    let header_bytes = serde_json::to_vec(&header).map_err(to_js_err)?;
-    let payload_bytes = serde_json::to_vec(claims).map_err(to_js_err)?;
-    let header_b64 = B64.encode(&header_bytes);
-    let payload_b64 = B64.encode(&payload_bytes);
-    let signing_input = format!("{header_b64}.{payload_b64}");
-    let sig = sk.sign(signing_input.as_bytes());
-    let sig_b64 = B64.encode(sig.to_bytes());
-    Ok(format!("{signing_input}.{sig_b64}"))
+    // Delegates to the unconditionally-compiled pure-Rust core so the native
+    // byte-parity regression test in `tests/jws_native_wasm_parity.rs` can
+    // exercise the exact same signing bytes this WASM path produces.
+    crate::wasm_jws_core::sign_jws_compact_core(claims, seed, embed_jwk).map_err(to_js_err)
 }
 
 fn jws_parts(token: &str) -> Result<(&str, &str, &str), JsValue> {
