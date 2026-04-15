@@ -161,8 +161,51 @@ pub async fn pack_only(
                 source: Some(Box::new(e)),
             })?;
 
-    // Thumbnail: placeholder until sub-spec #011 lands the real renderer.
-    let thumbnail_png = placeholder_thumbnail();
+    // Thumbnail: render via sub-spec #011's generators. Both paths are
+    // synchronous + CPU-heavy (Ultralight off-screen render), so we hop onto
+    // `spawn_blocking` to avoid starving the async runtime. Thumbnail
+    // generation happens inside the `Packing` phase window already emitted by
+    // the caller — spec §10 floated a `GeneratingThumbnail` variant but
+    // sub-spec #009 closed `UploadProgress` without it, so we keep the
+    // existing vocabulary per invariant #19.
+    let thumbnail_png = match req.kind {
+        ArtifactKind::Theme => {
+            let css = sanitized_files
+                .get("theme.css")
+                .cloned()
+                .ok_or_else(|| UploadError::BadInput {
+                    msg: "sanitized theme missing theme.css".into(),
+                    source: None,
+                })?;
+            tokio::task::spawn_blocking(move || {
+                crate::share::thumbnail::theme::generate_for_theme(
+                    &css,
+                    &crate::share::thumbnail::ThumbnailConfig::default(),
+                )
+            })
+            .await
+            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?
+            .map_err(|e| UploadError::BadInput {
+                msg: "thumbnail generation failed".into(),
+                source: Some(Box::new(e)),
+            })?
+        }
+        ArtifactKind::Bundle => {
+            let bytes = sanitized_bytes.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::share::thumbnail::bundle::generate_for_bundle(
+                    &bytes,
+                    &crate::share::thumbnail::ThumbnailConfig::default(),
+                )
+            })
+            .await
+            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?
+            .map_err(|e| UploadError::BadInput {
+                msg: "thumbnail generation failed".into(),
+                source: Some(Box::new(e)),
+            })?
+        }
+    };
 
     Ok(PackResult {
         manifest_name,
@@ -367,18 +410,6 @@ fn rebuild_manifest_with(base: &Manifest, files: &BTreeMap<String, Vec<u8>>) -> 
     m
 }
 
-fn placeholder_thumbnail() -> Vec<u8> {
-    // 1×1 transparent PNG (89 bytes); sub-spec #011 replaces with a real
-    // rendered thumbnail once the thumbnail API lands.
-    vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
-        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,6 +450,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
     async fn pack_only_theme_roundtrips() {
         // Keypair::generate is the test-friendly constructor in omni-identity.
         let kp = Keypair::generate();

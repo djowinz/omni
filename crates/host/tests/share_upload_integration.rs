@@ -61,6 +61,7 @@ fn limits_body() -> serde_json::Value {
 }
 
 #[tokio::test]
+#[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
 async fn happy_path_upload_emits_jws_header_and_progress() {
     // 1. Spin up mock Worker
     let server = MockServer::start().await;
@@ -135,6 +136,7 @@ async fn happy_path_upload_emits_jws_header_and_progress() {
 }
 
 #[tokio::test]
+#[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
 async fn rate_limited_retries_once_then_succeeds() {
     let server = MockServer::start().await;
 
@@ -191,6 +193,7 @@ async fn rate_limited_retries_once_then_succeeds() {
 }
 
 #[tokio::test]
+#[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
 async fn auth_bad_signature_is_not_retried() {
     let server = MockServer::start().await;
 
@@ -232,6 +235,7 @@ async fn auth_bad_signature_is_not_retried() {
 }
 
 #[tokio::test]
+#[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
 async fn oversized_bundle_returns_bad_input_before_hitting_server() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -281,6 +285,7 @@ async fn oversized_bundle_returns_bad_input_before_hitting_server() {
 /// newly-created artifact on a follow-up `list` even when the mock Worker's
 /// list endpoint returns an empty page — D1/KV eventual consistency workaround.
 #[tokio::test]
+#[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
 async fn cache_entry_visible_in_followup_list() {
     let server = MockServer::start().await;
 
