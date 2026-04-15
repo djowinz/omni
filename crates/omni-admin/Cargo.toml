@@ -28,6 +28,9 @@ base64 = "0.22"
 thiserror = "1"
 jsonwebtoken = "9"
 
+[dev-dependencies]
+tempfile = "3"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
@@ -35,4 +38,5 @@ windows = { version = "0.58", features = [
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
+    "Win32_System_SystemServices",
 ] }
