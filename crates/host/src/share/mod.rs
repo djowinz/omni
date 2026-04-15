@@ -1,7 +1,8 @@
-//! Host-side upload pipeline (sub-spec #009).
+//! Host-side share pipeline.
 //!
-//! Public surface of this module is consumed by `crate::ws_server` via
-//! [`ws_messages::dispatch`]. Internal structure:
+//! Per architectural invariant #12 the host is the single boundary between
+//! editor and Worker. All outbound/inbound-Worker concerns live under this
+//! module. Internal structure:
 //!
 //! * [`error`] — domain-carved `UploadError` (invariant #19a).
 //! * [`progress`] — `UploadProgress` enum + WS adapter.
@@ -9,6 +10,7 @@
 //! * [`client`] — `ShareClient` (reqwest + JWS middleware).
 //! * [`upload`] — `pack_only` + `upload` orchestration.
 //! * [`ws_messages`] — WebSocket dispatch.
+//! * [`thumbnail`] — thumbnail rendering for themes and bundles (sub-spec #011).
 
 pub mod cache;
 pub mod client;
@@ -18,6 +20,7 @@ pub mod install;
 pub mod preview;
 pub mod progress;
 pub mod registry;
+pub mod thumbnail;
 pub mod tofu;
 pub mod upload;
 pub mod ws_messages;

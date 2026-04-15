@@ -55,6 +55,7 @@ uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 semver = { version = "1", features = ["serde"] }
 omni-sanitize = { path = "../omni-sanitize" }
+image = { version = "0.24", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 wiremock = "0.6"
