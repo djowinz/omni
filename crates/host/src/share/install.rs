@@ -569,6 +569,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn missing_signature_surfaces_as_signature_failed() {
+        // Pack via the plain `omni_bundle::pack` — this produces a structurally
+        // valid bundle WITHOUT a `signature.jws` entry. `unpack_signed_bundle`
+        // must surface that absence as `IdentityError::MissingSignature`,
+        // which the install pipeline maps to `InstallError::SignatureFailed`.
+        let overlay_bytes = b"<overlay></overlay>".to_vec();
+        let theme_bytes = b"body { color: red; }".to_vec();
+        let overlay_sha: [u8; 32] = {
+            let mut h = Sha256::new();
+            h.update(&overlay_bytes);
+            h.finalize().into()
+        };
+        let theme_sha: [u8; 32] = {
+            let mut h = Sha256::new();
+            h.update(&theme_bytes);
+            h.finalize().into()
+        };
+        let manifest = Manifest {
+            schema_version: 1,
+            name: "unsigned-theme".into(),
+            version: semver::Version::new(1, 0, 0),
+            omni_min_version: semver::Version::new(0, 1, 0),
+            description: "fixture".into(),
+            tags: vec![Tag::new("dark").unwrap()],
+            license: "MIT".into(),
+            entry_overlay: "overlay.omni".into(),
+            default_theme: Some("themes/theme.css".into()),
+            sensor_requirements: vec![],
+            files: vec![
+                FileEntry {
+                    path: "overlay.omni".into(),
+                    sha256: overlay_sha,
+                },
+                FileEntry {
+                    path: "themes/theme.css".into(),
+                    sha256: theme_sha,
+                },
+            ],
+            resource_kinds: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("overlay.omni".to_string(), overlay_bytes);
+        files.insert("themes/theme.css".to_string(), theme_bytes);
+        let bytes = omni_bundle::pack(&manifest, &files, &BundleLimits::DEFAULT).unwrap();
+
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("themes").join("unsigned-theme");
+        let err = install_from_bytes_for_tests(&bytes, &target)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, InstallError::SignatureFailed(_)),
+            "expected SignatureFailed, got: {err:?}"
+        );
+        assert!(!target.exists(), "no residue on signature failure");
+    }
+
+    #[tokio::test]
     async fn version_mismatch_rejects_before_staging() {
         let (bytes, _kp, _limits) = build_fixture();
         let dir = TempDir::new().unwrap();
