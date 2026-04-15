@@ -62,7 +62,7 @@ where
     F: Fn(String) + Send,
 {
     while let Some(ev) = rx.recv().await {
-        if let Some(wire) = ev.to_wire() {
+        if let Some(wire) = UploadProgress::to_wire(&ev) {
             let frame = json!({
                 "id": request_id,
                 "type": "upload.publishProgress",

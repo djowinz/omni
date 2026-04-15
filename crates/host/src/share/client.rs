@@ -201,8 +201,6 @@ impl ShareClient {
         pack: PackResult,
         progress: mpsc::Sender<UploadProgress>,
     ) -> Result<UploadResult, UploadError> {
-        use reqwest::multipart::{Form, Part};
-
         let _ = progress.send(UploadProgress::Signing).await;
 
         let total = pack.sanitized_bytes.len() as u64;
@@ -211,35 +209,32 @@ impl ShareClient {
             .await;
 
         let manifest_json =
-            serde_json::to_string(&pack.manifest).map_err(|e| UploadError::BadInput {
+            serde_json::to_vec(&pack.manifest).map_err(|e| UploadError::BadInput {
                 msg: "manifest serialization failed".into(),
                 source: Some(Box::new(e)),
             })?;
 
-        let form = Form::new()
-            .part(
-                "manifest",
-                Part::text(manifest_json)
-                    .mime_str("application/json")
-                    .expect("mime")
-                    .file_name("manifest.json"),
-            )
-            .part(
-                "bundle",
-                Part::bytes(pack.sanitized_bytes.clone())
-                    .mime_str("application/octet-stream")
-                    .expect("mime")
-                    .file_name("bundle.omnipkg"),
-            )
-            .part(
-                "thumbnail",
-                Part::bytes(pack.thumbnail_png.clone())
-                    .mime_str("image/png")
-                    .expect("mime")
-                    .file_name("thumbnail.png"),
-            );
-
-        let (body_bytes, content_type) = serialize_multipart(form).await?;
+        let parts = vec![
+            MultipartPart {
+                name: "manifest",
+                filename: "manifest.json",
+                content_type: "application/json",
+                bytes: manifest_json,
+            },
+            MultipartPart {
+                name: "bundle",
+                filename: "bundle.omnipkg",
+                content_type: "application/octet-stream",
+                bytes: pack.sanitized_bytes.clone(),
+            },
+            MultipartPart {
+                name: "thumbnail",
+                filename: "thumbnail.png",
+                content_type: "image/png",
+                bytes: pack.thumbnail_png.clone(),
+            },
+        ];
+        let (body_bytes, content_type) = serialize_multipart(&parts);
 
         let path = "/v1/upload";
         let builder = self
@@ -367,40 +362,36 @@ impl ShareClient {
     }
 
     pub async fn patch(&self, id: &str, edit: PatchEdit) -> Result<UploadResult, UploadError> {
-        use reqwest::multipart::{Form, Part};
-        let mut form = Form::new();
+        let mut parts: Vec<MultipartPart> = Vec::new();
         if let Some(m) = edit.manifest {
-            let text = serde_json::to_string(&m).map_err(|e| UploadError::BadInput {
+            let text = serde_json::to_vec(&m).map_err(|e| UploadError::BadInput {
                 msg: "patch manifest serialization failed".into(),
                 source: Some(Box::new(e)),
             })?;
-            form = form.part(
-                "manifest",
-                Part::text(text)
-                    .mime_str("application/json")
-                    .expect("mime")
-                    .file_name("manifest.json"),
-            );
+            parts.push(MultipartPart {
+                name: "manifest",
+                filename: "manifest.json",
+                content_type: "application/json",
+                bytes: text,
+            });
         }
         if let Some(b) = edit.bundle_bytes {
-            form = form.part(
-                "bundle",
-                Part::bytes(b)
-                    .mime_str("application/octet-stream")
-                    .expect("mime")
-                    .file_name("bundle.omnipkg"),
-            );
+            parts.push(MultipartPart {
+                name: "bundle",
+                filename: "bundle.omnipkg",
+                content_type: "application/octet-stream",
+                bytes: b,
+            });
         }
         if let Some(t) = edit.thumbnail_bytes {
-            form = form.part(
-                "thumbnail",
-                Part::bytes(t)
-                    .mime_str("image/png")
-                    .expect("mime")
-                    .file_name("thumbnail.png"),
-            );
+            parts.push(MultipartPart {
+                name: "thumbnail",
+                filename: "thumbnail.png",
+                content_type: "image/png",
+                bytes: t,
+            });
         }
-        let (body_bytes, content_type) = serialize_multipart(form).await?;
+        let (body_bytes, content_type) = serialize_multipart(&parts);
         let path = format!("/v1/artifact/{id}");
         let builder = self
             .http
@@ -618,39 +609,57 @@ fn default_kind_for_status(status: u16) -> &'static str {
     }
 }
 
-/// Serialize a `reqwest::multipart::Form` into a buffered body + its Content-Type.
-///
-/// Needed because the Worker verifies `body_sha256` over the actual transmitted bytes;
-/// we must hash the exact same bytes that go on the wire. `reqwest` does not expose
-/// `Form::into_bytes()`, so we drain the streaming body through `futures::TryStreamExt`.
-async fn serialize_multipart(
-    form: reqwest::multipart::Form,
-) -> Result<(Vec<u8>, String), UploadError> {
-    use futures::TryStreamExt;
+/// Single hand-assembled multipart/form-data part.
+pub(crate) struct MultipartPart {
+    pub name: &'static str,
+    pub filename: &'static str,
+    pub content_type: &'static str,
+    pub bytes: Vec<u8>,
+}
 
-    // `reqwest::multipart::Form::boundary` and `reqwest::Body::as_stream` are stable
-    // in reqwest 0.12; we rely on them here. If either signature changes in a
-    // future upgrade, fall back to a hand-assembled RFC 7578 body and document
-    // the regression per writing-lessons rule #16.
-    let boundary = form.boundary().to_string();
-    let content_type = format!("multipart/form-data; boundary={boundary}");
-    let body: reqwest::Body = reqwest::Body::from(form);
-    let mut stream = body
-        .as_stream()
-        .ok_or_else(|| UploadError::BadInput {
-            msg: "multipart body not streamable".into(),
-            source: None,
-        })?;
+/// Hand-assemble an RFC 7578 multipart/form-data body.
+///
+/// Worker verifies `body_sha256` over the exact transmitted bytes; building the
+/// body ourselves guarantees we hash what we send. reqwest 0.12's
+/// `multipart::Form` does not expose a buffered-bytes extractor, so per
+/// writing-lessons rule #16 we implement the minimal subset of RFC 7578 we
+/// need (fixed-count, filename-prefixed parts) rather than work around the
+/// library. Boundary is a UUID-v4-style random string.
+pub(crate) fn serialize_multipart(parts: &[MultipartPart]) -> (Vec<u8>, String) {
+    // Boundary uniqueness requirement is "must not appear inside any part";
+    // cryptographic randomness is not required. Use nanos-since-epoch + a
+    // process-local monotonic counter — good enough and keeps the dep graph small.
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let boundary = format!("omni-{:032x}-{:016x}", nanos, n);
+
     let mut out = Vec::new();
-    while let Some(chunk) = stream
-        .try_next()
-        .await
-        .map_err(|e| UploadError::BadInput {
-            msg: format!("multipart serialize: {e}"),
-            source: None,
-        })?
-    {
-        out.extend_from_slice(&chunk);
+    for p in parts {
+        out.extend_from_slice(b"--");
+        out.extend_from_slice(boundary.as_bytes());
+        out.extend_from_slice(b"\r\n");
+        out.extend_from_slice(
+            format!(
+                "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n",
+                p.name, p.filename
+            )
+            .as_bytes(),
+        );
+        out.extend_from_slice(
+            format!("Content-Type: {}\r\n\r\n", p.content_type).as_bytes(),
+        );
+        out.extend_from_slice(&p.bytes);
+        out.extend_from_slice(b"\r\n");
     }
-    Ok((out, content_type))
+    out.extend_from_slice(b"--");
+    out.extend_from_slice(boundary.as_bytes());
+    out.extend_from_slice(b"--\r\n");
+
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    (out, content_type)
 }
