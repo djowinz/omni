@@ -56,11 +56,12 @@ mod tests {
     #[test]
     fn reference_overlay_exercises_all_default_theme_vars() {
         for var in DEFAULT_THEME_VARS {
+            let needle = format!("var({var})");
             assert!(
-                REFERENCE_OVERLAY_OMNI.contains(var),
-                "reference overlay does not reference CSS variable `{var}` \
-                 declared by DEFAULT_THEME_CSS; theme swaps would be \
-                 invisible on this axis at thumbnail size"
+                REFERENCE_OVERLAY_OMNI.contains(&needle),
+                "reference overlay does not consume CSS variable `{var}` via \
+                 `var({var})`; theme swaps would be invisible on this axis at \
+                 thumbnail size"
             );
         }
     }

@@ -22,8 +22,8 @@
         <span class="val accent">{fps}</span>
       </div>
       <div class="row">
-        <span class="label">Net</span>
-        <span class="val dim">&#x2193; {net.down} / &#x2191; {net.up}</span>
+        <span class="label">GPU</span>
+        <span class="val dim">{gpu.clock} MHz / {gpu.power} W</span>
       </div>
       <div class="row">
         <span class="label crit">ALERT</span>
