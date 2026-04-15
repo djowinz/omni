@@ -59,3 +59,36 @@ jobs:
           version: 10
       - run: make install
       - run: make test-desktop
+
+  worker-zip-compat:
+    # Umbrella §8.2 gate: .omnipkg bundles must open in stock GNU unzip +
+    # 7-Zip. Runs on Linux because that's where both tools are trivially
+    # installable; the bundle format is platform-agnostic so one OS suffices.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: worker-wasm
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Install archive tools
+        run: sudo apt-get update && sudo apt-get install -y unzip p7zip-full
+      - name: Install JS deps
+        working-directory: services/omni-themes-worker
+        run: pnpm install --frozen-lockfile
+      - name: Build WASM + fixtures
+        working-directory: services/omni-themes-worker
+        run: pnpm build:wasm && node test/fixtures/generate.mjs
+      - name: Run zip-compat suite
+        working-directory: services/omni-themes-worker
+        run: pnpm vitest run --config vitest.node.config.ts
