@@ -5,7 +5,7 @@ use omni_identity::Keypair;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-#[derive(ClapArgs, Debug)]
+#[derive(ClapArgs, Debug, Clone)]
 pub struct Args {
     /// Output path for the new admin keypair (e.g. `%APPDATA%\Omni\admin-identity.key`).
     #[arg(long)]

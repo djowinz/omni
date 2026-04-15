@@ -14,7 +14,7 @@ pub mod commands;
 pub mod key_file;
 
 /// Top-level CLI entry. Global flags apply to every subcommand.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "omni-admin", version, about = "Omni themes-worker operator CLI")]
 pub struct Cli {
     /// Path to the operator key file (Ed25519 signing key, ChaCha20-Poly1305 wrapped).
@@ -44,7 +44,7 @@ pub struct Cli {
 
 /// Subcommands. Each variant carries its own `Args` struct declared in the
 /// matching `commands::<name>` module. T13–T20 replace those stubs.
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum Cmd {
     /// Generate a new operator key file.
     Keygen(commands::keygen::Args),

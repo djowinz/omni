@@ -18,14 +18,14 @@ pub mod vocab;
 
 /// Dispatch a parsed `Cli` to the appropriate subcommand handler.
 ///
-/// Subcommand handlers receive their parsed `Args` by value and a borrow of
-/// the full `Cli` for access to the global flags (`--key-file`,
-/// `--worker-url`, `--yes`, `--json`). We take `cmd` out of `cli` via
-/// `std::mem::replace` with a trivial placeholder so we can pass `&cli` to
-/// the handler without fighting the borrow checker over `cli.cmd`.
-pub async fn dispatch(mut cli: Cli) -> anyhow::Result<ExitCode> {
-    let cmd = std::mem::replace(&mut cli.cmd, Cmd::Stats(stats::Args {}));
-    match cmd {
+/// Handlers receive their parsed `Args` by value and a borrow of the full
+/// `Cli` for access to the global flags (`--key-file`, `--worker-url`,
+/// `--yes`, `--json`). We clone the `Cmd` so we can hand each handler an
+/// owned `Args` while still passing `&cli` — clap-parsed `Args` types
+/// derive `Clone`, so this is cheap and avoids placeholder values that
+/// break every time a subcommand's `Args` gains a required field.
+pub async fn dispatch(cli: Cli) -> anyhow::Result<ExitCode> {
+    match cli.cmd.clone() {
         Cmd::Keygen(a) => keygen::run(a, &cli).await,
         Cmd::Reports(a) => reports::run(a, &cli).await,
         Cmd::Artifact(a) => artifact::run(a, &cli).await,
