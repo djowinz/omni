@@ -9,4 +9,10 @@ export interface Env {
   BUNDLE_PROCESSOR: DurableObjectNamespace;
   OMNI_THEMES_ENV: "dev" | "prod";
   OMNI_THEMES_RATE_LIMIT_SCALE: string;
+  /**
+   * Comma-separated lowercase hex Ed25519 pubkeys allowlisted as moderators.
+   * Empty string = no moderators (admin routes return 403). See
+   * `src/lib/moderator.ts`.
+   */
+  OMNI_ADMIN_PUBKEYS: string;
 }
