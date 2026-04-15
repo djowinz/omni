@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod default;
 pub mod expression;
 pub mod fs_dispatcher;

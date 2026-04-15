@@ -1,0 +1,96 @@
+<widget id="reference-hud" name="Reference HUD" enabled="true">
+  <template>
+    <div class="panel" style="position: fixed; top: 24px; left: 24px;">
+      <div class="header">
+        <span class="title">Omni Reference HUD</span>
+        <span class="subtitle">by omni-team v1.0</span>
+      </div>
+      <div class="row">
+        <span class="label">CPU</span>
+        <span class="val">{cpu.usage}%</span>
+      </div>
+      <div class="row">
+        <span class="label">GPU Temp</span>
+        <span class="val warn">{gpu.temp}°C</span>
+      </div>
+      <div class="row">
+        <span class="label">RAM</span>
+        <span class="bar"><span class="bar-fill">{ram.usage}%</span></span>
+      </div>
+      <div class="row">
+        <span class="label">FPS</span>
+        <span class="val accent">{fps}</span>
+      </div>
+      <div class="row">
+        <span class="label">Net</span>
+        <span class="val dim">&#x2193; {net.down} / &#x2191; {net.up}</span>
+      </div>
+      <div class="row">
+        <span class="label crit">ALERT</span>
+        <span class="val crit">placeholder</span>
+      </div>
+    </div>
+  </template>
+  <style>
+    .panel {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: var(--font-size);
+      border-radius: 6px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 220px;
+    }
+    .header {
+      display: flex;
+      flex-direction: column;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--bg-light);
+      margin-bottom: 4px;
+    }
+    .title {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .subtitle {
+      color: var(--text-dim);
+      font-size: calc(var(--font-size) - 2px);
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .label {
+      color: var(--text-dim);
+    }
+    .val {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .val.accent {
+      color: var(--accent);
+    }
+    .val.warn {
+      color: var(--warning);
+    }
+    .val.crit, .label.crit {
+      color: var(--critical);
+    }
+    .val.dim {
+      color: var(--text-dim);
+    }
+    .bar {
+      background: var(--bg-light);
+      border-radius: 3px;
+      padding: 1px 6px;
+      color: var(--text);
+    }
+    .bar-fill {
+      color: var(--accent);
+    }
+  </style>
+</widget>
