@@ -127,8 +127,15 @@ pub fn generate_for_bundle(
 /// `<tempdir>/overlays/<overlay_name>/…` for the duration of this call, so
 /// the choice only needs to be a valid single path segment.
 fn bundle_overlay_name(manifest: &Manifest) -> String {
-    let slug: String = manifest
-        .name
+    slugify(&manifest.name)
+}
+
+/// Slug helper: ASCII-lowercase alnum/`-`/`_`, trim dashes, cap at 64 bytes
+/// (defensive vs. Windows `MAX_PATH = 260`), fall back to `"bundle"` on empty.
+/// Post-map the slug is ASCII, so a byte-bounded truncate is UTF-8 safe.
+fn slugify(name: &str) -> String {
+    const MAX_SLUG_BYTES: usize = 64;
+    let slug: String = name
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -138,11 +145,19 @@ fn bundle_overlay_name(manifest: &Manifest) -> String {
             }
         })
         .collect();
-    let trimmed = slug.trim_matches('-').to_string();
+    let trimmed = slug.trim_matches('-');
     if trimmed.is_empty() {
-        "bundle".to_string()
+        return "bundle".to_string();
+    }
+    let capped = if trimmed.len() > MAX_SLUG_BYTES {
+        &trimmed[..MAX_SLUG_BYTES]
     } else {
         trimmed
+    };
+    if capped.is_empty() {
+        "bundle".to_string()
+    } else {
+        capped.to_string()
     }
 }
 
@@ -207,6 +222,23 @@ mod tests {
         let mut m = sample_manifest();
         m.name = "dark_mode-v2".into();
         assert_eq!(bundle_overlay_name(&m), "dark_mode-v2");
+    }
+
+    #[test]
+    fn slugify_caps_length_at_64_bytes() {
+        let long = "a".repeat(200);
+        let s = slugify(&long);
+        assert!(s.len() <= 64, "slug should be capped: {}", s.len());
+        assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn bundle_overlay_name_caps_length() {
+        let mut m = sample_manifest();
+        m.name = "a".repeat(200);
+        let name = bundle_overlay_name(&m);
+        assert!(name.len() <= 64);
+        assert!(!name.is_empty());
     }
 
     #[test]
