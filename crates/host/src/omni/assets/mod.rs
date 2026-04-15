@@ -51,6 +51,7 @@ mod tests {
         assert_eq!(file.widgets.len(), 1);
         assert_eq!(file.widgets[0].id, "reference-hud");
         assert!(file.widgets[0].enabled);
+        assert_eq!(file.theme_src.as_deref(), Some("theme.css"));
     }
 
     #[test]

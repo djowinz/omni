@@ -1,3 +1,4 @@
+<theme src="theme.css" />
 <widget id="reference-hud" name="Reference HUD" enabled="true">
   <template>
     <div class="panel" style="position: fixed; top: 24px; left: 24px;">
