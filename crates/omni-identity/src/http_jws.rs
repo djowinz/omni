@@ -28,7 +28,9 @@ pub struct HttpJwsClaims {
 }
 
 impl HttpJwsClaims {
-    // The 8-field envelope is a wire contract (worker-api §2), not a refactor candidate.
+    // Arguments mirror the on-wire claim fields one-for-one (worker-api §2).
+    // This is a wire-contract shape; collapsing to a struct-builder would
+    // obscure that symmetry without changing what gets signed.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         kid_b64: String,

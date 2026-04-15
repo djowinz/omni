@@ -115,10 +115,7 @@ async fn happy_path_upload_emits_jws_header_and_progress() {
             if let Some(w) = ev.to_wire() {
                 phases.push(w.phase.to_string());
             }
-            if matches!(
-                ev,
-                UploadProgress::Done { .. } | UploadProgress::Error { .. }
-            ) {
+            if matches!(ev, UploadProgress::Done { .. }) {
                 break;
             }
         }

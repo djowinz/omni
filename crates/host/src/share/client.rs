@@ -2,20 +2,22 @@
 //! `omni_identity::sign_http_jws` attaches `Authorization: Omni-JWS <compact>`.
 //!
 //! Do not strip this wrapper "for simplicity" in a later pass; scattering signing
-//! across call-sites is the anti-pattern this file exists to prevent
-//! (spec §4; retro-005 D3).
+//! across call-sites is the anti-pattern this file exists to prevent.
 
+use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use backon::ExponentialBuilder;
 use base64::Engine;
 use omni_guard_trait::Guard;
 use omni_identity::{sign_http_jws, HttpJwsClaims, Keypair};
 use reqwest::{Method, RequestBuilder};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
+use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
 use super::cache::{ArtifactCache, ArtifactDetail};
@@ -27,14 +29,23 @@ use super::upload::{PackResult, UploadResult, UploadStatus};
 /// every sanitize pipeline change; must match the Worker-side expectation.
 pub const SANITIZE_VERSION: u32 = 1;
 
+/// SHA-256 of the empty string (precomputed — hot path for every signed
+/// request with no query/body).
+const EMPTY_SHA256_HEX: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// TTL for cached `config_limits` response. Server limits change rarely.
+const LIMITS_CACHE_TTL: Duration = Duration::from_secs(300);
+
 pub struct ShareClient {
     base_url: Url,
     http: reqwest::Client,
     identity: Arc<Keypair>,
     guard: Arc<dyn Guard>,
-    sanitize_version: u32,
+    kid_b64: String,
+    pubkey_hex: String,
     cache: ArtifactCache,
     retry_policy: ExponentialBuilder,
+    limits_cache: AsyncMutex<Option<(Instant, omni_bundle::BundleLimits)>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,15 +62,6 @@ pub struct ListResult {
     pub items: Vec<ArtifactDetail>,
     #[serde(default)]
     pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DownloadResult {
-    pub bytes: Vec<u8>,
-    pub content_hash: String,
-    pub author_pubkey: String,
-    pub signature: String,
-    pub manifest_b64: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -122,6 +124,9 @@ impl ShareClient {
         guard: Arc<dyn Guard>,
         retry_policy: ExponentialBuilder,
     ) -> Self {
+        let pk = identity.public_key().0;
+        let kid_b64 = base64::engine::general_purpose::STANDARD.encode(pk);
+        let pubkey_hex = hex::encode(pk);
         Self {
             base_url,
             http: reqwest::Client::builder()
@@ -130,9 +135,11 @@ impl ShareClient {
                 .expect("reqwest client"),
             identity,
             guard,
-            sanitize_version: SANITIZE_VERSION,
+            kid_b64,
+            pubkey_hex,
             cache: ArtifactCache::new(),
             retry_policy,
+            limits_cache: AsyncMutex::new(None),
         }
     }
 
@@ -159,18 +166,26 @@ impl ShareClient {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let body_sha = hex::encode(Sha256::digest(body));
-        let query_sha = hex::encode(Sha256::digest(query.as_bytes()));
+        let body_sha = if body.is_empty() {
+            EMPTY_SHA256_HEX.to_string()
+        } else {
+            hex::encode(Sha256::digest(body))
+        };
+        let query_sha = if query.is_empty() {
+            EMPTY_SHA256_HEX.to_string()
+        } else {
+            hex::encode(Sha256::digest(query.as_bytes()))
+        };
 
         let claims = HttpJwsClaims::new(
-            base64::engine::general_purpose::STANDARD.encode(self.identity.public_key().0),
+            self.kid_b64.clone(),
             base64::engine::general_purpose::STANDARD.encode(device_id.0),
             ts,
             method.as_str(),
             path,
             query_sha,
             body_sha,
-            self.sanitize_version,
+            SANITIZE_VERSION,
         );
 
         let compact =
@@ -182,20 +197,50 @@ impl ShareClient {
         Ok(builder
             .header("Authorization", format!("Omni-JWS {compact}"))
             .header("X-Omni-Version", env!("CARGO_PKG_VERSION"))
-            .header("X-Omni-Sanitize-Version", self.sanitize_version.to_string()))
+            .header("X-Omni-Sanitize-Version", SANITIZE_VERSION.to_string()))
     }
 
     pub(crate) fn url(&self, path: &str) -> Url {
         self.base_url.join(path).expect("valid path")
     }
 
-    fn pubkey_hex(&self) -> String {
-        hex::encode(self.identity.public_key().0)
+    fn pubkey_hex(&self) -> &str {
+        &self.pubkey_hex
     }
 
-    // ------------------------------------------------------------------
-    // Public request methods (spec §4)
-    // ------------------------------------------------------------------
+    /// Sign + send a JSON-body-less request, retrying transient failures, decoding a
+    /// JSON response of type `T` on success or a structured error body on failure.
+    async fn send_signed<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        query: &str,
+        builder: RequestBuilder,
+    ) -> Result<T, UploadError> {
+        let builder = self.sign(&method, path, query, &[], builder)?;
+        let resp = self.send_with_retry(builder).await?;
+        if !resp.status().is_success() {
+            return Err(Self::decode_error(resp).await);
+        }
+        resp.json::<T>().await.map_err(UploadError::Network)
+    }
+
+    /// Sign + send; on success, drain the body and return `()`.
+    async fn send_signed_empty(
+        &self,
+        method: Method,
+        path: &str,
+        body: &[u8],
+        builder: RequestBuilder,
+    ) -> Result<(), UploadError> {
+        let builder = self.sign(&method, path, "", body, builder)?;
+        let resp = self.send_with_retry(builder).await?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(Self::decode_error(resp).await)
+        }
+    }
 
     pub async fn upload(
         &self,
@@ -215,6 +260,15 @@ impl ShareClient {
                 source: Some(Box::new(e)),
             })?;
 
+        // Move PackResult fields directly into the multipart body; no clones.
+        let PackResult {
+            sanitized_bytes,
+            thumbnail_png,
+            manifest_name,
+            manifest_kind,
+            ..
+        } = pack;
+
         let parts = vec![
             MultipartPart {
                 name: "manifest",
@@ -226,18 +280,20 @@ impl ShareClient {
                 name: "bundle",
                 filename: "bundle.omnipkg",
                 content_type: "application/octet-stream",
-                bytes: pack.sanitized_bytes.clone(),
+                bytes: sanitized_bytes,
             },
             MultipartPart {
                 name: "thumbnail",
                 filename: "thumbnail.png",
                 content_type: "image/png",
-                bytes: pack.thumbnail_png.clone(),
+                bytes: thumbnail_png,
             },
         ];
-        let (body_bytes, content_type) = serialize_multipart(&parts);
+        let (body_bytes, content_type) = serialize_multipart(parts);
 
         let path = "/v1/upload";
+        // Worker hashes the exact transmitted bytes, so we hand-assemble the
+        // multipart body and sign `body_sha256` over the same bytes we ship.
         let builder = self
             .http
             .post(self.url(path))
@@ -255,54 +311,24 @@ impl ShareClient {
             content_hash: body.content_hash.clone(),
             r2_url: body.r2_url.clone(),
             thumbnail_url: body.thumbnail_url.clone(),
-            status: map_status(&body.status),
+            status: UploadStatus::from_worker(&body.status),
         };
 
-        let pubkey_hex = self.pubkey_hex();
         let detail = ArtifactDetail {
             artifact_id: body.artifact_id.clone(),
             content_hash: body.content_hash,
-            author_pubkey: pubkey_hex.clone(),
-            name: pack.manifest_name,
-            kind: pack.manifest_kind,
+            author_pubkey: self.pubkey_hex.clone(),
+            name: manifest_name,
+            kind: manifest_kind,
             r2_url: body.r2_url,
             thumbnail_url: body.thumbnail_url,
             updated_at: body.created_at,
         };
         self.cache
-            .insert((pubkey_hex, body.artifact_id.clone()), detail)
+            .insert((self.pubkey_hex.clone(), body.artifact_id.clone()), detail)
             .await;
 
         Ok(result)
-    }
-
-    pub async fn download(&self, artifact_id: &str) -> Result<DownloadResult, UploadError> {
-        let path = format!("/v1/download/{artifact_id}");
-        let builder = self.sign(&Method::GET, &path, "", &[], self.http.get(self.url(&path)))?;
-        let resp = self.send_with_retry(builder).await?;
-        if !resp.status().is_success() {
-            return Err(Self::decode_error(resp).await);
-        }
-        let headers = resp.headers().clone();
-        let hget = |k: &str| {
-            headers
-                .get(k)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_default()
-                .to_string()
-        };
-        let content_hash = hget("X-Omni-Content-Hash");
-        let author_pubkey = hget("X-Omni-Author-Pubkey");
-        let signature = hget("X-Omni-Signature");
-        let manifest_b64 = hget("X-Omni-Manifest");
-        let bytes = resp.bytes().await.map_err(UploadError::Network)?.to_vec();
-        Ok(DownloadResult {
-            bytes,
-            content_hash,
-            author_pubkey,
-            signature,
-            manifest_b64,
-        })
     }
 
     pub async fn list(&self, params: ListParams) -> Result<ListResult, UploadError> {
@@ -326,27 +352,14 @@ impl ShareClient {
             }
         }
         let query = url.query().unwrap_or("").to_string();
-        let builder = self.sign(&Method::GET, "/v1/list", &query, &[], self.http.get(url))?;
-        let resp = self.send_with_retry(builder).await?;
-        if !resp.status().is_success() {
-            return Err(Self::decode_error(resp).await);
-        }
-        let mut lr: ListResult = resp.json().await.map_err(UploadError::Network)?;
-        let pubkey_hex = self.pubkey_hex();
-        lr.items = self.cache.merge_into_list(&pubkey_hex, lr.items).await;
+        let mut lr: ListResult = self
+            .send_signed(Method::GET, "/v1/list", &query, self.http.get(url))
+            .await?;
+        lr.items = self
+            .cache
+            .merge_into_list(self.pubkey_hex(), lr.items)
+            .await;
         Ok(lr)
-    }
-
-    pub async fn get(&self, id: &str) -> Result<ArtifactDetail, UploadError> {
-        let path = format!("/v1/artifact/{id}");
-        let builder = self.sign(&Method::GET, &path, "", &[], self.http.get(self.url(&path)))?;
-        let resp = self.send_with_retry(builder).await?;
-        if !resp.status().is_success() {
-            return Err(Self::decode_error(resp).await);
-        }
-        resp.json::<ArtifactDetail>()
-            .await
-            .map_err(UploadError::Network)
     }
 
     pub async fn patch(&self, id: &str, edit: PatchEdit) -> Result<UploadResult, UploadError> {
@@ -379,7 +392,7 @@ impl ShareClient {
                 bytes: t,
             });
         }
-        let (body_bytes, content_type) = serialize_multipart(&parts);
+        let (body_bytes, content_type) = serialize_multipart(parts);
         let path = format!("/v1/artifact/{id}");
         let builder = self
             .http
@@ -403,19 +416,13 @@ impl ShareClient {
 
     pub async fn delete(&self, id: &str) -> Result<(), UploadError> {
         let path = format!("/v1/artifact/{id}");
-        let builder = self.sign(
-            &Method::DELETE,
+        self.send_signed_empty(
+            Method::DELETE,
             &path,
-            "",
             &[],
             self.http.delete(self.url(&path)),
-        )?;
-        let resp = self.send_with_retry(builder).await?;
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err(Self::decode_error(resp).await)
-        }
+        )
+        .await
     }
 
     pub async fn report(&self, id: &str, body: ReportBody) -> Result<(), UploadError> {
@@ -440,38 +447,37 @@ impl ShareClient {
             .post(self.url(path))
             .header("Content-Type", "application/json")
             .body(raw.clone());
-        let builder = self.sign(&Method::POST, path, "", &raw, builder)?;
-        let resp = self.send_with_retry(builder).await?;
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err(Self::decode_error(resp).await)
-        }
+        self.send_signed_empty(Method::POST, path, &raw, builder)
+            .await
     }
 
     pub async fn gallery(&self) -> Result<Vec<ArtifactDetail>, UploadError> {
         let path = "/v1/me/gallery";
-        let builder = self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
-        let resp = self.send_with_retry(builder).await?;
-        if !resp.status().is_success() {
-            return Err(Self::decode_error(resp).await);
-        }
-        let lr: ListResult = resp.json().await.map_err(UploadError::Network)?;
-        let pubkey_hex = self.pubkey_hex();
-        Ok(self.cache.merge_into_list(&pubkey_hex, lr.items).await)
+        let lr: ListResult = self
+            .send_signed(Method::GET, path, "", self.http.get(self.url(path)))
+            .await?;
+        Ok(self
+            .cache
+            .merge_into_list(self.pubkey_hex(), lr.items)
+            .await)
     }
 
     pub async fn config_vocab(&self) -> Result<VocabDoc, UploadError> {
         let path = "/v1/config/vocab";
-        let builder = self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
-        let resp = self.send_with_retry(builder).await?;
-        if !resp.status().is_success() {
-            return Err(Self::decode_error(resp).await);
-        }
-        resp.json::<VocabDoc>().await.map_err(UploadError::Network)
+        self.send_signed(Method::GET, path, "", self.http.get(self.url(path)))
+            .await
     }
 
     pub async fn config_limits(&self) -> Result<omni_bundle::BundleLimits, UploadError> {
+        // Small TTL cache — server limits change rarely.
+        {
+            let guard = self.limits_cache.lock().await;
+            if let Some((when, limits)) = *guard {
+                if when.elapsed() < LIMITS_CACHE_TTL {
+                    return Ok(limits);
+                }
+            }
+        }
         let path = "/v1/config/limits";
         #[derive(Deserialize)]
         struct LimitsBody {
@@ -479,22 +485,17 @@ impl ShareClient {
             max_bundle_uncompressed: u64,
             max_entries: usize,
         }
-        let builder = self.sign(&Method::GET, path, "", &[], self.http.get(self.url(path)))?;
-        let resp = self.send_with_retry(builder).await?;
-        if !resp.status().is_success() {
-            return Err(Self::decode_error(resp).await);
-        }
-        let b: LimitsBody = resp.json().await.map_err(UploadError::Network)?;
-        Ok(omni_bundle::BundleLimits {
+        let b: LimitsBody = self
+            .send_signed(Method::GET, path, "", self.http.get(self.url(path)))
+            .await?;
+        let limits = omni_bundle::BundleLimits {
             max_bundle_compressed: b.max_bundle_compressed,
             max_bundle_uncompressed: b.max_bundle_uncompressed,
             max_entries: b.max_entries,
-        })
+        };
+        *self.limits_cache.lock().await = Some((Instant::now(), limits));
+        Ok(limits)
     }
-
-    // ------------------------------------------------------------------
-    // Internal: retry + error decode
-    // ------------------------------------------------------------------
 
     async fn send_with_retry(
         &self,
@@ -566,7 +567,7 @@ impl ShareClient {
                 header_retry_after,
             ),
         };
-        let kind = parse_kind(&kind_str);
+        let kind = kind_str.parse().unwrap_or(WorkerErrorKind::Io);
         UploadError::ServerReject {
             status,
             code,
@@ -578,24 +579,19 @@ impl ShareClient {
     }
 }
 
-fn map_status(s: &str) -> UploadStatus {
-    match s {
-        "deduplicated" => UploadStatus::Deduplicated,
-        "updated" => UploadStatus::Updated,
-        "unchanged" => UploadStatus::Unchanged,
-        _ => UploadStatus::Created,
-    }
-}
-
-fn parse_kind(s: &str) -> WorkerErrorKind {
-    match s {
-        "Malformed" => WorkerErrorKind::Malformed,
-        "Unsafe" => WorkerErrorKind::Unsafe,
-        "Integrity" => WorkerErrorKind::Integrity,
-        "Auth" => WorkerErrorKind::Auth,
-        "Quota" => WorkerErrorKind::Quota,
-        "Admin" => WorkerErrorKind::Admin,
-        _ => WorkerErrorKind::Io,
+impl FromStr for WorkerErrorKind {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "Malformed" => Self::Malformed,
+            "Unsafe" => Self::Unsafe,
+            "Integrity" => Self::Integrity,
+            "Auth" => Self::Auth,
+            "Quota" => Self::Quota,
+            "Admin" => Self::Admin,
+            "Io" => Self::Io,
+            _ => return Err(()),
+        })
     }
 }
 
@@ -620,16 +616,11 @@ pub(crate) struct MultipartPart {
 
 /// Hand-assemble an RFC 7578 multipart/form-data body.
 ///
-/// Worker verifies `body_sha256` over the exact transmitted bytes; building the
-/// body ourselves guarantees we hash what we send. reqwest 0.12's
-/// `multipart::Form` does not expose a buffered-bytes extractor, so per
-/// writing-lessons rule #16 we implement the minimal subset of RFC 7578 we
-/// need (fixed-count, filename-prefixed parts) rather than work around the
-/// library. Boundary is a UUID-v4-style random string.
-pub(crate) fn serialize_multipart(parts: &[MultipartPart]) -> (Vec<u8>, String) {
-    // Boundary uniqueness requirement is "must not appear inside any part";
-    // cryptographic randomness is not required. Use nanos-since-epoch + a
-    // process-local monotonic counter — good enough and keeps the dep graph small.
+/// The Worker hashes the exact transmitted bytes to verify `body_sha256`, so we
+/// must be able to compute the hash over the same bytes we ship. Building the
+/// body ourselves (rather than streaming through `reqwest::multipart::Form`)
+/// guarantees that equivalence. Boundary is a process-local time+counter string.
+pub(crate) fn serialize_multipart(parts: Vec<MultipartPart>) -> (Vec<u8>, String) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()

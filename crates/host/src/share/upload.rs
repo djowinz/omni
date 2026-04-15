@@ -25,7 +25,6 @@ use super::client::ShareClient;
 use super::error::UploadError;
 use super::progress::UploadProgress;
 
-// Re-exported from this module (moved here in T8 from the W2 placeholder).
 #[derive(Debug, Clone)]
 pub struct UploadRequest {
     pub kind: ArtifactKind,
@@ -63,6 +62,30 @@ pub enum UploadStatus {
     Unchanged,
 }
 
+impl UploadStatus {
+    /// Wire-format string used both by the Worker (response body) and by the
+    /// editor (WS payload). Single source of truth for the enum ↔ string map.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Deduplicated => "deduplicated",
+            Self::Updated => "updated",
+            Self::Unchanged => "unchanged",
+        }
+    }
+
+    /// Parse the Worker's response-body `status` field; unknown values map to
+    /// `Created` (newly-accepted upload) since that's the default response.
+    pub fn from_worker(s: &str) -> Self {
+        match s {
+            "deduplicated" => Self::Deduplicated,
+            "updated" => Self::Updated,
+            "unchanged" => Self::Unchanged,
+            _ => Self::Created,
+        }
+    }
+}
+
 /// Dry-run packing output (exposed to `upload.pack` WS message).
 #[derive(Debug, Clone)]
 pub struct PackResult {
@@ -84,23 +107,21 @@ pub async fn pack_only(
     limits: &BundleLimits,
     identity: &Keypair,
 ) -> Result<PackResult, UploadError> {
-    // 1. Read workspace inputs.
     let files_raw: BTreeMap<String, Vec<u8>> = match req.kind {
-        ArtifactKind::Theme => read_theme(&req.source_path)?,
-        ArtifactKind::Bundle => walk_bundle(&req.source_path)?,
+        ArtifactKind::Theme => read_theme(&req.source_path).await?,
+        ArtifactKind::Bundle => walk_bundle(&req.source_path).await?,
     };
     let uncompressed_size: u64 = files_raw.values().map(|v| v.len() as u64).sum();
 
-    // 2. Build manifest (per-file SHA-256 entries). Canonical hashing is inside omni-bundle.
     let (manifest_kind, manifest_name) = match req.kind {
         ArtifactKind::Theme => ("theme", req.name.clone()),
         ArtifactKind::Bundle => ("bundle", req.name.clone()),
     };
     let manifest = build_manifest(req, &files_raw)?;
 
-    // 3. Sanitize pre-pack (invariant #7 — never skip).
-    //    - Theme: `sanitize_theme(&bytes)`; single-file pipeline.
-    //    - Bundle: `sanitize_bundle(&manifest, files)`; per-kind dispatch inside.
+    // Sanitize pre-pack (invariant #7 — never skip). The bytes that the JWS
+    // covers MUST be the exact bytes the Worker re-sanitizes and serves; that's
+    // why pack_signed_bundle runs on the post-sanitize file set.
     let (sanitized_files, sanitize_report_value) = match req.kind {
         ArtifactKind::Theme => {
             let (_, css_bytes) = files_raw
@@ -129,47 +150,18 @@ pub async fn pack_only(
         }
     };
 
-    // 4. Rebuild manifest over the sanitized bytes so per-file sha256s match
-    //    what gets packed; pack_signed_bundle re-hashes and validates anyway.
     let sanitized_manifest = rebuild_manifest_with(&manifest, &sanitized_files);
-
-    // 5. Canonical content hash over the sanitized manifest bytes
-    //    (invariant #6: SHA-256(RFC 8785 JCS manifest bytes)). This is the
-    //    dedup key the Worker indexes on.
     let content_hash_bytes = omni_bundle::canonical_hash(&sanitized_manifest, &sanitized_files);
     let content_hash = hex::encode(content_hash_bytes);
 
-    // 6. pack_signed_bundle — single signing authority. Produces the .omnipkg
-    //    bytes with `signature.jws` inside (invariant #6a).
-    let sanitized_bytes = match req.kind {
-        ArtifactKind::Theme => {
-            // Themes ship as raw CSS bytes (worker-api §4.1); signing is over the
-            // bundle path only. For theme upload we still pack+sign so the Worker
-            // sees the JWS envelope — same as bundle but with a single-file manifest.
-            omni_identity::pack_signed_bundle(
-                &sanitized_manifest,
-                &sanitized_files,
-                identity,
-                limits,
-            )
+    let sanitized_bytes =
+        omni_identity::pack_signed_bundle(&sanitized_manifest, &sanitized_files, identity, limits)
             .map_err(|e| UploadError::BadInput {
-                msg: "pack_signed_bundle (theme) failed".into(),
+                msg: "pack_signed_bundle failed".into(),
                 source: Some(Box::new(e)),
-            })?
-        }
-        ArtifactKind::Bundle => omni_identity::pack_signed_bundle(
-            &sanitized_manifest,
-            &sanitized_files,
-            identity,
-            limits,
-        )
-        .map_err(|e| UploadError::BadInput {
-            msg: "pack_signed_bundle (bundle) failed".into(),
-            source: Some(Box::new(e)),
-        })?,
-    };
+            })?;
 
-    // 7. Thumbnail (delegated to sub-spec #011; placeholder 1×1 PNG until then).
+    // Thumbnail: placeholder until sub-spec #011 lands the real renderer.
     let thumbnail_png = placeholder_thumbnail();
 
     Ok(PackResult {
@@ -193,28 +185,15 @@ pub async fn upload(
     client: Arc<ShareClient>,
     progress: mpsc::Sender<UploadProgress>,
 ) -> Result<UploadResult, UploadError> {
-    // Top-level Err paths emit a final `UploadProgress::Error` frame before the
-    // sender drops, so the editor sees a terminal progress event alongside the
-    // returned `publishResult` error envelope. `Done` is still sent on success.
-    match upload_inner(req, guard, identity, client, progress.clone()).await {
-        Ok(result) => {
-            let _ = progress
-                .send(UploadProgress::Done {
-                    result: result.clone(),
-                })
-                .await;
-            Ok(result)
-        }
-        Err(e) => {
-            let _ = progress
-                .send(UploadProgress::Error {
-                    code: e.code().to_string(),
-                    message: e.user_message(),
-                })
-                .await;
-            Err(e)
-        }
-    }
+    // Errors surface through the `Result` return path; the caller owns the
+    // error envelope. `Done` still fires on success as the terminal marker.
+    let result = upload_inner(req, guard, identity, client, progress.clone()).await?;
+    let _ = progress
+        .send(UploadProgress::Done {
+            result: result.clone(),
+        })
+        .await;
+    Ok(result)
 }
 
 async fn upload_inner(
@@ -233,22 +212,28 @@ async fn upload_inner(
         })?;
 
     let _ = progress.send(UploadProgress::Packing).await;
-    // Propagate config_limits errors. Only Network failures fall back to the
-    // compile-time default with a logged warning; any ServerReject (Auth/Admin/
-    // Malformed) must surface verbatim — silently defaulting would let auth
-    // failures masquerade as size-limit errors.
-    let limits = match client.config_limits().await {
-        Ok(l) => l,
-        Err(UploadError::Network(e)) => {
-            tracing::warn!(
-                error = %e,
-                "config_limits network failure; falling back to BundleLimits::DEFAULT"
-            );
-            BundleLimits::DEFAULT
+
+    // Fetch config_limits and pack concurrently. Only Network failures fall
+    // back to the compile-time default (with a logged warning); any
+    // ServerReject (Auth/Admin/Malformed) must surface verbatim — silently
+    // defaulting would let auth failures masquerade as size-limit errors.
+    // pack_only validates against BundleLimits::DEFAULT while we fetch; we
+    // re-check against the real server limit below.
+    let limits_fut = async {
+        match client.config_limits().await {
+            Ok(l) => Ok(l),
+            Err(UploadError::Network(e)) => {
+                tracing::warn!(
+                    error = %e,
+                    "config_limits network failure; falling back to BundleLimits::DEFAULT"
+                );
+                Ok(BundleLimits::DEFAULT)
+            }
+            Err(e) => Err(e),
         }
-        Err(e) => return Err(e),
     };
-    let pack = pack_only(&req, &limits, &identity).await?;
+    let pack_fut = pack_only(&req, &BundleLimits::DEFAULT, &identity);
+    let (limits, pack) = tokio::try_join!(limits_fut, pack_fut)?;
 
     if pack.sanitized_bytes.len() as u64 > limits.max_bundle_compressed {
         return Err(UploadError::BadInput {
@@ -267,15 +252,15 @@ async fn upload_inner(
         })
         .await;
 
-    // Upload (ShareClient owns JWS middleware + retry)
     let result = if let Some(id) = req.update_artifact_id.clone() {
+        let manifest_value = serde_json::to_value(&pack.manifest).unwrap_or_default();
         client
             .patch(
                 &id,
                 super::client::PatchEdit {
-                    manifest: Some(serde_json::to_value(&pack.manifest).unwrap_or_default()),
-                    bundle_bytes: Some(pack.sanitized_bytes.clone()),
-                    thumbnail_bytes: Some(pack.thumbnail_png.clone()),
+                    manifest: Some(manifest_value),
+                    bundle_bytes: Some(pack.sanitized_bytes),
+                    thumbnail_bytes: Some(pack.thumbnail_png),
                 },
             )
             .await?
@@ -288,29 +273,37 @@ async fn upload_inner(
 
 // --- helpers ---
 
-fn read_theme(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
-    let bytes = std::fs::read(path)?;
+async fn read_theme(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
+    let path = path.to_path_buf();
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(path))
+        .await
+        .map_err(|e| UploadError::Io(std::io::Error::other(e)))??;
     let mut map = BTreeMap::new();
     map.insert("theme.css".to_string(), bytes);
     Ok(map)
 }
 
-fn walk_bundle(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
-    let mut out = BTreeMap::new();
-    for entry in walkdir::WalkDir::new(root).follow_links(false) {
-        let entry = entry.map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
-        if entry.file_type().is_file() {
-            let rel = entry
-                .path()
-                .strip_prefix(root)
-                .unwrap_or(entry.path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            let bytes = std::fs::read(entry.path())?;
-            out.insert(rel, bytes);
+async fn walk_bundle(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
+    let root = root.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let mut out = BTreeMap::new();
+        for entry in walkdir::WalkDir::new(&root).follow_links(false) {
+            let entry = entry.map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
+            if entry.file_type().is_file() {
+                let rel = entry
+                    .path()
+                    .strip_prefix(&root)
+                    .unwrap_or(entry.path())
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let bytes = std::fs::read(entry.path())?;
+                out.insert(rel, bytes);
+            }
         }
-    }
-    Ok(out)
+        Ok::<_, UploadError>(out)
+    })
+    .await
+    .map_err(|e| UploadError::Io(std::io::Error::other(e)))?
 }
 
 fn build_manifest(

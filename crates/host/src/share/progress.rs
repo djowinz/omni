@@ -15,12 +15,9 @@ use super::upload::UploadResult;
 pub enum UploadProgress {
     Packing,
     Sanitizing { file: String },
-    GeneratingThumbnail,
     Signing,
     Uploading { sent: u64, total: u64 },
-    Verifying,
     Done { result: UploadResult },
-    Error { code: String, message: String },
 }
 
 /// Contract-shape frame per ws-explorer.md.
@@ -33,7 +30,7 @@ pub struct WireProgress {
 
 impl UploadProgress {
     /// Map internal variant to the contract's `{ phase, done, total }` frame.
-    /// Returns `None` for `Done`/`Error` (terminal events use `*Result` / `error` envelopes).
+    /// Returns `None` for `Done` (terminal events use `*Result` / `error` envelopes).
     pub fn to_wire(&self) -> Option<WireProgress> {
         match self {
             Self::Packing => Some(WireProgress {
@@ -42,11 +39,6 @@ impl UploadProgress {
                 total: 0,
             }),
             Self::Sanitizing { .. } => Some(WireProgress {
-                phase: "sanitize",
-                done: 0,
-                total: 0,
-            }),
-            Self::GeneratingThumbnail => Some(WireProgress {
                 phase: "sanitize",
                 done: 0,
                 total: 0,
@@ -61,21 +53,18 @@ impl UploadProgress {
                 done: *sent,
                 total: *total,
             }),
-            Self::Verifying => Some(WireProgress {
-                phase: "upload",
-                done: 0,
-                total: 0,
-            }),
-            Self::Done { .. } | Self::Error { .. } => None,
+            Self::Done { .. } => None,
         }
     }
 }
 
 /// Forward every event from `rx` as a `upload.publishProgress` frame (or terminal
-/// `upload.publishResult` / `error`) onto `send_fn` keyed by the editor's request `id`.
+/// `upload.publishResult`) onto `send_fn` keyed by the editor's request `id`.
 ///
 /// `send_fn` is the existing file_api/ws_server text broadcaster — `Fn(String) + Send`.
-/// Returns the final `UploadResult` on success or `UploadError` on failure.
+/// Returns the final `UploadResult` on success or `UploadError::Cancelled` if the
+/// sender is dropped before a `Done` frame arrives. Upload failures surface through
+/// the `upload()` return value, not through this pump.
 pub async fn pump_to_ws<F>(
     request_id: &str,
     result_type: &str, // "upload.publishResult" | "upload.updateResult"
@@ -94,41 +83,22 @@ where
             });
             send_fn(frame.to_string());
         }
-        match ev {
-            UploadProgress::Done { result } => {
-                let frame = json!({
-                    "id": request_id,
-                    "type": result_type,
-                    "params": {
-                        "artifact_id": result.artifact_id,
-                        "content_hash": result.content_hash,
-                        "status": status_str(&result.status),
-                        "worker_url": result.r2_url,
-                    },
-                });
-                send_fn(frame.to_string());
-                return Ok(result);
-            }
-            UploadProgress::Error { code, message } => {
-                return Err(UploadError::BadInput {
-                    msg: format!("{code}: {message}"),
-                    source: None,
-                });
-            }
-            _ => {}
+        if let UploadProgress::Done { result } = ev {
+            let frame = json!({
+                "id": request_id,
+                "type": result_type,
+                "params": {
+                    "artifact_id": result.artifact_id,
+                    "content_hash": result.content_hash,
+                    "status": result.status.as_str(),
+                    "worker_url": result.r2_url,
+                },
+            });
+            send_fn(frame.to_string());
+            return Ok(result);
         }
     }
     Err(UploadError::Cancelled)
-}
-
-fn status_str(s: &super::upload::UploadStatus) -> &'static str {
-    use super::upload::UploadStatus::*;
-    match s {
-        Created => "created",
-        Deduplicated => "deduplicated",
-        Updated => "updated",
-        Unchanged => "unchanged",
-    }
 }
 
 /// Build the `{ code, kind, detail, message }` error envelope for a given `UploadError`.
@@ -167,10 +137,6 @@ mod tests {
                 .phase,
             "sanitize"
         );
-        assert_eq!(
-            UploadProgress::GeneratingThumbnail.to_wire().unwrap().phase,
-            "sanitize"
-        );
         assert_eq!(UploadProgress::Signing.to_wire().unwrap().phase, "upload");
         let up = UploadProgress::Uploading {
             sent: 10,
@@ -184,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_variants_have_no_wire_frame() {
+    fn done_variant_has_no_wire_frame() {
         assert!(UploadProgress::Done {
             result: UploadResult {
                 artifact_id: "a".into(),
@@ -193,12 +159,6 @@ mod tests {
                 thumbnail_url: "".into(),
                 status: super::super::upload::UploadStatus::Created,
             }
-        }
-        .to_wire()
-        .is_none());
-        assert!(UploadProgress::Error {
-            code: "X".into(),
-            message: "y".into()
         }
         .to_wire()
         .is_none());

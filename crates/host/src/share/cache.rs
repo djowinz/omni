@@ -45,7 +45,8 @@ impl ArtifactCache {
         self.inner.insert(key, value).await;
     }
 
-    pub async fn get(&self, key: &CacheKey) -> Option<ArtifactDetail> {
+    #[cfg(test)]
+    pub(crate) async fn get(&self, key: &CacheKey) -> Option<ArtifactDetail> {
         self.inner.get(key).await
     }
 
@@ -60,8 +61,8 @@ impl ArtifactCache {
         let mut out: Vec<ArtifactDetail> = Vec::with_capacity(server_items.len() + 4);
         let mut seen = std::collections::HashSet::new();
 
-        // Walk cache first so fresh uploads appear at top
-        for (key, value) in self.snapshot().await {
+        // Walk cache first so fresh uploads appear at top.
+        for (key, value) in self.inner.iter() {
             if key.0 == author_pubkey {
                 seen.insert(key.1.clone());
                 out.push(value);
@@ -73,10 +74,6 @@ impl ArtifactCache {
             }
         }
         out
-    }
-
-    async fn snapshot(&self) -> Vec<(CacheKey, ArtifactDetail)> {
-        self.inner.iter().map(|(k, v)| ((*k).clone(), v)).collect()
     }
 }
 

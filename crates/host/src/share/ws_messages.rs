@@ -290,34 +290,35 @@ async fn handle_identity_show(id: &str, ctx: &ShareContext) -> Option<String> {
     )
 }
 
-async fn handle_identity_backup(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
-    // Delegates to omni_identity::Keypair::backup(&passphrase) when surfaced (#006).
+/// Identity management (backup/import/rotate) is owned by a sub-spec #006
+/// follow-up. Until then the WS surface returns a structured error envelope
+/// instead of canned empty payloads.
+fn identity_not_implemented(id: &str) -> Option<String> {
     Some(
-        json!({ "id": id, "type": "identity.backupResult", "params": { "encrypted_bytes_b64": "" } })
-            .to_string(),
+        json!({
+            "id": id,
+            "type": "error",
+            "error": {
+                "code": "NOT_IMPLEMENTED",
+                "kind": "Admin",
+                "detail": null,
+                "message": "Identity management handled by sub-spec #006 follow-up",
+            }
+        })
+        .to_string(),
     )
+}
+
+async fn handle_identity_backup(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
+    identity_not_implemented(id)
 }
 
 async fn handle_identity_import(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
-    Some(
-        json!({
-            "id": id,
-            "type": "identity.importResult",
-            "params": { "pubkey_hex": "", "fingerprint_hex": "" }
-        })
-        .to_string(),
-    )
+    identity_not_implemented(id)
 }
 
 async fn handle_identity_rotate(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
-    Some(
-        json!({
-            "id": id,
-            "type": "identity.rotateResult",
-            "params": { "new_fingerprint": "", "old_fingerprint_backup_path": "" }
-        })
-        .to_string(),
-    )
+    identity_not_implemented(id)
 }
 
 async fn handle_config_vocab(id: &str, ctx: &ShareContext) -> Option<String> {

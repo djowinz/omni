@@ -33,8 +33,8 @@ pub struct WsSharedState {
     /// Share-surface context (sub-spec #009). None when upload pipeline not configured.
     pub share_ctx: Mutex<Option<Arc<crate::share::ws_messages::ShareContext>>>,
     /// Tokio runtime used to drive async share-surface handlers from the sync WS loop.
-    /// Lazily created on first share dispatch.
-    pub share_runtime: Mutex<Option<tokio::runtime::Runtime>>,
+    /// Created once on first share dispatch and reused.
+    pub share_runtime: std::sync::OnceLock<tokio::runtime::Runtime>,
 }
 
 impl WsSharedState {
@@ -64,7 +64,7 @@ impl WsSharedState {
             preview_subscribers: Mutex::new(Vec::new()),
             latest_initial_html: Mutex::new(None),
             share_ctx: Mutex::new(None),
-            share_runtime: Mutex::new(None),
+            share_runtime: std::sync::OnceLock::new(),
         }
     }
 
@@ -549,27 +549,16 @@ fn dispatch_share_message(
         return false;
     };
 
-    // Ensure a tokio runtime exists for driving async handlers.
-    let mut rt_slot = match state.share_runtime.lock() {
-        Ok(g) => g,
-        Err(_) => return false,
-    };
-    if rt_slot.is_none() {
-        match tokio::runtime::Builder::new_multi_thread()
+    // Get-or-init the tokio runtime that drives async share handlers.
+    let rt = state.share_runtime.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(2)
             .thread_name("omni-share")
             .build()
-        {
-            Ok(rt) => *rt_slot = Some(rt),
-            Err(e) => {
-                warn!(error = %e, "failed to build share tokio runtime");
-                return false;
-            }
-        }
-    }
-    let handle = rt_slot.as_ref().unwrap().handle().clone();
-    drop(rt_slot);
+            .expect("build share tokio runtime")
+    });
+    let handle = rt.handle().clone();
 
     let send_for_dispatch = send_tx.clone();
     let send_fn = move |s: String| {
