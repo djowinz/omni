@@ -25,7 +25,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::fingerprint::PublicKey;
-use crate::wasm_jws_core::JwsHeader;
+use crate::wasm_jws_core::{JwsHeader, WasmHttpJwsClaims};
 
 const SIGNATURE_FILENAME: &str = "signature.jws";
 const B64: base64::engine::general_purpose::GeneralPurpose =
@@ -142,15 +142,23 @@ struct SignaturePayload {
     canonical_hash_hex: String,
 }
 
-fn sign_jws_compact(
-    claims: &serde_json::Value,
+fn sign_http_jws_compact(
+    claims: &WasmHttpJwsClaims,
     seed: &[u8; 32],
-    embed_jwk: bool,
 ) -> Result<String, JsValue> {
     // Delegates to the unconditionally-compiled pure-Rust core so the native
     // byte-parity regression test in `tests/jws_native_wasm_parity.rs` can
-    // exercise the exact same signing bytes this WASM path produces.
-    crate::wasm_jws_core::sign_jws_compact_core(claims, seed, embed_jwk).map_err(to_js_err)
+    // exercise the exact same signing bytes this WASM path produces. The
+    // native oracle is `omni_identity::http_jws::sign_http_jws` on the shipped
+    // `theme-sharing` branch.
+    crate::wasm_jws_core::sign_http_jws_compact_core(claims, seed).map_err(to_js_err)
+}
+
+fn sign_bundle_jws_compact(
+    claims: &serde_json::Value,
+    seed: &[u8; 32],
+) -> Result<String, JsValue> {
+    crate::wasm_jws_core::sign_bundle_jws_compact_core(claims, seed).map_err(to_js_err)
 }
 
 fn jws_parts(token: &str) -> Result<(&str, &str, &str), JsValue> {
@@ -233,8 +241,9 @@ pub fn verify_jws_wasm(token: &str, pubkey: &[u8]) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = "signJws")]
 pub fn sign_jws_wasm(claims_js: JsValue, priv_key: &[u8]) -> Result<String, JsValue> {
     let seed = seed_from_slice(priv_key)?;
-    let claims: serde_json::Value = serde_wasm_bindgen::from_value(claims_js).map_err(to_js_err)?;
-    sign_jws_compact(&claims, &seed, false)
+    let claims: WasmHttpJwsClaims =
+        serde_wasm_bindgen::from_value(claims_js).map_err(to_js_err)?;
+    sign_http_jws_compact(&claims, &seed)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +303,7 @@ pub fn pack_signed_bundle_wasm(
         canonical_hash_hex: hex::encode(digest),
     };
     let claims_json = serde_json::to_value(&payload).map_err(to_js_err)?;
-    let jws_compact = sign_jws_compact(&claims_json, &seed, true)?;
+    let jws_compact = sign_bundle_jws_compact(&claims_json, &seed)?;
 
     let mut amended_manifest = pre_sig_manifest;
     amended_manifest.files.push(FileEntry {
