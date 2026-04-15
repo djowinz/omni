@@ -5,18 +5,23 @@ import type { Env } from "../src/env";
 import { verifyJws, AuthError } from "../src/lib/auth";
 
 /**
- * Tier B — Miniflare-backed tests for the RFC 7515 detached-JWS verifier
+ * Tier B — Miniflare-backed tests for the attached-payload JWS verifier
  * (`src/lib/auth.ts`). Every JWS fed to `verifyJws` is minted with
- * `@noble/ed25519` using the exact signing-input shape the byte-parity
- * oracle in `crates/omni-identity/src/wasm_jws_core.rs` locks in:
+ * `@noble/ed25519` using the shipped `HttpJwsClaims` wire shape from
+ * `crates/omni-identity/src/http_jws.rs`:
  *
  *   signing_input = base64url(header_json) + '.' + base64url(claims_json)
- *   header_json   = {"typ":"JWT","alg":"EdDSA"}  (field order load-bearing)
+ *   header_json   = {"typ":"Omni-HTTP-JWS","alg":"EdDSA"}
+ *                   (jsonwebtoken::Header default field order: typ, alg)
+ *   claims_json   = {"alg":"EdDSA","crv":"Ed25519","typ":"Omni-HTTP-JWS",
+ *                    "kid":<std-b64 pubkey>,"df":<std-b64 device_fp>,
+ *                    "ts":<i64>,"method":<UPPER>,"path":<"/...">,
+ *                    "query_sha256":<hex|"">,"body_sha256":<hex|"">,
+ *                    "sanitize_version":<u32>}
  *
- * Claims live in the payload segment (method / path / ts / body_sha256 /
- * query_sha256 / sanitize_version / kid / df), NOT in the protected header —
- * this matches the native `Keypair::sign_jws` output that the parity test
- * pins. If either end drifts, the crate-level regression test fires first.
+ * `kid` / `df` use STANDARD base64 (`+/` alphabet, padding preserved), NOT
+ * base64url and NOT hex. If the Rust oracle drifts, the parity regression in
+ * `omni-identity` fires first.
  *
  * Fixture keypair comes from `test/fixtures/fixtures.json` (plan #008 W1T3).
  */
@@ -44,6 +49,15 @@ function bytesToHex(b: Uint8Array): string {
 }
 
 const SEED = hexToBytes(SEED_HEX);
+const PUBKEY_BYTES = hexToBytes(PUBKEY_HEX);
+const DF_BYTES = hexToBytes(DF_HEX);
+
+/** Standard base64 (RFC 4648 §4, `+/` alphabet, padding preserved). */
+function b64StdEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
 
 const B64URL_CHARS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -83,13 +97,21 @@ interface SignOptions {
   body?: Uint8Array;
   ts?: number;
   sanitizeVersion?: number;
-  kidHex?: string;
-  dfHex?: string;
+  /** Override pubkey bytes placed in `kid` (standard base64). Default: fixture pubkey. */
+  pubkey?: Uint8Array;
+  /** Override device fingerprint bytes placed in `df` (standard base64). Default: fixture df. */
+  df?: Uint8Array;
   header?: string; // override header JSON verbatim (for alg tests)
   mutateSignature?: boolean;
 }
 
-/** Mint a compact JWS byte-for-byte equivalent to the native oracle. */
+/**
+ * Mint a compact JWS byte-for-byte equivalent to the shipped `sign_http_jws`
+ * oracle in `crates/omni-identity/src/http_jws.rs`. Header is
+ * `{"typ":"Omni-HTTP-JWS","alg":"EdDSA"}` (jsonwebtoken::Header default field
+ * order). Claims are the 11 `HttpJwsClaims` fields in struct-declaration
+ * order; `kid` / `df` are standard base64.
+ */
 async function signJws(o: SignOptions = {}): Promise<string> {
   const body = o.body ?? new Uint8Array();
   const query = o.query ?? "";
@@ -97,22 +119,29 @@ async function signJws(o: SignOptions = {}): Promise<string> {
   const path = o.path ?? "/v1/upload";
   const ts = o.ts ?? Math.floor(Date.now() / 1000);
   const sanitizeVersion = o.sanitizeVersion ?? 1;
-  const kid = o.kidHex ?? PUBKEY_HEX;
-  const df = o.dfHex ?? DF_HEX;
+  const pubkey = o.pubkey ?? PUBKEY_BYTES;
+  const dfBytes = o.df ?? DF_BYTES;
 
   const body_sha256 = await sha256Hex(body);
   const query_sha256 = await sha256Hex(new TextEncoder().encode(query));
+  // Field order matches `HttpJwsClaims` struct declaration: alg, crv, typ,
+  // kid, df, ts, method, path, query_sha256, body_sha256, sanitize_version.
   const claims = {
+    alg: "EdDSA",
+    crv: "Ed25519",
+    typ: "Omni-HTTP-JWS",
+    kid: b64StdEncode(pubkey),
+    df: b64StdEncode(dfBytes),
+    ts,
     method,
     path,
-    ts,
-    body_sha256,
     query_sha256,
+    body_sha256,
     sanitize_version: sanitizeVersion,
-    kid,
-    df,
   };
-  const headerJson = o.header ?? '{"typ":"JWT","alg":"EdDSA"}';
+  // jsonwebtoken::Header default serialization: typ first, alg second
+  // (struct declaration order with None-skipping serde).
+  const headerJson = o.header ?? '{"typ":"Omni-HTTP-JWS","alg":"EdDSA"}';
   const claimsJson = JSON.stringify(claims);
   const headerB64 = b64urlEncode(headerJson);
   const payloadB64 = b64urlEncode(claimsJson);

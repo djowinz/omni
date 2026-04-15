@@ -8,18 +8,36 @@
  * verify the compact JWS directly with `crypto.subtle.verify('Ed25519', …)`).
  *
  * **Signing-input shape.** Byte-parity oracle is
- * `crates/omni-identity/src/wasm_jws_core.rs` (locked by the native↔wasm test
- * `tests/jws_native_wasm_parity.rs`). The oracle signs a standard
- * *attached-payload* compact JWS:
+ * `crates/omni-identity/src/http_jws.rs::sign_http_jws` (delegates to
+ * `Keypair::sign_jws`). The oracle signs a standard attached-payload compact
+ * JWS:
  *
- *     base64url({"typ":"JWT","alg":"EdDSA"}) + '.' + base64url(claims_json) + '.' + base64url(sig)
+ *     base64url(header_json) + '.' + base64url(claims_json) + '.' + base64url(sig)
  *
- * The HTTP request claims (`method`, `path`, `ts`, `body_sha256`,
- * `query_sha256`, `sanitize_version`, `kid`, `df`) live in the PAYLOAD
- * segment — NOT in the protected header as an earlier draft of the contract
- * suggested. This verifier binds to the oracle, not the draft language; if
- * the two ever diverge, the parity regression test in `omni-identity` is the
- * authority.
+ * where:
+ *
+ *   header_json = {"typ":"Omni-HTTP-JWS","alg":"EdDSA"}
+ *     (jsonwebtoken::Header default serialization: typ, alg)
+ *
+ *   claims_json = {
+ *     "alg":"EdDSA",                    // redundant with header; accepted, not required
+ *     "crv":"Ed25519",                  // redundant; accepted, not required
+ *     "typ":"Omni-HTTP-JWS",            // redundant; accepted, not required
+ *     "kid": "<standard-base64 of 32-byte Ed25519 pubkey>",   // +/ alphabet, padding preserved
+ *     "df":  "<standard-base64 of 32-byte device fingerprint>",
+ *     "ts":  <i64 unix seconds>,
+ *     "method": "<uppercase HTTP method>",
+ *     "path": "<request path with leading slash>",
+ *     "query_sha256": "<lowercase hex SHA-256 of raw query string, or ''>",
+ *     "body_sha256":  "<lowercase hex SHA-256 of raw body, or ''>",
+ *     "sanitize_version": <u32>
+ *   }
+ *
+ * The verifier binds to the shipped oracle. `alg` / `crv` / `typ` inside the
+ * claims are load-bearing only as documentation — they're not checked here
+ * because the signature check already pins the header. `kid` / `df` are
+ * standard base64 (`+/` alphabet, padding preserved), NOT base64url and NOT
+ * hex — decoded via `atob`.
  *
  * Per architectural invariant #2, the signing key is the author's single
  * Ed25519 identity key (same key used for bundle content signing).
@@ -27,7 +45,7 @@
 import type { Env } from "../env";
 import type { ErrorCode } from "../types";
 import { b64urlDecode } from "./base64url";
-import { hexDecode, hexEncode } from "./hex";
+import { hexEncode } from "./hex";
 
 /** Server's required sanitize-pipeline version. Bumped in lockstep with the
  *  sanitize crate; defaults to 1 when `EXPECTED_SANITIZE_VERSION` is unset. */
@@ -99,8 +117,8 @@ interface HttpJwsClaims {
   body_sha256: string;
   query_sha256: string;
   sanitize_version: number;
-  kid: string; // hex-encoded 32-byte Ed25519 pubkey (oracle test uses hex)
-  df: string; // hex-encoded 32-byte device fingerprint
+  kid: string; // standard-base64 of 32-byte Ed25519 pubkey (+/ alphabet, padding preserved)
+  df: string; // standard-base64 of 32-byte device fingerprint
 }
 
 function asClaims(v: unknown): HttpJwsClaims {
@@ -118,7 +136,24 @@ function asClaims(v: unknown): HttpJwsClaims {
   req("sanitize_version", "number");
   req("kid", "string");
   req("df", "string");
+  // `alg`, `crv`, `typ` claim fields are redundant with the JWS header and
+  // are accepted-if-present / ignored; not required for verification.
   return o as unknown as HttpJwsClaims;
+}
+
+/**
+ * Decode a standard-base64 string (RFC 4648 §4, `+/` alphabet, padding
+ * required) to bytes via the Web Crypto runtime's `atob`. Separate from the
+ * url-safe helpers in `src/lib/base64url.ts` because the shipped host encodes
+ * `kid` / `df` with the standard alphabet + padding (see
+ * `crates/omni-identity/src/http_jws.rs`). Throws on any non-base64 input.
+ */
+function b64StdDecode(s: string): Uint8Array {
+  // `atob` throws on invalid input; caller wraps in try/catch.
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,12 +251,12 @@ export async function verifyJws(
   const sig = b64urlDecode(sigB64);
   let pubkey: Uint8Array;
   try {
-    pubkey = hexDecode(claims.kid);
+    pubkey = b64StdDecode(claims.kid);
   } catch {
     throw new AuthError(
       "MalformedEnvelope",
       "AUTH_MALFORMED_ENVELOPE",
-      "claims.kid is not valid hex",
+      "claims.kid is not valid base64",
     );
   }
   if (pubkey.length !== 32) {
@@ -327,7 +362,9 @@ export async function verifyJws(
   // Step 10 — denylist. Per invariant #10, device-fingerprint denylist is a
   // separate layer handled by the rate-limit middleware; this check is the
   // pubkey anchor specifically (`UNKNOWN_PUBKEY` / `denylist:pubkey:<hex>`).
-  const pubkeyHex = claims.kid.toLowerCase();
+  // KV key uses hex of the 32 verified pubkey bytes — stable across encoding
+  // drift in the `kid` claim (which is standard base64 on the wire).
+  const pubkeyHex = hexEncode(pubkey);
   const deniedPub = await env.STATE.get(`denylist:pubkey:${pubkeyHex}`);
   if (deniedPub !== null) {
     throw new AuthError(
@@ -340,12 +377,12 @@ export async function verifyJws(
   // All gates passed — decode df and hand the auth context to the caller.
   let device_fp: Uint8Array;
   try {
-    device_fp = hexDecode(claims.df);
+    device_fp = b64StdDecode(claims.df);
   } catch {
     throw new AuthError(
       "MalformedEnvelope",
       "AUTH_MALFORMED_ENVELOPE",
-      "claims.df is not valid hex",
+      "claims.df is not valid base64",
     );
   }
   if (device_fp.length !== 32) {
