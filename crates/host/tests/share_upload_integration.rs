@@ -234,8 +234,12 @@ async fn auth_bad_signature_is_not_retried() {
     }
 }
 
+// Regression guard: upload_inner must fail-fast on limits check before
+// invoking pack_only's thumbnail render. Ensures malicious or mistaken
+// oversized uploads don't burn GPU/CPU unnecessarily. If this test ever
+// needs #[ignore] for "requires Ultralight," the limits→pack_only
+// ordering in upload_inner has regressed.
 #[tokio::test]
-#[ignore = "requires Ultralight resources; run with --ignored after placing resources in target/debug/deps/"]
 async fn oversized_bundle_returns_bad_input_before_hitting_server() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

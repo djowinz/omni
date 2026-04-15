@@ -161,51 +161,8 @@ pub async fn pack_only(
                 source: Some(Box::new(e)),
             })?;
 
-    // Thumbnail: render via sub-spec #011's generators. Both paths are
-    // synchronous + CPU-heavy (Ultralight off-screen render), so we hop onto
-    // `spawn_blocking` to avoid starving the async runtime. Thumbnail
-    // generation happens inside the `Packing` phase window already emitted by
-    // the caller — spec §10 floated a `GeneratingThumbnail` variant but
-    // sub-spec #009 closed `UploadProgress` without it, so we keep the
-    // existing vocabulary per invariant #19.
-    let thumbnail_png = match req.kind {
-        ArtifactKind::Theme => {
-            let css = sanitized_files
-                .get("theme.css")
-                .cloned()
-                .ok_or_else(|| UploadError::BadInput {
-                    msg: "sanitized theme missing theme.css".into(),
-                    source: None,
-                })?;
-            tokio::task::spawn_blocking(move || {
-                crate::share::thumbnail::theme::generate_for_theme(
-                    &css,
-                    &crate::share::thumbnail::ThumbnailConfig::default(),
-                )
-            })
-            .await
-            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?
-            .map_err(|e| UploadError::BadInput {
-                msg: "thumbnail generation failed".into(),
-                source: Some(Box::new(e)),
-            })?
-        }
-        ArtifactKind::Bundle => {
-            let bytes = sanitized_bytes.clone();
-            tokio::task::spawn_blocking(move || {
-                crate::share::thumbnail::bundle::generate_for_bundle(
-                    &bytes,
-                    &crate::share::thumbnail::ThumbnailConfig::default(),
-                )
-            })
-            .await
-            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?
-            .map_err(|e| UploadError::BadInput {
-                msg: "thumbnail generation failed".into(),
-                source: Some(Box::new(e)),
-            })?
-        }
-    };
+    let (thumbnail_png, sanitized_bytes) =
+        render_thumbnail(req.kind, &sanitized_files, sanitized_bytes).await?;
 
     Ok(PackResult {
         manifest_name,
@@ -256,27 +213,31 @@ async fn upload_inner(
 
     let _ = progress.send(UploadProgress::Packing).await;
 
-    // Fetch config_limits and pack concurrently. Only Network failures fall
-    // back to the compile-time default (with a logged warning); any
-    // ServerReject (Auth/Admin/Malformed) must surface verbatim — silently
-    // defaulting would let auth failures masquerade as size-limit errors.
-    // pack_only validates against BundleLimits::DEFAULT while we fetch; we
-    // re-check against the real server limit below.
-    let limits_fut = async {
-        match client.config_limits().await {
-            Ok(l) => Ok(l),
-            Err(UploadError::Network(e)) => {
-                tracing::warn!(
-                    error = %e,
-                    "config_limits network failure; falling back to BundleLimits::DEFAULT"
-                );
-                Ok(BundleLimits::DEFAULT)
-            }
-            Err(e) => Err(e),
+    // Order matters: fetch server limits BEFORE pack_only, even though
+    // pack_only validates against compile-time defaults first. Post-#011
+    // thumbnail integration, pack_only runs real Ultralight render
+    // (~500ms–1s of CPU/GPU); serializing behind the ~50ms limits fetch
+    // avoids rendering thumbnails for oversized inputs that will be
+    // rejected anyway. The cost profile inverted the concurrency
+    // tradeoff #009 originally chose (try_join); re-evaluating it if
+    // the thumbnail path becomes cheap again is valid future work.
+    //
+    // Only Network failures fall back to the compile-time default (with
+    // a logged warning); any ServerReject (Auth/Admin/Malformed) must
+    // surface verbatim — silently defaulting would let auth failures
+    // masquerade as size-limit errors.
+    let limits = match client.config_limits().await {
+        Ok(l) => l,
+        Err(UploadError::Network(e)) => {
+            tracing::warn!(
+                error = %e,
+                "config_limits network failure; falling back to BundleLimits::DEFAULT"
+            );
+            BundleLimits::DEFAULT
         }
+        Err(e) => return Err(e),
     };
-    let pack_fut = pack_only(&req, &BundleLimits::DEFAULT, &identity);
-    let (limits, pack) = tokio::try_join!(limits_fut, pack_fut)?;
+    let pack = pack_only(&req, &limits, &identity).await?;
 
     if pack.sanitized_bytes.len() as u64 > limits.max_bundle_compressed {
         return Err(UploadError::BadInput {
@@ -315,6 +276,74 @@ async fn upload_inner(
 }
 
 // --- helpers ---
+
+/// Render a thumbnail for the sanitized artifact on a blocking worker. Both
+/// paths are synchronous + CPU-heavy (Ultralight off-screen render), so we hop
+/// onto `spawn_blocking` to avoid starving the async runtime. Thumbnail
+/// generation happens inside the `Packing` phase window already emitted by the
+/// caller — spec §10 floated a `GeneratingThumbnail` variant but sub-spec #009
+/// closed `UploadProgress` without it, so we keep the existing vocabulary per
+/// invariant #19.
+///
+/// For the bundle path, `sanitized_bytes` is `move`d into the closure and
+/// returned back through the tuple so callers can reuse it without cloning the
+/// MB-class buffer.
+async fn render_thumbnail(
+    kind: ArtifactKind,
+    sanitized_files: &BTreeMap<String, Vec<u8>>,
+    sanitized_bytes: Vec<u8>,
+) -> Result<(Vec<u8>, Vec<u8>), UploadError> {
+    use tracing::Instrument;
+    let span = tracing::info_span!("thumbnail", kind = ?kind);
+    render_thumbnail_inner(kind, sanitized_files, sanitized_bytes)
+        .instrument(span)
+        .await
+}
+
+async fn render_thumbnail_inner(
+    kind: ArtifactKind,
+    sanitized_files: &BTreeMap<String, Vec<u8>>,
+    sanitized_bytes: Vec<u8>,
+) -> Result<(Vec<u8>, Vec<u8>), UploadError> {
+    match kind {
+        ArtifactKind::Theme => {
+            let css = sanitized_files
+                .get("theme.css")
+                .cloned()
+                .ok_or_else(|| UploadError::BadInput {
+                    msg: "sanitized theme missing theme.css".into(),
+                    source: None,
+                })?;
+            let png = tokio::task::spawn_blocking(move || {
+                crate::share::thumbnail::theme::generate_for_theme(
+                    &css,
+                    &crate::share::thumbnail::ThumbnailConfig::default(),
+                )
+            })
+            .await
+            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?
+            // Render-pipeline failure, not bad input — match the JoinError classification above for vocabulary consistency.
+            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
+            Ok((png, sanitized_bytes))
+        }
+        ArtifactKind::Bundle => {
+            // Move the buffer into the closure (no clone) and return it back
+            // through the tuple so callers can still use the sanitized bytes.
+            let (png_res, sanitized_bytes) = tokio::task::spawn_blocking(move || {
+                let res = crate::share::thumbnail::bundle::generate_for_bundle(
+                    &sanitized_bytes,
+                    &crate::share::thumbnail::ThumbnailConfig::default(),
+                );
+                (res, sanitized_bytes)
+            })
+            .await
+            .map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
+            // Render-pipeline failure, not bad input — match the JoinError classification above for vocabulary consistency.
+            let png = png_res.map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
+            Ok((png, sanitized_bytes))
+        }
+    }
+}
 
 async fn read_theme(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
     let path = path.to_path_buf();
