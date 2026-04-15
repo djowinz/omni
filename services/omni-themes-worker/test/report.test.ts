@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { env, applyD1Migrations } from "cloudflare:test";
-import * as ed from "@noble/ed25519";
 import type { Env } from "../src/env";
 import app from "../src/index";
+import { signJws as signJwsShared } from "./helpers/signer";
 
 /**
  * Tier B — Miniflare-backed tests for POST /v1/report (plan #008 W3T13,
@@ -48,39 +48,6 @@ function freshDfHex(): string {
   return ("00".repeat(32)).slice(0, 56) + suffix;
 }
 
-const B64URL_CHARS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-function b64urlEncode(bytes: Uint8Array | string): string {
-  const b =
-    typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  let s = "";
-  let i = 0;
-  for (; i + 3 <= b.length; i += 3) {
-    const n = (b[i]! << 16) | (b[i + 1]! << 8) | b[i + 2]!;
-    s +=
-      B64URL_CHARS[(n >> 18) & 63] +
-      B64URL_CHARS[(n >> 12) & 63] +
-      B64URL_CHARS[(n >> 6) & 63] +
-      B64URL_CHARS[n & 63];
-  }
-  if (i < b.length) {
-    const rem = b.length - i;
-    const n = (b[i]! << 16) | ((rem > 1 ? b[i + 1]! : 0) << 8);
-    s += B64URL_CHARS[(n >> 18) & 63] + B64URL_CHARS[(n >> 12) & 63];
-    if (rem === 2) s += B64URL_CHARS[(n >> 6) & 63];
-  }
-  return s;
-}
-
-async function sha256Hex(data: Uint8Array): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", data);
-  const b = new Uint8Array(d);
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
-  return s;
-}
-
 interface SignOptions {
   method?: string;
   path?: string;
@@ -93,34 +60,19 @@ interface SignOptions {
 }
 
 async function signJws(o: SignOptions = {}): Promise<string> {
-  const body = o.body ?? new Uint8Array();
-  const query = o.query ?? "";
-  const method = o.method ?? "POST";
-  const path = o.path ?? "/v1/report";
-  const ts = o.ts ?? Math.floor(Date.now() / 1000);
-  const sanitizeVersion = o.sanitizeVersion ?? 1;
   const kid = o.kidHex ?? PUBKEY_HEX;
   const df = o.dfHex ?? DF_HEX;
-
-  const body_sha256 = await sha256Hex(body);
-  const query_sha256 = await sha256Hex(new TextEncoder().encode(query));
-  const claims = {
-    method,
-    path,
-    ts,
-    body_sha256,
-    query_sha256,
-    sanitize_version: sanitizeVersion,
-    kid,
-    df,
-  };
-  const headerJson = '{"typ":"JWT","alg":"EdDSA"}';
-  const claimsJson = JSON.stringify(claims);
-  const headerB64 = b64urlEncode(headerJson);
-  const payloadB64 = b64urlEncode(claimsJson);
-  const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const sig = await ed.signAsync(signingInput, SEED);
-  return `${headerB64}.${payloadB64}.${b64urlEncode(sig)}`;
+  return signJwsShared({
+    method: o.method ?? "POST",
+    path: o.path ?? "/v1/report",
+    body: o.body,
+    query: o.query,
+    seed: SEED,
+    pubkey: hexToBytes(kid),
+    df: hexToBytes(df),
+    ts: o.ts,
+    sanitizeVersion: o.sanitizeVersion,
+  });
 }
 
 /** Build a `Request` the Hono app can dispatch through its `/v1/report` mount. */

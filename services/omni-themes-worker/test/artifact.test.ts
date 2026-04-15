@@ -32,6 +32,7 @@ const SELF = {
 };
 import * as ed from "@noble/ed25519";
 import type { Env } from "../src/env";
+import { signJws } from "./helpers/signer";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv extends Env {}
@@ -51,27 +52,6 @@ async function ensureSchema(): Promise<void> {
 
 // ---------- helpers ----------
 
-const B64URL =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-function b64urlEncode(bytes: Uint8Array | string): string {
-  const b = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  let s = "";
-  let i = 0;
-  for (; i + 3 <= b.length; i += 3) {
-    const n = (b[i]! << 16) | (b[i + 1]! << 8) | b[i + 2]!;
-    s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63] +
-         B64URL[(n >> 6) & 63] + B64URL[n & 63];
-  }
-  if (i < b.length) {
-    const rem = b.length - i;
-    const n = (b[i]! << 16) | ((rem > 1 ? b[i + 1]! : 0) << 8);
-    s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63];
-    if (rem === 2) s += B64URL[(n >> 6) & 63];
-  }
-  return s;
-}
-
 function hexEncode(b: Uint8Array): string {
   let s = "";
   for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
@@ -82,32 +62,6 @@ async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   const d = await crypto.subtle.digest("SHA-256", buf);
   return hexEncode(new Uint8Array(d));
-}
-
-async function signJws(opts: {
-  method: string;
-  path: string;
-  body?: Uint8Array;
-  seed: Uint8Array;
-  pubkey: Uint8Array;
-  df: Uint8Array;
-}): Promise<string> {
-  const body = opts.body ?? new Uint8Array(0);
-  const claims = {
-    method: opts.method,
-    path: opts.path,
-    ts: Math.floor(Date.now() / 1000),
-    body_sha256: await sha256Hex(body),
-    query_sha256: await sha256Hex(new TextEncoder().encode("")),
-    sanitize_version: 1,
-    kid: hexEncode(opts.pubkey),
-    df: hexEncode(opts.df),
-  };
-  const headerB64 = b64urlEncode('{"typ":"JWT","alg":"EdDSA"}');
-  const payloadB64 = b64urlEncode(JSON.stringify(claims));
-  const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const sig = await ed.signAsync(signingInput, opts.seed);
-  return `${headerB64}.${payloadB64}.${b64urlEncode(sig)}`;
 }
 
 // ---------- fixtures ----------

@@ -3,6 +3,7 @@ import { env, applyD1Migrations } from "cloudflare:test";
 import { Hono } from "hono";
 import * as ed from "@noble/ed25519";
 import type { Env } from "../src/env";
+import { signJws as signJwsShared } from "./helpers/signer";
 import admin from "../src/routes/admin";
 import config, { _resetConfigCaches } from "../src/routes/config";
 
@@ -44,35 +45,6 @@ function bytesToHex(b: Uint8Array): string {
   return s;
 }
 
-const B64URL =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-function b64urlEncode(bytes: Uint8Array | string): string {
-  const b = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  let s = "";
-  let i = 0;
-  for (; i + 3 <= b.length; i += 3) {
-    const n = (b[i]! << 16) | (b[i + 1]! << 8) | b[i + 2]!;
-    s +=
-      B64URL[(n >> 18) & 63] +
-      B64URL[(n >> 12) & 63] +
-      B64URL[(n >> 6) & 63] +
-      B64URL[n & 63];
-  }
-  if (i < b.length) {
-    const rem = b.length - i;
-    const n = (b[i]! << 16) | ((rem > 1 ? b[i + 1]! : 0) << 8);
-    s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63];
-    if (rem === 2) s += B64URL[(n >> 6) & 63];
-  }
-  return s;
-}
-
-async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
-  const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const d = await crypto.subtle.digest("SHA-256", buf);
-  return bytesToHex(new Uint8Array(d));
-}
-
 interface SignOpts {
   method: string;
   path: string;
@@ -88,27 +60,17 @@ async function signJws(o: SignOpts): Promise<{ jws: string; pubkeyHex: string; d
   const pubBytes = await ed.getPublicKeyAsync(seed);
   const pubkeyHex = bytesToHex(pubBytes);
   const dfHex = DF_HEX;
-  const body_sha256 = await sha256Hex(o.body);
-  const query_sha256 = await sha256Hex(new TextEncoder().encode(o.query ?? ""));
-  const claims = {
+  const jws = await signJwsShared({
     method: o.method,
     path: o.path,
-    ts: Math.floor(Date.now() / 1000),
-    body_sha256,
-    query_sha256,
-    sanitize_version: o.sanitizeVersion ?? 1,
-    kid: pubkeyHex,
-    df: dfHex,
-  };
-  const headerB64 = b64urlEncode('{"typ":"JWT","alg":"EdDSA"}');
-  const payloadB64 = b64urlEncode(JSON.stringify(claims));
-  const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const sig = await ed.signAsync(signingInput, seed);
-  return {
-    jws: `${headerB64}.${payloadB64}.${b64urlEncode(sig)}`,
-    pubkeyHex,
-    dfHex,
-  };
+    body: o.body,
+    query: o.query,
+    seed,
+    pubkey: pubBytes,
+    df: hexToBytes(dfHex),
+    sanitizeVersion: o.sanitizeVersion,
+  });
+  return { jws, pubkeyHex, dfHex };
 }
 
 function mkReq(

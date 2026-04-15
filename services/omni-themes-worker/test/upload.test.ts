@@ -20,6 +20,7 @@ import { env, SELF, applyD1Migrations } from "cloudflare:test";
 import * as ed from "@noble/ed25519";
 import type { Env } from "../src/env";
 import { loadWasm } from "../src/lib/wasm";
+import { signJws } from "./helpers/signer";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv extends Env {}
@@ -44,6 +45,8 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 const SEED = hexToBytes(SEED_HEX);
+const PUBKEY = hexToBytes(PUBKEY_HEX);
+const DF = hexToBytes(DF_HEX);
 
 const OVERLAY_BYTES = new TextEncoder().encode(
   '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
@@ -85,55 +88,6 @@ async function buildSignedBundle(opts: BundleOpts = {}): Promise<Uint8Array> {
   return identity.packSignedBundle(manifest, filesMap, SEED, undefined);
 }
 
-// ---- JWS signing helper ----------------------------------------------------
-const B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-function b64urlEncode(bytes: Uint8Array | string): string {
-  const b = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  let s = ""; let i = 0;
-  for (; i + 3 <= b.length; i += 3) {
-    const n = (b[i]! << 16) | (b[i + 1]! << 8) | b[i + 2]!;
-    s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63] + B64URL[(n >> 6) & 63] + B64URL[n & 63];
-  }
-  if (i < b.length) {
-    const rem = b.length - i;
-    const n = (b[i]! << 16) | ((rem > 1 ? b[i + 1]! : 0) << 8);
-    s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63];
-    if (rem === 2) s += B64URL[(n >> 6) & 63];
-  }
-  return s;
-}
-async function sha256HexBuf(data: ArrayBuffer | Uint8Array): Promise<string> {
-  const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const d = await crypto.subtle.digest("SHA-256", buf);
-  return bytesToHex(new Uint8Array(d));
-}
-
-async function signJws(opts: {
-  method: string;
-  path: string;
-  body: Uint8Array;
-  query?: string;
-  kidHex?: string;
-  dfHex?: string;
-  seed?: Uint8Array;
-}): Promise<string> {
-  const claims = {
-    method: opts.method,
-    path: opts.path,
-    ts: Math.floor(Date.now() / 1000),
-    body_sha256: await sha256HexBuf(opts.body),
-    query_sha256: await sha256HexBuf(new TextEncoder().encode(opts.query ?? "")),
-    sanitize_version: 1,
-    kid: opts.kidHex ?? PUBKEY_HEX,
-    df: opts.dfHex ?? DF_HEX,
-  };
-  const headerB64 = b64urlEncode('{"typ":"JWT","alg":"EdDSA"}');
-  const payloadB64 = b64urlEncode(JSON.stringify(claims));
-  const signingInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const sig = await ed.signAsync(signingInput, opts.seed ?? SEED);
-  return `${headerB64}.${payloadB64}.${b64urlEncode(sig)}`;
-}
-
 // ---- Multipart helper ------------------------------------------------------
 function buildMultipart(bundle: Uint8Array, thumbnail: Uint8Array): {
   body: Uint8Array; contentType: string;
@@ -169,12 +123,19 @@ const TINY_PNG = new Uint8Array([
 ]);
 
 async function uploadReq(bundle: Uint8Array, opts: {
-  seed?: Uint8Array; kidHex?: string; path?: string; method?: string;
+  seed?: Uint8Array; pubkey?: Uint8Array; path?: string; method?: string;
 } = {}): Promise<Response> {
   const { body, contentType } = buildMultipart(bundle, TINY_PNG);
   const path = opts.path ?? "/v1/upload";
   const method = opts.method ?? "POST";
-  const jws = await signJws({ method, path, body, seed: opts.seed, kidHex: opts.kidHex });
+  const jws = await signJws({
+    method,
+    path,
+    body,
+    seed: opts.seed ?? SEED,
+    pubkey: opts.pubkey ?? PUBKEY,
+    df: DF,
+  });
   return SELF.fetch(`https://worker.test${path}`, {
     method,
     headers: {
@@ -368,7 +329,14 @@ describe("POST /v1/upload — SIZE_EXCEEDED", () => {
     // JWS body_sha256 binds to `body`; still sign it so the size guard can
     // trip BEFORE auth (step 1). With oversize the route returns 413 without
     // verifying the JWS.
-    const jws = await signJws({ method: "POST", path: "/v1/upload", body });
+    const jws = await signJws({
+      method: "POST",
+      path: "/v1/upload",
+      body,
+      seed: SEED,
+      pubkey: PUBKEY,
+      df: DF,
+    });
     const res = await SELF.fetch("https://worker.test/v1/upload", {
       method: "POST",
       headers: {
@@ -411,9 +379,8 @@ describe("POST /v1/upload — pubkey mismatch → FORBIDDEN", () => {
     // match SignedBundle.authorPubkey() → FORBIDDEN.
     const otherSeed = new Uint8Array(32).fill(0x11);
     const otherPub = await ed.getPublicKeyAsync(otherSeed);
-    const otherPubHex = bytesToHex(otherPub);
     const bundle = await buildSignedBundle();
-    const res = await uploadReq(bundle, { seed: otherSeed, kidHex: otherPubHex });
+    const res = await uploadReq(bundle, { seed: otherSeed, pubkey: otherPub });
     expect(res.status).toBe(403);
     const j = (await res.json()) as { error: { code: string } };
     expect(j.error.code).toBe("FORBIDDEN");
