@@ -11,6 +11,7 @@ pub mod ipc;
 pub mod omni;
 pub mod scanner;
 pub mod sensors;
+pub mod share;
 pub mod ul_renderer;
 pub mod watcher;
 pub mod win32;
