@@ -15,12 +15,15 @@
     "bootstrap": "node scripts/bootstrap-kv.mjs"
   },
   "dependencies": {
+    "@noble/ed25519": "^3.1.0",
+    "@tsndr/cloudflare-worker-jwt": "^3.2.1",
     "hono": "^4.6.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.40",
     "@cloudflare/workers-types": "^4.20260401.0",
     "@hono/zod-validator": "^0.4.0",
+    "@types/node": "^25.6.0",
     "typescript": "^5.4.5",
     "vitest": "^2.1.9",
     "wrangler": "^4.82.2",
