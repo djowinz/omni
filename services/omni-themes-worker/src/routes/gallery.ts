@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../types";
 import { errorFromKind } from "../lib/errors";
 import { verifyJws, AuthError } from "../lib/auth";
+import { hexEncode } from "../lib/hex";
 
 const app = new Hono<AppEnv>();
 
@@ -23,12 +24,6 @@ interface GalleryRow {
   created_at: number;
   updated_at: number;
   is_removed: number;
-}
-
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
-  return s;
 }
 
 function parseTags(raw: string | null): string[] {

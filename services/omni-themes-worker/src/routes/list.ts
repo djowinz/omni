@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../types";
 import { errorFromKind } from "../lib/errors";
 import { encodeCursor, decodeCursor, type Cursor } from "../lib/cursor";
+import { hexEncode } from "../lib/hex";
 
 const app = new Hono<AppEnv>();
 
@@ -46,12 +47,6 @@ interface ListItem {
   author_fingerprint_hex: string;
   thumbnail_url: string;
   content_hash: string;
-}
-
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
-  return s;
 }
 
 function parseTagsColumn(raw: string | null): string[] {

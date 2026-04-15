@@ -20,14 +20,9 @@ import { errorResponse, errorFromKind } from "../lib/errors";
 import { verifyJws, AuthError } from "../lib/auth";
 import { checkAndIncrement } from "../lib/rate_limit";
 import { loadWasm } from "../lib/wasm";
+import { hexEncode } from "../lib/hex";
 
 const app = new Hono<AppEnv>();
-
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
-  return s;
-}
 
 
 app.get("/:id", async (c) => {

@@ -4,6 +4,7 @@ import { errorFromKind } from "../lib/errors";
 import { verifyJws, AuthError } from "../lib/auth";
 import { isModerator } from "../lib/moderator";
 import { _resetConfigCaches } from "./config";
+import { hexEncode } from "../lib/hex";
 
 /**
  * Moderator-only admin endpoints. Spec §9a/9b, contract §4.11/4.12.
@@ -35,12 +36,6 @@ interface LimitsShape {
   updated_at: number;
 }
 
-function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
-  return s;
-}
-
 /** Buffer the body + run JWS + moderator check. Returns the pubkey hex on
  *  success; throws a `Response` (as a bare reject value) on any gate failure
  *  so the caller can `try { ... } catch (r) { return r; }`. */
@@ -63,7 +58,7 @@ async function requireModerator(
       e instanceof Error ? e.message : String(e),
     );
   }
-  const pubkeyHex = bytesToHex(pubkey);
+  const pubkeyHex = hexEncode(pubkey);
   if (!isModerator(pubkeyHex, env)) {
     throw errorFromKind(
       "Admin",

@@ -22,6 +22,8 @@ import { isModerator } from "../lib/moderator";
 import { checkAndIncrement } from "../lib/rate_limit";
 import { parseMultipart, MultipartError } from "../lib/multipart";
 import { loadWasm } from "../lib/wasm";
+import { hexEncode } from "../lib/hex";
+import { b64urlDecode } from "../lib/base64url";
 
 const app = new Hono<AppEnv>();
 
@@ -44,12 +46,6 @@ interface ArtifactFullRow {
   report_count: number;
   is_removed: number;
   is_featured: number;
-}
-
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
-  return s;
 }
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -280,7 +276,7 @@ app.patch("/:id", async (c) => {
   // Decode the sanitized bundle and extract the post-sanitize version from
   // its manifest (unsigned fast path per invariant #19b — repacked blobs are
   // unsigned per invariant #1).
-  const sanitizedBytes = base64UrlDecode(doBody.sanitized_bundle);
+  const sanitizedBytes = b64urlDecode(doBody.sanitized_bundle);
   let newVersion = row.version;
   try {
     const { bundle } = await loadWasm();
@@ -315,15 +311,6 @@ app.patch("/:id", async (c) => {
     { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
   );
 });
-
-function base64UrlDecode(s: string): Uint8Array {
-  const pad = s.length % 4 === 2 ? "==" : s.length % 4 === 3 ? "=" : "";
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  const raw = atob(b64);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // DELETE /v1/artifact/:id  (author-only soft delete)

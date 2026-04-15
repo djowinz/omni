@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
-import { errorResponse } from "../lib/errors";
+import { errorResponse, errorFromKind } from "../lib/errors";
 import { AuthError, verifyJws } from "../lib/auth";
 import { checkAndIncrement } from "../lib/rate_limit";
+import { hexEncode } from "../lib/hex";
 
 /**
  * `POST /v1/report` — abuse-report intake (plan #008 W3T13, contract §4.7).
@@ -33,14 +34,6 @@ interface ReportBody {
   note?: string;
 }
 
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) {
-    s += bytes[i]!.toString(16).padStart(2, "0");
-  }
-  return s;
-}
-
 app.post("/", async (c) => {
   // Buffer body exactly once — workerd streams are single-read and verifyJws
   // needs the bytes for the body_sha256 claim check.
@@ -52,10 +45,7 @@ app.post("/", async (c) => {
     auth = await verifyJws(c.req.raw, c.env, bodyBuf);
   } catch (e) {
     if (e instanceof AuthError) {
-      return errorResponse(401, e.code, e.message, {
-        kind: "Auth",
-        detail: e.detail,
-      });
+      return errorFromKind("Auth", e.detail, e.message);
     }
     throw e;
   }
@@ -97,9 +87,10 @@ app.post("/", async (c) => {
         detail: "BadRequest",
       });
     }
-    // Contract §4.7 says "≤ 500 chars"; we interpret that as UTF-8 code-unit
-    // length (String#length in ECMAScript, same as byte-count for ASCII plus
-    // surrogate-pair count for BMP chars — sufficient to bound storage).
+    // Contract §4.7 says "≤ 500 chars"; we use `String#length`, which is the
+    // UTF-16 code-unit count in ECMAScript (NOT UTF-8 byte length). That
+    // over-counts astral-plane codepoints as 2 units each, which is a stricter
+    // bound than a pure codepoint count — fine for a 500-char DOS cap.
     if (body.note.length > MAX_NOTE_LEN) {
       return errorResponse(
         400,

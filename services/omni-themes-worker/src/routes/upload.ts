@@ -7,8 +7,8 @@
  *   3. Rate-limit (upload_new / upload_update / upload_new_bundle)
  *   4. Multipart parse
  *   5. Manifest-only fast path (omni_bundle.unpackManifest via identity handle)
- *   6. Tag vocab validation (suggested_alternatives)
- *   7. Content signature verify (omni_identity.unpackSignedBundle) + kid match
+ *   6. Content signature verify (omni_identity.unpackSignedBundle) + kid match
+ *   7. Tag vocab validation (suggested_alternatives)
  *   8. Sanitize path (always via BundleProcessor DO — post-sanitize manifest
  *      file-hash rewriting is required because sanitizers mutate bytes; the DO
  *      centralises the rehash+repack. There is no inline fast path.)
@@ -22,40 +22,42 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
 import type { Env } from "../env";
-import { errorResponse, errorFromKind } from "../lib/errors";
+import { errorResponse, errorFromKind, classifyWasmError } from "../lib/errors";
 import { verifyJws, AuthError } from "../lib/auth";
 import { checkAndIncrement, type RateLimitAction } from "../lib/rate_limit";
 import { parseMultipart, MultipartError } from "../lib/multipart";
 import { loadWasm } from "../lib/wasm";
 import { canonicalHash } from "../lib/canonical";
 import { sanitizeViaDO } from "../lib/sanitize";
+import { hexEncode } from "../lib/hex";
 
 const app = new Hono<AppEnv>();
 
 // ---------- Helpers ---------------------------------------------------------
 
-function hexEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
-  return s;
+interface Limits {
+  max_bundle_compressed: number;
+  max_bundle_uncompressed: number;
+  max_entries: number;
+  version: number;
+  updated_at: number;
 }
 
 /**
- * Config KV reads. Spec #008 §4 describes a 60s in-memory TTL cache; deferred
- * to #012's admin routes where the version bump gives us an invalidation
- * signal. Reading on every request is well inside Worker KV budget for this
- * low-volume service (invariant #0).
+ * Config KV reads. Fail-closed: if `config:limits` is missing, surface a 500
+ * so a misconfigured deployment can't silently accept uploads against stale
+ * hardcoded defaults. Matches the pattern `config.ts` + `admin.ts` use. The
+ * KV read is on every request (low-volume service, invariant #0); a per-
+ * isolate TTL cache lives in `config.ts` for public read paths.
  */
-async function getLimits(env: Env) {
+async function getLimits(env: Env): Promise<Limits | Response> {
   const raw = await env.STATE.get("config:limits");
-  const fallback = {
-    max_bundle_compressed: 5_242_880,
-    max_bundle_uncompressed: 10_485_760,
-    max_entries: 32,
-    version: 1,
-    updated_at: 0,
-  };
-  return raw ? (JSON.parse(raw) as typeof fallback) : fallback;
+  if (raw === null) {
+    return errorResponse(500, "SERVER_ERROR", "config:limits not seeded", {
+      kind: "Io",
+    });
+  }
+  return JSON.parse(raw) as Limits;
 }
 
 async function getVocab(env: Env) {
@@ -145,21 +147,6 @@ function isThemeOnly(manifest: Manifest): boolean {
   return keys.every((k) => k === "theme");
 }
 
-function categorizeBundleError(err: unknown): { kind: "Malformed" | "Unsafe" | "Integrity" | "Io"; detail: string; msg: string } {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-  if (lower.includes("zipbomb") || lower.includes("unsafe")) {
-    return { kind: "Unsafe", detail: "Unsafe", msg };
-  }
-  if (lower.includes("signature") || lower.includes("integrity") || lower.includes("jws")) {
-    return { kind: "Integrity", detail: "SignatureInvalid", msg };
-  }
-  if (lower.includes("manifest") || lower.includes("schema") || lower.includes("json")) {
-    return { kind: "Malformed", detail: "ManifestInvalid", msg };
-  }
-  return { kind: "Malformed", detail: "BadRequest", msg };
-}
-
 // ---------- Route -----------------------------------------------------------
 
 app.post("/", async (c) => {
@@ -168,7 +155,9 @@ app.post("/", async (c) => {
   const url = new URL(req.url);
 
   // Step 1 — body cap
-  const limits = await getLimits(env);
+  const limitsOrErr = await getLimits(env);
+  if (limitsOrErr instanceof Response) return limitsOrErr;
+  const limits = limitsOrErr;
   const bodyOrOver = await readBodyWithCap(req, limits.max_bundle_compressed);
   if ("over" in (bodyOrOver as object) && (bodyOrOver as { over: true }).over) {
     return errorFromKind("Malformed", "SizeExceeded", "request body exceeds max_bundle_compressed");
@@ -238,11 +227,11 @@ app.post("/", async (c) => {
     signedHandle = identity.unpackSignedBundle(parts.bundle, undefined) as unknown as SignedHandleLike;
     manifest = signedHandle.manifest() as Manifest;
   } catch (e) {
-    const cat = categorizeBundleError(e);
-    return errorFromKind(cat.kind, cat.detail, cat.msg);
+    const cat = classifyWasmError(e);
+    return errorFromKind(cat.kind, cat.detail, cat.message);
   }
 
-  // Step 7 (pubkey match) happens here using the signed-bundle's authorPubkey.
+  // Step 6 — content signature verify + kid match (via the signed-bundle's authorPubkey).
   const authorPub = signedHandle.authorPubkey();
   const authorPubHex = hexEncode(authorPub);
   if (authorPubHex !== pubkeyHex) {
@@ -250,7 +239,7 @@ app.post("/", async (c) => {
     return errorFromKind("Auth", "Forbidden", "bundle author pubkey does not match request kid");
   }
 
-  // Step 6 — tag validation
+  // Step 7 — tag validation
   const vocab = await getVocab(env);
   const tags = Array.isArray(manifest.tags) ? manifest.tags : [];
   for (const t of tags) {
@@ -296,8 +285,8 @@ app.post("/", async (c) => {
   try {
     sanitized = await sanitizeViaDO(env, parts.bundle, dfHex);
   } catch (e) {
-    const cat = categorizeBundleError(e);
-    return errorFromKind(cat.kind, cat.detail, cat.msg);
+    const cat = classifyWasmError(e);
+    return errorFromKind(cat.kind, cat.detail, cat.message);
   }
 
   // Step 9 — canonical hash (native hex)
