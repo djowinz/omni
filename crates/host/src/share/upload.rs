@@ -193,6 +193,37 @@ pub async fn upload(
     client: Arc<ShareClient>,
     progress: mpsc::Sender<UploadProgress>,
 ) -> Result<UploadResult, UploadError> {
+    // Top-level Err paths emit a final `UploadProgress::Error` frame before the
+    // sender drops, so the editor sees a terminal progress event alongside the
+    // returned `publishResult` error envelope. `Done` is still sent on success.
+    match upload_inner(req, guard, identity, client, progress.clone()).await {
+        Ok(result) => {
+            let _ = progress
+                .send(UploadProgress::Done {
+                    result: result.clone(),
+                })
+                .await;
+            Ok(result)
+        }
+        Err(e) => {
+            let _ = progress
+                .send(UploadProgress::Error {
+                    code: e.code().to_string(),
+                    message: e.user_message(),
+                })
+                .await;
+            Err(e)
+        }
+    }
+}
+
+async fn upload_inner(
+    req: UploadRequest,
+    guard: Arc<dyn Guard>,
+    identity: Arc<Keypair>,
+    client: Arc<ShareClient>,
+    progress: mpsc::Sender<UploadProgress>,
+) -> Result<UploadResult, UploadError> {
     // 0. Self-integrity gate (invariant #9 style).
     guard
         .verify_self_integrity()
@@ -202,10 +233,21 @@ pub async fn upload(
         })?;
 
     let _ = progress.send(UploadProgress::Packing).await;
-    let limits = client
-        .config_limits()
-        .await
-        .unwrap_or(BundleLimits::DEFAULT);
+    // Propagate config_limits errors. Only Network failures fall back to the
+    // compile-time default with a logged warning; any ServerReject (Auth/Admin/
+    // Malformed) must surface verbatim — silently defaulting would let auth
+    // failures masquerade as size-limit errors.
+    let limits = match client.config_limits().await {
+        Ok(l) => l,
+        Err(UploadError::Network(e)) => {
+            tracing::warn!(
+                error = %e,
+                "config_limits network failure; falling back to BundleLimits::DEFAULT"
+            );
+            BundleLimits::DEFAULT
+        }
+        Err(e) => return Err(e),
+    };
     let pack = pack_only(&req, &limits, &identity).await?;
 
     if pack.sanitized_bytes.len() as u64 > limits.max_bundle_compressed {
@@ -241,11 +283,6 @@ pub async fn upload(
         client.upload(pack, progress.clone()).await?
     };
 
-    let _ = progress
-        .send(UploadProgress::Done {
-            result: result.clone(),
-        })
-        .await;
     Ok(result)
 }
 

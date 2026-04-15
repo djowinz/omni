@@ -33,11 +33,6 @@ fn bad_input(id: &str, msg: impl Into<String>) -> String {
     .to_string()
 }
 
-fn parse_version_or_default(s: Option<&str>) -> Version {
-    s.and_then(|v| Version::parse(v).ok())
-        .unwrap_or_else(|| Version::new(0, 0, 0))
-}
-
 fn parse_kind(s: Option<&str>) -> ArtifactKind {
     match s {
         Some("theme") => ArtifactKind::Theme,
@@ -101,11 +96,22 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
         omni_min_version: Version::new(0, 0, 0),
         update_artifact_id: None,
     };
-    let limits = ctx
-        .client
-        .config_limits()
-        .await
-        .unwrap_or(omni_bundle::BundleLimits::DEFAULT);
+    // Propagate config_limits errors instead of silently defaulting — an auth
+    // failure here must surface as SERVER_REJECT, not masquerade as a size error
+    // once pack_only compares against the wrong limits. Network failures fall
+    // back to the compile-time default (dry-run is a pre-flight; offline is
+    // acceptable) with a logged warning.
+    let limits = match ctx.client.config_limits().await {
+        Ok(l) => l,
+        Err(UploadError::Network(e)) => {
+            tracing::warn!(
+                error = %e,
+                "config_limits network failure; falling back to BundleLimits::DEFAULT"
+            );
+            omni_bundle::BundleLimits::DEFAULT
+        }
+        Err(e) => return Some(error_envelope(id, &e).to_string()),
+    };
     match super::upload::pack_only(&req, &limits, &ctx.identity).await {
         Ok(pack) => Some(
             json!({
@@ -129,6 +135,12 @@ async fn handle_publish<F>(id: &str, params: Value, ctx: &ShareContext, is_updat
 where
     F: Fn(String) + Send + Sync + Clone + 'static,
 {
+    // Full publish-params schema. Contract (ws-explorer.md §upload.publish) mandates
+    // `workspace_path` + `visibility` + `bump`; sub-spec §2 requires the full manifest
+    // metadata (name/description/tags/license/version/omni_min_version) to populate
+    // `UploadRequest`. We accept both shapes: metadata fields ride alongside the
+    // contract fields and are required for publish — without them the Worker's manifest
+    // would be blank. Parse failures (bad semver, bad tag) return structured BadInput.
     #[derive(Deserialize)]
     struct P {
         workspace_path: String,
@@ -139,6 +151,18 @@ where
         #[serde(default)]
         #[allow(dead_code)]
         bump: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+        #[serde(default)]
+        license: Option<String>,
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default)]
+        omni_min_version: Option<String>,
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
@@ -147,15 +171,59 @@ where
             return;
         }
     };
+    // Parse tags via the Tag::new gate so format errors surface as BadInput, not as
+    // silent empty-string fallbacks. Vec<String> → Vec<Tag>.
+    let tags: Vec<Tag> = match p
+        .tags
+        .unwrap_or_default()
+        .into_iter()
+        .map(Tag::new)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(v) => v,
+        Err(e) => {
+            send_fn(bad_input(id, format!("invalid tag: {e}")));
+            return;
+        }
+    };
+    let version = match p.version.as_deref() {
+        Some(s) => match Version::parse(s) {
+            Ok(v) => v,
+            Err(e) => {
+                send_fn(bad_input(id, format!("invalid version {s:?}: {e}")));
+                return;
+            }
+        },
+        None => {
+            send_fn(bad_input(id, "missing required field: version"));
+            return;
+        }
+    };
+    let omni_min_version = match p.omni_min_version.as_deref() {
+        Some(s) => match Version::parse(s) {
+            Ok(v) => v,
+            Err(e) => {
+                send_fn(bad_input(
+                    id,
+                    format!("invalid omni_min_version {s:?}: {e}"),
+                ));
+                return;
+            }
+        },
+        None => {
+            send_fn(bad_input(id, "missing required field: omni_min_version"));
+            return;
+        }
+    };
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
         source_path: p.workspace_path.into(),
-        name: String::new(),
-        description: String::new(),
-        tags: Vec::<Tag>::new(),
-        license: String::new(),
-        version: parse_version_or_default(None),
-        omni_min_version: parse_version_or_default(None),
+        name: p.name.unwrap_or_default(),
+        description: p.description.unwrap_or_default(),
+        tags,
+        license: p.license.unwrap_or_default(),
+        version,
+        omni_min_version,
         update_artifact_id: if is_update { p.artifact_id } else { None },
     };
     let (tx, rx) = mpsc::channel(32);
