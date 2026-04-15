@@ -14,6 +14,7 @@ pub mod cache;
 pub mod client;
 pub mod error;
 pub mod progress;
+pub mod registry;
 pub mod tofu;
 pub mod upload;
 pub mod ws_messages;
