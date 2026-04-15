@@ -105,6 +105,58 @@ impl AdminClient {
     }
 }
 
+impl AdminClient {
+    /// Build an [`AdminClient`] from the CLI globals: resolves the key file
+    /// path (explicit `--key-file`, else `$OMNI_ADMIN_KEY_FILE`, else the
+    /// platform default), runs the permission hygiene check, loads the
+    /// keypair, and returns a ready client.
+    ///
+    /// Shared across every subcommand that needs a signed Worker call —
+    /// callers in `commands/*.rs` use exactly this entry point so the
+    /// key-loading policy stays in one place.
+    pub fn from_cli(cli: &crate::Cli) -> anyhow::Result<Self> {
+        let key_path = cli
+            .key_file
+            .clone()
+            .or_else(default_admin_key_path)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no --key-file specified and no default admin key path available"
+                )
+            })?;
+        crate::key_file::check_permissions(&key_path)?;
+        let kp = omni_identity::Keypair::load_or_create(&key_path)?;
+        Ok(Self::new(cli.worker_url.clone(), kp, cli.json))
+    }
+}
+
+/// Platform default admin key path.
+///
+/// Resolution order: `$OMNI_ADMIN_KEY_FILE`, then
+/// `%APPDATA%\Omni\admin-identity.key` on Windows, else
+/// `$XDG_CONFIG_HOME/omni/admin-identity.key` (or equivalent via
+/// `directories::BaseDirs`).
+fn default_admin_key_path() -> Option<std::path::PathBuf> {
+    if let Ok(env) = std::env::var("OMNI_ADMIN_KEY_FILE") {
+        if !env.is_empty() {
+            return Some(env.into());
+        }
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(|p| {
+            std::path::PathBuf::from(p)
+                .join("Omni")
+                .join("admin-identity.key")
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        directories::BaseDirs::new()
+            .map(|b| b.config_dir().join("omni").join("admin-identity.key"))
+    }
+}
+
 /// Map contract error kind -> CLI exit code per spec §6.
 pub fn kind_to_exit_code(kind: &str) -> i32 {
     match kind {

@@ -10,10 +10,20 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Resolve `~/.omni-admin/audit.log`, creating the parent directory on demand.
+///
+/// The `OMNI_ADMIN_AUDIT_DIR` env var overrides the default location. This
+/// override exists so integration tests can redirect the log into a
+/// per-test tempdir — on Windows `directories::BaseDirs` consults
+/// `SHGetKnownFolderPath`, which does NOT honor a re-exported `USERPROFILE`,
+/// so env-based home redirection is not portable.
 pub fn log_path() -> anyhow::Result<PathBuf> {
-    let base = directories::BaseDirs::new()
-        .ok_or_else(|| anyhow::anyhow!("cannot resolve home directory for audit log"))?;
-    let dir = base.home_dir().join(".omni-admin");
+    let dir = if let Some(p) = std::env::var_os("OMNI_ADMIN_AUDIT_DIR") {
+        PathBuf::from(p)
+    } else {
+        let base = directories::BaseDirs::new()
+            .ok_or_else(|| anyhow::anyhow!("cannot resolve home directory for audit log"))?;
+        base.home_dir().join(".omni-admin")
+    };
     std::fs::create_dir_all(&dir)?;
     Ok(dir.join("audit.log"))
 }

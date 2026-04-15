@@ -27,11 +27,13 @@ hex = "0.4"
 base64 = "0.22"
 thiserror = "1"
 jsonwebtoken = "9"
+urlencoding = "2"
 
 [dev-dependencies]
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
+wiremock = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
