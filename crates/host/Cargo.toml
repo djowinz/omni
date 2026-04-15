@@ -60,6 +60,11 @@ omni-sanitize = { path = "../omni-sanitize" }
 wiremock = "0.6"
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+sha2 = "0.10"
+semver = { version = "1", features = ["serde"] }
+omni-identity = { path = "../omni-identity" }
+omni-bundle = { path = "../omni-bundle" }
 
 [dependencies.windows]
 version = "0.58"
