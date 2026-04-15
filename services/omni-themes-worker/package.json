@@ -16,7 +16,7 @@
     "build:wasm": "node scripts/build-wasm.mjs",
     "predev": "pnpm build:wasm",
     "prebuild": "pnpm build:wasm",
-    "pretest": "pnpm build:wasm"
+    "pretest": "pnpm build:wasm && node test/fixtures/generate.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"

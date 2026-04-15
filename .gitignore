@@ -39,3 +39,7 @@ services/**/.dev.vars
 services/omni-themes-worker/src/wasm/*.wasm
 services/omni-themes-worker/src/wasm/*.js
 services/omni-themes-worker/src/wasm/*.d.ts
+
+# Worker test fixtures (regenerated from seed; never commit binaries)
+services/omni-themes-worker/test/fixtures/*.omnipkg
+services/omni-themes-worker/test/fixtures/fixtures.json
