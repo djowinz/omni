@@ -17,8 +17,7 @@ fn payload_pins_top_level_shape() {
     values.insert("cpu.usage".into(), 73.0);
     let payload = build_preview_payload(&values, None);
     let obj = payload.as_object().expect("object root");
-    let keys: std::collections::BTreeSet<&str> =
-        obj.keys().map(|k| k.as_str()).collect();
+    let keys: std::collections::BTreeSet<&str> = obj.keys().map(|k| k.as_str()).collect();
     let expected: std::collections::BTreeSet<&str> =
         ["type", "values", "diff"].into_iter().collect();
     assert_eq!(keys, expected, "preview.update payload shape drifted");
@@ -42,17 +41,21 @@ fn diff_carries_class_updates_only_post_ts002() {
     // this means live text preview in the editor is effectively broken
     // until sub-spec #014 teaches the consumer to apply `values` too.
     let mut diff = UpdateDiff::new();
-    diff.insert("omni-0".into(), ElementUpdate {
-        c: Some("sensor-warn".into()),
-        t: None,
-        a: None,
-    });
+    diff.insert(
+        "omni-0".into(),
+        ElementUpdate {
+            c: Some("sensor-warn".into()),
+            t: None,
+            a: None,
+        },
+    );
     let values = HashMap::new();
     let payload = build_preview_payload(&values, Some(&diff));
     assert_eq!(payload["diff"]["omni-0"]["c"], "sensor-warn");
-    assert!(payload["diff"]["omni-0"].get("t").is_none()
-         || payload["diff"]["omni-0"]["t"].is_null(),
-        "update.t should not be populated post-ts-002 (tracked for #014)");
+    assert!(
+        payload["diff"]["omni-0"].get("t").is_none() || payload["diff"]["omni-0"]["t"].is_null(),
+        "update.t should not be populated post-ts-002 (tracked for #014)"
+    );
 }
 
 /// Structural compatibility sketch — not executable from Rust, but pins the
@@ -69,11 +72,14 @@ fn diff_entry_schema_compatible_with_editor_consumer() {
     let mut diff = UpdateDiff::new();
     let mut attrs = HashMap::new();
     attrs.insert("value".to_string(), "73".to_string());
-    diff.insert("omni-0".into(), ElementUpdate {
-        c: Some("ok".into()),
-        t: None,
-        a: Some(attrs),
-    });
+    diff.insert(
+        "omni-0".into(),
+        ElementUpdate {
+            c: Some("ok".into()),
+            t: None,
+            a: Some(attrs),
+        },
+    );
     let values = HashMap::new();
     let payload = build_preview_payload(&values, Some(&diff));
     let entry = &payload["diff"]["omni-0"];

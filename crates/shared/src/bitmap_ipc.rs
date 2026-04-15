@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn total_shm_size_is_under_64mb() {
-        assert!(TOTAL_SHM_SIZE < 64 * 1024 * 1024);
+        const { assert!(TOTAL_SHM_SIZE < 64 * 1024 * 1024) };
     }
 
     #[test]

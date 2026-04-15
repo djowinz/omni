@@ -14,20 +14,22 @@ use crate::{IdentityError, Keypair};
 /// Field order + field names MUST match `contracts/worker-api.md` §2 exactly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpJwsClaims {
-    pub alg: String,   // always "EdDSA"
-    pub crv: String,   // always "Ed25519"
-    pub typ: String,   // always "Omni-HTTP-JWS"
-    pub kid: String,   // base64(pubkey, 32 bytes)
-    pub df: String,    // base64(device fingerprint, 32 bytes)
-    pub ts: i64,       // seconds since epoch
-    pub method: String, // uppercase HTTP method
-    pub path: String,   // request path, leading slash
+    pub alg: String,          // always "EdDSA"
+    pub crv: String,          // always "Ed25519"
+    pub typ: String,          // always "Omni-HTTP-JWS"
+    pub kid: String,          // base64(pubkey, 32 bytes)
+    pub df: String,           // base64(device fingerprint, 32 bytes)
+    pub ts: i64,              // seconds since epoch
+    pub method: String,       // uppercase HTTP method
+    pub path: String,         // request path, leading slash
     pub query_sha256: String, // hex SHA-256 of raw query string ("" if none)
     pub body_sha256: String,  // hex SHA-256 of raw body bytes ("" if none)
     pub sanitize_version: u32,
 }
 
 impl HttpJwsClaims {
+    // The 8-field envelope is a wire contract (worker-api §2), not a refactor candidate.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         kid_b64: String,
         df_b64: String,
@@ -58,10 +60,7 @@ impl HttpJwsClaims {
 /// intended for `Authorization: Omni-JWS <compact>`.
 ///
 /// Delegates to [`Keypair::sign_jws`]; forces `alg = EdDSA` and `typ = "Omni-HTTP-JWS"`.
-pub fn sign_http_jws(
-    keypair: &Keypair,
-    claims: &HttpJwsClaims,
-) -> Result<String, IdentityError> {
+pub fn sign_http_jws(keypair: &Keypair, claims: &HttpJwsClaims) -> Result<String, IdentityError> {
     let mut header = Header::new(Algorithm::EdDSA);
     header.typ = Some("Omni-HTTP-JWS".to_string());
     keypair.sign_jws(claims, &header)

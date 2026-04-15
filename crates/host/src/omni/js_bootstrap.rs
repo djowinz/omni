@@ -11,7 +11,11 @@ const TRUST_PLACEHOLDER: &str = "__OMNI_VIEW_TRUSTED__";
 /// Render the bootstrap script body with the trust flag substituted.
 /// The returned string is the raw JS — callers wrap it in `<script>` tags.
 pub fn render(trust: ViewTrust) -> String {
-    let flag = if trust.is_sandboxed() { "false" } else { "true" };
+    let flag = if trust.is_sandboxed() {
+        "false"
+    } else {
+        "true"
+    };
     BOOTSTRAP_SRC.replacen(TRUST_PLACEHOLDER, flag, 1)
 }
 

@@ -63,8 +63,8 @@ mod tests {
 
     #[test]
     fn default_overlay_lowers_to_data_sensor_spans() {
-        use crate::omni::html_builder;
         use crate::omni::history::SensorHistory;
+        use crate::omni::html_builder;
         use crate::omni::view_trust::ViewTrust;
         use omni_shared::SensorSnapshot;
         use std::collections::HashMap;
@@ -75,13 +75,22 @@ mod tests {
         let hu: HashMap<String, String> = HashMap::new();
         let history = SensorHistory::new();
         let rendered = html_builder::build_initial_html(
-            &file, &snap, 1920, 1080,
-            std::path::Path::new("."), "default", &hv, &hu, &history,
+            &file,
+            &snap,
+            1920,
+            1080,
+            std::path::Path::new("."),
+            "default",
+            &hv,
+            &hu,
+            &history,
             ViewTrust::LocalAuthored,
         );
         assert!(rendered.html.contains(r#"data-sensor="cpu.usage""#));
         assert!(rendered.html.contains(r#"data-sensor="gpu.temp""#));
         assert!(rendered.html.contains(r#"data-sensor-format="percent""#));
-        assert!(rendered.html.contains(r#"data-sensor-format="temperature""#));
+        assert!(rendered
+            .html
+            .contains(r#"data-sensor-format="temperature""#));
     }
 }

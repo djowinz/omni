@@ -10,10 +10,10 @@
 //! * [`upload`] — `pack_only` + `upload` orchestration.
 //! * [`ws_messages`] — WebSocket dispatch.
 
-pub mod error;
-pub mod progress;
 pub mod cache;
 pub mod client;
+pub mod error;
+pub mod progress;
 pub mod upload;
 pub mod ws_messages;
 

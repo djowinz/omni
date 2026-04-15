@@ -110,26 +110,20 @@ pub async fn pack_only(
                     msg: "theme source missing".into(),
                     source: None,
                 })?;
-            let (out, report) = omni_sanitize::sanitize_theme(css_bytes).map_err(|e| {
-                UploadError::BadInput {
+            let (out, report) =
+                omni_sanitize::sanitize_theme(css_bytes).map_err(|e| UploadError::BadInput {
                     msg: "sanitize_theme failed".into(),
                     source: Some(Box::new(e)),
-                }
-            })?;
+                })?;
             let mut map = BTreeMap::new();
             map.insert("theme.css".to_string(), out);
-            (
-                map,
-                serde_json::to_value(report).unwrap_or_default(),
-            )
+            (map, serde_json::to_value(report).unwrap_or_default())
         }
         ArtifactKind::Bundle => {
-            let (out, report) =
-                omni_sanitize::sanitize_bundle(&manifest, files_raw.clone()).map_err(|e| {
-                    UploadError::BadInput {
-                        msg: "sanitize_bundle failed".into(),
-                        source: Some(Box::new(e)),
-                    }
+            let (out, report) = omni_sanitize::sanitize_bundle(&manifest, files_raw.clone())
+                .map_err(|e| UploadError::BadInput {
+                    msg: "sanitize_bundle failed".into(),
+                    source: Some(Box::new(e)),
                 })?;
             (out, serde_json::to_value(report).unwrap_or_default())
         }
@@ -152,19 +146,27 @@ pub async fn pack_only(
             // Themes ship as raw CSS bytes (worker-api §4.1); signing is over the
             // bundle path only. For theme upload we still pack+sign so the Worker
             // sees the JWS envelope — same as bundle but with a single-file manifest.
-            omni_identity::pack_signed_bundle(&sanitized_manifest, &sanitized_files, identity, limits)
-                .map_err(|e| UploadError::BadInput {
-                    msg: "pack_signed_bundle (theme) failed".into(),
-                    source: Some(Box::new(e)),
-                })?
+            omni_identity::pack_signed_bundle(
+                &sanitized_manifest,
+                &sanitized_files,
+                identity,
+                limits,
+            )
+            .map_err(|e| UploadError::BadInput {
+                msg: "pack_signed_bundle (theme) failed".into(),
+                source: Some(Box::new(e)),
+            })?
         }
-        ArtifactKind::Bundle => {
-            omni_identity::pack_signed_bundle(&sanitized_manifest, &sanitized_files, identity, limits)
-                .map_err(|e| UploadError::BadInput {
-                    msg: "pack_signed_bundle (bundle) failed".into(),
-                    source: Some(Box::new(e)),
-                })?
-        }
+        ArtifactKind::Bundle => omni_identity::pack_signed_bundle(
+            &sanitized_manifest,
+            &sanitized_files,
+            identity,
+            limits,
+        )
+        .map_err(|e| UploadError::BadInput {
+            msg: "pack_signed_bundle (bundle) failed".into(),
+            source: Some(Box::new(e)),
+        })?,
     };
 
     // 7. Thumbnail (delegated to sub-spec #011; placeholder 1×1 PNG until then).
@@ -259,9 +261,7 @@ fn read_theme(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
 fn walk_bundle(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
     let mut out = BTreeMap::new();
     for entry in walkdir::WalkDir::new(root).follow_links(false) {
-        let entry = entry.map_err(|e| {
-            UploadError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
+        let entry = entry.map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
         if entry.file_type().is_file() {
             let rel = entry
                 .path()

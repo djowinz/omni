@@ -9,10 +9,24 @@ use super::parser::ParseError;
 /// span, i) plus the SVG subset used by the charting system.
 pub const KNOWN_ELEMENTS: &[&str] = &[
     // HTML
-    "div", "span", "i",
+    "div",
+    "span",
+    "i",
     // SVG container and shapes used by <chart> / <chart-card> desugaring
-    "svg", "g", "polyline", "path", "rect", "circle", "line", "text", "ellipse",
-    "polygon", "defs", "linearGradient", "radialGradient", "stop",
+    "svg",
+    "g",
+    "polyline",
+    "path",
+    "rect",
+    "circle",
+    "line",
+    "text",
+    "ellipse",
+    "polygon",
+    "defs",
+    "linearGradient",
+    "radialGradient",
+    "stop",
 ];
 
 /// Known sensor paths for interpolation expressions.

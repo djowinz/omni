@@ -39,8 +39,14 @@ fn fixture() -> (Manifest, BTreeMap<String, Vec<u8>>) {
         default_theme: Some("themes/default.css".into()),
         sensor_requirements: vec![],
         files: vec![
-            FileEntry { path: "overlay.omni".into(), sha256: sha256(&overlay) },
-            FileEntry { path: "themes/default.css".into(), sha256: sha256(&css) },
+            FileEntry {
+                path: "overlay.omni".into(),
+                sha256: sha256(&overlay),
+            },
+            FileEntry {
+                path: "themes/default.css".into(),
+                sha256: sha256(&css),
+            },
         ],
         resource_kinds: None,
     };
@@ -64,7 +70,10 @@ fn pack_unpack_roundtrip() {
     let (_m2, files_map) = signed.into_files_map();
     assert!(files_map.contains_key("overlay.omni"));
     assert!(files_map.contains_key("themes/default.css"));
-    assert!(!files_map.contains_key("signature.jws"), "signature must be stripped");
+    assert!(
+        !files_map.contains_key("signature.jws"),
+        "signature must be stripped"
+    );
 }
 
 #[test]

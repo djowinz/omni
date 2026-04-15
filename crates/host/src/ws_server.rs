@@ -29,7 +29,7 @@ pub struct WsSharedState {
     pub hwinfo_state: Mutex<crate::sensors::hwinfo::HwInfoState>,
     pub hwinfo_sensors_changed: Mutex<bool>,
     pub preview_subscribers: Mutex<Vec<mpsc::Sender<String>>>,
-    pub latest_initial_html: Mutex<Option<(String, String)>>,  // (html, css)
+    pub latest_initial_html: Mutex<Option<(String, String)>>, // (html, css)
     /// Share-surface context (sub-spec #009). None when upload pipeline not configured.
     pub share_ctx: Mutex<Option<Arc<crate::share::ws_messages::ShareContext>>>,
     /// Tokio runtime used to drive async share-surface handlers from the sync WS loop.
@@ -39,8 +39,14 @@ pub struct WsSharedState {
 
 impl WsSharedState {
     /// Extract cloned HWiNFO values and units from the shared state.
-    pub fn hwinfo_values_and_units(&self) -> (std::collections::HashMap<String, f64>, std::collections::HashMap<String, String>) {
-        self.hwinfo_state.lock()
+    pub fn hwinfo_values_and_units(
+        &self,
+    ) -> (
+        std::collections::HashMap<String, f64>,
+        std::collections::HashMap<String, String>,
+    ) {
+        self.hwinfo_state
+            .lock()
             .map(|s| (s.values.clone(), s.units.clone()))
             .unwrap_or_default()
     }
@@ -143,8 +149,11 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                         let text_str: &str = &text;
 
                         // Detect message type before handling
-                        let msg_type = serde_json::from_str::<Value>(text_str).ok()
-                            .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string()));
+                        let msg_type = serde_json::from_str::<Value>(text_str).ok().and_then(|v| {
+                            v.get("type")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string())
+                        });
 
                         // Route share-surface messages to crates/host/src/share/ws_messages.rs
                         // (sub-spec #009). Falls through to `handle_message` for non-share types.
@@ -170,17 +179,24 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                         if msg_type.as_deref() == Some("preview.subscribe") {
                             if !preview_subscribed {
                                 preview_subscribed = true;
-                                state.preview_subscribers.lock().unwrap().push(preview_tx.clone());
+                                state
+                                    .preview_subscribers
+                                    .lock()
+                                    .unwrap()
+                                    .push(preview_tx.clone());
                                 info!("Client subscribed to preview updates");
                             }
 
                             // Send current HTML if available
-                            if let Some((ref html, ref css)) = *state.latest_initial_html.lock().unwrap() {
+                            if let Some((ref html, ref css)) =
+                                *state.latest_initial_html.lock().unwrap()
+                            {
                                 let msg = json!({
                                     "type": "preview.html",
                                     "html": html,
                                     "css": css,
-                                }).to_string();
+                                })
+                                .to_string();
                                 if ws.send(Message::Text(msg.into())).is_err() {
                                     break;
                                 }

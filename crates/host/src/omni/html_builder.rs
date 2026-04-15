@@ -154,9 +154,17 @@ fn render_initial_node(
                 for seg in segments {
                     match seg {
                         TextSegment::Literal(s) => out.push_str(&s),
-                        TextSegment::Sensor { path, format, precision } => {
+                        TextSegment::Sensor {
+                            path,
+                            format,
+                            precision,
+                        } => {
                             let initial = super::sensor_map::get_sensor_value_with_hwinfo(
-                                &path, snapshot, hwinfo_values, hwinfo_units, Some(precision),
+                                &path,
+                                snapshot,
+                                hwinfo_values,
+                                hwinfo_units,
+                                Some(precision),
                             );
                             let formatted = format_initial(&initial, format, precision);
                             out.push_str(&format!(
@@ -171,7 +179,12 @@ fn render_initial_node(
                 }
                 out
             } else if content.contains('{') {
-                let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
+                let ctx = EvalCtx {
+                    snapshot,
+                    history,
+                    hwinfo_values,
+                    hwinfo_units,
+                };
                 interpolate(content, &ctx)
             } else {
                 content.clone()
@@ -233,7 +246,9 @@ fn render_initial_node(
 
             let children_html: String = children
                 .iter()
-                .map(|c| render_initial_node(c, snapshot, counter, hwinfo_values, hwinfo_units, history))
+                .map(|c| {
+                    render_initial_node(c, snapshot, counter, hwinfo_values, hwinfo_units, history)
+                })
                 .collect();
 
             if matches!(tag.as_str(), "br" | "hr" | "img" | "input") {
@@ -283,7 +298,15 @@ pub fn compute_update_diff(
         if !widget.enabled {
             continue;
         }
-        collect_diff_entries(&widget.template, snapshot, &mut counter, &mut diff, hwinfo_values, hwinfo_units, history);
+        collect_diff_entries(
+            &widget.template,
+            snapshot,
+            &mut counter,
+            &mut diff,
+            hwinfo_values,
+            hwinfo_units,
+            history,
+        );
     }
 
     if diff.is_empty() {
@@ -298,7 +321,9 @@ pub fn compute_update_diff(
 pub fn format_classes_js(diff: &UpdateDiff) -> Option<String> {
     let mut ids: Vec<&String> = diff.keys().collect();
     ids.sort_by_key(|id| {
-        id.strip_prefix("omni-").and_then(|n| n.parse::<u32>().ok()).unwrap_or(u32::MAX)
+        id.strip_prefix("omni-")
+            .and_then(|n| n.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
     });
     let mut parts = Vec::new();
     for id in ids {
@@ -307,8 +332,11 @@ pub fn format_classes_js(diff: &UpdateDiff) -> Option<String> {
             parts.push(format!(r#""{}":"{}""#, id, escaped));
         }
     }
-    if parts.is_empty() { None }
-    else { Some(format!("__omni_set_classes({{{}}})", parts.join(","))) }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("__omni_set_classes({{{}}})", parts.join(",")))
+    }
 }
 
 /// Render the text-update portion of an `UpdateDiff` as an
@@ -318,7 +346,9 @@ pub fn format_classes_js(diff: &UpdateDiff) -> Option<String> {
 pub fn format_text_js(diff: &UpdateDiff) -> Option<String> {
     let mut ids: Vec<&String> = diff.keys().collect();
     ids.sort_by_key(|id| {
-        id.strip_prefix("omni-").and_then(|n| n.parse::<u32>().ok()).unwrap_or(u32::MAX)
+        id.strip_prefix("omni-")
+            .and_then(|n| n.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
     });
     let mut entries = Vec::new();
     for id in ids {
@@ -327,8 +357,11 @@ pub fn format_text_js(diff: &UpdateDiff) -> Option<String> {
             entries.push(format!(r#""{}":"{}""#, id, escaped));
         }
     }
-    if entries.is_empty() { None }
-    else { Some(format!("__omni_set_text({{{}}})", entries.join(","))) }
+    if entries.is_empty() {
+        None
+    } else {
+        Some(format!("__omni_set_text({{{}}})", entries.join(",")))
+    }
 }
 
 /// Render the attribute-update portion of an `UpdateDiff` as an
@@ -336,23 +369,33 @@ pub fn format_text_js(diff: &UpdateDiff) -> Option<String> {
 pub fn format_attrs_js(diff: &UpdateDiff) -> Option<String> {
     let mut ids: Vec<&String> = diff.keys().collect();
     ids.sort_by_key(|id| {
-        id.strip_prefix("omni-").and_then(|n| n.parse::<u32>().ok()).unwrap_or(u32::MAX)
+        id.strip_prefix("omni-")
+            .and_then(|n| n.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
     });
     let mut entries = Vec::new();
     for id in ids {
         let Some(a) = &diff[id].a else { continue };
-        if a.is_empty() { continue; }
+        if a.is_empty() {
+            continue;
+        }
         let mut keys: Vec<&String> = a.keys().collect();
         keys.sort();
-        let attr_parts: Vec<String> = keys.iter().map(|k| {
-            let v = &a[*k];
-            let escaped = v.replace('\\', "\\\\").replace('"', "\\\"");
-            format!(r#""{}":"{}""#, k, escaped)
-        }).collect();
+        let attr_parts: Vec<String> = keys
+            .iter()
+            .map(|k| {
+                let v = &a[*k];
+                let escaped = v.replace('\\', "\\\\").replace('"', "\\\"");
+                format!(r#""{}":"{}""#, k, escaped)
+            })
+            .collect();
         entries.push(format!(r#""{}":{{{}}}"#, id, attr_parts.join(",")));
     }
-    if entries.is_empty() { None }
-    else { Some(format!("__omni_set_attrs({{{}}})", entries.join(","))) }
+    if entries.is_empty() {
+        None
+    } else {
+        Some(format!("__omni_set_attrs({{{}}})", entries.join(",")))
+    }
 }
 
 /// Render a sensor-values map as a `__omni_update({...})` call.
@@ -371,7 +414,9 @@ pub fn collect_sensor_values(
 ) -> HashMap<String, f64> {
     let mut out: HashMap<String, f64> = HashMap::new();
     for widget in &omni_file.widgets {
-        if !widget.enabled { continue; }
+        if !widget.enabled {
+            continue;
+        }
         collect_paths(&widget.template, &mut out, snapshot, hwinfo_values);
     }
     out
@@ -396,7 +441,9 @@ fn collect_paths(
             }
         }
         HtmlNode::Element { children, .. } => {
-            for c in children { collect_paths(c, out, snapshot, hwinfo_values); }
+            for c in children {
+                collect_paths(c, out, snapshot, hwinfo_values);
+            }
         }
     }
 }
@@ -406,17 +453,27 @@ fn raw_value(
     snapshot: &SensorSnapshot,
     hwinfo_values: &HashMap<String, f64>,
 ) -> Option<f64> {
-    if let Some(v) = hwinfo_values.get(path) { return Some(*v); }
+    if let Some(v) = hwinfo_values.get(path) {
+        return Some(*v);
+    }
     Some(match path {
         "cpu.usage" => snapshot.cpu.total_usage_percent as f64,
         "cpu.temp" => {
             let v = snapshot.cpu.package_temp_c as f64;
-            if v.is_nan() { return None; } else { v }
+            if v.is_nan() {
+                return None;
+            } else {
+                v
+            }
         }
         "gpu.usage" => snapshot.gpu.usage_percent as f64,
         "gpu.temp" => {
             let v = snapshot.gpu.temp_c as f64;
-            if v.is_nan() { return None; } else { v }
+            if v.is_nan() {
+                return None;
+            } else {
+                v
+            }
         }
         "gpu.clock" => snapshot.gpu.core_clock_mhz as f64,
         "gpu.mem-clock" => snapshot.gpu.mem_clock_mhz as f64,
@@ -430,12 +487,15 @@ fn raw_value(
         "fps" if snapshot.frame.available => snapshot.frame.fps as f64,
         "frame-time" if snapshot.frame.available => snapshot.frame.frame_time_ms as f64,
         "frame-time.avg" if snapshot.frame.available => snapshot.frame.frame_time_avg_ms as f64,
-        "frame-time.1pct" if snapshot.frame.available => snapshot.frame.frame_time_1percent_ms as f64,
-        "frame-time.01pct" if snapshot.frame.available => snapshot.frame.frame_time_01percent_ms as f64,
+        "frame-time.1pct" if snapshot.frame.available => {
+            snapshot.frame.frame_time_1percent_ms as f64
+        }
+        "frame-time.01pct" if snapshot.frame.available => {
+            snapshot.frame.frame_time_01percent_ms as f64
+        }
         _ => return None,
     })
 }
-
 
 /// Walk the template tree and collect diff entries for elements that need updating.
 /// Only populates `c` (conditional classes) and `a` (attribute interpolations).
@@ -487,7 +547,12 @@ fn collect_diff_entries(
             for child in children {
                 if let HtmlNode::Text { content } = child {
                     if content.contains('{') && lower_text_to_segments(content).is_none() {
-                        let ctx = EvalCtx { snapshot, history, hwinfo_values, hwinfo_units };
+                        let ctx = EvalCtx {
+                            snapshot,
+                            history,
+                            hwinfo_values,
+                            hwinfo_units,
+                        };
                         update_t = Some(interpolate(content, &ctx));
                         break;
                     }
@@ -527,7 +592,15 @@ fn collect_diff_entries(
 
             // Recurse into children
             for child in children {
-                collect_diff_entries(child, snapshot, counter, diff, hwinfo_values, hwinfo_units, history);
+                collect_diff_entries(
+                    child,
+                    snapshot,
+                    counter,
+                    diff,
+                    hwinfo_values,
+                    hwinfo_units,
+                    history,
+                );
             }
         }
     }
@@ -555,18 +628,34 @@ fn parse_precision(body: &str) -> (&str, Option<usize>) {
 /// Infer (format, default_precision) for a built-in sensor path.
 /// Returns `None` if the path is composite (e.g. `gpu.vram`) or unknown.
 fn infer_sensor_format(path: &str) -> Option<(&'static str, usize)> {
-    if path == "gpu.vram" { return None; }
-    if path.starts_with("hwinfo.") { return Some(("raw", 0)); }
-    if path.ends_with(".usage") || path.ends_with(".pct") || path.ends_with(".fan") || path == "ram.usage" {
+    if path == "gpu.vram" {
+        return None;
+    }
+    if path.starts_with("hwinfo.") {
+        return Some(("raw", 0));
+    }
+    if path.ends_with(".usage")
+        || path.ends_with(".pct")
+        || path.ends_with(".fan")
+        || path == "ram.usage"
+    {
         return Some(("percent", 0));
     }
-    if path.ends_with(".temp") { return Some(("temperature", 0)); }
+    if path.ends_with(".temp") {
+        return Some(("temperature", 0));
+    }
     if path.ends_with(".clock") || path.ends_with(".freq") || path.ends_with(".mem-clock") {
         return Some(("raw", 0));
     }
-    if path.starts_with("frame-time") { return Some(("raw", 1)); }
-    if path == "fps" { return Some(("raw", 0)); }
-    if path == "cpu.usage" { return Some(("percent", 0)); }
+    if path.starts_with("frame-time") {
+        return Some(("raw", 1));
+    }
+    if path == "fps" {
+        return Some(("raw", 0));
+    }
+    if path == "cpu.usage" {
+        return Some(("percent", 0));
+    }
     None
 }
 
@@ -586,7 +675,10 @@ fn lower_text_to_segments(text: &str) -> Option<Vec<TextSegment>> {
             let mut body = String::new();
             let mut closed = false;
             for inner in chars.by_ref() {
-                if inner == '}' { closed = true; break; }
+                if inner == '}' {
+                    closed = true;
+                    break;
+                }
                 body.push(inner);
             }
             if !closed {
@@ -616,14 +708,24 @@ fn lower_text_to_segments(text: &str) -> Option<Vec<TextSegment>> {
             buf.push(ch);
         }
     }
-    if !buf.is_empty() { segments.push(TextSegment::Literal(buf)); }
-    if any_sensor { Some(segments) } else { None }
+    if !buf.is_empty() {
+        segments.push(TextSegment::Literal(buf));
+    }
+    if any_sensor {
+        Some(segments)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
 enum TextSegment {
     Literal(String),
-    Sensor { path: String, format: &'static str, precision: usize },
+    Sensor {
+        path: String,
+        format: &'static str,
+        precision: usize,
+    },
 }
 
 /// Escape a value for safe HTML attribute / text inclusion.
@@ -766,7 +868,6 @@ fn simple_base64_encode(data: &[u8]) -> String {
 mod tests {
     use super::*;
 
-
     #[test]
     fn compute_update_diff_emits_attribute_changes() {
         use crate::omni::history::SensorHistory;
@@ -819,8 +920,8 @@ mod tests {
             }],
         };
 
-        let diff = compute_update_diff(&file, &snapshot, &hv, &hu, &history)
-            .expect("expected a diff");
+        let diff =
+            compute_update_diff(&file, &snapshot, &hv, &hu, &history).expect("expected a diff");
         let any_attr_update = diff
             .values()
             .any(|u| u.a.as_ref().map(|a| !a.is_empty()).unwrap_or(false));
@@ -830,7 +931,6 @@ mod tests {
             diff
         );
     }
-
 }
 
 #[cfg(test)]
@@ -838,13 +938,21 @@ mod lower_tests {
     use super::*;
 
     #[test]
-    fn infer_percent() { assert_eq!(infer_sensor_format("cpu.usage"), Some(("percent", 0))); }
+    fn infer_percent() {
+        assert_eq!(infer_sensor_format("cpu.usage"), Some(("percent", 0)));
+    }
     #[test]
-    fn infer_temperature() { assert_eq!(infer_sensor_format("gpu.temp"), Some(("temperature", 0))); }
+    fn infer_temperature() {
+        assert_eq!(infer_sensor_format("gpu.temp"), Some(("temperature", 0)));
+    }
     #[test]
-    fn infer_clock_raw() { assert_eq!(infer_sensor_format("gpu.clock"), Some(("raw", 0))); }
+    fn infer_clock_raw() {
+        assert_eq!(infer_sensor_format("gpu.clock"), Some(("raw", 0)));
+    }
     #[test]
-    fn composite_vram_unsupported() { assert_eq!(infer_sensor_format("gpu.vram"), None); }
+    fn composite_vram_unsupported() {
+        assert_eq!(infer_sensor_format("gpu.vram"), None);
+    }
 
     #[test]
     fn text_without_placeholder_returns_none() {
@@ -855,16 +963,26 @@ mod lower_tests {
     fn simple_placeholder_lowers() {
         let segs = lower_text_to_segments("CPU: {cpu.usage}%").unwrap();
         assert_eq!(segs.len(), 3);
-        match &segs[0] { TextSegment::Literal(s) => assert_eq!(s, "CPU: "), _ => panic!() }
+        match &segs[0] {
+            TextSegment::Literal(s) => assert_eq!(s, "CPU: "),
+            _ => panic!(),
+        }
         match &segs[1] {
-            TextSegment::Sensor { path, format, precision } => {
+            TextSegment::Sensor {
+                path,
+                format,
+                precision,
+            } => {
                 assert_eq!(path, "cpu.usage");
                 assert_eq!(*format, "percent");
                 assert_eq!(*precision, 0);
             }
             _ => panic!(),
         }
-        match &segs[2] { TextSegment::Literal(s) => assert_eq!(s, "%"), _ => panic!() }
+        match &segs[2] {
+            TextSegment::Literal(s) => assert_eq!(s, "%"),
+            _ => panic!(),
+        }
     }
 
     #[test]
@@ -895,14 +1013,23 @@ mod render_tests {
 
     #[test]
     fn text_with_sensor_placeholder_emits_span() {
-        let node = HtmlNode::Text { content: "CPU: {cpu.usage}%".into() };
+        let node = HtmlNode::Text {
+            content: "CPU: {cpu.usage}%".into(),
+        };
         let mut counter = 0;
         let hwinfo_values = HashMap::new();
         let hwinfo_units = HashMap::new();
         let history = SensorHistory::new();
         let mut snap = SensorSnapshot::default();
         snap.cpu.total_usage_percent = 42.0;
-        let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
+        let html = render_initial_node(
+            &node,
+            &snap,
+            &mut counter,
+            &hwinfo_values,
+            &hwinfo_units,
+            &history,
+        );
         assert!(html.contains(r#"data-sensor="cpu.usage""#));
         assert!(html.contains(r#"data-sensor-format="percent""#));
         assert!(html.contains(r#"data-sensor-precision="0""#));
@@ -911,7 +1038,9 @@ mod render_tests {
 
     #[test]
     fn text_with_composite_path_falls_back_to_interpolation() {
-        let node = HtmlNode::Text { content: "{gpu.vram}".into() };
+        let node = HtmlNode::Text {
+            content: "{gpu.vram}".into(),
+        };
         let mut counter = 0;
         let hwinfo_values = HashMap::new();
         let hwinfo_units = HashMap::new();
@@ -919,19 +1048,35 @@ mod render_tests {
         let mut snap = SensorSnapshot::default();
         snap.gpu.vram_used_mb = 4096;
         snap.gpu.vram_total_mb = 12288;
-        let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
+        let html = render_initial_node(
+            &node,
+            &snap,
+            &mut counter,
+            &hwinfo_values,
+            &hwinfo_units,
+            &history,
+        );
         assert_eq!(html, "4096/12288");
     }
 
     #[test]
     fn plain_text_unchanged() {
-        let node = HtmlNode::Text { content: "Hello".into() };
+        let node = HtmlNode::Text {
+            content: "Hello".into(),
+        };
         let mut counter = 0;
         let hwinfo_values = HashMap::new();
         let hwinfo_units = HashMap::new();
         let history = SensorHistory::new();
         let snap = SensorSnapshot::default();
-        let html = render_initial_node(&node, &snap, &mut counter, &hwinfo_values, &hwinfo_units, &history);
+        let html = render_initial_node(
+            &node,
+            &snap,
+            &mut counter,
+            &hwinfo_values,
+            &hwinfo_units,
+            &history,
+        );
         assert_eq!(html, "Hello");
     }
 
@@ -1032,16 +1177,22 @@ mod render_tests {
             theme_src: None,
             poll_config: Default::default(),
             widgets: vec![Widget {
-                id: "w".into(), name: "w".into(), enabled: true,
+                id: "w".into(),
+                name: "w".into(),
+                enabled: true,
                 template: HtmlNode::Element {
-                    tag: "div".into(), id: None, classes: vec!["base".into()],
+                    tag: "div".into(),
+                    id: None,
+                    classes: vec!["base".into()],
                     inline_style: None,
                     attributes: vec![],
                     conditional_classes: vec![ConditionalClass {
                         class_name: "sensor-warn".into(),
                         expression: "cpu.usage >= 80".into(),
                     }],
-                    children: vec![HtmlNode::Text { content: "{cpu.usage}%".into() }],
+                    children: vec![HtmlNode::Text {
+                        content: "{cpu.usage}%".into(),
+                    }],
                 },
                 style_source: String::new(),
             }],
@@ -1052,7 +1203,10 @@ mod render_tests {
         let diff = compute_update_diff(&omni, &snap, &hv, &hu, &history).expect("diff");
         let update = diff.values().next().unwrap();
         assert!(update.c.as_ref().unwrap().contains("sensor-warn"));
-        assert!(update.t.is_none(), "text should no longer flow through diff");
+        assert!(
+            update.t.is_none(),
+            "text should no longer flow through diff"
+        );
     }
 
     #[test]
@@ -1068,14 +1222,23 @@ mod render_tests {
             theme_src: None,
             poll_config: Default::default(),
             widgets: vec![Widget {
-                id: "w".into(), name: "w".into(), enabled: true,
+                id: "w".into(),
+                name: "w".into(),
+                enabled: true,
                 template: HtmlNode::Element {
-                    tag: "div".into(), id: None, classes: vec![], inline_style: None,
+                    tag: "div".into(),
+                    id: None,
+                    classes: vec![],
+                    inline_style: None,
                     attributes: vec![],
                     conditional_classes: vec![],
                     children: vec![
-                        HtmlNode::Text { content: "{cpu.usage}%".into() },
-                        HtmlNode::Text { content: "{gpu.temp}\u{00B0}C".into() },
+                        HtmlNode::Text {
+                            content: "{cpu.usage}%".into(),
+                        },
+                        HtmlNode::Text {
+                            content: "{gpu.temp}\u{00B0}C".into(),
+                        },
                     ],
                 },
                 style_source: String::new(),

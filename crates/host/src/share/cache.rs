@@ -76,10 +76,7 @@ impl ArtifactCache {
     }
 
     async fn snapshot(&self) -> Vec<(CacheKey, ArtifactDetail)> {
-        self.inner
-            .iter()
-            .map(|(k, v)| ((*k).clone(), v))
-            .collect()
+        self.inner.iter().map(|(k, v)| ((*k).clone(), v)).collect()
     }
 }
 
@@ -117,7 +114,8 @@ mod tests {
     #[tokio::test]
     async fn merge_prepends_fresh_and_dedups() {
         let c = ArtifactCache::new();
-        c.insert(("pk".into(), "fresh".into()), sample("fresh")).await;
+        c.insert(("pk".into(), "fresh".into()), sample("fresh"))
+            .await;
         let server = vec![sample("old"), sample("fresh")];
         let merged = c.merge_into_list("pk", server).await;
         // cached "fresh" comes first; server "fresh" deduped; "old" preserved

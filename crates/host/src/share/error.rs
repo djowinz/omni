@@ -92,7 +92,9 @@ impl UploadError {
         match self {
             Self::Io(e) => format!("File I/O failed: {e}"),
             Self::BadInput { msg, .. } => format!("Invalid upload: {msg}"),
-            Self::Network(_) => "Network error contacting the theme service. Check your connection.".into(),
+            Self::Network(_) => {
+                "Network error contacting the theme service. Check your connection.".into()
+            }
             Self::ServerReject { message, .. } => message.clone(),
             Self::Integrity { msg, .. } => format!("Integrity check failed: {msg}"),
             Self::Cancelled => "Upload cancelled.".into(),
@@ -102,8 +104,15 @@ impl UploadError {
     pub fn is_transient(&self) -> bool {
         match self {
             Self::Network(_) => true,
-            Self::ServerReject { kind: WorkerErrorKind::Quota, .. } => true,
-            Self::ServerReject { kind: WorkerErrorKind::Io, status, .. } if *status >= 500 => true,
+            Self::ServerReject {
+                kind: WorkerErrorKind::Quota,
+                ..
+            } => true,
+            Self::ServerReject {
+                kind: WorkerErrorKind::Io,
+                status,
+                ..
+            } if *status >= 500 => true,
             _ => false,
         }
     }

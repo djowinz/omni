@@ -125,13 +125,8 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
     }
 }
 
-async fn handle_publish<F>(
-    id: &str,
-    params: Value,
-    ctx: &ShareContext,
-    is_update: bool,
-    send_fn: F,
-) where
+async fn handle_publish<F>(id: &str, params: Value, ctx: &ShareContext, is_update: bool, send_fn: F)
+where
     F: Fn(String) + Send + Sync + Clone + 'static,
 {
     #[derive(Deserialize)]
@@ -172,7 +167,7 @@ async fn handle_publish<F>(
         } else {
             "upload.publishResult"
         };
-        pump_to_ws(&id_cloned, result_type, rx, move |s| send_cloned(s)).await
+        pump_to_ws(&id_cloned, result_type, rx, send_cloned).await
     });
     let res = upload(
         req,
@@ -227,11 +222,7 @@ async fn handle_identity_show(id: &str, ctx: &ShareContext) -> Option<String> {
     )
 }
 
-async fn handle_identity_backup(
-    id: &str,
-    _params: Value,
-    _ctx: &ShareContext,
-) -> Option<String> {
+async fn handle_identity_backup(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
     // Delegates to omni_identity::Keypair::backup(&passphrase) when surfaced (#006).
     Some(
         json!({ "id": id, "type": "identity.backupResult", "params": { "encrypted_bytes_b64": "" } })
@@ -239,11 +230,7 @@ async fn handle_identity_backup(
     )
 }
 
-async fn handle_identity_import(
-    id: &str,
-    _params: Value,
-    _ctx: &ShareContext,
-) -> Option<String> {
+async fn handle_identity_import(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
     Some(
         json!({
             "id": id,
@@ -254,11 +241,7 @@ async fn handle_identity_import(
     )
 }
 
-async fn handle_identity_rotate(
-    id: &str,
-    _params: Value,
-    _ctx: &ShareContext,
-) -> Option<String> {
+async fn handle_identity_rotate(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
     Some(
         json!({
             "id": id,

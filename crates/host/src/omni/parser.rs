@@ -485,7 +485,11 @@ fn parse_html_element(
 }
 
 /// Parse a self-closing HTML element (e.g., `<br/>`, `<spacer/>`).
-fn parse_empty_html_element(source: &str, pos: usize, start: &BytesStart) -> Result<HtmlNode, ParseError> {
+fn parse_empty_html_element(
+    source: &str,
+    pos: usize,
+    start: &BytesStart,
+) -> Result<HtmlNode, ParseError> {
     let tag = String::from_utf8_lossy(start.name().as_ref()).to_string();
 
     // Intercept <chart/> and desugar at parse time.
@@ -617,11 +621,7 @@ fn get_extra_attributes(start: &BytesStart) -> Vec<(String, String)> {
         .filter_map(|a| a.ok())
         .filter_map(|a| {
             let key = a.key.as_ref();
-            if key == b"id"
-                || key == b"class"
-                || key == b"style"
-                || key.starts_with(class_prefix)
-            {
+            if key == b"id" || key == b"class" || key == b"style" || key.starts_with(class_prefix) {
                 return None;
             }
             let name = String::from_utf8_lossy(key).to_string();
@@ -847,10 +847,7 @@ fn desugar_chart_card(
         classes,
         inline_style: None,
         conditional_classes: vec![],
-        attributes: vec![(
-            "viewBox".to_string(),
-            format!("0 0 {} {}", card_w, card_h),
-        )],
+        attributes: vec![("viewBox".to_string(), format!("0 0 {} {}", card_w, card_h))],
         children,
     })
 }
@@ -873,10 +870,7 @@ fn desugar_chart_line(
         .get("stroke")
         .map(String::as_str)
         .unwrap_or("currentColor");
-    let stroke_width = attrs
-        .get("stroke-width")
-        .map(String::as_str)
-        .unwrap_or("2");
+    let stroke_width = attrs.get("stroke-width").map(String::as_str).unwrap_or("2");
     let fill = attrs.get("fill").map(String::as_str).unwrap_or("none");
     let extra_class = attrs.get("class").map(String::as_str).unwrap_or("");
 
@@ -1594,7 +1588,11 @@ mod tests {
         let (file, _diag) = parse_omni_with_diagnostics_hwinfo(source, false);
         let file = file.expect("parse succeeded");
         let sensors = crate::omni::parser::collect_chart_sensors(&file);
-        assert!(sensors.contains("cpu.usage"), "missing cpu.usage, got {:?}", sensors);
+        assert!(
+            sensors.contains("cpu.usage"),
+            "missing cpu.usage, got {:?}",
+            sensors
+        );
         assert!(sensors.contains("gpu.usage"), "missing gpu.usage");
         assert!(sensors.contains("ram.used"), "missing ram.used");
         assert!(sensors.contains("ram.total"), "missing ram.total");
@@ -1636,10 +1634,12 @@ mod tests {
                 );
 
                 // Should contain a title text
-                let title_found = children.iter().any(|c| matches!(c,
-                    crate::omni::types::HtmlNode::Element { tag, classes, .. }
-                    if tag == "text" && classes.iter().any(|cl| cl == "omni-chart-card-title")
-                ));
+                let title_found = children.iter().any(|c| {
+                    matches!(c,
+                        crate::omni::types::HtmlNode::Element { tag, classes, .. }
+                        if tag == "text" && classes.iter().any(|cl| cl == "omni-chart-card-title")
+                    )
+                });
                 assert!(title_found, "title text missing");
 
                 // Should contain at least 2 Y-axis labels
@@ -1647,7 +1647,11 @@ mod tests {
                     crate::omni::types::HtmlNode::Element { tag, classes, .. }
                     if tag == "text" && classes.iter().any(|cl| cl == "omni-chart-card-y-label")
                 )).count();
-                assert!(y_label_count >= 2, "should have at least 2 y-labels, got {}", y_label_count);
+                assert!(
+                    y_label_count >= 2,
+                    "should have at least 2 y-labels, got {}",
+                    y_label_count
+                );
 
                 // Should contain a <g class="omni-chart-card-plot" transform=...>
                 // wrapping the inner chart shapes directly (no nested <svg>).
@@ -1668,7 +1672,9 @@ mod tests {
                 });
                 let (attrs, shapes) = plot_group.expect("plot <g> wrapper missing");
                 assert!(
-                    attrs.iter().any(|(k, v)| k == "transform" && v.starts_with("translate(")),
+                    attrs
+                        .iter()
+                        .any(|(k, v)| k == "transform" && v.starts_with("translate(")),
                     "plot group should have translate transform",
                 );
                 // The shapes inside should include a polyline for a line chart.

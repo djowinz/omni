@@ -486,9 +486,7 @@ fn run_host() {
                     Err(e) => {
                         let next_backoff = etw_failed
                             .get(&pid)
-                            .map(|(_, prev)| {
-                                (*prev * 2).min(ETW_RETRY_MAX)
-                            })
+                            .map(|(_, prev)| (*prev * 2).min(ETW_RETRY_MAX))
                             .unwrap_or(ETW_RETRY_INITIAL);
                         warn!(
                             pid,
@@ -784,11 +782,8 @@ fn run_host() {
         let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
 
         // Push raw sensor values via the bootstrap's __omni_update.
-        let values = html_builder::collect_sensor_values(
-            &host.omni_file,
-            &latest_snapshot,
-            &hwinfo_values,
-        );
+        let values =
+            html_builder::collect_sensor_values(&host.omni_file, &latest_snapshot, &hwinfo_values);
         if !values.is_empty() {
             ul.evaluate_script(&html_builder::format_values_js(&values));
         }
@@ -811,17 +806,13 @@ fn run_host() {
         // Push text updates for function-call interpolations (e.g. chart Y-axis
         // labels like {chart_y_max(sensor)}). Simple {sensor.path} placeholders
         // flow through __omni_update(values) via data-sensor spans instead.
-        let text_js = class_diff
-            .as_ref()
-            .and_then(html_builder::format_text_js);
+        let text_js = class_diff.as_ref().and_then(html_builder::format_text_js);
         if let Some(js) = &text_js {
             ul.evaluate_script(js);
         }
 
         // Push per-element attribute updates (chart SVG width/points/d, etc.).
-        let attrs_js = class_diff
-            .as_ref()
-            .and_then(html_builder::format_attrs_js);
+        let attrs_js = class_diff.as_ref().and_then(html_builder::format_attrs_js);
         if let Some(js) = &attrs_js {
             ul.evaluate_script(js);
         }

@@ -91,10 +91,7 @@ impl Unit {
             return vec![min, max];
         }
         let range = nice_number(max - min, false);
-        let step = nice_number(
-            range / (target_count.saturating_sub(1).max(1)) as f64,
-            true,
-        );
+        let step = nice_number(range / (target_count.saturating_sub(1).max(1)) as f64, true);
         let graph_min = (min / step).floor() * step;
         let graph_max = (max / step).ceil() * step;
         let mut ticks = Vec::new();

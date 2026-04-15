@@ -4,15 +4,16 @@
 //! Covers: widget tree → data-sensor lowering in `html_builder` →
 //! bootstrap script injection → `collect_sensor_values` → `format_values_js`.
 
-#![cfg(test)]
-
 use std::collections::HashMap;
 use std::path::Path;
 
 use omni_shared::SensorSnapshot;
 
 use super::history::SensorHistory;
-use super::html_builder::{build_initial_html, collect_sensor_values, format_values_js, format_classes_js, compute_update_diff};
+use super::html_builder::{
+    build_initial_html, collect_sensor_values, compute_update_diff, format_classes_js,
+    format_values_js,
+};
 use super::types::{HtmlNode, OmniFile, Widget};
 use super::view_trust::ViewTrust;
 
@@ -31,7 +32,9 @@ fn overlay_with_cpu_span() -> OmniFile {
                 inline_style: None,
                 conditional_classes: vec![],
                 attributes: vec![],
-                children: vec![HtmlNode::Text { content: "CPU: {cpu.usage}%".into() }],
+                children: vec![HtmlNode::Text {
+                    content: "CPU: {cpu.usage}%".into(),
+                }],
             },
             style_source: String::new(),
         }],
@@ -48,8 +51,14 @@ fn trusted_pipeline_emits_bootstrap_sensor_span_and_values() {
     let history = SensorHistory::new();
 
     let doc = build_initial_html(
-        &omni, &snap, 400, 200,
-        Path::new("."), "t", &hv, &hu,
+        &omni,
+        &snap,
+        400,
+        200,
+        Path::new("."),
+        "t",
+        &hv,
+        &hu,
         &history,
         ViewTrust::LocalAuthored,
     );
@@ -82,8 +91,14 @@ fn untrusted_pipeline_defangs_environment() {
     let history = SensorHistory::new();
 
     let doc = build_initial_html(
-        &omni, &snap, 400, 200,
-        Path::new("."), "t", &hv, &hu,
+        &omni,
+        &snap,
+        400,
+        200,
+        Path::new("."),
+        "t",
+        &hv,
+        &hu,
         &history,
         ViewTrust::BundleInstalled,
     );
@@ -114,7 +129,9 @@ fn class_diff_pipeline_produces_set_classes_call() {
                     expression: "cpu.usage >= 80".into(),
                 }],
                 attributes: vec![],
-                children: vec![HtmlNode::Text { content: "{cpu.usage}%".into() }],
+                children: vec![HtmlNode::Text {
+                    content: "{cpu.usage}%".into(),
+                }],
             },
             style_source: String::new(),
         }],

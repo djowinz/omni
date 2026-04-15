@@ -36,12 +36,36 @@ impl UploadProgress {
     /// Returns `None` for `Done`/`Error` (terminal events use `*Result` / `error` envelopes).
     pub fn to_wire(&self) -> Option<WireProgress> {
         match self {
-            Self::Packing => Some(WireProgress { phase: "pack", done: 0, total: 0 }),
-            Self::Sanitizing { .. } => Some(WireProgress { phase: "sanitize", done: 0, total: 0 }),
-            Self::GeneratingThumbnail => Some(WireProgress { phase: "sanitize", done: 0, total: 0 }),
-            Self::Signing => Some(WireProgress { phase: "upload", done: 0, total: 0 }),
-            Self::Uploading { sent, total } => Some(WireProgress { phase: "upload", done: *sent, total: *total }),
-            Self::Verifying => Some(WireProgress { phase: "upload", done: 0, total: 0 }),
+            Self::Packing => Some(WireProgress {
+                phase: "pack",
+                done: 0,
+                total: 0,
+            }),
+            Self::Sanitizing { .. } => Some(WireProgress {
+                phase: "sanitize",
+                done: 0,
+                total: 0,
+            }),
+            Self::GeneratingThumbnail => Some(WireProgress {
+                phase: "sanitize",
+                done: 0,
+                total: 0,
+            }),
+            Self::Signing => Some(WireProgress {
+                phase: "upload",
+                done: 0,
+                total: 0,
+            }),
+            Self::Uploading { sent, total } => Some(WireProgress {
+                phase: "upload",
+                done: *sent,
+                total: *total,
+            }),
+            Self::Verifying => Some(WireProgress {
+                phase: "upload",
+                done: 0,
+                total: 0,
+            }),
             Self::Done { .. } | Self::Error { .. } => None,
         }
     }
@@ -137,12 +161,23 @@ mod tests {
     fn internal_variants_map_to_contract_phases() {
         assert_eq!(UploadProgress::Packing.to_wire().unwrap().phase, "pack");
         assert_eq!(
-            UploadProgress::Sanitizing { file: "x".into() }.to_wire().unwrap().phase,
+            UploadProgress::Sanitizing { file: "x".into() }
+                .to_wire()
+                .unwrap()
+                .phase,
             "sanitize"
         );
-        assert_eq!(UploadProgress::GeneratingThumbnail.to_wire().unwrap().phase, "sanitize");
+        assert_eq!(
+            UploadProgress::GeneratingThumbnail.to_wire().unwrap().phase,
+            "sanitize"
+        );
         assert_eq!(UploadProgress::Signing.to_wire().unwrap().phase, "upload");
-        let up = UploadProgress::Uploading { sent: 10, total: 100 }.to_wire().unwrap();
+        let up = UploadProgress::Uploading {
+            sent: 10,
+            total: 100,
+        }
+        .to_wire()
+        .unwrap();
         assert_eq!(up.phase, "upload");
         assert_eq!(up.done, 10);
         assert_eq!(up.total, 100);

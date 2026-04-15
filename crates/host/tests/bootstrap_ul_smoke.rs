@@ -12,12 +12,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use omni_host::omni::html_builder::{build_initial_html, format_values_js};
+use omni_host::omni::default::DEFAULT_OMNI;
 use omni_host::omni::history::SensorHistory;
+use omni_host::omni::html_builder::{build_initial_html, format_values_js};
 use omni_host::omni::js_bootstrap::render_script_tag;
 use omni_host::omni::parser::parse_omni_with_diagnostics;
 use omni_host::omni::view_trust::ViewTrust;
-use omni_host::omni::default::DEFAULT_OMNI;
 use omni_host::ul_renderer::UlRenderer;
 use omni_shared::SensorSnapshot;
 
@@ -122,7 +122,7 @@ fn push_update(ul: &UlRenderer, values: &HashMap<String, f64>) {
 
 fn run_group_a(ul: &UlRenderer, failures: &mut Vec<String>) {
     let (file_opt, diags) = parse_omni_with_diagnostics(DEFAULT_OMNI);
-    let file = file_opt.expect(&format!("parse DEFAULT_OMNI: {:?}", diags));
+    let file = file_opt.unwrap_or_else(|| panic!("parse DEFAULT_OMNI: {:?}", diags));
     let snap = SensorSnapshot::default();
     let hv: HashMap<String, f64> = HashMap::new();
     let hu: HashMap<String, String> = HashMap::new();
@@ -150,9 +150,9 @@ fn run_group_a(ul: &UlRenderer, failures: &mut Vec<String>) {
         r#"(function(){ var el = document.querySelector('[data-sensor="cpu.usage"]'); return el ? 'found' : 'missing'; })()"#,
     );
     if check_exists != "found" {
-        failures.push(format!(
-            "A.sanity: data-sensor='cpu.usage' element missing from DOM after load — scan may not have run"
-        ));
+        failures.push(
+            "A.sanity: data-sensor='cpu.usage' element missing from DOM after load — scan may not have run".to_string()
+        );
         // If the element is missing, subsequent selectors will all fail; push a
         // placeholder so the report is obvious about the root cause.
         failures.push(
@@ -177,13 +177,31 @@ fn run_group_a(ul: &UlRenderer, failures: &mut Vec<String>) {
     push_update(ul, &values);
 
     // cpu.usage: percent format, precision 0, value 42 → "42%"
-    assert_text(ul, "A.cpu.usage", r#"[data-sensor="cpu.usage"]"#, "42%", failures);
+    assert_text(
+        ul,
+        "A.cpu.usage",
+        r#"[data-sensor="cpu.usage"]"#,
+        "42%",
+        failures,
+    );
 
     // cpu.temp: temperature format, precision 0, value 55 → "55°C"
-    assert_text(ul, "A.cpu.temp", r#"[data-sensor="cpu.temp"]"#, "55\u{00B0}C", failures);
+    assert_text(
+        ul,
+        "A.cpu.temp",
+        r#"[data-sensor="cpu.temp"]"#,
+        "55\u{00B0}C",
+        failures,
+    );
 
     // gpu.fan: percent format, precision 0, value 60 → "60%"
-    assert_text(ul, "A.gpu.fan", r#"[data-sensor="gpu.fan"]"#, "60%", failures);
+    assert_text(
+        ul,
+        "A.gpu.fan",
+        r#"[data-sensor="gpu.fan"]"#,
+        "60%",
+        failures,
+    );
 
     // fps: raw format, precision 0, value 144 → "144"
     assert_text(ul, "A.fps", r#"[data-sensor="fps"]"#, "144", failures);
@@ -259,7 +277,14 @@ fn run_group_b(ul: &UlRenderer, failures: &mut Vec<String>) {
     // frequency precision 0: 3_500_000 Hz → 3.5 MHz → toFixed(0)
     // JS toFixed(0) of 3.5: half-away-from-zero → "4" (positive)
     // NOTE: V8-compatible engines may produce "4"; record actual if it differs.
-    check("B.frequency.mhz", "sensor.h", "frequency", 0, 3_500_000.0, "4 MHz");
+    check(
+        "B.frequency.mhz",
+        "sensor.h",
+        "frequency",
+        0,
+        3_500_000.0,
+        "4 MHz",
+    );
 
     // raw precision 1: 42.456 → "42.5"
     check("B.raw.1", "sensor.i", "raw", 1, 42.456, "42.5");
@@ -376,9 +401,7 @@ fn run_group_c(ul: &UlRenderer, failures: &mut Vec<String>) {
         })()"#;
         match ul.evaluate_script_result(js) {
             Ok(v) if v == "5" => {}
-            Ok(v) => failures.push(format!(
-                "C4.target_class: expected \"5\", got {v:?}"
-            )),
+            Ok(v) => failures.push(format!("C4.target_class: expected \"5\", got {v:?}")),
             Err(e) => failures.push(format!("C4.target_class: JS exception — {e}")),
         }
     }
@@ -509,9 +532,7 @@ fn run_group_e(ul: &UlRenderer, failures: &mut Vec<String>) {
     // E2: XMLHttpRequest should be undefined
     match ul.evaluate_script_result("typeof window.XMLHttpRequest") {
         Ok(v) if v == "undefined" => {}
-        Ok(v) => failures.push(format!(
-            "E2.xhr_defanged: expected 'undefined', got {v:?}"
-        )),
+        Ok(v) => failures.push(format!("E2.xhr_defanged: expected 'undefined', got {v:?}")),
         Err(e) => failures.push(format!("E2.xhr_defanged: JS exception — {e}")),
     }
 
@@ -593,18 +614,14 @@ fn run_group_f(ul: &UlRenderer, failures: &mut Vec<String>) {
     // F1: fetch should be a function (trusted views NOT defanged).
     match ul.evaluate_script_result("typeof window.fetch") {
         Ok(v) if v == "function" => {}
-        Ok(v) => failures.push(format!(
-            "F1.fetch_trusted: expected 'function', got {v:?}"
-        )),
+        Ok(v) => failures.push(format!("F1.fetch_trusted: expected 'function', got {v:?}")),
         Err(e) => failures.push(format!("F1.fetch_trusted: JS exception — {e}")),
     }
 
     // F2: eval should work normally in a trusted view.
     match ul.evaluate_script_result(r#"eval("1+2").toString()"#) {
         Ok(v) if v == "3" => {}
-        Ok(v) => failures.push(format!(
-            "F2.eval_trusted: expected '3', got {v:?}"
-        )),
+        Ok(v) => failures.push(format!("F2.eval_trusted: expected '3', got {v:?}")),
         Err(e) => failures.push(format!("F2.eval_trusted: JS exception — {e}")),
     }
 }

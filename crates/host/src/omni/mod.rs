@@ -4,16 +4,16 @@ pub mod fs_dispatcher;
 pub mod history;
 pub mod html_builder;
 pub mod interpolation;
+pub mod js_bootstrap;
 pub mod overlay_fs;
 pub mod parser;
+pub mod preview;
 pub mod sensor_map;
 pub mod trust_filter;
 pub mod types;
 pub mod ul_string;
 pub mod units;
 pub mod validation;
-pub mod js_bootstrap;
-pub mod preview;
 pub mod view_trust;
 
 #[cfg(test)]

@@ -103,7 +103,7 @@ impl OverlayFilesystem {
                 Component::CurDir => {}
                 Component::ParentDir => return Err(ResolveError::ParentEscape),
                 Component::RootDir | Component::Prefix(_) => {
-                    return Err(ResolveError::AbsolutePath)
+                    return Err(ResolveError::AbsolutePath);
                 }
             }
         }

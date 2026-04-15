@@ -1,7 +1,7 @@
 //! Preview broadcast payload for editor WebSocket subscribers.
 
-use std::collections::HashMap;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 use super::html_builder::UpdateDiff;
 
@@ -43,11 +43,14 @@ mod tests {
     fn payload_includes_diff_when_present() {
         let values = HashMap::new();
         let mut diff = UpdateDiff::new();
-        diff.insert("omni-0".into(), ElementUpdate {
-            c: Some("sensor-warn".into()),
-            t: None,
-            a: None,
-        });
+        diff.insert(
+            "omni-0".into(),
+            ElementUpdate {
+                c: Some("sensor-warn".into()),
+                t: None,
+                a: None,
+            },
+        );
         let payload = build_preview_payload(&values, Some(&diff));
         assert_eq!(payload["diff"]["omni-0"]["c"], "sensor-warn");
     }

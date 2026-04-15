@@ -87,7 +87,9 @@ pub fn pack_signed_bundle(
     let mut pre_sig_manifest = manifest.clone();
     pre_sig_manifest.files.sort_by(|a, b| a.path.cmp(&b.path));
     let digest = canonical_hash(&pre_sig_manifest, files);
-    let payload = SignaturePayload { canonical_hash_hex: hex::encode(digest) };
+    let payload = SignaturePayload {
+        canonical_hash_hex: hex::encode(digest),
+    };
 
     let pubkey = keypair.public_key();
     let x_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pubkey.0);
@@ -141,7 +143,9 @@ pub fn unpack_signed_bundle(
         .map_err(|e| IdentityError::Jws(format!("non-utf8 jws: {e}")))?;
 
     let mut original_manifest = amended_manifest;
-    original_manifest.files.retain(|f| f.path != SIGNATURE_FILENAME);
+    original_manifest
+        .files
+        .retain(|f| f.path != SIGNATURE_FILENAME);
 
     let expected_hex = hex::encode(canonical_hash(&original_manifest, &BTreeMap::new()));
 

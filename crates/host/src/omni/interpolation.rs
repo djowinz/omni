@@ -34,10 +34,7 @@ pub enum Expression {
         precision: Option<usize>,
     },
     /// `format_value(cpu.usage, %)` — named function with argument list
-    FunctionCall {
-        name: String,
-        args: Vec<Argument>,
-    },
+    FunctionCall { name: String, args: Vec<Argument> },
     /// Passthrough for malformed or unknown content
     Literal(String),
 }
@@ -150,19 +147,16 @@ fn parse_arguments(input: &str) -> Vec<Argument> {
 /// Evaluate a single expression to a display string.
 pub fn evaluate(expr: &Expression, ctx: &EvalCtx) -> String {
     match expr {
-        Expression::SensorPath { path, precision } => {
-            sensor_map::get_sensor_value_with_hwinfo(
-                path,
-                ctx.snapshot,
-                ctx.hwinfo_values,
-                ctx.hwinfo_units,
-                *precision,
-            )
-        }
+        Expression::SensorPath { path, precision } => sensor_map::get_sensor_value_with_hwinfo(
+            path,
+            ctx.snapshot,
+            ctx.hwinfo_values,
+            ctx.hwinfo_units,
+            *precision,
+        ),
         Expression::FunctionCall { name, args } => {
             // Dispatch to helper functions. Populated in Tasks 9 and 10.
-            evaluate_function(name, args, ctx)
-                .unwrap_or_else(|| format!("{{{}()}}", name))
+            evaluate_function(name, args, ctx).unwrap_or_else(|| format!("{{{}()}}", name))
         }
         Expression::Literal(s) => format!("{{{}}}", s),
     }
@@ -441,8 +435,8 @@ fn eval_bar_height(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     let h = arg_number(args, 1)?;
     let min = arg_number(args, 2)?;
     let max = arg_number(args, 3)?;
-    let value = sensor_map::get_sensor_value_f64(sensor, ctx.snapshot, ctx.hwinfo_values)
-        .unwrap_or(0.0);
+    let value =
+        sensor_map::get_sensor_value_f64(sensor, ctx.snapshot, ctx.hwinfo_values).unwrap_or(0.0);
     let range = max - min;
     if range == 0.0 {
         return Some("0".to_string());
@@ -458,8 +452,8 @@ fn eval_bar_y(args: &[Argument], ctx: &EvalCtx) -> Option<String> {
     let h = arg_number(args, 1)?;
     let min = arg_number(args, 2)?;
     let max = arg_number(args, 3)?;
-    let value = sensor_map::get_sensor_value_f64(sensor, ctx.snapshot, ctx.hwinfo_values)
-        .unwrap_or(0.0);
+    let value =
+        sensor_map::get_sensor_value_f64(sensor, ctx.snapshot, ctx.hwinfo_values).unwrap_or(0.0);
     let range = max - min;
     if range == 0.0 {
         return Some(format!("{}", h as i64));

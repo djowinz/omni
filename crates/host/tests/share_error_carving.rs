@@ -16,7 +16,7 @@ fn public_variant_set_is_stable() {
     // Exhaustively construct every public variant — adding one forces an
     // explicit decision whether it joins the public domain set.
     let cases: Vec<UploadError> = vec![
-        UploadError::Io(io::Error::new(io::ErrorKind::Other, "")),
+        UploadError::Io(io::Error::other("")),
         UploadError::BadInput {
             msg: "".into(),
             source: None,
@@ -151,7 +151,10 @@ fn upload_error_display_is_stable() {
         msg: "hash mismatch".into(),
         source: None,
     };
-    assert_eq!(integrity.to_string(), "integrity check failed: hash mismatch");
+    assert_eq!(
+        integrity.to_string(),
+        "integrity check failed: hash mismatch"
+    );
 
     let cancelled = UploadError::Cancelled;
     assert_eq!(cancelled.to_string(), "cancelled");
@@ -174,10 +177,7 @@ fn upload_error_display_is_stable() {
 fn upload_error_code_is_stable() {
     // Machine-readable `code` is the editor's branch discriminator — it must
     // be stable across internal refactors.
-    assert_eq!(
-        UploadError::Io(io::Error::new(io::ErrorKind::Other, "")).code(),
-        "IO"
-    );
+    assert_eq!(UploadError::Io(io::Error::other("")).code(), "IO");
     assert_eq!(
         UploadError::BadInput {
             msg: "".into(),
@@ -257,7 +257,7 @@ fn is_transient_covers_every_worker_kind() {
     // terminal. Network, which wraps reqwest::Error, is the only other
     // transient variant and is covered via the reject-shape tests elsewhere
     // because constructing a reqwest::Error requires a live failure.
-    assert!(!UploadError::Io(io::Error::new(io::ErrorKind::Other, "")).is_transient());
+    assert!(!UploadError::Io(io::Error::other("")).is_transient());
     assert!(!UploadError::BadInput {
         msg: "".into(),
         source: None,
@@ -296,7 +296,14 @@ fn server_reject_shape_roundtrips_through_wire_kind() {
             detail,
             message,
             retry_after,
-        } => (*status, code.clone(), *kind, detail.clone(), message.clone(), *retry_after),
+        } => (
+            *status,
+            code.clone(),
+            *kind,
+            detail.clone(),
+            message.clone(),
+            *retry_after,
+        ),
         _ => unreachable!(),
     };
 
