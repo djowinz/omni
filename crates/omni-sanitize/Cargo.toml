@@ -5,7 +5,20 @@ edition = "2021"
 publish = false
 description = "Sanitization pipeline for Omni theme/bundle content (public, WASM-compatible)."
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys", "omni-bundle/wasm"]
+
 [dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

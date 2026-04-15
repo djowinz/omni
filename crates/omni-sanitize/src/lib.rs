@@ -13,6 +13,9 @@ mod error;
 mod handlers;
 mod magic;
 
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
 pub use error::{
     FileKind, FileReport, SanitizeError, SanitizeReport, SanitizeVersion, SANITIZE_VERSION,
 };

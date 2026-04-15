@@ -1955,15 +1955,19 @@ dependencies = [
 name = "omni-bundle"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.2.17",
  "hex",
+ "js-sys",
  "jsonschema",
  "proptest",
  "semver",
  "serde",
+ "serde-wasm-bindgen",
  "serde_jcs",
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
+ "wasm-bindgen",
  "zip",
 ]
 
@@ -1994,6 +1998,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "image",
  "moka",
  "notify",
  "omni-bundle",
@@ -2035,18 +2040,22 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "ed25519-dalek",
+ "getrandom 0.2.17",
  "hex",
  "hmac",
+ "js-sys",
  "jsonwebtoken",
  "omni-bundle",
  "rand 0.8.5",
  "semver",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "sha2",
  "subtle",
  "tempfile",
  "thiserror 1.0.69",
+ "wasm-bindgen",
  "windows-sys 0.52.0",
  "zeroize",
 ]
@@ -2070,6 +2079,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "image",
+ "js-sys",
  "lightningcss",
  "omni-bundle",
  "omni-identity",
@@ -2077,10 +2087,12 @@ dependencies = [
  "quick-xml 0.31.0",
  "semver",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
  "ttf-parser",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2940,6 +2952,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3753ca04f350fa92d00b6146a3555e63c55388c9ef2e11e09bce2ff1c0b509c6"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]

@@ -3,8 +3,10 @@
 use std::path::Path;
 
 use ed25519_dalek::{Signer, SigningKey};
+#[cfg(not(target_arch = "wasm32"))]
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use rand::rngs::OsRng;
+#[cfg(not(target_arch = "wasm32"))]
 use serde::{de::DeserializeOwned, Serialize};
 use zeroize::Zeroizing;
 
@@ -19,6 +21,7 @@ use crate::fingerprint::{Fingerprint, PublicKey};
 ///     AlgorithmIdentifier { OID 1.3.101.112 }, -- id-Ed25519
 ///     OCTET STRING (OCTET STRING seed)         -- nested
 ///   }
+#[cfg(not(target_arch = "wasm32"))]
 fn pkcs8_ed25519_private(seed: &[u8; 32]) -> Zeroizing<Vec<u8>> {
     // Fixed-length PKCS#8 prefix for Ed25519 private keys (48 bytes total).
     const PREFIX: &[u8] = &[
@@ -40,6 +43,7 @@ fn pkcs8_ed25519_private(seed: &[u8; 32]) -> Zeroizing<Vec<u8>> {
 ///
 /// Returns `IdentityError::Jws` on header/alg mismatch, signature failure, or
 /// decode error. The pubkey is the author's raw 32-byte Ed25519 key.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verify_jws<T: DeserializeOwned>(
     jws: &str,
     pubkey: &PublicKey,
@@ -110,6 +114,7 @@ impl Keypair {
     ///
     /// Per retro-005 D3, this wraps an off-the-shelf JWS crate rather than
     /// hand-rolling the envelope.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn sign_jws<T: Serialize>(
         &self,
         claims: &T,
@@ -293,7 +298,7 @@ impl Keypair {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use ed25519_dalek::{Verifier, VerifyingKey};

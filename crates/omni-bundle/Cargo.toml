@@ -4,6 +4,19 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+# Bulk-memory + non-trapping-float-to-int are emitted by rustc's default wasm32
+# codegen; pass them through wasm-opt explicitly (bundled wasm-opt rejects
+# without these flags).
+wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys", "getrandom/js"]
+
 [dependencies]
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
@@ -13,6 +26,10 @@ semver = { version = "1", features = ["serde"] }
 sha2 = "0.10"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 hex = "0.4"
+getrandom = { version = "0.2", default-features = false, optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 proptest = "1"

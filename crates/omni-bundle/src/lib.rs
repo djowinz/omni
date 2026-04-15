@@ -21,6 +21,9 @@ mod pack;
 mod path;
 mod unpack;
 
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
 pub use error::{BundleError, IntegrityKind, UnsafeKind};
 pub use hash::canonical_hash;
 pub use manifest::{FileEntry, Manifest, ResourceKind, Tag};

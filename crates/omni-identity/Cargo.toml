@@ -4,6 +4,16 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys", "getrandom/js", "omni-bundle/wasm"]
+
 [dependencies]
 thiserror = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
@@ -17,9 +27,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
 subtle = "2"
-jsonwebtoken = "9"
 base64 = "0.22"
 omni-bundle = { path = "../omni-bundle" }
+getrandom = { version = "0.2", default-features = false }
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+# jsonwebtoken pulls `ring` which requires a C toolchain (clang) to cross-compile
+# to `wasm32-unknown-unknown`. The Worker WASM build doesn't need jsonwebtoken —
+# the wasm path in `src/wasm.rs` hand-rolls JWS compact EdDSA via `ed25519-dalek`
+# directly. Keep it native-only so the wasm target builds without system clang.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+jsonwebtoken = "9"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [
