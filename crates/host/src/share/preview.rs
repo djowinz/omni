@@ -35,8 +35,16 @@ pub trait ThemeSwap: Send + Sync + 'static {
 pub enum PreviewError {
     #[error("preview session already active")]
     PreviewActive,
-    #[error("preview session not found for token")]
-    NotFound,
+    /// No preview session is currently active. Added for #021 so the
+    /// `explorer.cancelPreview` WS handler can distinguish "slot empty"
+    /// from "token did not match" and surface distinct error codes.
+    #[error("no active preview session")]
+    NoActivePreview,
+    /// A preview session is active but its token does not match the one
+    /// supplied. Added for #021 so the `explorer.cancelPreview` WS handler
+    /// can surface a distinct error code for the misuse case.
+    #[error("preview token does not match active session")]
+    TokenMismatch,
     #[error("failed to apply preview theme: {0}")]
     ApplyFailed(String),
 }
@@ -114,24 +122,33 @@ impl PreviewSlot {
         Ok(token)
     }
 
-    /// Cancel the active preview by token.
+    /// Cancel an active preview by token. Added for #021 to support
+    /// `explorer.cancelPreview` WS dispatch; integrates with #010's
+    /// shipped `PreviewSlot`/`PreviewSession` pattern. The session's
+    /// internal `CancellationToken` is fired, which wakes the
+    /// auto-revert task in `start()` and restores the snapshot.
     ///
-    /// If the slot is empty or the token doesn't match, returns
-    /// [`PreviewError::NotFound`] and leaves the slot untouched.
+    /// Returns [`PreviewError::NoActivePreview`] when the slot is empty,
+    /// or [`PreviewError::TokenMismatch`] when a session is active but its
+    /// token does not match the one supplied (the session is preserved in
+    /// the slot in that case).
     pub fn cancel(&self, token: Uuid) -> Result<(), PreviewError> {
         let mut guard = self.inner.lock().expect("preview slot poisoned");
-        let Some(sess) = guard.take() else {
-            return Err(PreviewError::NotFound);
-        };
-        if sess.token() != token {
-            // Wrong token — put the session back, do not cancel.
-            *guard = Some(sess);
-            return Err(PreviewError::NotFound);
+        match guard.take() {
+            Some(session) if session.token == token => {
+                session.cancel.cancel();
+                // Dropping the session here lets the spawned task finish on
+                // its own; the select! arm on `cancelled()` has already
+                // fired the revert.
+                Ok(())
+            }
+            Some(other) => {
+                // Token mismatch — put the session back, do not cancel.
+                *guard = Some(other);
+                Err(PreviewError::TokenMismatch)
+            }
+            None => Err(PreviewError::NoActivePreview),
         }
-        sess.cancel();
-        // Dropping the session here lets the spawned task finish on its own;
-        // the select! arm on `cancelled()` has already fired the revert.
-        Ok(())
     }
 
     pub fn is_active(&self) -> bool {
@@ -231,9 +248,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_unknown_token_returns_not_found() {
+    async fn preview_slot_cancel_matching_token_ok() {
+        let swap = Arc::new(RecordSwap::new());
         let slot = PreviewSlot::new();
-        let err = slot.cancel(Uuid::new_v4()).expect_err("unknown token");
-        assert!(matches!(err, PreviewError::NotFound));
+        let token = slot
+            .start(swap.clone(), b"css".to_vec(), Duration::from_secs(60))
+            .expect("start");
+        slot.cancel(token).expect("cancel with matching token ok");
+        yield_now().await;
+        yield_now().await;
+        assert_eq!(swap.reverts(), 1);
+        assert!(!slot.is_active());
+    }
+
+    #[tokio::test]
+    async fn preview_slot_cancel_mismatched_token_returns_token_mismatch() {
+        let swap = Arc::new(RecordSwap::new());
+        let slot = PreviewSlot::new();
+        slot.start(swap.clone(), b"css".to_vec(), Duration::from_secs(60))
+            .expect("start");
+        let err = slot
+            .cancel(Uuid::new_v4())
+            .expect_err("mismatched token must error");
+        assert!(matches!(err, PreviewError::TokenMismatch));
+        // Session stays in the slot — not cancelled.
+        assert!(slot.is_active());
+        assert_eq!(swap.reverts(), 0);
+    }
+
+    #[tokio::test]
+    async fn preview_slot_cancel_empty_slot_returns_no_active_preview() {
+        let slot = PreviewSlot::new();
+        let err = slot
+            .cancel(Uuid::new_v4())
+            .expect_err("empty slot must error");
+        assert!(matches!(err, PreviewError::NoActivePreview));
     }
 }
