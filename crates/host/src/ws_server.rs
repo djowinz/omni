@@ -18,18 +18,13 @@ use tungstenite::{accept, Message};
 
 pub const WS_PORT: u16 = 9473;
 
-/// Adapts #010's `RegistryHandle` to #013's `InstalledBundleLookup` trait
-/// so `fork_to_local` can stay dependency-free of the registry concrete
-/// type. Cross-sub-spec adapter lives here, not in `fork.rs`.
+/// Adapter from `RegistryHandle` to fork's `InstalledBundleLookup`.
 struct RegistryBundleLookup<'a>(&'a crate::share::registry::RegistryHandle);
 
 impl<'a> crate::workspace::fork::InstalledBundleLookup for RegistryBundleLookup<'a> {
     fn lookup(&self, slug: &str) -> Option<crate::workspace::fork::InstalledBundleView> {
         let entry = self.0.lookup_bundle(slug)?;
-        // Legacy entries installed before the #010/#013 schema extension have
-        // an empty `installed_path` — treat as "not installed" so the caller
-        // surfaces BUNDLE_NOT_INSTALLED instead of a generic IO_ERROR; user
-        // needs to reinstall to populate the new fields.
+        // Legacy pre-schema entry — treat as not installed.
         if entry.installed_path.as_os_str().is_empty() {
             return None;
         }
@@ -39,10 +34,7 @@ impl<'a> crate::workspace::fork::InstalledBundleLookup for RegistryBundleLookup<
             content_hash: entry.content_hash.clone(),
             bundle_name: entry.display_name.clone(),
             author_pubkey: entry.author_pubkey.clone(),
-            // `InstalledEntry` does not yet carry the author's display name
-            // (it lives in TofuStore). Leave as None until a follow-up adds
-            // it to the registry schema; writing the bundle name here would
-            // misrecord provenance in .omni-origin.json.
+            // Author display name lives in TofuStore, not the registry.
             author_display_name: None,
             author_fingerprint: entry.fingerprint_hex.clone(),
         })
@@ -518,7 +510,7 @@ fn handle_message(
         }
         "explorer.fork" => {
             use crate::share::registry::{RegistryHandle, RegistryKind};
-            use crate::workspace::fork::{self, ForkError, ForkRequest};
+            use crate::workspace::fork::{self, ForkRequest};
 
             let slug = msg.get("bundle_slug").and_then(|v| v.as_str()).unwrap_or("");
             let name = msg.get("new_overlay_name").and_then(|v| v.as_str()).unwrap_or("");
@@ -549,23 +541,11 @@ fn handle_message(
                     "name": res.name,
                     "forked_from": res.origin.forked_from,
                 }).to_string()),
-                Err(e) => {
-                    let code = match &e {
-                        ForkError::NameInvalid(_) => "NAME_INVALID",
-                        ForkError::TargetExists(_) => "TARGET_EXISTS",
-                        ForkError::SourceNotFound(_) => "BUNDLE_NOT_INSTALLED",
-                        ForkError::AtomicCommitFailed(_) => "ATOMIC_COMMIT_FAILED",
-                        ForkError::OriginWriteFailed(_)
-                        | ForkError::OriginSerdeFailed(_)
-                        | ForkError::UnsupportedSourceEntry(_)
-                        | ForkError::Io(_) => "IO_ERROR",
-                    };
-                    Some(json!({
-                        "type": "error",
-                        "code": code,
-                        "message": e.to_string(),
-                    }).to_string())
-                }
+                Err(e) => Some(json!({
+                    "type": "error",
+                    "code": e.ws_error_code(),
+                    "message": e.to_string(),
+                }).to_string()),
             }
         }
         "explorer.install"

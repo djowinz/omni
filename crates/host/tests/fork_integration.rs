@@ -1,27 +1,11 @@
-//! Integration tests for sub-spec #013: fork-to-local.
-//!
-//! Crosses `workspace::fork` + `workspace::atomic_dir` boundaries with a real
-//! on-disk layout. No WebSocket round-trip here — that is covered in the
-//! ws-server integration suite; these tests lock down the host-side
-//! contract `fork_to_local` exposes.
+//! Integration tests for `fork_to_local` crossing `workspace::fork` +
+//! `workspace::atomic_dir` with a real on-disk layout.
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::path::Path;
 
 use omni_host::workspace::fork::{
     fork_to_local, ForkOrigin, ForkRequest, InstalledBundleLookup, InstalledBundleView,
 };
-
-static CTR: AtomicU32 = AtomicU32::new(0);
-
-fn scratch() -> PathBuf {
-    let id = CTR.fetch_add(1, Ordering::Relaxed);
-    let p = std::env::temp_dir()
-        .join(format!("omni_fork_it_{}_{id}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&p);
-    std::fs::create_dir_all(&p).unwrap();
-    p
-}
 
 struct OneBundle(InstalledBundleView);
 impl InstalledBundleLookup for OneBundle {
@@ -50,7 +34,8 @@ fn install_fixture(root: &Path) -> InstalledBundleView {
 
 #[test]
 fn full_fork_preserves_source_and_writes_origin() {
-    let root = scratch();
+    let root_dir = tempfile::TempDir::new().unwrap();
+    let root = root_dir.path();
     let bundle = install_fixture(&root);
     let overlays = root.join("overlays");
     std::fs::create_dir_all(&overlays).unwrap();
@@ -84,7 +69,8 @@ fn full_fork_preserves_source_and_writes_origin() {
 
 #[test]
 fn two_forks_from_same_source_are_independent() {
-    let root = scratch();
+    let root_dir = tempfile::TempDir::new().unwrap();
+    let root = root_dir.path();
     let bundle = install_fixture(&root);
     let overlays = root.join("overlays");
     std::fs::create_dir_all(&overlays).unwrap();
@@ -107,7 +93,8 @@ fn two_forks_from_same_source_are_independent() {
 
 #[test]
 fn orphan_staging_dirs_are_swept() {
-    let root = scratch();
+    let root_dir = tempfile::TempDir::new().unwrap();
+    let root = root_dir.path();
     let overlays = root.join("overlays");
     std::fs::create_dir_all(&overlays).unwrap();
     let orphan = overlays.join(".omni-staging-deadbeef-cafe-1234");

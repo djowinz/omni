@@ -1,8 +1,7 @@
-//! Fork an installed bundle into a new local overlay.
+//! Fork an installed bundle into a new local overlay, atomically.
 //!
-//! Sub-spec #013. Reads from `bundles/<slug>/` (produced by #010's install
-//! pipeline), writes to `overlays/<name>/`, atomically via
-//! `workspace::atomic_dir`. Records heritage in `.omni-origin.json`.
+//! Reads `bundles/<slug>/`, writes `overlays/<name>/` via
+//! `workspace::atomic_dir`, and records heritage in `.omni-origin.json`.
 
 /// Windows reserved filename stems, uppercase. Match is case-insensitive and
 /// applies whether or not the name carries an extension (per Win32 rules).
@@ -12,7 +11,7 @@ const WINDOWS_RESERVED_STEMS: &[&str] = &[
     "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// Validate a user-chosen overlay name. Rejects per sub-spec #013 §4.
+/// Validate a user-chosen overlay name.
 pub(crate) fn sanitize_name(name: &str) -> Result<(), &'static str> {
     if name.is_empty() {
         return Err("name must not be empty");
@@ -49,12 +48,11 @@ pub(crate) fn sanitize_name(name: &str) -> Result<(), &'static str> {
 
 use serde::{Deserialize, Serialize};
 
-/// Written to `<overlay>/.omni-origin.json` on fork. The presence of this
-/// file IS the heritage marker — no parallel registry. Sub-spec #013 §5.
+/// Written to `<overlay>/.omni-origin.json` on fork. The file's presence is
+/// the heritage marker; there is no parallel registry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkOrigin {
-    /// Schema version (invariant #6b: one version axis, additive changes).
-    /// Current version: 1.
+    /// Schema version; bump on breaking changes.
     pub version: u32,
     pub forked_from: ForkSource,
     pub trust: ForkTrust,
@@ -62,15 +60,13 @@ pub struct ForkOrigin {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkSource {
-    /// "<author-slug>/<name>", matches installed-bundles registry id.
+    /// `<author-slug>/<name>`, matches the installed-bundles registry id.
     pub artifact_id: String,
-    /// From the installed manifest (SHA-256 JCS per invariant #6).
     pub content_hash: String,
     pub bundle_name: String,
     /// Hex-encoded Ed25519 pubkey of the original author.
     pub author_pubkey: String,
     pub author_display_name: Option<String>,
-    /// Hex fingerprint form (Display from sub-spec #004).
     pub author_fingerprint: String,
     /// Unix seconds at time of fork.
     pub forked_at: i64,
@@ -240,14 +236,8 @@ mod origin_tests {
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-/// Public fork error. Variants carve along domain semantics per invariant
-/// #19a; `std::io::Error` is the one `#[from]` (stable std API). Third-party
-/// errors (e.g. `serde_json::Error`) ride in the `#[source]` chain.
-///
-/// `TargetExists` and `AtomicCommitFailed` both indicate "the overlay
-/// directory already exists" but arise from different points: the pre-check
-/// before staging (`TargetExists`) vs. a commit-time race where another
-/// process created the path between stage and rename (`AtomicCommitFailed`).
+/// `TargetExists` is the pre-check; `AtomicCommitFailed` is the commit-time
+/// race where another process created the target between stage and rename.
 #[derive(Debug, Error)]
 pub enum ForkError {
     #[error("source bundle {0:?} is not installed")]
@@ -259,19 +249,12 @@ pub enum ForkError {
     #[error("overlay {0:?} already exists")]
     TargetExists(String),
 
-    /// Target path appeared between stage() and commit() — distinct from
-    /// generic io::Error so WebSocket callers can map to a retryable code.
     #[error("atomic commit failed")]
     AtomicCommitFailed(#[source] std::io::Error),
 
-    /// Failure writing the `.omni-origin.json` file (open/flush/close).
     #[error("failed to write .omni-origin.json")]
     OriginWriteFailed(#[source] std::io::Error),
 
-    /// Failure serializing the `ForkOrigin` struct into `.omni-origin.json`.
-    /// Preserved distinct from `OriginWriteFailed` so diagnostics keep the
-    /// real `serde_json::Error` in the `#[source]` chain instead of wrapping
-    /// it inside a synthetic `io::Error`.
     #[error("failed to serialize .omni-origin.json")]
     OriginSerdeFailed(#[source] serde_json::Error),
 
@@ -280,6 +263,22 @@ pub enum ForkError {
 
     #[error("io error")]
     Io(#[from] std::io::Error),
+}
+
+impl ForkError {
+    /// Stable WebSocket error code for this variant.
+    pub fn ws_error_code(&self) -> &'static str {
+        match self {
+            ForkError::NameInvalid(_) => "NAME_INVALID",
+            ForkError::TargetExists(_) => "TARGET_EXISTS",
+            ForkError::SourceNotFound(_) => "BUNDLE_NOT_INSTALLED",
+            ForkError::AtomicCommitFailed(_) => "ATOMIC_COMMIT_FAILED",
+            ForkError::OriginWriteFailed(_)
+            | ForkError::OriginSerdeFailed(_)
+            | ForkError::UnsupportedSourceEntry(_)
+            | ForkError::Io(_) => "IO_ERROR",
+        }
+    }
 }
 
 pub struct ForkRequest {
@@ -294,9 +293,7 @@ pub struct ForkResult {
     pub origin: ForkOrigin,
 }
 
-/// Minimum surface fork needs from the installed-bundles registry shipped
-/// by sub-spec #010. Kept as a trait so fork's unit tests can stub it
-/// without pulling the entire registry.
+/// Minimum surface fork needs from the installed-bundles registry.
 pub trait InstalledBundleLookup {
     fn lookup(&self, slug: &str) -> Option<InstalledBundleView>;
 }
@@ -314,7 +311,7 @@ pub struct InstalledBundleView {
 
 use crate::workspace::atomic_dir::AtomicDir;
 
-/// Copy an installed bundle into a new overlay. Sub-spec #013 §3.
+/// Copy an installed bundle into a new overlay directory.
 pub fn fork_to_local(
     req: ForkRequest,
     overlays_root: &Path,
@@ -350,6 +347,8 @@ pub fn fork_to_local(
     };
     let origin_path = staging.path().join(ORIGIN_FILE_NAME);
     {
+        // Scope the writer so the file handle closes before commit()'s
+        // rename — on Windows an open handle blocks directory rename.
         let file = std::fs::File::create(&origin_path)
             .map_err(ForkError::OriginWriteFailed)?;
         let mut writer = std::io::BufWriter::new(file);
@@ -357,7 +356,6 @@ pub fn fork_to_local(
             .map_err(ForkError::OriginSerdeFailed)?;
         use std::io::Write;
         writer.flush().map_err(ForkError::OriginWriteFailed)?;
-        // writer (and inner file) dropped here — handle closed before rename.
     }
 
     staging.commit(false).map_err(|e| {
@@ -387,9 +385,8 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ForkError> {
         } else if ft.is_file() {
             std::fs::copy(&from, &to)?;
         } else {
-            // Installed bundles shouldn't contain symlinks or special files
-            // (`omni-sanitize` rejects them at install time). If one is seen
-            // anyway, fail loudly rather than silently dropping data.
+            // Symlinks/special files should never reach here (sanitize
+            // rejects them at install time); fail loudly if one does.
             return Err(ForkError::UnsupportedSourceEntry(
                 from.display().to_string(),
             ));
@@ -410,18 +407,6 @@ fn unix_now_secs() -> i64 {
 mod fork_tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    static CTR: AtomicU32 = AtomicU32::new(0);
-
-    fn tmp() -> PathBuf {
-        let id = CTR.fetch_add(1, Ordering::Relaxed);
-        let p = std::env::temp_dir()
-            .join(format!("omni_fork_{}_{id}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&p);
-        std::fs::create_dir_all(&p).unwrap();
-        p
-    }
 
     struct StubRegistry(HashMap<String, InstalledBundleView>);
     impl InstalledBundleLookup for StubRegistry {
@@ -458,8 +443,8 @@ mod fork_tests {
 
     #[test]
     fn happy_path_copies_files_and_writes_origin() {
-        let root = tmp();
-        let (reg, overlays) = registry_with(&root, "bundle-a");
+        let root = tempfile::TempDir::new().unwrap();
+        let (reg, overlays) = registry_with(root.path(), "bundle-a");
         let out = fork_to_local(
             ForkRequest {
                 bundle_slug: "bundle-a".into(),
@@ -477,13 +462,12 @@ mod fork_tests {
         assert_eq!(parsed.version, 1);
         assert_eq!(parsed.forked_from.artifact_id, "auth/bundle-a");
         assert!(matches!(parsed.trust, ForkTrust::LocalAuthored));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn returns_target_exists_when_overlay_present() {
-        let root = tmp();
-        let (reg, overlays) = registry_with(&root, "bundle-a");
+        let root = tempfile::TempDir::new().unwrap();
+        let (reg, overlays) = registry_with(root.path(), "bundle-a");
         std::fs::create_dir_all(overlays.join("collide")).unwrap();
         let err = fork_to_local(
             ForkRequest {
@@ -494,13 +478,12 @@ mod fork_tests {
             &reg,
         ).unwrap_err();
         assert!(matches!(err, ForkError::TargetExists(ref n) if n == "collide"));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn returns_source_not_found_for_unknown_slug() {
-        let root = tmp();
-        let (reg, overlays) = registry_with(&root, "bundle-a");
+        let root = tempfile::TempDir::new().unwrap();
+        let (reg, overlays) = registry_with(root.path(), "bundle-a");
         let err = fork_to_local(
             ForkRequest {
                 bundle_slug: "nope".into(),
@@ -510,13 +493,12 @@ mod fork_tests {
             &reg,
         ).unwrap_err();
         assert!(matches!(err, ForkError::SourceNotFound(ref s) if s == "nope"));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn returns_name_invalid_on_bad_name() {
-        let root = tmp();
-        let (reg, overlays) = registry_with(&root, "bundle-a");
+        let root = tempfile::TempDir::new().unwrap();
+        let (reg, overlays) = registry_with(root.path(), "bundle-a");
         let err = fork_to_local(
             ForkRequest {
                 bundle_slug: "bundle-a".into(),
@@ -526,13 +508,12 @@ mod fork_tests {
             &reg,
         ).unwrap_err();
         assert!(matches!(err, ForkError::NameInvalid(_)));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn source_bundle_directory_unchanged_after_fork() {
-        let root = tmp();
-        let (reg, overlays) = registry_with(&root, "bundle-a");
+        let root = tempfile::TempDir::new().unwrap();
+        let (reg, overlays) = registry_with(root.path(), "bundle-a");
         let source = reg.0.get("bundle-a").unwrap().path.clone();
         let before: Vec<_> = walk(&source);
         fork_to_local(
@@ -545,7 +526,6 @@ mod fork_tests {
         ).unwrap();
         let after: Vec<_> = walk(&source);
         assert_eq!(before, after);
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     fn walk(p: &Path) -> Vec<(PathBuf, u64)> {

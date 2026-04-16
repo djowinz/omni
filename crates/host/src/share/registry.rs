@@ -56,20 +56,12 @@ pub struct InstalledEntry {
     pub installed_at: u64,
     pub installed_version: semver::Version,
     pub omni_min_version: semver::Version,
-    /// Absolute on-disk location of the installed artifact directory.
-    ///
-    /// Stored explicitly rather than reconstructed from the registry key +
-    /// a workspace-root convention: the bundle key format is
-    /// `"<pubkey8>-<display_name>"` and hyphens in display names would make
-    /// key-parsing ambiguous; deriving the path by convention from the
-    /// caller-supplied `target_path` is an uncodified invariant future
-    /// install callers could break silently. Cross-sub-spec integration for
-    /// #013 fork-to-local, which needs key → on-disk path resolution.
+    /// Absolute on-disk directory of the installed artifact. Stored
+    /// explicitly because the registry key carries `<pubkey8>-<display_name>`
+    /// and hyphens in display names make key-parsing ambiguous.
     #[serde(default)]
     pub installed_path: PathBuf,
-    /// User-visible name (as signed in the manifest) preserved on the entry
-    /// so consumers do not have to parse it back out of the registry key.
-    /// Paired with `installed_path` as the #010/#013 integration addition.
+    /// Signed manifest name; stored so consumers don't re-parse it from the key.
     #[serde(default)]
     pub display_name: String,
 }
@@ -99,9 +91,8 @@ impl RegistryHandle {
         self.data.entries.insert(key, entry);
     }
 
-    /// Resolve a bundle registry key to its entry. Added for #013 fork-to-local;
-    /// `lookup_theme` mirrors the shape so the next theme-registry consumer
-    /// does not add a third ad-hoc accessor.
+    /// Resolve a bundle registry key to its entry. `lookup_theme` mirrors
+    /// the shape for symmetry with the themes registry.
     pub fn lookup_bundle(&self, key: &str) -> Option<&InstalledEntry> {
         self.data.entries.get(key)
     }
