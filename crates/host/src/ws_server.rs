@@ -26,17 +26,24 @@ struct RegistryBundleLookup<'a>(&'a crate::share::registry::RegistryHandle);
 impl<'a> crate::workspace::fork::InstalledBundleLookup for RegistryBundleLookup<'a> {
     fn lookup(&self, slug: &str) -> Option<crate::workspace::fork::InstalledBundleView> {
         let entry = self.0.lookup_bundle(slug)?;
+        // Legacy entries installed before the #010/#013 schema extension have
+        // an empty `installed_path` — treat as "not installed" so the caller
+        // surfaces BUNDLE_NOT_INSTALLED instead of a generic IO_ERROR; user
+        // needs to reinstall to populate the new fields.
+        if entry.installed_path.as_os_str().is_empty() {
+            return None;
+        }
         Some(crate::workspace::fork::InstalledBundleView {
             path: entry.installed_path.clone(),
             artifact_id: entry.artifact_id.clone(),
             content_hash: entry.content_hash.clone(),
             bundle_name: entry.display_name.clone(),
             author_pubkey: entry.author_pubkey.clone(),
-            author_display_name: if entry.display_name.is_empty() {
-                None
-            } else {
-                Some(entry.display_name.clone())
-            },
+            // `InstalledEntry` does not yet carry the author's display name
+            // (it lives in TofuStore). Leave as None until a follow-up adds
+            // it to the registry schema; writing the bundle name here would
+            // misrecord provenance in .omni-origin.json.
+            author_display_name: None,
             author_fingerprint: entry.fingerprint_hex.clone(),
         })
     }
