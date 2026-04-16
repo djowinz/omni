@@ -256,4 +256,186 @@ async function largestLiveArtifactSize(
   return max;
 }
 
+// ---------------------------------------------------------------------------
+// Reports queue (T6) — contract §4.13–§4.15.
+// ---------------------------------------------------------------------------
+
+type ReportStatus = "pending" | "reviewed" | "actioned";
+type ReportAction = "no_action" | "removed" | "banned_author";
+
+interface ReportRecord {
+  id: string;
+  received_at: number;
+  reporter_pubkey: string;
+  reporter_df: string;
+  artifact_id: string;
+  category: string;
+  note: string | null;
+  status: ReportStatus;
+  actioned_by: string | null;
+  action: ReportAction | null;
+  action_notes?: string;
+}
+
+const VALID_STATUSES: ReadonlySet<ReportStatus> = new Set([
+  "pending",
+  "reviewed",
+  "actioned",
+]);
+const VALID_ACTIONS: ReadonlySet<ReportAction> = new Set([
+  "no_action",
+  "removed",
+  "banned_author",
+]);
+
+// GET /v1/admin/reports?status=&cursor=&limit=
+app.get("/reports", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+
+  const statusParam = (c.req.query("status") ?? "pending") as ReportStatus;
+  if (!VALID_STATUSES.has(statusParam)) {
+    return errorFromKind(
+      "Malformed",
+      "BadRequest",
+      `invalid status: ${statusParam}`,
+    );
+  }
+  const cursor = c.req.query("cursor") ?? undefined;
+  const limitRaw = c.req.query("limit");
+  let limit = 50;
+  if (limitRaw !== undefined) {
+    const parsed = Number.parseInt(limitRaw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return errorFromKind("Malformed", "BadRequest", "limit must be > 0");
+    }
+    limit = Math.min(parsed, 100);
+  }
+
+  const list = await c.env.STATE.list({
+    prefix: `reports-by-status:${statusParam}:`,
+    limit,
+    cursor,
+  });
+
+  const items: ReportRecord[] = [];
+  for (const key of list.keys) {
+    // Value is the id; but derive from the record itself for durability.
+    const id = key.name.split(":").pop()!;
+    const rec = (await c.env.STATE.get(`reports:${id}`, "json")) as
+      | ReportRecord
+      | null;
+    if (rec !== null) items.push(rec);
+  }
+
+  const resp: { items: ReportRecord[]; next_cursor?: string } = { items };
+  if (!list.list_complete && list.cursor) resp.next_cursor = list.cursor;
+  return new Response(JSON.stringify(resp), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+});
+
+// GET /v1/admin/report/:id
+app.get("/report/:id", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+  const id = c.req.param("id");
+  const report = (await c.env.STATE.get(`reports:${id}`, "json")) as
+    | ReportRecord
+    | null;
+  if (report === null) {
+    return errorFromKind("Malformed", "NotFound", `report ${id} not found`);
+  }
+  const artifact = await c.env.META.prepare(
+    "SELECT * FROM artifacts WHERE id = ? LIMIT 1",
+  )
+    .bind(report.artifact_id)
+    .first();
+  return new Response(
+    JSON.stringify({ report, artifact: artifact ?? null }),
+    {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    },
+  );
+});
+
+// POST /v1/admin/report/:id/action
+app.post("/report/:id/action", async (c) => {
+  const body = await c.req.arrayBuffer();
+  let pubkeyHex: string;
+  try {
+    pubkeyHex = await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  }
+  const { action, notes } = parsed as { action?: unknown; notes?: unknown };
+  if (typeof action !== "string" || !VALID_ACTIONS.has(action as ReportAction)) {
+    return errorFromKind(
+      "Malformed",
+      "BadRequest",
+      `invalid action: ${JSON.stringify(action)}`,
+    );
+  }
+  if (notes !== undefined && typeof notes !== "string") {
+    return errorFromKind("Malformed", "BadRequest", "notes must be a string");
+  }
+
+  const id = c.req.param("id");
+  const existing = (await c.env.STATE.get(`reports:${id}`, "json")) as
+    | ReportRecord
+    | null;
+  if (existing === null) {
+    return errorFromKind("Malformed", "NotFound", `report ${id} not found`);
+  }
+  if (existing.status !== "pending") {
+    return errorFromKind("Admin", "NoOp", "report already actioned");
+  }
+
+  const newStatus: ReportStatus =
+    action === "no_action" ? "reviewed" : "actioned";
+  const updated: ReportRecord = {
+    ...existing,
+    status: newStatus,
+    actioned_by: pubkeyHex,
+    action: action as ReportAction,
+  };
+  if (typeof notes === "string") updated.action_notes = notes;
+
+  // Swap secondary-index key. Best-effort: delete old before writing new so
+  // a crash between the two leaves the queue clean of the pending entry.
+  await c.env.STATE.delete(
+    `reports-by-status:${existing.status}:${existing.received_at}:${existing.id}`,
+  );
+  await c.env.STATE.put(
+    `reports-by-status:${newStatus}:${existing.received_at}:${existing.id}`,
+    existing.id,
+  );
+  await c.env.STATE.put(`reports:${id}`, JSON.stringify(updated));
+
+  return new Response(JSON.stringify({ status: "ok", report: updated }), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+});
+
 export default app;

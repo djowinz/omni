@@ -138,15 +138,29 @@ app.post("/", async (c) => {
   // --- Step 5: store report in KV. crypto.randomUUID is available in
   // workerd runtimes. ---
   const reportId = crypto.randomUUID();
+  const receivedAt = Math.floor(Date.now() / 1000);
   const record = {
-    received_at: Math.floor(Date.now() / 1000),
+    id: reportId,
+    received_at: receivedAt,
     reporter_pubkey: pubkeyHex,
     reporter_df: dfHex,
     artifact_id: body.artifact_id,
     category: body.category,
     note: body.note ?? null,
+    status: "pending" as const,
+    actioned_by: null as string | null,
+    action: null as null | "no_action" | "removed" | "banned_author",
   };
   await c.env.STATE.put(`reports:${reportId}`, JSON.stringify(record));
+  // Secondary index for T6 admin queue: prefix-scan by status, ordered by
+  // received_at then id for determinism. Value holds the id so a `list()`
+  // response carries enough signal without a second read when id is all
+  // the caller wants (admin handler still reads the full record, but this
+  // keeps the index self-describing for debugging).
+  await c.env.STATE.put(
+    `reports-by-status:pending:${receivedAt}:${reportId}`,
+    reportId,
+  );
 
   // --- Step 6: bump artifacts.report_count. Read-then-write race accepted
   // per invariant #0; the counter is for ranking + moderator dashboards, not
