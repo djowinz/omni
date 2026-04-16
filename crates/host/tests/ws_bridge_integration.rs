@@ -547,7 +547,7 @@ async fn explorer_preview_cancel_round_trip_restores_and_clears_slot() {
 /// stable signal that the host isn't configured for share traffic — any
 /// drift is a cross-boundary contract break.
 ///
-/// The fallback-frame builder is `handlers::error_frame_for_stub`; pinning
+/// The fallback-frame builder is `handlers::error_frame`; pinning
 /// the envelope field-by-field against `install_context_unavailable()`
 /// guards the exact bytes the editor receives.
 #[test]

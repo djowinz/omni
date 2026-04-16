@@ -229,12 +229,14 @@ pub fn map_preview_error(e: &PreviewError) -> ErrorPayload {
 }
 
 /// Wrap an [`ErrorPayload`] in the standard D-004-J error envelope. Added
-/// for #021 as the fallback frame builder used by `ws_server.rs` when
-/// `share_ctx` is `None` — mirrors the envelope shape emitted inline in
-/// the pre-#021 explorer.* stub so wire behavior is unchanged.
+/// for #021 as the canonical error-frame builder used by every `explorer.*`
+/// handler path (async-dispatch arms in `ws_messages.rs` plus the
+/// `share_ctx`-absent fallback in `ws_server.rs`). Mirrors the envelope
+/// shape emitted inline in the pre-#021 explorer.* stub so wire behavior
+/// is unchanged.
 ///
 /// Envelope shape: `{ id, type: "error", error: { code, kind, detail, message } }`.
-pub fn error_frame_for_stub(id: &str, payload: &ErrorPayload) -> String {
+pub fn error_frame(id: &str, payload: &ErrorPayload) -> String {
     json!({
         "id": id,
         "type": "error",
@@ -547,9 +549,9 @@ mod tests {
     }
 
     #[test]
-    fn error_frame_for_stub_matches_pre_021_envelope_shape() {
+    fn error_frame_matches_pre_021_envelope_shape() {
         let payload = install_context_unavailable();
-        let frame = error_frame_for_stub("req-42", &payload);
+        let frame = error_frame("req-42", &payload);
         let parsed: JsonValue = serde_json::from_str(&frame).unwrap();
         assert_eq!(parsed["id"], "req-42");
         assert_eq!(parsed["type"], "error");

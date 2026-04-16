@@ -19,8 +19,8 @@ use uuid::Uuid;
 use super::client::{ListParams, ReportBody, ShareClient};
 use super::error::UploadError;
 use super::handlers::{
-    self, error_frame_for_stub, install_outcome_to_result_frame,
-    install_progress_to_contract_frame, map_preview_error, ErrorPayload,
+    self, install_outcome_to_result_frame, install_progress_to_contract_frame, map_preview_error,
+    ErrorPayload,
 };
 use super::install::{self, InstallProgress, InstallRequest};
 use super::preview::{PreviewSlot, ThemeSwap};
@@ -55,9 +55,12 @@ pub struct ShareContext {
     /// `install::install`, and writes the result back on completion.
     pub bundles_registry: Arc<Mutex<RegistryHandle>>,
 
-    /// Installed-themes registry. Same lifecycle pattern as
-    /// `bundles_registry`; kept as a sibling field so the dispatcher can pick
-    /// which registry a given `explorer.install` targets by artifact kind.
+    /// Installed-themes registry. Populated at startup but not yet consumed
+    /// by any dispatch handler — `handle_install` currently hard-codes
+    /// `RegistryKind::Bundles`. Reserved for a future handler that branches
+    /// on `artifact_kind` (theme vs bundle) to select the target registry.
+    /// See spec #021 §2.1 and follow-up tracker.
+    #[allow(dead_code)]
     pub themes_registry: Arc<Mutex<RegistryHandle>>,
 
     /// Server-fetched bundle size/entry limits. Cached at startup via
@@ -457,14 +460,6 @@ async fn handle_report(id: &str, params: Value, ctx: &ShareContext) -> Option<St
     }
 }
 
-/// Wrap an [`ErrorPayload`] in the standard `{ id, type:"error", error:{...} }`
-/// envelope. Used by the #021 explorer.* handlers to surface host-local and
-/// preview-subsystem errors; mirrors the shape produced by
-/// `error_frame_for_stub` in `handlers.rs` so wire behavior is unified.
-fn error_frame(id: &str, payload: &ErrorPayload) -> String {
-    error_frame_for_stub(id, payload)
-}
-
 /// Local adapter letting `handle_preview` pass an `Arc<dyn ThemeSwap>` into
 /// `PreviewSlot::start`, whose `<S: ThemeSwap>` bound is `Sized`. The
 /// newtype is itself `ThemeSwap` and forwards every call to the inner trait
@@ -509,6 +504,16 @@ impl ThemeSwap for DynThemeSwap {
 ///
 /// `RegistryKind::Bundles` is hard-coded: install today targets the bundles
 /// registry. A future extension may branch on params to pick themes.
+///
+/// # Runtime requirement
+///
+/// This handler (and the `dispatch` entry point that calls it) MUST run on
+/// a `tokio::runtime::Runtime` built with `flavor = "multi_thread"`.
+/// The implementation uses `tokio::task::block_in_place` to hold
+/// `std::sync::MutexGuard`s across the inner `install::install` future's
+/// `.await` points — a pattern that panics on a current-thread runtime.
+/// The shipped `share_runtime` in `WsSharedState` is built with
+/// `Builder::new_multi_thread()` (see `ws_server.rs`).
 async fn handle_install<F>(id: &str, params: Value, ctx: &ShareContext, send_fn: F) -> Option<String>
 where
     F: Fn(String) + Send + Sync + Clone + 'static,
@@ -605,7 +610,7 @@ where
         Ok(outcome) => Some(install_outcome_to_result_frame(id, &outcome)),
         Err(e) => {
             let payload = handlers::map_install_error(&e);
-            Some(error_frame(id, &payload))
+            Some(handlers::error_frame(id, &payload))
         }
     }
 }
@@ -662,7 +667,7 @@ async fn handle_preview(id: &str, params: Value, ctx: &ShareContext) -> Option<S
                 detail: format!("download:{e}"),
                 message: "Failed to fetch preview artifact.",
             };
-            return Some(error_frame(id, &payload));
+            return Some(handlers::error_frame(id, &payload));
         }
     };
 
@@ -686,7 +691,7 @@ async fn handle_preview(id: &str, params: Value, ctx: &ShareContext) -> Option<S
         ),
         Err(e) => {
             let payload = map_preview_error(&e);
-            Some(error_frame(id, &payload))
+            Some(handlers::error_frame(id, &payload))
         }
     }
 }
@@ -731,7 +736,7 @@ async fn handle_cancel_preview(id: &str, params: Value, ctx: &ShareContext) -> O
         ),
         Err(e) => {
             let payload = map_preview_error(&e);
-            Some(error_frame(id, &payload))
+            Some(handlers::error_frame(id, &payload))
         }
     }
 }
@@ -771,11 +776,25 @@ async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
     };
     match ctx.client.list(lp).await {
         Ok(lr) => {
-            let items: Vec<Value> = lr
+            let items: Vec<Value> = match lr
                 .items
-                .into_iter()
-                .map(|a| serde_json::to_value(a).unwrap_or(Value::Null))
-                .collect();
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    return Some(handlers::error_frame(
+                        id,
+                        &ErrorPayload {
+                            code: "SERIALIZATION_ERROR",
+                            kind: "HostLocal",
+                            detail: format!("list_item_serialize_failed: {e}"),
+                            message: "Worker returned an artifact we could not serialize.",
+                        },
+                    ));
+                }
+            };
             Some(
                 json!({
                     "id": id,
@@ -817,7 +836,7 @@ async fn handle_get(id: &str, params: Value, _ctx: &ShareContext) -> Option<Stri
         detail: "explorer.get:client_get_artifact_missing".into(),
         message: "Artifact fetch is not yet available.",
     };
-    Some(error_frame(id, &payload))
+    Some(handlers::error_frame(id, &payload))
 }
 
 #[cfg(test)]

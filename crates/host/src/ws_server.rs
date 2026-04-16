@@ -574,19 +574,7 @@ fn handle_message(
             // and this arm is not exercised.
             let payload = crate::share::handlers::install_context_unavailable();
             let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            Some(
-                json!({
-                    "id": id,
-                    "type": "error",
-                    "error": {
-                        "code": payload.code,
-                        "kind": payload.kind,
-                        "detail": payload.detail,
-                        "message": payload.message,
-                    },
-                })
-                .to_string(),
-            )
+            Some(crate::share::handlers::error_frame(id, &payload))
         }
         "log.path" => {
             let log_path = state.data_dir.join("logs").join("omni-host.log");
