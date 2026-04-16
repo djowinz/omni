@@ -8,16 +8,8 @@ use assert_cmd::Command;
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn mint_key(dir: &std::path::Path) -> std::path::PathBuf {
-    let out = dir.join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
-        .unwrap()
-        .args(["keygen", "--output"])
-        .arg(&out)
-        .assert()
-        .success();
-    out
-}
+mod common;
+use common::mint_key;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn artifact_show_emits_json() {
@@ -25,8 +17,7 @@ async fn artifact_show_emits_json() {
     Mock::given(method("GET"))
         .and(path_regex(r"^/v1/artifact/[\w-]+$"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({"id":"abc","name":"t"})),
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"abc","name":"t"})),
         )
         .mount(&server)
         .await;
@@ -58,9 +49,8 @@ async fn artifact_remove_appends_audit() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/v1/admin/artifact/[\w-]+/remove$"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({"artifact_id":"abc","status":"removed"}),
-            ),
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"artifact_id":"abc","status":"removed"})),
         )
         .mount(&server)
         .await;
@@ -76,9 +66,7 @@ async fn artifact_remove_appends_audit() {
         .arg(server.uri())
         .args(["--key-file"])
         .arg(&key)
-        .args([
-            "artifact", "remove", "abc", "--reason", "copyright",
-        ])
+        .args(["artifact", "remove", "abc", "--reason", "copyright"])
         .output()
         .unwrap();
     assert!(

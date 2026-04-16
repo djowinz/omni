@@ -32,10 +32,7 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
     let page_size: u32 = 50;
 
     'outer: loop {
-        let mut q: Vec<String> = vec![
-            "status=pending".to_string(),
-            format!("limit={page_size}"),
-        ];
+        let mut q: Vec<String> = vec!["status=pending".to_string(), format!("limit={page_size}")];
         if let Some(c) = &cursor {
             q.push(format!("cursor={}", urlencoding::encode(c)));
         }
@@ -50,8 +47,9 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
             )
             .await?;
 
+        // Contract §4.13: list response is `{ items, next_cursor? }`.
         let items = page
-            .get("reports")
+            .get("items")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
@@ -92,32 +90,32 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                     let body_bytes = serde_json::to_vec(&body)?;
                     let path = format!("/v1/admin/report/{id}/action");
                     let _: serde_json::Value = client
-                        .send_signed(
-                            reqwest::Method::POST,
-                            &path,
-                            None,
-                            Some(&body_bytes),
-                            &[],
-                        )
+                        .send_signed(reqwest::Method::POST, &path, None, Some(&body_bytes), &[])
                         .await?;
-                    crate::audit::append(&format!(
-                        "ACTION report={id} action=no_action"
-                    ))?;
+                    crate::audit::append(&format!("ACTION report={id} action=no_action"))?;
                     println!("  → kept");
                 }
                 Action::Remove => {
+                    // Contract §4.14: show response is `{ report, linked_artifact }`.
                     let artifact_id = detail
-                        .get("artifact")
+                        .get("linked_artifact")
                         .and_then(|a| a.get("id"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
                     if artifact_id.is_empty() {
-                        eprintln!("  ! report has no artifact.id; cannot remove");
+                        eprintln!("  ! report has no linked_artifact.id; cannot remove");
                         continue;
                     }
                     let reason = dialoguer::Input::<String>::new()
                         .with_prompt("Removal reason")
+                        .validate_with(|s: &String| -> Result<(), &'static str> {
+                            if s.trim().is_empty() {
+                                Err("reason cannot be empty")
+                            } else {
+                                Ok(())
+                            }
+                        })
                         .interact_text()?;
                     let body = serde_json::json!({ "reason": reason });
                     let body_bytes = serde_json::to_vec(&body)?;
@@ -132,7 +130,8 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                         )
                         .await?;
                     crate::audit::append(&format!(
-                        "REMOVE artifact={artifact_id} reason=\"{reason}\""
+                        "REMOVE artifact={artifact_id} reason=\"{}\"",
+                        crate::audit::escape_value(&reason)
                     ))?;
 
                     let action_body = serde_json::json!({
@@ -151,19 +150,20 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                         )
                         .await?;
                     crate::audit::append(&format!(
-                        "ACTION report={id} action=removed notes=\"{reason}\""
+                        "ACTION report={id} action=removed notes=\"{}\"",
+                        crate::audit::escape_value(&reason)
                     ))?;
                     println!("  → removed");
                 }
                 Action::BanAuthor => {
                     let pubkey = detail
-                        .get("artifact")
+                        .get("linked_artifact")
                         .and_then(|a| a.get("author_pubkey"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
                     if pubkey.is_empty() {
-                        eprintln!("  ! report has no artifact.author_pubkey; cannot ban");
+                        eprintln!("  ! report has no linked_artifact.author_pubkey; cannot ban");
                         continue;
                     }
                     if !cli.yes {
@@ -180,6 +180,13 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                     }
                     let reason = dialoguer::Input::<String>::new()
                         .with_prompt("Ban reason")
+                        .validate_with(|s: &String| -> Result<(), &'static str> {
+                            if s.trim().is_empty() {
+                                Err("reason cannot be empty")
+                            } else {
+                                Ok(())
+                            }
+                        })
                         .interact_text()?;
                     let body = serde_json::json!({ "pubkey": pubkey, "reason": reason });
                     let body_bytes = serde_json::to_vec(&body)?;
@@ -199,7 +206,8 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                         .and_then(|n| n.as_u64())
                         .unwrap_or(0);
                     crate::audit::append(&format!(
-                        "BAN pubkey={pubkey} reason=\"{reason}\" cascade_count={cascade_count} cascade_errors={cascade_errors}"
+                        "BAN pubkey={pubkey} reason=\"{}\" cascade_count={cascade_count} cascade_errors={cascade_errors}",
+                        crate::audit::escape_value(&reason)
                     ))?;
 
                     let action_body = serde_json::json!({ "action": "banned_author" });
@@ -214,9 +222,7 @@ pub async fn run(_args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                             &[],
                         )
                         .await?;
-                    crate::audit::append(&format!(
-                        "ACTION report={id} action=banned_author"
-                    ))?;
+                    crate::audit::append(&format!("ACTION report={id} action=banned_author"))?;
                     println!("  → banned (cascade_count={cascade_count})");
                 }
                 Action::Skip => {
@@ -263,14 +269,18 @@ fn prompt_action() -> anyhow::Result<Action> {
 }
 
 fn render_summary(detail: &serde_json::Value) {
-    let id = detail.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    let reason = detail.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-    let notes = detail.get("notes").and_then(|v| v.as_str()).unwrap_or("");
-    let received = detail
+    // Contract §4.14: detail is `{ report: AdminReportView, linked_artifact }`.
+    // Fall back to reading top-level fields too so this helper stays usable if
+    // a caller passes a bare report view.
+    let report = detail.get("report").unwrap_or(detail);
+    let id = report.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let reason = report.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+    let notes = report.get("notes").and_then(|v| v.as_str()).unwrap_or("");
+    let received = report
         .get("received_at")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let reporter = detail
+    let reporter = report
         .get("reporter_df")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -284,7 +294,7 @@ fn render_summary(detail: &serde_json::Value) {
     if !notes.is_empty() {
         println!("  notes:     {notes}");
     }
-    if let Some(artifact) = detail.get("artifact") {
+    if let Some(artifact) = detail.get("linked_artifact") {
         let name = artifact.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let aid = artifact.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let author = artifact
@@ -315,12 +325,9 @@ fn render_summary(detail: &serde_json::Value) {
 /// Best-effort thumbnail preview. Swallows every error — a missing
 /// thumbnail or a sandboxed environment without a default viewer must
 /// never break the review loop.
-async fn maybe_preview_thumbnail(
-    client: &crate::client::AdminClient,
-    detail: &serde_json::Value,
-) {
+async fn maybe_preview_thumbnail(client: &crate::client::AdminClient, detail: &serde_json::Value) {
     let Some(url) = detail
-        .get("artifact")
+        .get("linked_artifact")
         .and_then(|a| a.get("thumbnail_url"))
         .and_then(|v| v.as_str())
     else {
@@ -355,7 +362,10 @@ fn open_with_os(path: &std::path::Path) -> std::io::Result<()> {
 
 #[cfg(target_os = "macos")]
 fn open_with_os(path: &std::path::Path) -> std::io::Result<()> {
-    std::process::Command::new("open").arg(path).spawn().map(|_| ())
+    std::process::Command::new("open")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -364,4 +374,35 @@ fn open_with_os(path: &std::path::Path) -> std::io::Result<()> {
         .arg(path)
         .spawn()
         .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Canned Worker-shaped response (contract §4.14) feeds cleanly through
+    /// `render_summary` — guards against the prior bug where it read
+    /// top-level `reason`/`notes`/`artifact` (which don't exist on the new
+    /// `{ report, linked_artifact }` envelope).
+    #[test]
+    fn render_summary_accepts_worker_show_shape() {
+        let detail = serde_json::json!({
+            "report": {
+                "id": "rep-1",
+                "reason": "spam",
+                "notes": "dup content",
+                "received_at": "2026-04-15T00:00:00Z",
+                "reporter_df": "deadbeefcafebabe0011223344556677"
+            },
+            "linked_artifact": {
+                "id": "art-9",
+                "name": "Neon",
+                "author_pubkey": "aabbccddeeff00112233445566778899",
+                "tags": ["ui", "dark"],
+                "install_count": 42
+            }
+        });
+        // Doesn't panic, doesn't silently drop the fields we rely on.
+        render_summary(&detail);
+    }
 }

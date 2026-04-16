@@ -25,7 +25,7 @@ pub mod vocab;
 /// derive `Clone`, so this is cheap and avoids placeholder values that
 /// break every time a subcommand's `Args` gains a required field.
 pub async fn dispatch(cli: Cli) -> anyhow::Result<ExitCode> {
-    match cli.cmd.clone() {
+    let result: anyhow::Result<ExitCode> = match cli.cmd.clone() {
         Cmd::Keygen(a) => keygen::run(a, &cli).await,
         Cmd::Reports(a) => reports::run(a, &cli).await,
         Cmd::Artifact(a) => artifact::run(a, &cli).await,
@@ -35,5 +35,34 @@ pub async fn dispatch(cli: Cli) -> anyhow::Result<ExitCode> {
         Cmd::Limits(a) => limits::run(a, &cli).await,
         Cmd::Review(a) => review::run(a, &cli).await,
         Cmd::Stats(a) => stats::run(a, &cli).await,
+    };
+    // Spec §6 exit-code routing: a Worker-returned contract error envelope
+    // must map to a deterministic exit code (Admin=2, Auth=3,
+    // Malformed/Integrity=4, Io=5, Quota=6). Any other error (signing,
+    // local I/O, decode) falls through to anyhow's default → exit 1.
+    match result {
+        Ok(code) => Ok(code),
+        Err(e) => match e
+            .downcast_ref::<crate::client::AdminError>()
+            .and_then(|ae| match ae {
+                crate::client::AdminError::Response {
+                    status,
+                    kind,
+                    detail,
+                    body,
+                } => Some((status, kind, detail, body)),
+                _ => None,
+            }) {
+            Some((status, kind, detail, body)) => {
+                let code = crate::client::kind_to_exit_code(kind);
+                let detail_str = detail
+                    .as_ref()
+                    .map(|d| format!(" detail={d}"))
+                    .unwrap_or_default();
+                eprintln!("HTTP {status}: kind={kind}{detail_str} — {body}");
+                Ok(ExitCode::from(code as u8))
+            }
+            None => Err(e),
+        },
     }
 }

@@ -38,37 +38,21 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
             let v: serde_json::Value = client
                 .send_signed(reqwest::Method::GET, &path, None, None, &[])
                 .await?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Remove { id, reason } => {
             let body = serde_json::json!({ "reason": reason });
             let body_bytes = serde_json::to_vec(&body)?;
             let path = format!("/v1/admin/artifact/{id}/remove");
             let v: serde_json::Value = client
-                .send_signed(
-                    reqwest::Method::POST,
-                    &path,
-                    None,
-                    Some(&body_bytes),
-                    &[],
-                )
+                .send_signed(reqwest::Method::POST, &path, None, Some(&body_bytes), &[])
                 .await?;
             crate::audit::append(&format!(
-                "REMOVE artifact={id} reason=\"{reason}\""
+                "REMOVE artifact={id} reason=\"{}\"",
+                crate::audit::escape_value(&reason)
             ))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-fn print_json_or_human(cli: &crate::Cli, v: &serde_json::Value) {
-    if cli.json {
-        println!("{v}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-        );
-    }
 }

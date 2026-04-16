@@ -38,7 +38,7 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
             let v: serde_json::Value = client
                 .send_signed(reqwest::Method::GET, "/v1/config/vocab", None, None, &[])
                 .await?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Add { tag } => {
             let body = serde_json::json!({ "add": [tag] });
@@ -54,7 +54,7 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 .await?;
             let version = v.get("version").and_then(|n| n.as_u64()).unwrap_or(0);
             crate::audit::append(&format!("VOCAB add={tag} version_after={version}"))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Remove { tag } => {
             let body = serde_json::json!({ "remove": [tag] });
@@ -70,19 +70,8 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 .await?;
             let version = v.get("version").and_then(|n| n.as_u64()).unwrap_or(0);
             crate::audit::append(&format!("VOCAB remove={tag} version_after={version}"))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-fn print_json_or_human(cli: &crate::Cli, v: &serde_json::Value) {
-    if cli.json {
-        println!("{v}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-        );
-    }
 }

@@ -74,9 +74,10 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 .and_then(|n| n.as_u64())
                 .unwrap_or(0);
             crate::audit::append(&format!(
-                "BAN pubkey={pubkey} reason=\"{reason}\" cascade_count={cascade_count} cascade_errors={cascade_errors}"
+                "BAN pubkey={pubkey} reason=\"{}\" cascade_count={cascade_count} cascade_errors={cascade_errors}",
+                crate::audit::escape_value(&reason)
             ))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Unban { pubkey } => {
             let body = serde_json::json!({ "pubkey": pubkey });
@@ -91,19 +92,8 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 )
                 .await?;
             crate::audit::append(&format!("UNBAN pubkey={pubkey}"))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-fn print_json_or_human(cli: &crate::Cli, v: &serde_json::Value) {
-    if cli.json {
-        println!("{v}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-        );
-    }
 }

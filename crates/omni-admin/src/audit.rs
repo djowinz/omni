@@ -28,6 +28,30 @@ pub fn log_path() -> anyhow::Result<PathBuf> {
     Ok(dir.join("audit.log"))
 }
 
+/// Escape a value for the audit log's `key="value"` format.
+///
+/// Backslash and double-quote are escaped so a line with an operator-supplied
+/// reason (e.g. `reason="they said \"hi\""`) round-trips through a naive
+/// quote-aware parser. Newline + carriage-return are escaped to keep the
+/// append-only "one event per line" invariant intact.
+///
+/// Only called from format-sites that wrap free-form operator input in
+/// `"..."`; fixed-shape fields (ids, hex fingerprints, enum names) don't
+/// need escaping and aren't routed through this helper.
+pub fn escape_value(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Append a line to the audit log, prefixed with an RFC 3339 UTC timestamp.
 ///
 /// Callers pass the semantic body (e.g. `REMOVE artifact=... reason="..."`);
@@ -40,4 +64,18 @@ pub fn append(line: &str) -> anyhow::Result<()> {
         .open(path)?;
     writeln!(f, "{} {}", chrono::Utc::now().to_rfc3339(), line)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_value_handles_quotes_and_backslashes() {
+        assert_eq!(escape_value(r#"he said "hi""#), r#"he said \"hi\""#);
+        assert_eq!(escape_value(r"C:\path"), r"C:\\path");
+        assert_eq!(escape_value("a\nb"), "a\\nb");
+        assert_eq!(escape_value("a\rb"), "a\\rb");
+        assert_eq!(escape_value("plain text"), "plain text");
+    }
 }

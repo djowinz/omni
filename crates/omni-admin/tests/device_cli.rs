@@ -7,16 +7,8 @@ use assert_cmd::Command;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn mint_key(dir: &std::path::Path) -> std::path::PathBuf {
-    let out = dir.join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
-        .unwrap()
-        .args(["keygen", "--output"])
-        .arg(&out)
-        .assert()
-        .success();
-    out
-}
+mod common;
+use common::mint_key;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn device_ban_appends_audit() {
@@ -65,9 +57,10 @@ async fn device_unban_appends_audit() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/admin/device/unban"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"device_fp":"deadbeef","status":"unbanned"}),
-        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"device_fp":"deadbeef","status":"unbanned"})),
+        )
         .mount(&server)
         .await;
     let tmp = tempfile::TempDir::new().unwrap();

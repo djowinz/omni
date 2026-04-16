@@ -25,15 +25,13 @@ pub enum Sub {
     List {
         #[arg(long)]
         status: Option<Status>,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, default_value_t = 25)]
         limit: u32,
         #[arg(long)]
         cursor: Option<String>,
     },
     /// Show a single report by id.
-    Show {
-        id: String,
-    },
+    Show { id: String },
     /// Act on a report (close with a resolution).
     Action {
         id: String,
@@ -85,33 +83,35 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                     &[],
                 )
                 .await?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Show { id } => {
             let path = format!("/v1/admin/report/{id}");
             let v: serde_json::Value = client
                 .send_signed(reqwest::Method::GET, &path, None, None, &[])
                 .await?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Action { id, action, notes } => {
-            let body = serde_json::json!({ "action": action, "notes": notes });
-            let body_bytes = serde_json::to_vec(&body)?;
+            // Omit `notes` entirely when the operator didn't pass `--notes`,
+            // rather than sending `"notes": null`. The Worker tolerates
+            // null, but defense-in-depth keeps the body minimal and matches
+            // the shape admin scripts for other surfaces expect.
+            let mut body_map = serde_json::Map::new();
+            body_map.insert("action".into(), serde_json::to_value(action)?);
+            if let Some(n) = notes.as_ref() {
+                body_map.insert("notes".into(), serde_json::Value::String(n.clone()));
+            }
+            let body_bytes = serde_json::to_vec(&serde_json::Value::Object(body_map))?;
             let path = format!("/v1/admin/report/{id}/action");
             let v: serde_json::Value = client
-                .send_signed(
-                    reqwest::Method::POST,
-                    &path,
-                    None,
-                    Some(&body_bytes),
-                    &[],
-                )
+                .send_signed(reqwest::Method::POST, &path, None, Some(&body_bytes), &[])
                 .await?;
             crate::audit::append(&format!(
-                "ACTION report={id} action={action:?} notes={}",
-                notes.as_deref().unwrap_or("")
+                "ACTION report={id} action={action:?} notes=\"{}\"",
+                crate::audit::escape_value(notes.as_deref().unwrap_or(""))
             ))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -122,16 +122,5 @@ fn status_str(s: Status) -> &'static str {
         Status::Pending => "pending",
         Status::Reviewed => "reviewed",
         Status::Actioned => "actioned",
-    }
-}
-
-fn print_json_or_human(cli: &crate::Cli, v: &serde_json::Value) {
-    if cli.json {
-        println!("{v}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-        );
     }
 }

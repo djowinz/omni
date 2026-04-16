@@ -47,9 +47,10 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 )
                 .await?;
             crate::audit::append(&format!(
-                "BAN device={device_fp} reason=\"{reason}\""
+                "BAN device={device_fp} reason=\"{}\"",
+                crate::audit::escape_value(&reason)
             ))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Unban { device_fp } => {
             let body = serde_json::json!({ "device_fp": device_fp });
@@ -64,19 +65,8 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 )
                 .await?;
             crate::audit::append(&format!("UNBAN device={device_fp}"))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-fn print_json_or_human(cli: &crate::Cli, v: &serde_json::Value) {
-    if cli.json {
-        println!("{v}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-        );
-    }
 }

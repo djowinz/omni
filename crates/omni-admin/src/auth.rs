@@ -69,6 +69,7 @@ fn machine_guid_sha256() -> [u8; 32] {
 #[cfg(windows)]
 fn read_machine_guid() -> String {
     use windows::core::w;
+    use windows::Win32::Foundation::ERROR_MORE_DATA;
     use windows::Win32::System::Registry::{
         RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
         KEY_WOW64_64KEY, REG_SZ, REG_VALUE_TYPE,
@@ -76,7 +77,14 @@ fn read_machine_guid() -> String {
     unsafe {
         let mut hk = HKEY::default();
         let sub = w!("SOFTWARE\\Microsoft\\Cryptography");
-        if RegOpenKeyExW(HKEY_LOCAL_MACHINE, sub, 0, KEY_READ | KEY_WOW64_64KEY, &mut hk).is_err()
+        if RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            sub,
+            0,
+            KEY_READ | KEY_WOW64_64KEY,
+            &mut hk,
+        )
+        .is_err()
         {
             return String::new();
         }
@@ -93,6 +101,18 @@ fn read_machine_guid() -> String {
             Some(&mut sz),
         );
         let _ = RegCloseKey(hk);
+        // A 256-byte buffer is twice the canonical 38-char GUID length; if
+        // Windows still reports ERROR_MORE_DATA, MachineGuid is unexpectedly
+        // long and silently truncating would pin every admin request on this
+        // box to the same SHA256("") fingerprint. That is worse than a crash:
+        // hard-fail so the operator replaces the broken machine / fixes the
+        // registry entry instead of impersonating the zero-df identity across
+        // every call.
+        if r == ERROR_MORE_DATA {
+            panic!(
+                "HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid exceeds 128 UTF-16 units; refusing to use a truncated device fingerprint"
+            );
+        }
         if r.is_err() || ty != REG_SZ {
             return String::new();
         }

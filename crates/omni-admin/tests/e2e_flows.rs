@@ -29,16 +29,8 @@ use assert_cmd::Command;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn mint_key(dir: &std::path::Path) -> std::path::PathBuf {
-    let out = dir.join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
-        .unwrap()
-        .args(["keygen", "--output"])
-        .arg(&out)
-        .assert()
-        .success();
-    out
-}
+mod common;
+use common::mint_key;
 
 /// Admin-kind error body → non-zero CLI exit + stderr carries the kind/detail.
 ///
@@ -86,6 +78,55 @@ async fn admin_not_moderator_envelope_surfaces_error() {
     assert!(
         stderr.contains("Admin") && stderr.contains("NotModerator"),
         "stderr missing kind/detail: {stderr}"
+    );
+    // Spec §6: Admin-kind errors must exit with code 2 specifically, not
+    // just "non-zero". Anything else means the dispatcher's downcast +
+    // `kind_to_exit_code` pipeline regressed.
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit code 2 for Admin kind, got {:?}",
+        output.status.code()
+    );
+}
+
+/// Auth-kind envelope (e.g. BadSignature) must surface as exit code 3.
+///
+/// Guards spec §6: `Admin=2, Auth=3, Malformed/Integrity=4, Io=5, Quota=6`.
+/// Previously the CLI coalesced everything into anyhow → exit 1; this test
+/// pins the `kind_to_exit_code` dispatch path.
+#[tokio::test(flavor = "multi_thread")]
+async fn auth_envelope_maps_to_exit_code_3() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/admin/stats"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": {
+                "code": "AUTH_BAD_SIGNATURE",
+                "kind": "Auth",
+                "detail": "BadSignature",
+                "message": "signature verification failed"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let key = mint_key(tmp.path());
+    let output = Command::cargo_bin("omni-admin")
+        .unwrap()
+        .args(["--json", "--worker-url"])
+        .arg(server.uri())
+        .args(["--key-file"])
+        .arg(&key)
+        .args(["stats"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "expected exit code 3 for Auth kind, got {:?}. stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

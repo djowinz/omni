@@ -9,6 +9,9 @@ use assert_cmd::Command;
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod common;
+use common::mint_key;
+
 async fn start_list_mock(response_body: serde_json::Value) -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -19,21 +22,9 @@ async fn start_list_mock(response_body: serde_json::Value) -> MockServer {
     server
 }
 
-fn mint_key(dir: &std::path::Path) -> std::path::PathBuf {
-    let out = dir.join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
-        .unwrap()
-        .args(["keygen", "--output"])
-        .arg(&out)
-        .assert()
-        .success();
-    out
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn reports_list_emits_json() {
-    let server =
-        start_list_mock(serde_json::json!({ "items": [], "next_cursor": null })).await;
+    let server = start_list_mock(serde_json::json!({ "items": [], "next_cursor": null })).await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let output = Command::cargo_bin("omni-admin")
@@ -61,9 +52,7 @@ async fn reports_action_appends_audit() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path_regex(r"^/v1/admin/report/[^/]+/action$"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({"status":"ok"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"status":"ok"})))
         .mount(&server)
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
@@ -82,7 +71,13 @@ async fn reports_action_appends_audit() {
         .args(["--key-file"])
         .arg(&key)
         .args([
-            "reports", "action", "report-xyz", "--action", "removed", "--notes", "spam",
+            "reports",
+            "action",
+            "report-xyz",
+            "--action",
+            "removed",
+            "--notes",
+            "spam",
         ])
         .output()
         .unwrap();

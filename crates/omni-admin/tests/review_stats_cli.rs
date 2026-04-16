@@ -9,16 +9,8 @@ use assert_cmd::Command;
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn mint_key(dir: &std::path::Path) -> std::path::PathBuf {
-    let out = dir.join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
-        .unwrap()
-        .args(["keygen", "--output"])
-        .arg(&out)
-        .assert()
-        .success();
-    out
-}
+mod common;
+use common::mint_key;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn stats_emits_json() {

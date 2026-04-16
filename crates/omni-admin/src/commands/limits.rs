@@ -45,7 +45,7 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
             let v: serde_json::Value = client
                 .send_signed(reqwest::Method::GET, "/v1/config/limits", None, None, &[])
                 .await?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
         Sub::Set {
             max_bundle_compressed,
@@ -87,23 +87,11 @@ pub async fn run(args: Args, cli: &crate::Cli) -> anyhow::Result<ExitCode> {
                 )
                 .await?;
             let version_after = v.get("version").and_then(|n| n.as_u64()).unwrap_or(0);
-            let mut parts: Vec<String> =
-                body.iter().map(|(k, val)| format!("{k}={val}")).collect();
+            let mut parts: Vec<String> = body.iter().map(|(k, val)| format!("{k}={val}")).collect();
             parts.push(format!("version_after={version_after}"));
             crate::audit::append(&format!("LIMITS {}", parts.join(" ")))?;
-            print_json_or_human(cli, &v);
+            crate::client::print_value(cli, &v);
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-fn print_json_or_human(cli: &crate::Cli, v: &serde_json::Value) {
-    if cli.json {
-        println!("{v}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-        );
-    }
 }

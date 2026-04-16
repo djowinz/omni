@@ -120,9 +120,7 @@ impl AdminClient {
             .clone()
             .or_else(default_admin_key_path)
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no --key-file specified and no default admin key path available"
-                )
+                anyhow::anyhow!("no --key-file specified and no default admin key path available")
             })?;
         crate::key_file::check_permissions(&key_path)?;
         let kp = omni_identity::Keypair::load_or_create(&key_path)?;
@@ -152,8 +150,24 @@ fn default_admin_key_path() -> Option<std::path::PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        directories::BaseDirs::new()
-            .map(|b| b.config_dir().join("omni").join("admin-identity.key"))
+        directories::BaseDirs::new().map(|b| b.config_dir().join("omni").join("admin-identity.key"))
+    }
+}
+
+/// Emit a `serde_json::Value` to stdout, honoring the global `--json` flag.
+///
+/// Under `--json`, the value is printed compactly (single line) so pipelines
+/// can `jq` it; otherwise we pretty-print for human consumption. This helper
+/// is centralized so every subcommand stays uniform — there used to be a
+/// copy in each `commands/*.rs`.
+pub fn print_value(cli: &crate::Cli, v: &serde_json::Value) {
+    if cli.json {
+        println!("{v}");
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
+        );
     }
 }
 
