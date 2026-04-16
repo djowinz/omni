@@ -294,7 +294,7 @@ fn bgra_to_png(
     let encoder = PngEncoder::new_with_quality(&mut out, compression, PngFilterType::Adaptive);
     encoder
         .write_image(rgba, width, height, ColorType::Rgba8)
-        .map_err(|e| ThumbnailError::Encode(e))?;
+        .map_err(ThumbnailError::Encode)?;
     Ok(out)
 }
 
