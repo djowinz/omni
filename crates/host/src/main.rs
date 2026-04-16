@@ -348,6 +348,20 @@ fn run_host() {
     // Shared state for WebSocket server
     let ws_state = Arc::new(ws_server::WsSharedState::new(data_dir.clone()));
 
+    // Attempt ShareContext construction (plan #021 T4). Failure is non-fatal —
+    // `explorer.install|preview|cancelPreview|list|get` and `upload.*`/`identity.*`
+    // handlers gracefully degrade to the `service_unavailable` D-004-J envelope via
+    // the fallback path in `ws_server::handle_message`. Contributors building
+    // offline (no identity file yet, no Worker reachable) still get a working host
+    // minus the share surface.
+    match build_share_context(&ws_state) {
+        Ok(ctx) => ws_state.set_share_ctx(std::sync::Arc::new(ctx)),
+        Err(e) => tracing::warn!(
+            error = %e,
+            "share service not configured; WS install/upload/preview will return service_unavailable"
+        ),
+    }
+
     // Start WebSocket server
     let ws_handle = ws_server::start(ws_state.clone());
 
@@ -875,6 +889,128 @@ fn should_retry_etw(
         None => true,
         Some((last, backoff)) => last.elapsed() >= *backoff,
     }
+}
+
+/// Error kinds surfaced during [`build_share_context`]. Variants carve along
+/// domain semantics per invariant #19a — third-party error types ride in the
+/// `#[source]` chain for diagnostics, not as the public variant shape.
+#[derive(Debug, thiserror::Error)]
+enum BuildShareCtxError {
+    #[error("worker URL invalid: {0}")]
+    WorkerUrl(#[source] url::ParseError),
+    #[error("identity load failed: {0}")]
+    IdentityLoad(#[source] omni_identity::IdentityError),
+    #[error("guard init failed: {0}")]
+    GuardInit(#[source] omni_guard_trait::GuardError),
+    #[error("tofu store load failed: {0}")]
+    TofuLoad(#[source] omni_identity::IdentityError),
+    #[error("registry load failed: {0}")]
+    RegistryLoad(#[source] omni_host::share::registry::RegistryError),
+}
+
+/// No-op `ThemeSwap` used until the overlay renderer's CSS-swap seam
+/// (sub-spec #021 §6 "theme_swap source") lands. Preview sessions still mint
+/// tokens and exercise the `PreviewSlot` lifecycle; `apply`/`revert` are
+/// harmless because no disk or renderer state is touched (see preview.rs
+/// header: "Preview NEVER touches disk"). Wiring to `__omni_set_theme` is a
+/// downstream sub-spec; keeping the stub here (rather than in the shared
+/// `share::preview` module) preserves the "single-file edit" constraint of
+/// plan #021 T4 and gives the bridge a working surface today.
+struct NoopThemeSwap;
+
+impl omni_host::share::preview::ThemeSwap for NoopThemeSwap {
+    fn snapshot(&self) -> Vec<u8> {
+        Vec::new()
+    }
+    fn apply(&self, _css: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+    fn revert(&self, _snapshot: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Construct the `ShareContext` bundle consumed by `explorer.*` + `upload.*`
+/// + `identity.*` + `config.*` + `report.*` WS handlers.
+///
+/// Non-fatal on failure — caller logs and the WS surface falls back to the
+/// `service_unavailable` envelope per spec #021 §6.
+///
+/// Design notes:
+/// - Sync function. Avoids spinning a second tokio runtime just for startup;
+///   `BundleLimits::DEFAULT` is the conservative startup value per
+///   `omni_bundle::BundleLimits` doc. A periodic refresh driven from the
+///   existing `share_runtime` is out of scope for this wave (plan #021 §6).
+/// - Worker URL comes from `OMNI_WORKER_URL`; dev fallback matches the
+///   wrangler default documented in `services/omni-themes-worker/README.md`.
+/// - `theme_swap` is a local `NoopThemeSwap` until the renderer exposes a
+///   real CSS-swap seam — see type doc for rationale.
+fn build_share_context(
+    state: &ws_server::WsSharedState,
+) -> Result<omni_host::share::ws_messages::ShareContext, BuildShareCtxError> {
+    use omni_host::share::preview::{PreviewSlot, ThemeSwap};
+    use omni_host::share::registry::{RegistryHandle, RegistryKind};
+    use omni_host::share::tofu::TofuStore;
+    use omni_host::share::ws_messages::ShareContext;
+    use omni_host::share::client::ShareClient;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    let worker_url_str =
+        std::env::var("OMNI_WORKER_URL").unwrap_or_else(|_| "http://127.0.0.1:8787/".to_string());
+    let worker_url = url::Url::parse(&worker_url_str).map_err(BuildShareCtxError::WorkerUrl)?;
+
+    let identity_path = state.data_dir.join("identity.key");
+    let identity = Arc::new(
+        omni_identity::Keypair::load_or_create(&identity_path)
+            .map_err(BuildShareCtxError::IdentityLoad)?,
+    );
+
+    // `make_guard()` returns `Box<dyn Guard>`; convert to Arc for ShareContext.
+    let guard_box = omni_host::guard::make_guard().map_err(BuildShareCtxError::GuardInit)?;
+    let guard: Arc<dyn omni_guard_trait::Guard> = Arc::from(guard_box);
+
+    let client = Arc::new(ShareClient::new(worker_url, identity.clone(), guard.clone()));
+
+    let tofu = Arc::new(Mutex::new(
+        TofuStore::open(&state.data_dir).map_err(BuildShareCtxError::TofuLoad)?,
+    ));
+    let bundles_registry = Arc::new(Mutex::new(
+        RegistryHandle::load(&state.data_dir, RegistryKind::Bundles)
+            .map_err(BuildShareCtxError::RegistryLoad)?,
+    ));
+    let themes_registry = Arc::new(Mutex::new(
+        RegistryHandle::load(&state.data_dir, RegistryKind::Themes)
+            .map_err(BuildShareCtxError::RegistryLoad)?,
+    ));
+
+    // Conservative startup value; Worker `/v1/config/limits` refresh is out
+    // of scope for this wave per spec #021 §6.
+    let limits = Arc::new(Mutex::new(omni_bundle::BundleLimits::DEFAULT));
+
+    // `CARGO_PKG_VERSION` is the crate's own Cargo.toml `version` field,
+    // which the workspace guarantees is valid semver. An invalid value would
+    // fail the build, so the expect below cannot fire at runtime.
+    let current_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))
+        .expect("CARGO_PKG_VERSION is valid semver (compile-time guarantee)");
+
+    let preview_slot = Arc::new(PreviewSlot::new());
+    let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
+    let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopThemeSwap);
+
+    Ok(ShareContext {
+        identity,
+        guard,
+        client,
+        tofu,
+        bundles_registry,
+        themes_registry,
+        limits,
+        current_version,
+        preview_slot,
+        cancel_registry,
+        theme_swap,
+    })
 }
 
 #[cfg(test)]
