@@ -56,6 +56,13 @@ walkdir = "2"
 semver = { version = "1", features = ["serde"] }
 omni-sanitize = { path = "../omni-sanitize" }
 image = { version = "0.24", default-features = false, features = ["png"] }
+# lightningcss: parse theme CSS in `share::preview_impl` to extract :root
+# custom-property declarations for forwarding to `__omni_set_theme`. Same
+# version already vendored transitively via `omni-sanitize` so no lockfile
+# churn is expected. `Component` / `Selectors` come from its re-exported
+# `lightningcss::selector` module so we avoid a direct `parcel_selectors`
+# dep.
+lightningcss = "1.0.0-alpha.56"
 
 [dev-dependencies]
 wiremock = "0.6"

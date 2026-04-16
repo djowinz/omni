@@ -2230,6 +2230,7 @@ dependencies = [
  "futures-util",
  "hex",
  "image",
+ "lightningcss",
  "moka",
  "notify",
  "omni-bundle",

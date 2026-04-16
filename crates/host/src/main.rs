@@ -348,13 +348,32 @@ fn run_host() {
     // Shared state for WebSocket server
     let ws_state = Arc::new(ws_server::WsSharedState::new(data_dir.clone()));
 
+    // Resolve which overlay to load. Moved above `build_share_context` so the
+    // real `ThemeSwapImpl` can seed its baseline CSS from the current
+    // overlay's theme at host startup (phase-2 followup #3 — replaces the
+    // `NoopThemeSwap` previously installed by `build_share_context`).
+    let overlay_name = workspace::overlay_resolver::resolve_overlay_name(
+        None, // No game running yet — will be updated when scanner detects one
+        &config.overlay_by_game,
+        &config.active_overlay,
+        &data_dir,
+    );
+    info!(overlay = %overlay_name, "Resolved active overlay");
+
+    // Shared pending-theme slot. `ThemeSwapImpl::apply`/`revert` write here
+    // (from any tokio worker); the main render loop drains and emits the
+    // `__omni_set_theme({…})` JS invocation on-thread once per frame. See
+    // `crates/host/src/share/preview_impl.rs` module doc for rationale.
+    let pending_theme_slot: omni_host::share::preview_impl::PendingSlot =
+        Arc::new(std::sync::Mutex::new(None));
+
     // Attempt ShareContext construction (plan #021 T4). Failure is non-fatal —
     // `explorer.install|preview|cancelPreview|list|get` and `upload.*`/`identity.*`
     // handlers gracefully degrade to the `service_unavailable` D-004-J envelope via
     // the fallback path in `ws_server::handle_message`. Contributors building
     // offline (no identity file yet, no Worker reachable) still get a working host
     // minus the share surface.
-    match build_share_context(&ws_state) {
+    match build_share_context(&ws_state, &overlay_name, pending_theme_slot.clone()) {
         Ok(ctx) => ws_state.set_share_ctx(std::sync::Arc::new(ctx)),
         Err(e) => tracing::warn!(
             error = %e,
@@ -376,15 +395,6 @@ fn run_host() {
     info!("Press Ctrl+C to stop");
 
     let mut latest_snapshot = omni_shared::SensorSnapshot::default();
-
-    // Resolve which overlay to load
-    let overlay_name = workspace::overlay_resolver::resolve_overlay_name(
-        None, // No game running yet — will be updated when scanner detects one
-        &config.overlay_by_game,
-        &config.active_overlay,
-        &data_dir,
-    );
-    info!(overlay = %overlay_name, "Resolved active overlay");
 
     // Determine overlay exe path (next to host exe)
     let overlay_exe_path = std::env::current_exe()
@@ -805,6 +815,20 @@ fn run_host() {
         // The DOM persists so CSS transitions animate naturally.
         let (hwinfo_values, hwinfo_units) = ws_state.hwinfo_values_and_units();
 
+        // Drain any pending preview theme override written by
+        // `ThemeSwapImpl::apply`/`revert` from the tokio-side preview
+        // lifecycle. Emits `__omni_set_theme({…})` on this thread (Ultralight
+        // `evaluate_script` requires the main render thread — see
+        // `share::preview_impl` module doc). Ordered BEFORE `__omni_update`
+        // so sensor-value updates in the same frame see the new custom
+        // properties, matching the "theme change first, then redraw" mental
+        // model.
+        if let Some(theme_js) =
+            omni_host::share::preview_impl::drain_pending_js(&pending_theme_slot)
+        {
+            ul.evaluate_script(&theme_js);
+        }
+
         // Push raw sensor values via the bootstrap's __omni_update.
         let values =
             html_builder::collect_sensor_values(&host.omni_file, &latest_snapshot, &hwinfo_values);
@@ -908,26 +932,34 @@ enum BuildShareCtxError {
     RegistryLoad(#[source] omni_host::share::registry::RegistryError),
 }
 
-/// No-op `ThemeSwap` used until the overlay renderer's CSS-swap seam
-/// (sub-spec #021 §6 "theme_swap source") lands. Preview sessions still mint
-/// tokens and exercise the `PreviewSlot` lifecycle; `apply`/`revert` are
-/// harmless because no disk or renderer state is touched (see preview.rs
-/// header: "Preview NEVER touches disk"). Wiring to `__omni_set_theme` is a
-/// downstream sub-spec; keeping the stub here (rather than in the shared
-/// `share::preview` module) preserves the "single-file edit" constraint of
-/// plan #021 T4 and gives the bridge a working surface today.
-struct NoopThemeSwap;
-
-impl omni_host::share::preview::ThemeSwap for NoopThemeSwap {
-    fn snapshot(&self) -> Vec<u8> {
-        Vec::new()
-    }
-    fn apply(&self, _css: &[u8]) -> Result<(), String> {
-        Ok(())
-    }
-    fn revert(&self, _snapshot: &[u8]) -> Result<(), String> {
-        Ok(())
-    }
+/// Load the baseline theme CSS for an overlay at host startup. Used to seed
+/// `ThemeSwapImpl::new` so `ThemeSwap::snapshot` / `revert` restore the
+/// overlay's starting appearance after a preview session ends.
+///
+/// Mirrors the resolution logic in `omni::html_builder::load_theme_css`
+/// (overlay-local first, shared `themes/` folder second). Missing `.omni`
+/// files, missing `theme_src`, and unresolved theme paths all collapse to
+/// an empty byte vector — the result is that `revert` is a no-op, which is
+/// harmless but suppresses restoration. This is acceptable because preview
+/// sessions are transient and the next overlay reload re-applies the
+/// baseline anyway.
+fn load_baseline_theme_css(data_dir: &std::path::Path, overlay_name: &str) -> Vec<u8> {
+    let omni_path = workspace::structure::overlay_omni_path(data_dir, overlay_name);
+    let Ok(omni_src) = std::fs::read_to_string(&omni_path) else {
+        return Vec::new();
+    };
+    let (Some(parsed), _diag) = omni::parser::parse_omni_with_diagnostics(&omni_src) else {
+        return Vec::new();
+    };
+    let Some(theme_src) = parsed.theme_src.as_deref() else {
+        return Vec::new();
+    };
+    let Some(theme_path) =
+        workspace::structure::resolve_theme_path(data_dir, overlay_name, theme_src)
+    else {
+        return Vec::new();
+    };
+    std::fs::read(&theme_path).unwrap_or_default()
 }
 
 /// Construct the `ShareContext` bundle consumed by `explorer.*` + `upload.*`
@@ -943,12 +975,17 @@ impl omni_host::share::preview::ThemeSwap for NoopThemeSwap {
 ///   existing `share_runtime` is out of scope for this wave (plan #021 §6).
 /// - Worker URL comes from `OMNI_WORKER_URL`; dev fallback matches the
 ///   wrangler default documented in `services/omni-themes-worker/README.md`.
-/// - `theme_swap` is a local `NoopThemeSwap` until the renderer exposes a
-///   real CSS-swap seam — see type doc for rationale.
+/// - `theme_swap` is a `ThemeSwapImpl` that writes to the shared
+///   `pending_theme_slot`; the main render loop drains the slot and emits
+///   `__omni_set_theme(...)` via `UlRenderer::evaluate_script` (phase-2
+///   followup #3 — replaces the prior `NoopThemeSwap`).
 fn build_share_context(
     state: &ws_server::WsSharedState,
+    overlay_name: &str,
+    pending_theme_slot: omni_host::share::preview_impl::PendingSlot,
 ) -> Result<omni_host::share::ws_messages::ShareContext, BuildShareCtxError> {
     use omni_host::share::preview::{PreviewSlot, ThemeSwap};
+    use omni_host::share::preview_impl::ThemeSwapImpl;
     use omni_host::share::registry::{RegistryHandle, RegistryKind};
     use omni_host::share::tofu::TofuStore;
     use omni_host::share::ws_messages::ShareContext;
@@ -996,7 +1033,15 @@ fn build_share_context(
 
     let preview_slot = Arc::new(PreviewSlot::new());
     let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
-    let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopThemeSwap);
+
+    // Seed `ThemeSwapImpl` with the current overlay's theme CSS so
+    // `snapshot()` → `revert()` restores the baseline. A missing/unresolved
+    // theme returns empty bytes (see `load_baseline_theme_css`), which makes
+    // revert a no-op but does not fail preview start — consistent with the
+    // "preview never touches disk" contract in `share::preview`.
+    let baseline_css = load_baseline_theme_css(&state.data_dir, overlay_name);
+    let theme_swap: Arc<dyn ThemeSwap> =
+        Arc::new(ThemeSwapImpl::new(baseline_css, pending_theme_slot));
 
     Ok(ShareContext {
         identity,

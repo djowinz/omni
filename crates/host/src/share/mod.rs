@@ -11,6 +11,8 @@
 //! * [`upload`] — `pack_only` + `upload` orchestration.
 //! * [`ws_messages`] — WebSocket dispatch.
 //! * [`thumbnail`] — thumbnail rendering for themes and bundles (sub-spec #011).
+//! * [`preview_impl`] — real `ThemeSwap` that drives `__omni_set_theme` via
+//!   a pending-slot drained by the main render loop (phase-2 followup #3).
 
 pub mod cache;
 pub mod client;
@@ -18,6 +20,7 @@ pub mod error;
 pub mod handlers;
 pub mod install;
 pub mod preview;
+pub mod preview_impl;
 pub mod progress;
 pub mod registry;
 pub mod thumbnail;
