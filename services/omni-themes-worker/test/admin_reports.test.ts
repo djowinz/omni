@@ -276,11 +276,61 @@ describe("GET /v1/admin/reports", () => {
     );
     expect(res.status, await res.clone().text()).toBe(200);
     const body = (await res.json()) as {
-      items: Array<{ id: string }>;
+      items: Array<{ id: string; reason: string; notes: string | null }>;
       next_cursor?: string;
     };
     expect(body.items.length).toBe(2);
     expect(body.next_cursor).toBeTruthy();
+    // Admin view translates stored category/note → contract reason/notes.
+    expect(body.items[0]!.reason).toBe("malware");
+    expect(body.items[0]!.notes).toBeNull();
+  });
+
+  it("no status filter returns reports across all statuses", async () => {
+    await seedArtifact("art_all");
+    // Seed one pending, one reviewed, one actioned — directly via KV so we
+    // don't depend on the action-POST path.
+    const mkRec = (
+      id: string,
+      receivedAt: number,
+      status: "pending" | "reviewed" | "actioned",
+    ) => ({
+      id,
+      received_at: receivedAt,
+      reporter_pubkey: PUBKEY_HEX,
+      reporter_df: DF_HEX,
+      artifact_id: "art_all",
+      category: "malware",
+      note: null,
+      status,
+      actioned_by: status === "pending" ? null : PUBKEY_HEX,
+      action: status === "pending" ? null : "no_action",
+    });
+    for (const [id, ts, status] of [
+      ["r_p", 1_700_000_900, "pending"],
+      ["r_r", 1_700_001_000, "reviewed"],
+      ["r_a", 1_700_001_100, "actioned"],
+    ] as const) {
+      await env.STATE.put(`reports:${id}`, JSON.stringify(mkRec(id, ts, status)));
+      await env.STATE.put(`reports-by-status:${status}:${ts}:${id}`, id);
+    }
+
+    const app = mkApp();
+    const { jws } = await signJws({
+      method: "GET",
+      path: "/v1/admin/reports",
+      body: new Uint8Array(),
+    });
+    const res = await app.fetch(
+      mkReq("GET", "/v1/admin/reports", new Uint8Array(), jws),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ id: string; status: string }>;
+    };
+    const ids = body.items.map((i) => i.id).sort();
+    expect(ids).toEqual(["r_a", "r_p", "r_r"]);
   });
 });
 
@@ -288,7 +338,7 @@ describe("GET /v1/admin/reports", () => {
 // GET /v1/admin/report/:id
 // ---------------------------------------------------------------------------
 describe("GET /v1/admin/report/:id", () => {
-  it("returns joined {report, artifact}", async () => {
+  it("returns joined {report, linked_artifact}", async () => {
     await seedArtifact("art_show");
     await seedReport({
       id: "r_show",
@@ -307,11 +357,12 @@ describe("GET /v1/admin/report/:id", () => {
     );
     expect(res.status, await res.clone().text()).toBe(200);
     const body = (await res.json()) as {
-      report: { id: string; artifact_id: string };
-      artifact: { id: string } | null;
+      report: { id: string; artifact_id: string; reason: string };
+      linked_artifact: { id: string } | null;
     };
     expect(body.report.id).toBe("r_show");
-    expect(body.artifact?.id).toBe("art_show");
+    expect(body.report.reason).toBe("malware");
+    expect(body.linked_artifact?.id).toBe("art_show");
   });
 
   it("unknown id → Malformed.NotFound 404", async () => {
@@ -357,15 +408,17 @@ describe("POST /v1/admin/report/:id/action", () => {
       env,
     );
     expect(res.status, await res.clone().text()).toBe(200);
+    // Contract §4.15: response is the updated report object directly.
     const body = (await res.json()) as {
       status: string;
-      report: { status: string; actioned_by: string; action: string; action_notes?: string };
+      actioned_by: string;
+      action: string;
+      action_notes?: string;
     };
-    expect(body.status).toBe("ok");
-    expect(body.report.status).toBe("reviewed");
-    expect(body.report.actioned_by).toBe(pubkeyHex);
-    expect(body.report.action).toBe("no_action");
-    expect(body.report.action_notes).toBe("looks fine");
+    expect(body.status).toBe("reviewed");
+    expect(body.actioned_by).toBe(pubkeyHex);
+    expect(body.action).toBe("no_action");
+    expect(body.action_notes).toBe("looks fine");
 
     // Secondary index: old pending key deleted, new reviewed key present.
     const oldKey = `reports-by-status:pending:1700000200:r_a`;
@@ -395,8 +448,34 @@ describe("POST /v1/admin/report/:id/action", () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { report: { status: string } };
-    expect(body.report.status).toBe("actioned");
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("actioned");
+  });
+
+  it("tolerates notes: null (CLI compatibility)", async () => {
+    await seedArtifact("art_null");
+    await seedReport({
+      id: "r_null",
+      artifactId: "art_null",
+      receivedAt: 1_700_000_550,
+    });
+    const app = mkApp();
+    const bodyBytes = new TextEncoder().encode(
+      JSON.stringify({ action: "no_action", notes: null }),
+    );
+    const { jws } = await signJws({
+      method: "POST",
+      path: "/v1/admin/report/r_null/action",
+      body: bodyBytes,
+    });
+    const res = await app.fetch(
+      mkReq("POST", "/v1/admin/report/r_null/action", bodyBytes, jws),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { status: string; action_notes?: string };
+    expect(body.status).toBe("reviewed");
+    expect(body.action_notes).toBeUndefined();
   });
 
   it("rerun on actioned report → Admin.NoOp", async () => {

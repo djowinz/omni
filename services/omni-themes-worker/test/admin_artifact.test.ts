@@ -198,9 +198,14 @@ describe("POST /v1/admin/artifact/:id/remove", () => {
       env,
     );
     expect(res.status, await res.clone().text()).toBe(200);
-    const body = (await res.json()) as { artifact_id: string; status: string };
+    const body = (await res.json()) as {
+      artifact_id: string;
+      status: string;
+      content_hash: string;
+    };
     expect(body.artifact_id).toBe(ART_ID);
     expect(body.status).toBe("removed");
+    expect(body.content_hash).toBe(CONTENT_HASH);
 
     const row = await env.META.prepare(
       "SELECT is_removed FROM artifacts WHERE id = ?",
@@ -252,8 +257,12 @@ describe("POST /v1/admin/artifact/:id/remove", () => {
       env,
     );
     expect(res2.status).toBe(200);
-    const body2 = (await res2.json()) as { status: string };
+    const body2 = (await res2.json()) as {
+      status: string;
+      content_hash: string;
+    };
     expect(body2.status).toBe("already_tombstoned");
+    expect(body2.content_hash).toBe(CONTENT_HASH);
 
     // Still exactly one tombstone row.
     const count = await env.META.prepare(

@@ -282,11 +282,99 @@ const VALID_STATUSES: ReadonlySet<ReportStatus> = new Set([
   "reviewed",
   "actioned",
 ]);
+const STATUS_ORDER: readonly ReportStatus[] = ["pending", "reviewed", "actioned"];
 const VALID_ACTIONS: ReadonlySet<ReportAction> = new Set([
   "no_action",
   "removed",
   "banned_author",
 ]);
+
+/**
+ * Admin-facing report view — contract §4.13 field names.
+ *
+ * Stored record uses `category`/`note` (matching §4.7 intake body fields from
+ * sub-spec #008). Contract §4.13 names the admin-visible fields `reason` and
+ * `notes`. We translate on read only; the stored shape is unchanged so #008's
+ * report intake tests keep passing. `reporter_pubkey` is dropped — not in the
+ * contract item shape. `action_notes` is propagated as optional.
+ */
+interface AdminReportView {
+  id: string;
+  artifact_id: string;
+  reason: string;
+  notes: string | null;
+  reporter_df: string;
+  received_at: number;
+  status: ReportStatus;
+  actioned_by: string | null;
+  action: ReportAction | null;
+  action_notes?: string;
+}
+
+function adminReportView(row: ReportRecord): AdminReportView {
+  const view: AdminReportView = {
+    id: row.id,
+    artifact_id: row.artifact_id,
+    reason: row.category,
+    notes: row.note,
+    reporter_df: row.reporter_df,
+    received_at: row.received_at,
+    status: row.status,
+    actioned_by: row.actioned_by,
+    action: row.action,
+  };
+  if (row.action_notes !== undefined) view.action_notes = row.action_notes;
+  return view;
+}
+
+/** Composite cursor for the no-status-filter case.
+ *
+ *  When `status` is absent, we iterate the three per-status prefixes in order
+ *  (pending → reviewed → actioned) and concatenate items up to `limit`. The
+ *  cursor carries the current status + KV cursor so a follow-up page resumes
+ *  mid-prefix or at the next prefix. JSON+base64url — small shapes, low volume
+ *  (contract §4.13 is a moderator dashboard endpoint, not a hot path).
+ */
+interface ReportsCursor {
+  status: ReportStatus;
+  kv?: string;
+}
+
+function encodeReportsCursor(c: ReportsCursor): string {
+  return btoa(JSON.stringify(c)).replace(/=+$/, "");
+}
+function decodeReportsCursor(s: string): ReportsCursor | null {
+  try {
+    const obj = JSON.parse(atob(s)) as ReportsCursor;
+    if (!VALID_STATUSES.has(obj.status)) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+async function listReportsForStatus(
+  env: AppEnv["Bindings"],
+  status: ReportStatus,
+  limit: number,
+  kvCursor: string | undefined,
+): Promise<{ items: AdminReportView[]; nextKvCursor: string | undefined }> {
+  const list = await env.STATE.list({
+    prefix: `reports-by-status:${status}:`,
+    limit,
+    cursor: kvCursor,
+  });
+  const items: AdminReportView[] = [];
+  for (const key of list.keys) {
+    const id = key.name.split(":").pop()!;
+    const rec = (await env.STATE.get(`reports:${id}`, "json")) as
+      | ReportRecord
+      | null;
+    if (rec !== null) items.push(adminReportView(rec));
+  }
+  const nextKvCursor = list.list_complete ? undefined : list.cursor;
+  return { items, nextKvCursor };
+}
 
 // GET /v1/admin/reports?status=&cursor=&limit=
 app.get("/reports", async (c) => {
@@ -297,43 +385,86 @@ app.get("/reports", async (c) => {
     return r as Response;
   }
 
-  const statusParam = (c.req.query("status") ?? "pending") as ReportStatus;
-  if (!VALID_STATUSES.has(statusParam)) {
+  const statusQuery = c.req.query("status");
+  const statusParam =
+    statusQuery === undefined || statusQuery === ""
+      ? undefined
+      : (statusQuery as ReportStatus);
+  if (statusParam !== undefined && !VALID_STATUSES.has(statusParam)) {
     return errorFromKind(
       "Malformed",
       "BadRequest",
       `invalid status: ${statusParam}`,
     );
   }
-  const cursor = c.req.query("cursor") ?? undefined;
+  const cursorParam = c.req.query("cursor") ?? undefined;
   const limitRaw = c.req.query("limit");
-  let limit = 50;
+  let limit = 25; // contract §4.13 default
   if (limitRaw !== undefined) {
     const parsed = Number.parseInt(limitRaw, 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return errorFromKind("Malformed", "BadRequest", "limit must be > 0");
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100) {
+      return errorFromKind(
+        "Malformed",
+        "BadRequest",
+        "limit must be in [1, 100]",
+      );
     }
-    limit = Math.min(parsed, 100);
+    limit = parsed;
   }
 
-  const list = await c.env.STATE.list({
-    prefix: `reports-by-status:${statusParam}:`,
-    limit,
-    cursor,
-  });
-
-  const items: ReportRecord[] = [];
-  for (const key of list.keys) {
-    // Value is the id; but derive from the record itself for durability.
-    const id = key.name.split(":").pop()!;
-    const rec = (await c.env.STATE.get(`reports:${id}`, "json")) as
-      | ReportRecord
-      | null;
-    if (rec !== null) items.push(rec);
+  // Single-status path — plain KV cursor passthrough (back-compat with earlier
+  // callers that don't know about the composite cursor shape).
+  if (statusParam !== undefined) {
+    const { items, nextKvCursor } = await listReportsForStatus(
+      c.env,
+      statusParam,
+      limit,
+      cursorParam,
+    );
+    const resp: { items: AdminReportView[]; next_cursor?: string } = { items };
+    if (nextKvCursor) resp.next_cursor = nextKvCursor;
+    return new Response(JSON.stringify(resp), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
   }
 
-  const resp: { items: ReportRecord[]; next_cursor?: string } = { items };
-  if (!list.list_complete && list.cursor) resp.next_cursor = list.cursor;
+  // No-filter path — walk pending → reviewed → actioned until we fill `limit`
+  // or run out. Composite cursor carries {status, kv?}.
+  let startStatusIdx = 0;
+  let kvCursor: string | undefined;
+  if (cursorParam !== undefined) {
+    const decoded = decodeReportsCursor(cursorParam);
+    if (decoded === null) {
+      return errorFromKind("Malformed", "BadRequest", "invalid cursor");
+    }
+    startStatusIdx = STATUS_ORDER.indexOf(decoded.status);
+    kvCursor = decoded.kv;
+  }
+
+  const items: AdminReportView[] = [];
+  let nextCursor: string | undefined;
+  for (let i = startStatusIdx; i < STATUS_ORDER.length; i++) {
+    const status = STATUS_ORDER[i]!;
+    const remaining = limit - items.length;
+    if (remaining <= 0) {
+      // Page filled exactly on a boundary — next cursor resumes at this status.
+      nextCursor = encodeReportsCursor({ status, kv: kvCursor });
+      break;
+    }
+    const page = await listReportsForStatus(c.env, status, remaining, kvCursor);
+    items.push(...page.items);
+    if (page.nextKvCursor) {
+      // More within this status — stay here on resume.
+      nextCursor = encodeReportsCursor({ status, kv: page.nextKvCursor });
+      break;
+    }
+    // Status exhausted; fall through to next status with a fresh KV cursor.
+    kvCursor = undefined;
+  }
+
+  const resp: { items: AdminReportView[]; next_cursor?: string } = { items };
+  if (nextCursor) resp.next_cursor = nextCursor;
   return new Response(JSON.stringify(resp), {
     status: 200,
     headers: { "content-type": "application/json; charset=utf-8" },
@@ -355,13 +486,16 @@ app.get("/report/:id", async (c) => {
   if (report === null) {
     return errorFromKind("Malformed", "NotFound", `report ${id} not found`);
   }
-  const artifact = await c.env.META.prepare(
+  const linked_artifact = await c.env.META.prepare(
     "SELECT * FROM artifacts WHERE id = ? LIMIT 1",
   )
     .bind(report.artifact_id)
     .first();
   return new Response(
-    JSON.stringify({ report, artifact: artifact ?? null }),
+    JSON.stringify({
+      report: adminReportView(report),
+      linked_artifact: linked_artifact ?? null,
+    }),
     {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8" },
@@ -396,7 +530,10 @@ app.post("/report/:id/action", async (c) => {
       `invalid action: ${JSON.stringify(action)}`,
     );
   }
-  if (notes !== undefined && typeof notes !== "string") {
+  // Treat explicit JSON null as "not provided" — the CLI emits `notes: null`
+  // when the operator omits `--notes`, and `typeof null === "object"` would
+  // otherwise reject it. Defense-in-depth; the CLI is fixed separately.
+  if (notes !== undefined && notes !== null && typeof notes !== "string") {
     return errorFromKind("Malformed", "BadRequest", "notes must be a string");
   }
 
@@ -432,7 +569,8 @@ app.post("/report/:id/action", async (c) => {
   );
   await c.env.STATE.put(`reports:${id}`, JSON.stringify(updated));
 
-  return new Response(JSON.stringify({ status: "ok", report: updated }), {
+  // Contract §4.15: response is the updated report object directly (no wrapper).
+  return new Response(JSON.stringify(adminReportView(updated)), {
     status: 200,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
@@ -460,11 +598,19 @@ app.post("/report/:id/action", async (c) => {
  * Consumed by T8 (ban-author cascade) and the `/artifact/:id/remove` handler
  * below. Keep the return-value contract stable — T8 branches on it.
  */
+export type TombstoneStatus = "removed" | "already_tombstoned" | "not_found";
+export interface TombstoneResult {
+  status: TombstoneStatus;
+  /** Canonical content_hash of the artifact. Undefined only when `status ===
+   *  "not_found"` (no artifact row to read it from). */
+  content_hash?: string;
+}
+
 export async function tombstoneArtifact(
   env: AppEnv["Bindings"],
   id: string,
   reason: string,
-): Promise<"removed" | "already_tombstoned" | "not_found"> {
+): Promise<TombstoneResult> {
   const row = await env.META.prepare(
     "SELECT id, content_hash, thumbnail_hash, is_removed FROM artifacts WHERE id = ?",
   )
@@ -475,7 +621,7 @@ export async function tombstoneArtifact(
       thumbnail_hash: string | null;
       is_removed: number;
     }>();
-  if (!row) return "not_found";
+  if (!row) return { status: "not_found" };
 
   if (row.is_removed) {
     const existingTomb = await env.META.prepare(
@@ -483,7 +629,9 @@ export async function tombstoneArtifact(
     )
       .bind(row.content_hash)
       .first<{ content_hash: string }>();
-    if (existingTomb) return "already_tombstoned";
+    if (existingTomb) {
+      return { status: "already_tombstoned", content_hash: row.content_hash };
+    }
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -515,7 +663,7 @@ export async function tombstoneArtifact(
     }
   }
 
-  return "removed";
+  return { status: "removed", content_hash: row.content_hash };
 }
 
 app.post("/artifact/:id/remove", async (c) => {
@@ -542,12 +690,16 @@ app.post("/artifact/:id/remove", async (c) => {
 
   const id = c.req.param("id");
   const result = await tombstoneArtifact(c.env, id, reason);
-  if (result === "not_found") {
+  if (result.status === "not_found") {
     return errorFromKind("Malformed", "NotFound", `artifact ${id} not found`);
   }
 
   return new Response(
-    JSON.stringify({ artifact_id: id, status: result }),
+    JSON.stringify({
+      artifact_id: id,
+      status: result.status,
+      content_hash: result.content_hash,
+    }),
     { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
   );
 });
@@ -652,13 +804,18 @@ app.post("/pubkey/ban", async (c) => {
         row.id,
         `author ban: ${reason}`,
       );
-      if (result === "removed") cascade_count++;
+      if (result.status === "removed") cascade_count++;
     } catch {
       cascade_errors++;
     }
   }
 
-  return jsonResponse({ pubkey: pubkeyHex, cascade_count, cascade_errors });
+  return jsonResponse({
+    pubkey: pubkeyHex,
+    status: "banned",
+    cascade_count,
+    cascade_errors,
+  });
 });
 
 // POST /v1/admin/pubkey/unban

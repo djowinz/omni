@@ -192,10 +192,12 @@ describe("POST /v1/admin/pubkey/ban", () => {
     expect(res.status, await res.clone().text()).toBe(200);
     const body = (await res.json()) as {
       pubkey: string;
+      status: string;
       cascade_count: number;
       cascade_errors: number;
     };
     expect(body.pubkey).toBe(BANNED_AUTHOR_HEX);
+    expect(body.status).toBe("banned");
     expect(body.cascade_count).toBe(3);
     expect(body.cascade_errors).toBe(0);
 
