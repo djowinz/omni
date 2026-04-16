@@ -780,20 +780,28 @@ app.get("/stats", async (c) => {
 
   const [
     pendingReports,
+    reviewedReports,
+    actionedReports,
     bannedPubkeysRow,
     bannedDevices,
     totalArtifactsRow,
+    tombstonedArtifactsRow,
     totalInstallsRow,
     vocabBlob,
     limitsBlob,
   ] = await Promise.all([
     countKvPrefix(c.env, "reports-by-status:pending:"),
+    countKvPrefix(c.env, "reports-by-status:reviewed:"),
+    countKvPrefix(c.env, "reports-by-status:actioned:"),
     c.env.META.prepare(
       "SELECT COUNT(*) AS c FROM authors WHERE is_denied = 1",
     ).first<{ c: number | bigint | string }>(),
     countKvPrefix(c.env, "denylist:device:"),
     c.env.META.prepare(
       "SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 0",
+    ).first<{ c: number | bigint | string }>(),
+    c.env.META.prepare(
+      "SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 1",
     ).first<{ c: number | bigint | string }>(),
     c.env.META.prepare(
       "SELECT COALESCE(SUM(install_count), 0) AS c FROM artifacts",
@@ -808,9 +816,12 @@ app.get("/stats", async (c) => {
 
   return jsonResponse({
     pending_reports: pendingReports,
+    reviewed_reports: reviewedReports,
+    actioned_reports: actionedReports,
     banned_pubkeys: toNum(bannedPubkeysRow?.c),
     banned_devices: bannedDevices,
     total_artifacts: toNum(totalArtifactsRow?.c),
+    tombstoned_artifacts: toNum(tombstonedArtifactsRow?.c),
     total_installs: toNum(totalInstallsRow?.c),
     vocab_version: vocabBlob?.version ?? 0,
     limits_version: limitsBlob?.version ?? 0,

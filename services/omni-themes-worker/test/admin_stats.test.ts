@@ -236,9 +236,12 @@ describe("GET /v1/admin/stats", () => {
     const body = await res.json();
     expect(body).toEqual({
       pending_reports: 0,
+      reviewed_reports: 0,
+      actioned_reports: 0,
       banned_pubkeys: 0,
       banned_devices: 0,
       total_artifacts: 0,
+      tombstoned_artifacts: 0,
       total_installs: 0,
       vocab_version: 0,
       limits_version: 0,
@@ -306,9 +309,12 @@ describe("GET /v1/admin/stats", () => {
     const body = await res.json();
     expect(body).toEqual({
       pending_reports: 3,
+      reviewed_reports: 0,
+      actioned_reports: 1,
       banned_pubkeys: 2,
       banned_devices: 2,
       total_artifacts: 4,
+      tombstoned_artifacts: 1,
       total_installs: 60,
       vocab_version: 3,
       limits_version: 2,
