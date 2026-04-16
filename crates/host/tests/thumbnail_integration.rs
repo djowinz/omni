@@ -241,8 +241,7 @@ fn bundle_unsupported_schema_version_fails_before_tempdir() {
 
     let baseline = SystemTime::now();
     let err = generate_for_bundle(&bytes, &ThumbnailConfig::default())
-        .err()
-        .expect("bundle with schema_version=99 must error");
+        .expect_err("bundle with schema_version=99 must error");
     let new_entries = new_tempdir_entries_since(baseline);
 
     let layer_ok = matches!(
@@ -286,8 +285,7 @@ fn bundle_unsupported_resource_kind_fails_before_tempdir() {
     let _guard = TEMPDIR_WATCHER_LOCK.lock().unwrap();
     let baseline = SystemTime::now();
     let err = generate_for_bundle(&bytes, &ThumbnailConfig::default())
-        .err()
-        .expect("bundle with 'executable' resource kind must error");
+        .expect_err("bundle with 'executable' resource kind must error");
     let new_entries = new_tempdir_entries_since(baseline);
 
     match &err {

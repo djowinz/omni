@@ -3,9 +3,9 @@
 //! Wire contract: `worker-api.md` §4.18.
 //!
 //! - `ban <device_fp_hex> --reason <text>`
-//!     → `POST /v1/admin/device/ban`  `{ device_fp, reason }`
+//!   → `POST /v1/admin/device/ban`  `{ device_fp, reason }`
 //! - `unban <device_fp_hex>`
-//!     → `POST /v1/admin/device/unban` `{ device_fp }`
+//!   → `POST /v1/admin/device/unban` `{ device_fp }`
 //!
 //! Unlike the pubkey variant, device bans do not cascade to artifacts, so
 //! there is no interactive confirmation and no `--confirm-cascade` flag.

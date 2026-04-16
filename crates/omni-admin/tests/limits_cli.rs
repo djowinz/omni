@@ -42,8 +42,8 @@ async fn limits_get_emits_json() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let v: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect(&format!("stdout not JSON: {stdout}"));
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("stdout not JSON: {stdout}"));
     assert_eq!(v.get("max_entries").and_then(|n| n.as_u64()), Some(1000));
 }
 

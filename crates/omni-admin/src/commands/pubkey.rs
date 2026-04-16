@@ -3,9 +3,9 @@
 //! Wire contract: `worker-api.md` §4.17.
 //!
 //! - `ban <pubkey_hex> --reason <text> [--confirm-cascade]`
-//!     → `POST /v1/admin/pubkey/ban`  `{ pubkey, reason }`
+//!   → `POST /v1/admin/pubkey/ban`  `{ pubkey, reason }`
 //! - `unban <pubkey_hex>`
-//!     → `POST /v1/admin/pubkey/unban` `{ pubkey }`
+//!   → `POST /v1/admin/pubkey/unban` `{ pubkey }`
 //!
 //! Banning an author cascades server-side: every artifact signed by that
 //! pubkey is tombstoned. The response echoes `cascade_count` /

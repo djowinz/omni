@@ -36,7 +36,7 @@ fn install_fixture(root: &Path) -> InstalledBundleView {
 fn full_fork_preserves_source_and_writes_origin() {
     let root_dir = tempfile::TempDir::new().unwrap();
     let root = root_dir.path();
-    let bundle = install_fixture(&root);
+    let bundle = install_fixture(root);
     let overlays = root.join("overlays");
     std::fs::create_dir_all(&overlays).unwrap();
 
@@ -71,7 +71,7 @@ fn full_fork_preserves_source_and_writes_origin() {
 fn two_forks_from_same_source_are_independent() {
     let root_dir = tempfile::TempDir::new().unwrap();
     let root = root_dir.path();
-    let bundle = install_fixture(&root);
+    let bundle = install_fixture(root);
     let overlays = root.join("overlays");
     std::fs::create_dir_all(&overlays).unwrap();
     let reg = OneBundle(bundle);

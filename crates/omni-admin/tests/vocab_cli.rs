@@ -38,8 +38,8 @@ async fn vocab_list_emits_json() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let v: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect(&format!("stdout not JSON: {stdout}"));
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("stdout not JSON: {stdout}"));
     assert!(v.get("tags").and_then(|t| t.as_array()).is_some());
 }
 
