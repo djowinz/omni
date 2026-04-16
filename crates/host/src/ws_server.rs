@@ -324,6 +324,19 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
             }
         }
     }
+
+    // Shutdown path — drain the cancel registry so in-flight installs observe
+    // the cancellation. Runs on every WS exit (Close frame, read error, send
+    // error, or the `running` flag flipping). No-op when `share_ctx` is `None`.
+    if let Ok(guard) = state.share_ctx.lock() {
+        if let Some(ctx) = guard.as_ref() {
+            if let Ok(mut reg) = ctx.cancel_registry.lock() {
+                for (_, token) in reg.drain() {
+                    token.cancel();
+                }
+            }
+        }
+    }
 }
 
 fn handle_message(
@@ -553,16 +566,12 @@ fn handle_message(
         | "explorer.cancelPreview"
         | "explorer.list"
         | "explorer.get" => {
-            // When `share_ctx` is `Some`, the async-bridge chore will route
-            // here to the install/preview handlers on `ShareContext`. Until
-            // those handlers land, every call returns the D-004-J
-            // `service_unavailable` envelope regardless of `share_ctx` state.
-            let ctx_ready = state
-                .share_ctx
-                .lock()
-                .map(|g| g.is_some())
-                .unwrap_or(false);
-            let _ = ctx_ready; // TODO(async-bridge): dispatch to ShareContext when ctx_ready.
+            // Fallback path: reached only when `share_ctx` is `None` (the share
+            // dispatcher at `handle_client` returned `false`, letting the message
+            // fall through to `handle_message`). Returns the D-004-J
+            // `service_unavailable` envelope. When `share_ctx` is `Some`,
+            // `dispatch_share_message` spawns the handler on `share_runtime`
+            // and this arm is not exercised.
             let payload = crate::share::handlers::install_context_unavailable();
             let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
             Some(
@@ -617,6 +626,11 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             | Some("config.vocab")
             | Some("config.limits")
             | Some("report.submit")
+            | Some("explorer.install")
+            | Some("explorer.preview")
+            | Some("explorer.cancelPreview")
+            | Some("explorer.list")
+            | Some("explorer.get")
     )
 }
 
