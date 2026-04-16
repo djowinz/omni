@@ -24,7 +24,7 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
-use super::cache::{ArtifactCache, ArtifactDetail};
+use super::cache::{ArtifactCache, CachedArtifactDetail};
 use super::error::{UploadError, WorkerErrorKind};
 use super::progress::UploadProgress;
 use super::upload::{PackResult, UploadResult, UploadStatus};
@@ -63,9 +63,38 @@ pub struct ListParams {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListResult {
-    pub items: Vec<ArtifactDetail>,
+    pub items: Vec<CachedArtifactDetail>,
     #[serde(default)]
     pub next_cursor: Option<String>,
+}
+
+/// Full artifact metadata as returned by `GET /v1/artifact/:id`
+/// (worker-api.md §4.4).
+///
+/// Distinct from [`super::cache::CachedArtifactDetail`]: that type holds the
+/// subset of fields the post-upload cache tracks for KV eventual-consistency
+/// merging; this type mirrors the complete wire shape including `manifest`,
+/// `reports`, `created_at`, `status`, etc. Editors consume this struct as the
+/// payload of the `explorer.getResult` frame.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ArtifactDetail {
+    pub artifact_id: String,
+    pub kind: String,
+    pub manifest: serde_json::Value,
+    pub content_hash: String,
+    pub r2_url: String,
+    pub thumbnail_url: String,
+    pub author_pubkey: String,
+    pub author_fingerprint_hex: String,
+    #[serde(default)]
+    pub installs: u64,
+    #[serde(default)]
+    pub reports: u64,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -334,7 +363,7 @@ impl ShareClient {
             status: UploadStatus::from_worker(&body.status),
         };
 
-        let detail = ArtifactDetail {
+        let detail = CachedArtifactDetail {
             artifact_id: body.artifact_id.clone(),
             content_hash: body.content_hash,
             author_pubkey: self.pubkey_hex.clone(),
@@ -380,6 +409,20 @@ impl ShareClient {
             .merge_into_list(self.pubkey_hex(), lr.items)
             .await;
         Ok(lr)
+    }
+
+    /// `GET /v1/artifact/:id` — full artifact metadata (worker-api §4.4).
+    ///
+    /// Parallels [`ShareClient::list`] in request construction: signed
+    /// GET through `send_signed`, server errors decoded into
+    /// [`UploadError::ServerReject`] (`NOT_FOUND` / `TOMBSTONED` / etc.
+    /// surface via the existing error mapping), network errors to
+    /// `UploadError::Network`. Added in the phase-2 follow-up that wires
+    /// `explorer.get`.
+    pub async fn get_artifact(&self, artifact_id: &str) -> Result<ArtifactDetail, UploadError> {
+        let path = format!("/v1/artifact/{artifact_id}");
+        self.send_signed(Method::GET, &path, "", self.http.get(self.url(&path)))
+            .await
     }
 
     pub async fn patch(&self, id: &str, edit: PatchEdit) -> Result<UploadResult, UploadError> {
@@ -471,7 +514,7 @@ impl ShareClient {
             .await
     }
 
-    pub async fn gallery(&self) -> Result<Vec<ArtifactDetail>, UploadError> {
+    pub async fn gallery(&self) -> Result<Vec<CachedArtifactDetail>, UploadError> {
         let path = "/v1/me/gallery";
         let lr: ListResult = self
             .send_signed(Method::GET, path, "", self.http.get(self.url(path)))
@@ -776,5 +819,90 @@ mod tests {
             DownloadError::Status { status, .. } => assert_eq!(status, 404),
             _ => panic!("expected DownloadError::Status"),
         }
+    }
+
+    /// Canned §4.4 response body — happy path. Covers every contract-shaped
+    /// field so the deserializer isn't silently dropping any.
+    fn sample_artifact_body(id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "artifact_id": id,
+            "kind": "bundle",
+            "manifest": { "name": "demo", "version": "1.0.0" },
+            "content_hash": "deadbeef".repeat(8),
+            "r2_url": "https://r2.example/bundle",
+            "thumbnail_url": "https://r2.example/thumb.png",
+            "author_pubkey": "aa".repeat(32),
+            "author_fingerprint_hex": "aa11bb22cc33",
+            "installs": 42,
+            "reports": 1,
+            "created_at": 1_700_000_000_i64,
+            "updated_at": 1_700_001_000_i64,
+            "status": "live",
+        })
+    }
+
+    #[tokio::test]
+    async fn get_artifact_returns_parsed_detail() {
+        let server = MockServer::start().await;
+        let body = sample_artifact_body("abc");
+        Mock::given(method("GET"))
+            .and(path("/v1/artifact/abc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let got = client.get_artifact("abc").await.expect("get_artifact ok");
+        assert_eq!(got.artifact_id, "abc");
+        assert_eq!(got.kind, "bundle");
+        assert_eq!(got.status, "live");
+        assert_eq!(got.installs, 42);
+        assert_eq!(got.reports, 1);
+        assert_eq!(got.created_at, 1_700_000_000);
+        assert_eq!(got.updated_at, 1_700_001_000);
+        assert_eq!(got.author_fingerprint_hex, "aa11bb22cc33");
+        // `manifest` is a verbatim JSON subtree per worker-api §4.4.
+        assert_eq!(got.manifest["name"], "demo");
+    }
+
+    #[tokio::test]
+    async fn get_artifact_not_found_maps_to_server_reject() {
+        let server = MockServer::start().await;
+        let err_body = serde_json::json!({
+            "error": { "code": "NOT_FOUND", "message": "no such artifact" }
+        });
+        Mock::given(method("GET"))
+            .and(path("/v1/artifact/missing"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(err_body))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let err = client
+            .get_artifact("missing")
+            .await
+            .expect_err("404 must fail");
+        match err {
+            UploadError::ServerReject {
+                status, code, kind, ..
+            } => {
+                assert_eq!(status, 404);
+                assert_eq!(code, "NOT_FOUND");
+                // `default_kind_for_status` maps 404 → Malformed when no
+                // explicit `kind` is in the body. Pins the current behavior.
+                assert_eq!(kind, WorkerErrorKind::Malformed);
+            }
+            other => panic!("expected ServerReject, got {other:?}"),
+        }
+    }
+
+    /// Roundtrip-derive sanity: the struct is Serialize+Deserialize, so editors
+    /// can re-emit what the host emits.
+    #[test]
+    fn artifact_detail_serde_roundtrip() {
+        let body = sample_artifact_body("x1");
+        let detail: ArtifactDetail = serde_json::from_value(body.clone()).unwrap();
+        let back = serde_json::to_value(&detail).unwrap();
+        assert_eq!(back["artifact_id"], body["artifact_id"]);
+        assert_eq!(back["manifest"], body["manifest"]);
+        assert_eq!(back["status"], body["status"]);
     }
 }

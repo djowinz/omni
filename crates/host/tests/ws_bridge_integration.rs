@@ -583,6 +583,99 @@ fn service_unavailable_envelope_matches_install_context_unavailable_payload() {
     );
 }
 
+// ---- Test 4b: explorer.get round-trip (phase-2 follow-up) ------------------
+
+/// `explorer.get` round-trip: wiremock serves a §4.4-shaped artifact body;
+/// `dispatch` must return an `explorer.getResult` frame carrying the full
+/// metadata subtree under `artifact`. Locks in the wire shape the editor
+/// binds to after the `ShareClient::get_artifact` surface landed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explorer_get_round_trip_delivers_artifact_frame() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "artifact_id": "art-get-it",
+        "kind": "bundle",
+        "manifest": { "name": "end-to-end", "version": "2.0.0" },
+        "content_hash": "cafebabe".repeat(8),
+        "r2_url": "https://r2.example/bundle",
+        "thumbnail_url": "https://r2.example/thumb.png",
+        "author_pubkey": "bb".repeat(32),
+        "author_fingerprint_hex": "bb22cc33dd44",
+        "installs": 12,
+        "reports": 0,
+        "created_at": 1_700_000_000_i64,
+        "updated_at": 1_700_000_500_i64,
+        "status": "live",
+    });
+    Mock::given(method("GET"))
+        .and(path("/v1/artifact/art-get-it"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .mount(&server)
+        .await;
+
+    let swap: Arc<dyn ThemeSwap> = Arc::new(CountingThemeSwap::new());
+    let (ctx, _tmp) = build_share_context(
+        Url::parse(&format!("{}/", server.uri())).unwrap(),
+        swap,
+    );
+
+    let (send_fn, _rx) = make_sink();
+    let msg = json!({
+        "id": "req-get-1",
+        "type": "explorer.get",
+        "params": { "artifact_id": "art-get-it" },
+    });
+
+    let reply = dispatch(&ctx, &msg, send_fn)
+        .await
+        .expect("explorer.get must return a terminal frame");
+    let parsed: Value = serde_json::from_str(&reply).expect("valid json");
+
+    assert_eq!(parsed["type"], "explorer.getResult", "got {parsed}");
+    assert_eq!(parsed["id"], "req-get-1");
+    let artifact = &parsed["artifact"];
+    assert_eq!(artifact["artifact_id"], "art-get-it");
+    assert_eq!(artifact["status"], "live");
+    assert_eq!(artifact["installs"], 12);
+    assert_eq!(artifact["author_fingerprint_hex"], "bb22cc33dd44");
+    assert_eq!(artifact["manifest"]["name"], "end-to-end");
+}
+
+/// `explorer.get` error path: 404 from the Worker surfaces as a structured
+/// `error` frame with `SERVER_REJECT` + kind `Malformed` — same envelope
+/// `handle_list` produces for Worker 4xx.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explorer_get_not_found_surfaces_server_reject_envelope() {
+    let server = MockServer::start().await;
+    let err_body = json!({ "error": { "code": "NOT_FOUND", "message": "no such artifact" } });
+    Mock::given(method("GET"))
+        .and(path("/v1/artifact/ghost"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(err_body))
+        .mount(&server)
+        .await;
+
+    let swap: Arc<dyn ThemeSwap> = Arc::new(CountingThemeSwap::new());
+    let (ctx, _tmp) = build_share_context(
+        Url::parse(&format!("{}/", server.uri())).unwrap(),
+        swap,
+    );
+
+    let (send_fn, _rx) = make_sink();
+    let msg = json!({
+        "id": "req-get-404",
+        "type": "explorer.get",
+        "params": { "artifact_id": "ghost" },
+    });
+    let reply = dispatch(&ctx, &msg, send_fn)
+        .await
+        .expect("explorer.get must return a terminal frame");
+    let parsed: Value = serde_json::from_str(&reply).expect("valid json");
+    assert_eq!(parsed["type"], "error", "got {parsed}");
+    assert_eq!(parsed["id"], "req-get-404");
+    assert_eq!(parsed["error"]["code"], "SERVER_REJECT");
+    assert_eq!(parsed["error"]["kind"], "Malformed");
+}
+
 // ---- Test 5: sync handler regression note -----------------------------------
 //
 // `sensors.subscribe` and `status` wire behavior is pinned by the in-module

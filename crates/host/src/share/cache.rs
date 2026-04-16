@@ -9,8 +9,18 @@ use std::time::Duration;
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 
+/// Post-upload cache shape: the subset of artifact metadata the cache stores
+/// to paper over KV eventual-consistency between `POST /v1/upload` and the
+/// following `list`/`gallery` read.
+///
+/// Note: this is distinct from [`super::client::ArtifactDetail`], which
+/// mirrors the full `GET /v1/artifact/:id` wire shape (worker-api §4.4) —
+/// `manifest`, `reports`, `status`, etc. that the cache has no use for.
+/// Renamed from `ArtifactDetail` in the phase-2 follow-up that added
+/// `ShareClient::get_artifact`, to free the `ArtifactDetail` name for the
+/// contract-matching struct in `client.rs`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactDetail {
+pub struct CachedArtifactDetail {
     pub artifact_id: String,
     pub content_hash: String,
     pub author_pubkey: String,
@@ -26,7 +36,7 @@ pub type CacheKey = (String, String);
 
 #[derive(Clone)]
 pub struct ArtifactCache {
-    inner: Arc<Cache<CacheKey, ArtifactDetail>>,
+    inner: Arc<Cache<CacheKey, CachedArtifactDetail>>,
 }
 
 impl ArtifactCache {
@@ -41,12 +51,12 @@ impl ArtifactCache {
         }
     }
 
-    pub async fn insert(&self, key: CacheKey, value: ArtifactDetail) {
+    pub async fn insert(&self, key: CacheKey, value: CachedArtifactDetail) {
         self.inner.insert(key, value).await;
     }
 
     #[cfg(test)]
-    pub(crate) async fn get(&self, key: &CacheKey) -> Option<ArtifactDetail> {
+    pub(crate) async fn get(&self, key: &CacheKey) -> Option<CachedArtifactDetail> {
         self.inner.get(key).await
     }
 
@@ -56,9 +66,9 @@ impl ArtifactCache {
     pub async fn merge_into_list(
         &self,
         author_pubkey: &str,
-        server_items: Vec<ArtifactDetail>,
-    ) -> Vec<ArtifactDetail> {
-        let mut out: Vec<ArtifactDetail> = Vec::with_capacity(server_items.len() + 4);
+        server_items: Vec<CachedArtifactDetail>,
+    ) -> Vec<CachedArtifactDetail> {
+        let mut out: Vec<CachedArtifactDetail> = Vec::with_capacity(server_items.len() + 4);
         let mut seen = std::collections::HashSet::new();
 
         // Walk cache first so fresh uploads appear at top.
@@ -87,8 +97,8 @@ impl Default for ArtifactCache {
 mod tests {
     use super::*;
 
-    fn sample(id: &str) -> ArtifactDetail {
-        ArtifactDetail {
+    fn sample(id: &str) -> CachedArtifactDetail {
+        CachedArtifactDetail {
             artifact_id: id.into(),
             content_hash: "h".into(),
             author_pubkey: "pk".into(),

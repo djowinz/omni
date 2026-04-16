@@ -92,6 +92,42 @@ pub struct ShareContext {
     pub theme_swap: Arc<dyn ThemeSwap>,
 }
 
+impl ShareContext {
+    /// Attempt to refresh `self.limits` from the Worker's
+    /// `/v1/config/limits` endpoint. Called at the top of handlers that
+    /// enforce limits (`handle_install`, `handle_publish`) so user-initiated
+    /// share operations see fresh policy without waiting for a host restart.
+    ///
+    /// On network (or auth / server) failure, logs a warning and keeps the
+    /// cached value — the host continues to function offline or through a
+    /// transient Worker outage.
+    ///
+    /// Per architectural invariant #9a: the server owns evolving policy;
+    /// clients enforce fresh-on-use rather than stale compile-time defaults.
+    /// Security limits (invariant #9b) remain compile-time and are NOT
+    /// affected by this path — only policy limits (bundle size / entry
+    /// count) ride `BundleLimits`.
+    ///
+    /// Note: `ShareClient::config_limits` maintains its own 5-minute TTL
+    /// cache, so back-to-back install/publish operations amortize to a
+    /// single network round-trip.
+    pub async fn try_refresh_limits(&self) {
+        match self.client.config_limits().await {
+            Ok(fresh) => {
+                if let Ok(mut slot) = self.limits.lock() {
+                    *slot = fresh;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "limits refresh failed, using cached value"
+                );
+            }
+        }
+    }
+}
+
 fn bad_input(id: &str, msg: impl Into<String>) -> String {
     error_envelope(
         id,
@@ -301,6 +337,14 @@ where
         omni_min_version,
         update_artifact_id: if is_update { p.artifact_id } else { None },
     };
+
+    // Refresh `ctx.limits` from the Worker before the pre-flight/upload
+    // pipeline runs. Per invariant #9a, policy limits evolve server-side;
+    // any consumer reading `ctx.limits` after this point (today: none in
+    // the `upload()` path, which fetches fresh limits itself; tomorrow:
+    // any future pre-check) sees the current snapshot.
+    ctx.try_refresh_limits().await;
+
     let (tx, rx) = mpsc::channel(32);
     let id_cloned = id.to_string();
     let send_cloned = send_fn.clone();
@@ -559,6 +603,12 @@ where
         expected_pubkey: None,
     };
 
+    // Refresh `ctx.limits` from the Worker before enforcing. Per invariant
+    // #9a, policy limits live server-side; the install pipeline reads
+    // `ctx.limits` inside `block_in_place` below, so a fresh snapshot must
+    // be landed in the mutex before that read.
+    ctx.try_refresh_limits().await;
+
     // Register cancel token under request id. Scope-guard removal so every
     // exit path (Ok / Err / panic-free early-return) drains the entry.
     let cancel = CancellationToken::new();
@@ -811,32 +861,52 @@ async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
 
 /// Dispatch arm for `explorer.get`.
 ///
-/// Contract: params `{ artifact_id }` → result `{ artifact: <metadata> }`.
+/// Contract (per `specs/contracts/ws-explorer.md` §explorer.get):
+/// - params: `{ artifact_id }`
+/// - result: `explorer.getResult { artifact: <metadata> }`
 ///
-/// **Shape-delta concern (plan §5):** `ShareClient` does not currently expose
-/// a `get_artifact()` method matching spec §2.4. Until that surface lands
-/// (follow-up chore, out of scope for this wave's single-file edit), the
-/// handler returns a structured `NOT_IMPLEMENTED` envelope so the dispatch
-/// arm is complete and editors receive a stable error rather than a silent
-/// drop. This preserves the contract boundary without stubbing the method on
-/// the client.
-async fn handle_get(id: &str, params: Value, _ctx: &ShareContext) -> Option<String> {
+/// The `<metadata>` shape is the full §4.4 wire shape mirrored by
+/// [`super::client::ArtifactDetail`] — `manifest`, `reports`, `status`, etc.
+/// Thin wrapper over [`ShareClient::get_artifact`]: error paths route
+/// through `error_envelope` (parallel to `handle_list`) so Worker-side
+/// `NOT_FOUND`/`TOMBSTONED`/`RATE_LIMITED` surface with their native codes
+/// rather than being re-mapped into a host-local vocabulary.
+async fn handle_get(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
     #[derive(Deserialize)]
     struct P {
-        #[allow(dead_code)]
         artifact_id: String,
     }
-    let _p: P = match serde_json::from_value(params) {
+    let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
         Err(e) => return Some(bad_input(id, format!("bad explorer.get params: {e}"))),
     };
-    let payload = ErrorPayload {
-        code: "NOT_IMPLEMENTED",
-        kind: "HostLocal",
-        detail: "explorer.get:client_get_artifact_missing".into(),
-        message: "Artifact fetch is not yet available.",
-    };
-    Some(handlers::error_frame(id, &payload))
+    match ctx.client.get_artifact(&p.artifact_id).await {
+        Ok(detail) => {
+            let artifact = match serde_json::to_value(&detail) {
+                Ok(v) => v,
+                Err(e) => {
+                    return Some(handlers::error_frame(
+                        id,
+                        &ErrorPayload {
+                            code: "SERIALIZATION_ERROR",
+                            kind: "HostLocal",
+                            detail: format!("artifact_serialize_failed: {e}"),
+                            message: "Worker returned an artifact we could not serialize.",
+                        },
+                    ));
+                }
+            };
+            Some(
+                json!({
+                    "id": id,
+                    "type": "explorer.getResult",
+                    "artifact": artifact,
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => Some(error_envelope(id, &e).to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -1118,21 +1188,237 @@ mod tests {
         assert_eq!(parsed["error"]["code"], "BAD_INPUT");
     }
 
-    /// `handle_get` returns a stable `NOT_IMPLEMENTED` envelope until the
-    /// `ShareClient::get_artifact` surface lands. Pins the code so the
-    /// editor binds to it.
+    /// `handle_get` happy path: wiremock serves a §4.4-shaped artifact body,
+    /// the handler round-trips it as an `explorer.getResult` frame carrying
+    /// the full metadata under `artifact`. Replaces the pre-follow-up
+    /// `NOT_IMPLEMENTED` stub test.
     #[tokio::test]
-    async fn handle_get_returns_not_implemented() {
-        let (ctx, _tmp) = make_test_ctx();
+    async fn handle_get_returns_artifact_on_success() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let body = json!({
+            "artifact_id": "art-get",
+            "kind": "bundle",
+            "manifest": { "name": "demo", "version": "1.0.0" },
+            "content_hash": "deadbeef".repeat(8),
+            "r2_url": "https://r2.example/bundle",
+            "thumbnail_url": "https://r2.example/thumb.png",
+            "author_pubkey": "aa".repeat(32),
+            "author_fingerprint_hex": "aa11bb22cc33",
+            "installs": 7,
+            "reports": 0,
+            "created_at": 1_700_000_000_i64,
+            "updated_at": 1_700_000_000_i64,
+            "status": "live",
+        });
+        Mock::given(method("GET"))
+            .and(path("/v1/artifact/art-get"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/", server.uri());
+        let (ctx, _tmp) = make_test_ctx_with_base(&base);
         let msg = json!({
-            "id": "get-1",
+            "id": "get-ok",
             "type": "explorer.get",
-            "params": { "artifact_id": "abc" }
+            "params": { "artifact_id": "art-get" }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "explorer.getResult");
+        assert_eq!(parsed["id"], "get-ok");
+        let artifact = &parsed["artifact"];
+        assert_eq!(artifact["artifact_id"], "art-get");
+        assert_eq!(artifact["kind"], "bundle");
+        assert_eq!(artifact["status"], "live");
+        assert_eq!(artifact["installs"], 7);
+        assert_eq!(artifact["reports"], 0);
+        assert_eq!(artifact["author_fingerprint_hex"], "aa11bb22cc33");
+        // `manifest` is forwarded as a subtree per worker-api §4.4.
+        assert_eq!(artifact["manifest"]["name"], "demo");
+    }
+
+    /// `handle_get` error path: wiremock returns a 404 with a worker-shaped
+    /// error body; handler must surface the Worker's `NOT_FOUND` code
+    /// verbatim through `error_envelope` (not remapped into a host-local
+    /// vocabulary). Mirrors `handle_list`'s error handling.
+    #[tokio::test]
+    async fn handle_get_maps_not_found_to_error_envelope() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let err_body = json!({
+            "error": { "code": "NOT_FOUND", "message": "no such artifact" }
+        });
+        Mock::given(method("GET"))
+            .and(path("/v1/artifact/missing"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(err_body))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/", server.uri());
+        let (ctx, _tmp) = make_test_ctx_with_base(&base);
+        let msg = json!({
+            "id": "get-404",
+            "type": "explorer.get",
+            "params": { "artifact_id": "missing" }
         });
         let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
         let parsed: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(parsed["type"], "error");
-        assert_eq!(parsed["error"]["code"], "NOT_IMPLEMENTED");
-        assert_eq!(parsed["error"]["kind"], "HostLocal");
+        assert_eq!(parsed["id"], "get-404");
+        // Worker-returned code surfaces as `SERVER_REJECT` per `UploadError::code`,
+        // with the §3 code riding in `detail` / `message`. `error_envelope` is the
+        // same path `handle_list` exercises; pinning the envelope shape here
+        // prevents drift between the two handlers.
+        assert_eq!(parsed["error"]["code"], "SERVER_REJECT");
+        assert_eq!(parsed["error"]["kind"], "Malformed");
+    }
+
+    /// Malformed params (missing `artifact_id`) short-circuit to a
+    /// `BAD_INPUT` envelope before the client is consulted.
+    #[tokio::test]
+    async fn handle_get_bad_params_returns_bad_input() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "get-bad",
+            "type": "explorer.get",
+            "params": { /* missing artifact_id */ }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "BAD_INPUT");
+    }
+
+    // ---- `try_refresh_limits` tests (phase-2 followup #4) --------------
+
+    /// Build a `ShareContext` whose `client` points at the supplied base
+    /// URL and whose `limits` mutex starts at `BundleLimits::DEFAULT`.
+    /// Mirrors `make_test_ctx` but lets the caller inject a wiremock base.
+    fn make_test_ctx_with_base(base: &str) -> (ShareContext, TempDir) {
+        let tmp = TempDir::new().expect("tempdir");
+        let kp = Arc::new(Keypair::generate());
+        let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
+        let client = Arc::new(ShareClient::new(
+            url::Url::parse(base).expect("base url parse"),
+            kp.clone(),
+            guard.clone(),
+        ));
+        let tofu = Arc::new(Mutex::new(
+            TofuStore::open(tmp.path()).expect("tofu open"),
+        ));
+        let bundles_registry = Arc::new(Mutex::new(
+            RegistryHandle::load(tmp.path(), RegistryKind::Bundles).expect("bundles registry"),
+        ));
+        let themes_registry = Arc::new(Mutex::new(
+            RegistryHandle::load(tmp.path(), RegistryKind::Themes).expect("themes registry"),
+        ));
+        let limits = Arc::new(Mutex::new(BundleLimits::DEFAULT));
+        let current_version = Version::new(0, 0, 0);
+        let preview_slot = Arc::new(PreviewSlot::new());
+        let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
+        let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopSwap);
+        let ctx = ShareContext {
+            identity: kp,
+            guard,
+            client,
+            tofu,
+            bundles_registry,
+            themes_registry,
+            limits,
+            current_version,
+            preview_slot,
+            cancel_registry,
+            theme_swap,
+        };
+        (ctx, tmp)
+    }
+
+    /// On success, `try_refresh_limits` replaces the mutex contents with
+    /// the Worker's fresh snapshot. Wiremock returns a limits payload whose
+    /// values are distinct from `BundleLimits::DEFAULT` so the assertion
+    /// can distinguish "cached" from "fresh."
+    #[tokio::test]
+    async fn try_refresh_limits_success_updates_mutex() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        // Distinct values from BundleLimits::DEFAULT (5 MiB / 10 MiB / 32).
+        let fresh = json!({
+            "max_bundle_compressed": 7u64 * 1024 * 1024,
+            "max_bundle_uncompressed": 14u64 * 1024 * 1024,
+            "max_entries": 64usize,
+        });
+        Mock::given(method("GET"))
+            .and(path("/v1/config/limits"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fresh))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/", server.uri());
+        let (ctx, _tmp) = make_test_ctx_with_base(&base);
+
+        // Pre-condition: mutex holds the compile-time default.
+        {
+            let slot = ctx.limits.lock().expect("limits mutex");
+            assert_eq!(slot.max_bundle_compressed, BundleLimits::DEFAULT.max_bundle_compressed);
+            assert_eq!(slot.max_bundle_uncompressed, BundleLimits::DEFAULT.max_bundle_uncompressed);
+            assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
+        }
+
+        ctx.try_refresh_limits().await;
+
+        // Post-condition: mutex now holds the Worker's snapshot.
+        let slot = ctx.limits.lock().expect("limits mutex");
+        assert_eq!(slot.max_bundle_compressed, 7 * 1024 * 1024);
+        assert_eq!(slot.max_bundle_uncompressed, 14 * 1024 * 1024);
+        assert_eq!(slot.max_entries, 64);
+    }
+
+    /// On network / server failure, `try_refresh_limits` logs a warning
+    /// and leaves the cached value in place — host continues to function
+    /// offline or through transient Worker outages (invariant #9a intent:
+    /// fresh-on-use, but fail-open for availability).
+    #[tokio::test]
+    async fn try_refresh_limits_failure_keeps_cached() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        // 404 is non-transient — it surfaces directly as `ServerReject`
+        // without walking the backoff budget. `try_refresh_limits` must
+        // absorb any `Err` variant and keep the cached value; testing with
+        // 404 (not 500) keeps this test fast and deterministic while
+        // exercising the same error path.
+        Mock::given(method("GET"))
+            .and(path("/v1/config/limits"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/", server.uri());
+        let (ctx, _tmp) = make_test_ctx_with_base(&base);
+
+        // Pre-condition: DEFAULT.
+        {
+            let slot = ctx.limits.lock().expect("limits mutex");
+            assert_eq!(slot.max_bundle_compressed, BundleLimits::DEFAULT.max_bundle_compressed);
+            assert_eq!(slot.max_bundle_uncompressed, BundleLimits::DEFAULT.max_bundle_uncompressed);
+            assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
+        }
+
+        ctx.try_refresh_limits().await;
+
+        // Post-condition: unchanged (cached value preserved on failure).
+        let slot = ctx.limits.lock().expect("limits mutex");
+        assert_eq!(slot.max_bundle_compressed, BundleLimits::DEFAULT.max_bundle_compressed);
+        assert_eq!(slot.max_bundle_uncompressed, BundleLimits::DEFAULT.max_bundle_uncompressed);
+        assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
     }
 }
