@@ -753,4 +753,97 @@ app.post("/device/unban", async (c) => {
   return jsonResponse({ device_fp: dfHex, status: "unbanned" });
 });
 
+// ---------------------------------------------------------------------------
+// GET /v1/admin/stats — contract §4.19, spec §3 (T9).
+//
+// Aggregate dashboard counts. All independent reads run via Promise.all so
+// the endpoint is one parallel round-trip per backend, not serial.
+//
+// Sources:
+//   pending_reports : count of `reports-by-status:pending:*` KV keys.
+//   banned_pubkeys  : D1 count of authors with is_denied = 1.
+//   banned_devices  : count of `denylist:device:*` KV keys.
+//   total_artifacts : D1 count of artifacts with is_removed = 0 (live only —
+//                     tombstones don't count as "inventory").
+//   total_installs  : D1 SUM(install_count) across all artifacts (live +
+//                     removed; install counts are historical).
+//   vocab_version   : `config:vocab` JSON .version, default 0.
+//   limits_version  : `config:limits` JSON .version, default 0.
+// ---------------------------------------------------------------------------
+app.get("/stats", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+
+  const [
+    pendingReports,
+    bannedPubkeysRow,
+    bannedDevices,
+    totalArtifactsRow,
+    totalInstallsRow,
+    vocabBlob,
+    limitsBlob,
+  ] = await Promise.all([
+    countKvPrefix(c.env, "reports-by-status:pending:"),
+    c.env.META.prepare(
+      "SELECT COUNT(*) AS c FROM authors WHERE is_denied = 1",
+    ).first<{ c: number | bigint | string }>(),
+    countKvPrefix(c.env, "denylist:device:"),
+    c.env.META.prepare(
+      "SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 0",
+    ).first<{ c: number | bigint | string }>(),
+    c.env.META.prepare(
+      "SELECT COALESCE(SUM(install_count), 0) AS c FROM artifacts",
+    ).first<{ c: number | bigint | string }>(),
+    c.env.STATE.get("config:vocab", "json") as Promise<
+      { version?: number } | null
+    >,
+    c.env.STATE.get("config:limits", "json") as Promise<
+      { version?: number } | null
+    >,
+  ]);
+
+  return jsonResponse({
+    pending_reports: pendingReports,
+    banned_pubkeys: toNum(bannedPubkeysRow?.c),
+    banned_devices: bannedDevices,
+    total_artifacts: toNum(totalArtifactsRow?.c),
+    total_installs: toNum(totalInstallsRow?.c),
+    vocab_version: vocabBlob?.version ?? 0,
+    limits_version: limitsBlob?.version ?? 0,
+  });
+});
+
+/** Coerce D1's possibly BigInt/string COUNT/SUM result to a plain number.
+ *  D1 returns numbers in the common case; the cast is defensive against
+ *  driver behavior on large counts. */
+function toNum(v: number | bigint | string | undefined | null): number {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "bigint") return Number(v);
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Paginate `STATE.list({prefix})` to completion, returning the total key
+ *  count. Single-page is the common case (pending queues stay small);
+ *  the loop is for future growth. Local helper — not shared, no other
+ *  caller today. */
+async function countKvPrefix(
+  env: AppEnv["Bindings"],
+  prefix: string,
+): Promise<number> {
+  let count = 0;
+  let cursor: string | undefined;
+  do {
+    const list = await env.STATE.list({ prefix, limit: 1000, cursor });
+    count += list.keys.length;
+    cursor = list.list_complete ? undefined : list.cursor;
+  } while (cursor);
+  return count;
+}
+
 export default app;
