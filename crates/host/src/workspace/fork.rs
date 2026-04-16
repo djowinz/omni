@@ -17,7 +17,7 @@ pub(crate) fn sanitize_name(name: &str) -> Result<(), &'static str> {
     if name.is_empty() {
         return Err("name must not be empty");
     }
-    if name.len() > 48 {
+    if name.chars().count() > 48 {
         return Err("name exceeds 48 characters");
     }
     if name != name.trim() {
@@ -241,7 +241,13 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Public fork error. Variants carve along domain semantics per invariant
-/// #19a; `std::io::Error` is the one `#[from]` (stable std API).
+/// #19a; `std::io::Error` is the one `#[from]` (stable std API). Third-party
+/// errors (e.g. `serde_json::Error`) ride in the `#[source]` chain.
+///
+/// `TargetExists` and `AtomicCommitFailed` both indicate "the overlay
+/// directory already exists" but arise from different points: the pre-check
+/// before staging (`TargetExists`) vs. a commit-time race where another
+/// process created the path between stage and rename (`AtomicCommitFailed`).
 #[derive(Debug, Error)]
 pub enum ForkError {
     #[error("source bundle {0:?} is not installed")]
@@ -256,11 +262,21 @@ pub enum ForkError {
     /// Target path appeared between stage() and commit() — distinct from
     /// generic io::Error so WebSocket callers can map to a retryable code.
     #[error("atomic commit failed")]
-    AtomicCommitFailed,
+    AtomicCommitFailed(#[source] std::io::Error),
 
-    /// Failure writing `.omni-origin.json`.
+    /// Failure writing the `.omni-origin.json` file (open/flush/close).
     #[error("failed to write .omni-origin.json")]
     OriginWriteFailed(#[source] std::io::Error),
+
+    /// Failure serializing the `ForkOrigin` struct into `.omni-origin.json`.
+    /// Preserved distinct from `OriginWriteFailed` so diagnostics keep the
+    /// real `serde_json::Error` in the `#[source]` chain instead of wrapping
+    /// it inside a synthetic `io::Error`.
+    #[error("failed to serialize .omni-origin.json")]
+    OriginSerdeFailed(#[source] serde_json::Error),
+
+    #[error("unsupported file type in source bundle ({0})")]
+    UnsupportedSourceEntry(String),
 
     #[error("io error")]
     Io(#[from] std::io::Error),
@@ -338,9 +354,7 @@ pub fn fork_to_local(
             .map_err(ForkError::OriginWriteFailed)?;
         let mut writer = std::io::BufWriter::new(file);
         serde_json::to_writer_pretty(&mut writer, &origin)
-            .map_err(|e| ForkError::OriginWriteFailed(std::io::Error::new(
-                std::io::ErrorKind::Other, e,
-            )))?;
+            .map_err(ForkError::OriginSerdeFailed)?;
         use std::io::Write;
         writer.flush().map_err(ForkError::OriginWriteFailed)?;
         // writer (and inner file) dropped here — handle closed before rename.
@@ -348,7 +362,7 @@ pub fn fork_to_local(
 
     staging.commit(false).map_err(|e| {
         if e.kind() == std::io::ErrorKind::AlreadyExists {
-            ForkError::AtomicCommitFailed
+            ForkError::AtomicCommitFailed(e)
         } else {
             ForkError::Io(e)
         }
@@ -361,7 +375,7 @@ pub fn fork_to_local(
     })
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ForkError> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let ft = entry.file_type()?;
@@ -372,6 +386,13 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
             copy_dir_recursive(&from, &to)?;
         } else if ft.is_file() {
             std::fs::copy(&from, &to)?;
+        } else {
+            // Installed bundles shouldn't contain symlinks or special files
+            // (`omni-sanitize` rejects them at install time). If one is seen
+            // anyway, fail loudly rather than silently dropping data.
+            return Err(ForkError::UnsupportedSourceEntry(
+                from.display().to_string(),
+            ));
         }
     }
     Ok(())
