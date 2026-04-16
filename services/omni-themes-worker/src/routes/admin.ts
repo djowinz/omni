@@ -4,7 +4,7 @@ import { errorFromKind } from "../lib/errors";
 import { verifyJws, AuthError } from "../lib/auth";
 import { isModerator } from "../lib/moderator";
 import { _resetConfigCaches } from "./config";
-import { hexEncode } from "../lib/hex";
+import { hexEncode, hexDecode } from "../lib/hex";
 
 /**
  * Moderator-only admin endpoints. Spec §9a/9b, contract §4.11/4.12.
@@ -550,6 +550,207 @@ app.post("/artifact/:id/remove", async (c) => {
     JSON.stringify({ artifact_id: id, status: result }),
     { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Denylist admin endpoints (T8) — spec §5, contract §4.17/§4.18.
+//
+// Pubkey denylist is authoritative in D1 (`authors.is_denied`) AND mirrored
+// into KV (`denylist:pubkey:<hex>`) so the hot-path verifyJws check (and the
+// rate-limit middleware) don't need a D1 round-trip. Device denylist lives
+// in KV only (no `devices` table); the rate-limit middleware consumes it.
+//
+// Ban-author cascade is idempotent by construction: step 1 (D1+KV denylist)
+// rewrites the same state; step 2 (cascade) iterates only `is_removed = 0`
+// rows, which shrinks to 0 after the first run, so `cascade_count` is 0 on
+// rerun. Per-row errors are caught and counted so a single R2 hiccup doesn't
+// abort the sweep.
+// ---------------------------------------------------------------------------
+
+const HEX64_RE = /^[0-9a-f]{64}$/;
+
+async function parseJsonBody(body: ArrayBuffer): Promise<Record<string, unknown> | Response> {
+  let parsed: unknown;
+  try {
+    parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+// POST /v1/admin/pubkey/ban
+app.post("/pubkey/ban", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+  const parsedOrErr = await parseJsonBody(body);
+  if (parsedOrErr instanceof Response) return parsedOrErr;
+  const { pubkey, reason } = parsedOrErr as { pubkey?: unknown; reason?: unknown };
+
+  if (typeof pubkey !== "string") {
+    return errorFromKind("Malformed", "BadRequest", "pubkey must be a string");
+  }
+  const pubkeyHex = pubkey.toLowerCase();
+  if (!HEX64_RE.test(pubkeyHex)) {
+    return errorFromKind("Malformed", "BadRequest", "pubkey must be 64-char hex");
+  }
+  if (typeof reason !== "string" || reason.length === 0) {
+    return errorFromKind("Malformed", "BadRequest", "reason must be a non-empty string");
+  }
+
+  const pubkeyBlob = hexDecode(pubkeyHex);
+  const now = Math.floor(Date.now() / 1000);
+
+  // D1 authoritative denylist flag. Create-or-flip in two statements to avoid
+  // the BLOB-PK upsert dance on D1 (INSERT ... ON CONFLICT with BLOB PK can
+  // be finicky; two statements are trivially idempotent).
+  await c.env.META.prepare(
+    `INSERT OR IGNORE INTO authors (pubkey, created_at, total_uploads, is_new_creator, is_denied)
+     VALUES (?, ?, 0, 0, 1)`,
+  )
+    .bind(pubkeyBlob, now)
+    .run();
+  await c.env.META.prepare(
+    `UPDATE authors SET is_denied = 1 WHERE pubkey = ?`,
+  )
+    .bind(pubkeyBlob)
+    .run();
+
+  // KV mirror for fast-path verifyJws + rate_limit denylist checks.
+  await c.env.STATE.put(
+    `denylist:pubkey:${pubkeyHex}`,
+    JSON.stringify({ reason, at: now }),
+  );
+
+  // Cascade: tombstone every live artifact by this author.
+  const liveRows = await c.env.META.prepare(
+    "SELECT id FROM artifacts WHERE author_pubkey = ? AND is_removed = 0",
+  )
+    .bind(pubkeyBlob)
+    .all<{ id: string }>();
+
+  let cascade_count = 0;
+  let cascade_errors = 0;
+  for (const row of liveRows.results ?? []) {
+    try {
+      const result = await tombstoneArtifact(
+        c.env,
+        row.id,
+        `author ban: ${reason}`,
+      );
+      if (result === "removed") cascade_count++;
+    } catch {
+      cascade_errors++;
+    }
+  }
+
+  return jsonResponse({ pubkey: pubkeyHex, cascade_count, cascade_errors });
+});
+
+// POST /v1/admin/pubkey/unban
+app.post("/pubkey/unban", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+  const parsedOrErr = await parseJsonBody(body);
+  if (parsedOrErr instanceof Response) return parsedOrErr;
+  const { pubkey } = parsedOrErr as { pubkey?: unknown };
+
+  if (typeof pubkey !== "string") {
+    return errorFromKind("Malformed", "BadRequest", "pubkey must be a string");
+  }
+  const pubkeyHex = pubkey.toLowerCase();
+  if (!HEX64_RE.test(pubkeyHex)) {
+    return errorFromKind("Malformed", "BadRequest", "pubkey must be 64-char hex");
+  }
+
+  const pubkeyBlob = hexDecode(pubkeyHex);
+  await c.env.META.prepare(
+    `UPDATE authors SET is_denied = 0 WHERE pubkey = ?`,
+  )
+    .bind(pubkeyBlob)
+    .run();
+  await c.env.STATE.delete(`denylist:pubkey:${pubkeyHex}`);
+
+  // Tombstones are intentionally NOT resurrected (spec §5 — unban lifts the
+  // gate on future uploads but does not undo moderation decisions on prior
+  // content).
+  return jsonResponse({ pubkey: pubkeyHex, status: "unbanned" });
+});
+
+// POST /v1/admin/device/ban
+app.post("/device/ban", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+  const parsedOrErr = await parseJsonBody(body);
+  if (parsedOrErr instanceof Response) return parsedOrErr;
+  const { device_fp, reason } = parsedOrErr as {
+    device_fp?: unknown;
+    reason?: unknown;
+  };
+
+  if (typeof device_fp !== "string") {
+    return errorFromKind("Malformed", "BadRequest", "device_fp must be a string");
+  }
+  const dfHex = device_fp.toLowerCase();
+  if (!HEX64_RE.test(dfHex)) {
+    return errorFromKind("Malformed", "BadRequest", "device_fp must be 64-char hex");
+  }
+  if (typeof reason !== "string" || reason.length === 0) {
+    return errorFromKind("Malformed", "BadRequest", "reason must be a non-empty string");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.STATE.put(
+    `denylist:device:${dfHex}`,
+    JSON.stringify({ reason, at: now }),
+  );
+  return jsonResponse({ device_fp: dfHex, status: "banned" });
+});
+
+// POST /v1/admin/device/unban
+app.post("/device/unban", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+  const parsedOrErr = await parseJsonBody(body);
+  if (parsedOrErr instanceof Response) return parsedOrErr;
+  const { device_fp } = parsedOrErr as { device_fp?: unknown };
+
+  if (typeof device_fp !== "string") {
+    return errorFromKind("Malformed", "BadRequest", "device_fp must be a string");
+  }
+  const dfHex = device_fp.toLowerCase();
+  if (!HEX64_RE.test(dfHex)) {
+    return errorFromKind("Malformed", "BadRequest", "device_fp must be 64-char hex");
+  }
+
+  await c.env.STATE.delete(`denylist:device:${dfHex}`);
+  return jsonResponse({ device_fp: dfHex, status: "unbanned" });
 });
 
 export default app;
