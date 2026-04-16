@@ -438,4 +438,118 @@ app.post("/report/:id/action", async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /v1/admin/artifact/:id/remove — spec §3 + §5 cascade consumer surface.
+// ---------------------------------------------------------------------------
+
+/**
+ * Tombstone an artifact. Writes/updates `tombstones(content_hash)`, flips
+ * `artifacts.is_removed = 1`, and best-effort deletes the R2 bundle blob +
+ * thumbnail. Every step is idempotent by construction:
+ *   - `INSERT OR REPLACE` on tombstones keys on content_hash → re-runs are
+ *     structurally no-ops.
+ *   - `UPDATE is_removed = 1` is naturally idempotent.
+ *   - R2 `delete()` on a missing key resolves (R2 semantics match S3 delete).
+ *
+ * Returns "not_found" when no artifact row exists (caller decides whether
+ * that's a 404 or, for the cascade caller, a silent skip). Returns
+ * "already_tombstoned" when the artifact was previously tombstoned AND a
+ * tombstone row already exists for its content_hash — the common
+ * "this is the second time I ran this" signal. Otherwise "removed".
+ *
+ * Consumed by T8 (ban-author cascade) and the `/artifact/:id/remove` handler
+ * below. Keep the return-value contract stable — T8 branches on it.
+ */
+export async function tombstoneArtifact(
+  env: AppEnv["Bindings"],
+  id: string,
+  reason: string,
+): Promise<"removed" | "already_tombstoned" | "not_found"> {
+  const row = await env.META.prepare(
+    "SELECT id, content_hash, thumbnail_hash, is_removed FROM artifacts WHERE id = ?",
+  )
+    .bind(id)
+    .first<{
+      id: string;
+      content_hash: string;
+      thumbnail_hash: string | null;
+      is_removed: number;
+    }>();
+  if (!row) return "not_found";
+
+  if (row.is_removed) {
+    const existingTomb = await env.META.prepare(
+      "SELECT content_hash FROM tombstones WHERE content_hash = ?",
+    )
+      .bind(row.content_hash)
+      .first<{ content_hash: string }>();
+    if (existingTomb) return "already_tombstoned";
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await env.META.prepare(
+    "INSERT OR REPLACE INTO tombstones (content_hash, reason, removed_at) VALUES (?, ?, ?)",
+  )
+    .bind(row.content_hash, reason, now)
+    .run();
+  await env.META.prepare(
+    "UPDATE artifacts SET is_removed = 1, updated_at = ? WHERE id = ?",
+  )
+    .bind(now, id)
+    .run();
+
+  // Best-effort R2 cleanup. The tombstone row is the authoritative signal;
+  // leftover blobs are an operational concern (GC sweep) not a correctness
+  // one. Swallow per-object errors so a failing thumbnail delete doesn't
+  // strand the bundle, and vice versa.
+  try {
+    await env.BLOBS.delete(`bundles/${row.content_hash}.omnipkg`);
+  } catch {
+    /* swallow */
+  }
+  if (row.thumbnail_hash) {
+    try {
+      await env.BLOBS.delete(`thumbnails/${row.thumbnail_hash}.png`);
+    } catch {
+      /* swallow */
+    }
+  }
+
+  return "removed";
+}
+
+app.post("/artifact/:id/remove", async (c) => {
+  const body = await c.req.arrayBuffer();
+  try {
+    await requireModerator(c.req.raw, c.env, body);
+  } catch (r) {
+    return r as Response;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  }
+  const { reason } = parsed as { reason?: unknown };
+  if (typeof reason !== "string" || reason.length === 0) {
+    return errorFromKind("Malformed", "BadRequest", "reason must be a non-empty string");
+  }
+
+  const id = c.req.param("id");
+  const result = await tombstoneArtifact(c.env, id, reason);
+  if (result === "not_found") {
+    return errorFromKind("Malformed", "NotFound", `artifact ${id} not found`);
+  }
+
+  return new Response(
+    JSON.stringify({ artifact_id: id, status: result }),
+    { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
+  );
+});
+
 export default app;
