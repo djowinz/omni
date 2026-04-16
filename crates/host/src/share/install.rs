@@ -170,6 +170,8 @@ pub async fn install(
         installed_at: now_unix(),
         installed_version: signed.manifest().version.clone(),
         omni_min_version: signed.manifest().omni_min_version.clone(),
+        installed_path: req.target_path.clone(),
+        display_name: display_name.clone(),
     };
     let key = match registry_kind {
         RegistryKind::Themes => display_name.clone(),
