@@ -49,6 +49,44 @@ pub(crate) fn sanitize_name(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+use serde::{Deserialize, Serialize};
+
+/// Written to `<overlay>/.omni-origin.json` on fork. The presence of this
+/// file IS the heritage marker — no parallel registry. Sub-spec #013 §5.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForkOrigin {
+    /// Schema version (invariant #6b: one version axis, additive changes).
+    /// Current version: 1.
+    pub version: u32,
+    pub forked_from: ForkSource,
+    pub trust: ForkTrust,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForkSource {
+    /// "<author-slug>/<name>", matches installed-bundles registry id.
+    pub artifact_id: String,
+    /// From the installed manifest (SHA-256 JCS per invariant #6).
+    pub content_hash: String,
+    pub bundle_name: String,
+    /// Hex-encoded Ed25519 pubkey of the original author.
+    pub author_pubkey: String,
+    pub author_display_name: Option<String>,
+    /// Hex fingerprint form (Display from sub-spec #004).
+    pub author_fingerprint: String,
+    /// Unix seconds at time of fork.
+    pub forked_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkTrust {
+    LocalAuthored,
+}
+
+pub(crate) const ORIGIN_SCHEMA_VERSION: u32 = 1;
+pub(crate) const ORIGIN_FILE_NAME: &str = ".omni-origin.json";
+
 #[cfg(test)]
 mod sanitize_tests {
     use super::sanitize_name;
@@ -153,5 +191,50 @@ mod sanitize_tests {
         assert!(sanitize_name("comic").is_ok());
         assert!(sanitize_name("lptop").is_ok());
         assert!(sanitize_name("con.anything").is_err());
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+
+    fn sample() -> ForkOrigin {
+        ForkOrigin {
+            version: ORIGIN_SCHEMA_VERSION,
+            forked_from: ForkSource {
+                artifact_id: "lx92/cyberpunk-hud".into(),
+                content_hash: "a".repeat(64),
+                bundle_name: "cyberpunk-hud".into(),
+                author_pubkey: "b".repeat(64),
+                author_display_name: Some("LX92".into()),
+                author_fingerprint: "c".repeat(8),
+                forked_at: 1_700_000_000,
+            },
+            trust: ForkTrust::LocalAuthored,
+        }
+    }
+
+    #[test]
+    fn origin_json_roundtrip() {
+        let o = sample();
+        let s = serde_json::to_string_pretty(&o).expect("ser");
+        let back: ForkOrigin = serde_json::from_str(&s).expect("de");
+        assert_eq!(o, back);
+    }
+
+    #[test]
+    fn origin_json_has_expected_snake_case_trust() {
+        let o = sample();
+        let s = serde_json::to_string(&o).unwrap();
+        assert!(s.contains("\"trust\":\"local_authored\""), "was: {s}");
+    }
+
+    #[test]
+    fn origin_missing_display_name_serdes() {
+        let mut o = sample();
+        o.forked_from.author_display_name = None;
+        let s = serde_json::to_string(&o).unwrap();
+        let back: ForkOrigin = serde_json::from_str(&s).unwrap();
+        assert_eq!(o, back);
     }
 }
