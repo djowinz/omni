@@ -18,6 +18,30 @@ use tungstenite::{accept, Message};
 
 pub const WS_PORT: u16 = 9473;
 
+/// Adapts #010's `RegistryHandle` to #013's `InstalledBundleLookup` trait
+/// so `fork_to_local` can stay dependency-free of the registry concrete
+/// type. Cross-sub-spec adapter lives here, not in `fork.rs`.
+struct RegistryBundleLookup<'a>(&'a crate::share::registry::RegistryHandle);
+
+impl<'a> crate::workspace::fork::InstalledBundleLookup for RegistryBundleLookup<'a> {
+    fn lookup(&self, slug: &str) -> Option<crate::workspace::fork::InstalledBundleView> {
+        let entry = self.0.lookup_bundle(slug)?;
+        Some(crate::workspace::fork::InstalledBundleView {
+            path: entry.installed_path.clone(),
+            artifact_id: entry.artifact_id.clone(),
+            content_hash: entry.content_hash.clone(),
+            bundle_name: entry.display_name.clone(),
+            author_pubkey: entry.author_pubkey.clone(),
+            author_display_name: if entry.display_name.is_empty() {
+                None
+            } else {
+                Some(entry.display_name.clone())
+            },
+            author_fingerprint: entry.fingerprint_hex.clone(),
+        })
+    }
+}
+
 /// Shared state between the WebSocket server and the main loop.
 pub struct WsSharedState {
     pub latest_snapshot: Mutex<SensorSnapshot>,
@@ -483,6 +507,58 @@ fn handle_message(
                     })
                     .to_string(),
                 ),
+            }
+        }
+        "explorer.fork" => {
+            use crate::share::registry::{RegistryHandle, RegistryKind};
+            use crate::workspace::fork::{self, ForkError, ForkRequest};
+
+            let slug = msg.get("bundle_slug").and_then(|v| v.as_str()).unwrap_or("");
+            let name = msg.get("new_overlay_name").and_then(|v| v.as_str()).unwrap_or("");
+
+            let overlays_root = state.data_dir.join("overlays");
+            let registry = match RegistryHandle::load(&state.data_dir, RegistryKind::Bundles) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Some(json!({
+                        "type": "error",
+                        "code": "IO_ERROR",
+                        "message": format!("installed-bundles registry load failed: {e}"),
+                    }).to_string());
+                }
+            };
+            let lookup = RegistryBundleLookup(&registry);
+
+            let req = ForkRequest {
+                bundle_slug: slug.to_string(),
+                new_overlay_name: name.to_string(),
+            };
+            match fork::fork_to_local(req, &overlays_root, &lookup) {
+                Ok(res) => Some(json!({
+                    "type": "explorer.forked",
+                    "path": res.path.strip_prefix(&state.data_dir)
+                        .unwrap_or(&res.path)
+                        .to_string_lossy(),
+                    "name": res.name,
+                    "forked_from": res.origin.forked_from,
+                }).to_string()),
+                Err(e) => {
+                    let code = match &e {
+                        ForkError::NameInvalid(_) => "NAME_INVALID",
+                        ForkError::TargetExists(_) => "TARGET_EXISTS",
+                        ForkError::SourceNotFound(_) => "BUNDLE_NOT_INSTALLED",
+                        ForkError::AtomicCommitFailed(_) => "ATOMIC_COMMIT_FAILED",
+                        ForkError::OriginWriteFailed(_)
+                        | ForkError::OriginSerdeFailed(_)
+                        | ForkError::UnsupportedSourceEntry(_)
+                        | ForkError::Io(_) => "IO_ERROR",
+                    };
+                    Some(json!({
+                        "type": "error",
+                        "code": code,
+                        "message": e.to_string(),
+                    }).to_string())
+                }
             }
         }
         "explorer.install"
