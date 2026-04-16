@@ -129,8 +129,8 @@ mod sanitize_tests {
                     }
                 },
                 s.chars().enumerate().map(|(i, c)| {
-                    if i % 2 == 0 { c.to_ascii_lowercase().next().unwrap() }
-                    else { c.to_ascii_uppercase().next().unwrap() }
+                    if i % 2 == 0 { c.to_ascii_lowercase() }
+                    else { c.to_ascii_uppercase() }
                 }).collect(),
             ]
         };
