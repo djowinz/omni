@@ -2,7 +2,9 @@
 //! Wire shapes are authoritative in ws-explorer.md — do not invent fields here.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use omni_bundle::{BundleLimits, Tag};
 use omni_guard_trait::Guard;
@@ -12,12 +14,18 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
-use super::client::{ReportBody, ShareClient};
+use super::client::{ListParams, ReportBody, ShareClient};
 use super::error::UploadError;
+use super::handlers::{
+    self, error_frame_for_stub, install_outcome_to_result_frame,
+    install_progress_to_contract_frame, map_preview_error, ErrorPayload,
+};
+use super::install::{self, InstallProgress, InstallRequest};
 use super::preview::{PreviewSlot, ThemeSwap};
 use super::progress::{error_envelope, pump_to_ws};
-use super::registry::RegistryHandle;
+use super::registry::{RegistryHandle, RegistryKind};
 use super::tofu::TofuStore;
 use super::upload::{upload, ArtifactKind, UploadRequest};
 
@@ -127,6 +135,11 @@ where
         "config.vocab" => handle_config_vocab(&id, ctx).await,
         "config.limits" => handle_config_limits(&id, ctx).await,
         "report.submit" => handle_report(&id, params, ctx).await,
+        "explorer.install" => handle_install(&id, params, ctx, send_fn).await,
+        "explorer.preview" => handle_preview(&id, params, ctx).await,
+        "explorer.cancelPreview" => handle_cancel_preview(&id, params, ctx).await,
+        "explorer.list" => handle_list(&id, params, ctx).await,
+        "explorer.get" => handle_get(&id, params, ctx).await,
         _ => None,
     }
 }
@@ -444,6 +457,369 @@ async fn handle_report(id: &str, params: Value, ctx: &ShareContext) -> Option<St
     }
 }
 
+/// Wrap an [`ErrorPayload`] in the standard `{ id, type:"error", error:{...} }`
+/// envelope. Used by the #021 explorer.* handlers to surface host-local and
+/// preview-subsystem errors; mirrors the shape produced by
+/// `error_frame_for_stub` in `handlers.rs` so wire behavior is unified.
+fn error_frame(id: &str, payload: &ErrorPayload) -> String {
+    error_frame_for_stub(id, payload)
+}
+
+/// Local adapter letting `handle_preview` pass an `Arc<dyn ThemeSwap>` into
+/// `PreviewSlot::start`, whose `<S: ThemeSwap>` bound is `Sized`. The
+/// newtype is itself `ThemeSwap` and forwards every call to the inner trait
+/// object.
+struct DynThemeSwap(Arc<dyn ThemeSwap>);
+
+impl ThemeSwap for DynThemeSwap {
+    fn snapshot(&self) -> Vec<u8> {
+        self.0.snapshot()
+    }
+    fn apply(&self, css: &[u8]) -> Result<(), String> {
+        self.0.apply(css)
+    }
+    fn revert(&self, snapshot: &[u8]) -> Result<(), String> {
+        self.0.revert(snapshot)
+    }
+}
+
+/// Dispatch arm for `explorer.install`.
+///
+/// Contract (per `specs/contracts/ws-explorer.md` §explorer.install):
+/// - params: `{ artifact_id, target_workspace, overwrite?, expected_fingerprint_hex? }`
+/// - progress frames: `explorer.installProgress { phase, done, total }` (zero or more)
+/// - terminal: `explorer.installResult { installed_path, content_hash,
+///   author_fingerprint_hex, tofu, warnings }` or `{ type: "error", error: ... }`
+///
+/// Lifecycle:
+/// 1. Parse params → [`InstallRequest`].
+/// 2. Register a fresh [`CancellationToken`] in `ctx.cancel_registry` keyed by `id`.
+/// 3. Hold the `std::sync::Mutex` guards for `tofu`/`bundles_registry`/`limits`
+///    across the nested `block_on(install::install(...))` call inside
+///    [`tokio::task::block_in_place`]. This avoids the `MutexGuard<'_, T>: !Send`
+///    constraint that would otherwise reject the guards being held across
+///    `.await` inside the outer spawned future (see `dispatch_share_message`
+///    in `ws_server.rs` — the future is spawned onto a multi-thread runtime
+///    where `Send` is required). The brief blocking window is acceptable for
+///    the single-user local host; simultaneous installs from one editor are
+///    not expected and serializing them is correct behavior.
+/// 4. Stream `InstallProgress` events through `send_fn` as they fire.
+/// 5. Remove the cancel token from the registry on every exit path
+///    (success / error / cancellation) via a scope-guarded wrapper.
+///
+/// `RegistryKind::Bundles` is hard-coded: install today targets the bundles
+/// registry. A future extension may branch on params to pick themes.
+async fn handle_install<F>(id: &str, params: Value, ctx: &ShareContext, send_fn: F) -> Option<String>
+where
+    F: Fn(String) + Send + Sync + Clone + 'static,
+{
+    #[derive(Deserialize)]
+    struct P {
+        artifact_id: String,
+        #[serde(default)]
+        target_workspace: Option<String>,
+        #[serde(default)]
+        overwrite: bool,
+        #[serde(default)]
+        expected_fingerprint_hex: Option<String>,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad explorer.install params: {e}"))),
+    };
+    // `expected_pubkey` in `InstallRequest` is `Option<PublicKey>`, not a
+    // fingerprint; fingerprint-based pinning is out of scope for #021 and the
+    // shipped `install::install` does not accept one. Surface a BadInput if the
+    // editor sends one so the mismatch is visible rather than silently ignored.
+    if p.expected_fingerprint_hex.is_some() {
+        return Some(bad_input(
+            id,
+            "expected_fingerprint_hex pinning is not yet supported; omit the field",
+        ));
+    }
+    // `target_workspace` is a contract-level string; we interpret a non-empty
+    // value as a workspace-relative path and fall back to
+    // `bundles/<artifact_id>` under the default workspace root. The install
+    // pipeline takes an absolute `target_path`; callers without a prebaked
+    // path must supply one or accept the default.
+    let target_path: PathBuf = match p.target_workspace.as_deref() {
+        Some(s) if !s.is_empty() => PathBuf::from(s),
+        _ => PathBuf::from("bundles").join(&p.artifact_id),
+    };
+
+    let req = InstallRequest {
+        artifact_id: p.artifact_id,
+        target_path,
+        overwrite: p.overwrite,
+        expected_pubkey: None,
+    };
+
+    // Register cancel token under request id. Scope-guard removal so every
+    // exit path (Ok / Err / panic-free early-return) drains the entry.
+    let cancel = CancellationToken::new();
+    {
+        let mut reg = ctx.cancel_registry.lock().unwrap();
+        reg.insert(id.to_string(), cancel.clone());
+    }
+    let _cancel_cleanup = CancelRegistryGuard {
+        registry: ctx.cancel_registry.clone(),
+        id: id.to_string(),
+    };
+
+    // Progress streaming adapter — `install::install` invokes the closure
+    // synchronously; we JSON-encode each frame and push via `send_fn`.
+    let progress_send = {
+        let send_fn = send_fn.clone();
+        let id_owned = id.to_string();
+        move |progress: InstallProgress| {
+            let frame = install_progress_to_contract_frame(&id_owned, progress);
+            send_fn(frame);
+        }
+    };
+
+    // Hold the three Mutex guards across the nested install future. See
+    // doc-comment above for the `block_in_place` rationale.
+    let result = tokio::task::block_in_place(|| {
+        let mut tofu_guard = ctx.tofu.lock().expect("tofu mutex poisoned");
+        let mut registry_guard = ctx
+            .bundles_registry
+            .lock()
+            .expect("bundles registry mutex poisoned");
+        let limits = *ctx.limits.lock().expect("limits mutex poisoned");
+        let version = ctx.current_version.clone();
+        let handle = tokio::runtime::Handle::current();
+        handle.block_on(install::install(
+            req,
+            &ctx.client,
+            &mut tofu_guard,
+            &mut registry_guard,
+            RegistryKind::Bundles,
+            &limits,
+            &version,
+            cancel,
+            progress_send,
+        ))
+    });
+
+    match result {
+        Ok(outcome) => Some(install_outcome_to_result_frame(id, &outcome)),
+        Err(e) => {
+            let payload = handlers::map_install_error(&e);
+            Some(error_frame(id, &payload))
+        }
+    }
+}
+
+/// Scope guard that removes an entry from `cancel_registry` on drop. Ensures
+/// the registry doesn't leak tokens regardless of which exit path
+/// `handle_install` takes.
+struct CancelRegistryGuard {
+    registry: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    id: String,
+}
+
+impl Drop for CancelRegistryGuard {
+    fn drop(&mut self) {
+        if let Ok(mut reg) = self.registry.lock() {
+            reg.remove(&self.id);
+        }
+    }
+}
+
+/// Dispatch arm for `explorer.preview`.
+///
+/// Contract: params `{ artifact_id }` → result `{ preview_token }` on success,
+/// D-004-J error envelope on failure.
+///
+/// The contract doesn't specify a TTL; we use a 60-second default, matching
+/// the conservative lifetime implied by `PreviewSlot::start`'s tokio timer.
+/// Preview CSS is fetched via `ctx.client.download(artifact_id, ...)` — for
+/// theme artifacts the Worker serves raw CSS bytes from `/v1/download/:id`,
+/// and `download()` returns those bytes directly. Installed-theme lookup
+/// from the workspace is deferred; the simpler remote-fetch path covers the
+/// current editor wire.
+async fn handle_preview(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        artifact_id: String,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad explorer.preview params: {e}"))),
+    };
+
+    // Fetch CSS bytes. download() is currently the only client surface that
+    // returns raw artifact bytes; theme artifacts on the Worker are served
+    // verbatim.
+    let css = match ctx.client.download(&p.artifact_id, |_, _| {}).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            // Map download failure to a host-local payload; we do not have a
+            // dedicated download-error mapper, so surface a compact envelope.
+            let payload = ErrorPayload {
+                code: "preview_download_failed",
+                kind: "Io",
+                detail: format!("download:{e}"),
+                message: "Failed to fetch preview artifact.",
+            };
+            return Some(error_frame(id, &payload));
+        }
+    };
+
+    const DEFAULT_PREVIEW_TTL: Duration = Duration::from_secs(60);
+    // `PreviewSlot::start` takes `Arc<S: ThemeSwap>` — a sized generic —
+    // while `ctx.theme_swap` is `Arc<dyn ThemeSwap>`. Wrap the trait object
+    // in a local newtype that itself implements `ThemeSwap`, letting the
+    // generic resolve cleanly without modifying `preview.rs`.
+    let swap_adapter = Arc::new(DynThemeSwap(ctx.theme_swap.clone()));
+    match ctx
+        .preview_slot
+        .start(swap_adapter, css, DEFAULT_PREVIEW_TTL)
+    {
+        Ok(token) => Some(
+            json!({
+                "id": id,
+                "type": "explorer.previewResult",
+                "preview_token": token.to_string(),
+            })
+            .to_string(),
+        ),
+        Err(e) => {
+            let payload = map_preview_error(&e);
+            Some(error_frame(id, &payload))
+        }
+    }
+}
+
+/// Dispatch arm for `explorer.cancelPreview`.
+///
+/// Contract: params `{ preview_token }` → result `{ restored: true }` on
+/// success, D-004-J error envelope (`NO_ACTIVE_PREVIEW` / `TOKEN_MISMATCH`)
+/// on failure. Parses `preview_token` as a UUID before calling
+/// [`PreviewSlot::cancel`].
+async fn handle_cancel_preview(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        preview_token: String,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => {
+            return Some(bad_input(
+                id,
+                format!("bad explorer.cancelPreview params: {e}"),
+            ))
+        }
+    };
+    let token = match Uuid::parse_str(&p.preview_token) {
+        Ok(t) => t,
+        Err(e) => {
+            return Some(bad_input(
+                id,
+                format!("preview_token is not a valid UUID: {e}"),
+            ));
+        }
+    };
+    match ctx.preview_slot.cancel(token) {
+        Ok(()) => Some(
+            json!({
+                "id": id,
+                "type": "explorer.cancelPreviewResult",
+                "restored": true,
+            })
+            .to_string(),
+        ),
+        Err(e) => {
+            let payload = map_preview_error(&e);
+            Some(error_frame(id, &payload))
+        }
+    }
+}
+
+/// Dispatch arm for `explorer.list`.
+///
+/// Contract (per `specs/contracts/ws-explorer.md` §explorer.list):
+/// - params: `{ kind?, sort?, tags?, cursor?, limit? }`
+/// - result: `explorer.listResult { items, next_cursor }`
+///
+/// Thin wrapper over [`ShareClient::list`]; `tags: Vec<String>` in the wire
+/// shape maps to `tag: Vec<String>` in `ListParams`.
+async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        sort: Option<String>,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+        #[serde(default)]
+        cursor: Option<String>,
+        #[serde(default)]
+        limit: Option<u32>,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad explorer.list params: {e}"))),
+    };
+    let lp = ListParams {
+        kind: p.kind,
+        sort: p.sort,
+        tag: p.tags.unwrap_or_default(),
+        cursor: p.cursor,
+        limit: p.limit,
+    };
+    match ctx.client.list(lp).await {
+        Ok(lr) => {
+            let items: Vec<Value> = lr
+                .items
+                .into_iter()
+                .map(|a| serde_json::to_value(a).unwrap_or(Value::Null))
+                .collect();
+            Some(
+                json!({
+                    "id": id,
+                    "type": "explorer.listResult",
+                    "items": items,
+                    "next_cursor": lr.next_cursor,
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => Some(error_envelope(id, &e).to_string()),
+    }
+}
+
+/// Dispatch arm for `explorer.get`.
+///
+/// Contract: params `{ artifact_id }` → result `{ artifact: <metadata> }`.
+///
+/// **Shape-delta concern (plan §5):** `ShareClient` does not currently expose
+/// a `get_artifact()` method matching spec §2.4. Until that surface lands
+/// (follow-up chore, out of scope for this wave's single-file edit), the
+/// handler returns a structured `NOT_IMPLEMENTED` envelope so the dispatch
+/// arm is complete and editors receive a stable error rather than a silent
+/// drop. This preserves the contract boundary without stubbing the method on
+/// the client.
+async fn handle_get(id: &str, params: Value, _ctx: &ShareContext) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        #[allow(dead_code)]
+        artifact_id: String,
+    }
+    let _p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad explorer.get params: {e}"))),
+    };
+    let payload = ErrorPayload {
+        code: "NOT_IMPLEMENTED",
+        kind: "HostLocal",
+        detail: "explorer.get:client_get_artifact_missing".into(),
+        message: "Artifact fetch is not yet available.",
+    };
+    Some(error_frame(id, &payload))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,5 +937,183 @@ mod tests {
         assert!(ctx.cancel_registry.lock().unwrap().is_empty());
         assert!(!ctx.preview_slot.is_active());
         assert_eq!(ctx.current_version, Version::new(0, 0, 0));
+    }
+
+    // ---- #021 handler tests --------------------------------------------
+
+    /// `handle_install` must drain the cancel registry on every exit path.
+    /// Here the install pipeline fails fast because the configured client
+    /// points at `http://localhost:1/` (no listener) — the download step
+    /// surfaces a `DownloadError::Http`, which maps to an
+    /// `InstallError::IoFailure` error frame. Regardless of that mapping,
+    /// the scope-guarded `CancelRegistryGuard` must remove the request's
+    /// entry before `handle_install` returns.
+    ///
+    /// `multi_thread` flavor is required because `handle_install` invokes
+    /// `tokio::task::block_in_place`, which panics on the single-thread
+    /// runtime.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handle_install_registers_cancel_then_removes_on_error() {
+        let (ctx, _tmp) = make_test_ctx();
+        let id = "install-err";
+        let msg = json!({
+            "id": id,
+            "type": "explorer.install",
+            "params": { "artifact_id": "abc", "target_workspace": "" }
+        });
+        // Pre-condition: registry is empty before dispatch.
+        assert!(ctx.cancel_registry.lock().unwrap().is_empty());
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        // The reply must be an error envelope (download fails fast).
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error", "expected error frame, got {parsed:?}");
+        // Post-condition: cancel registry has been drained even though
+        // install returned Err — the scope guard fires on every exit path.
+        assert!(
+            ctx.cancel_registry.lock().unwrap().is_empty(),
+            "cancel_registry not drained after error exit"
+        );
+    }
+
+    /// A BadInput exit (malformed params) must NOT register a cancel token
+    /// since the install pipeline never starts. Complements the error-path
+    /// test above: together they pin that (a) registrations only happen
+    /// once params parse, and (b) registrations that DO happen always get
+    /// cleaned up.
+    #[tokio::test]
+    async fn handle_install_bad_input_does_not_register_cancel() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "install-bad",
+            "type": "explorer.install",
+            "params": { /* missing artifact_id */ }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "BAD_INPUT");
+        assert!(ctx.cancel_registry.lock().unwrap().is_empty());
+    }
+
+    /// `handle_preview` returns `PREVIEW_ACTIVE` when the slot already
+    /// holds a session. Pre-start one via `PreviewSlot::start` directly
+    /// (no network) to occupy the slot, then drive the handler and assert
+    /// the error code.
+    ///
+    /// Note: the handler calls `ctx.client.download()` BEFORE consulting
+    /// the slot — we arrange for download to succeed (wiremock) so the
+    /// slot check is the failure point. Without wiremock the client would
+    /// surface `preview_download_failed` first, which would not exercise
+    /// the preview-active branch.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handle_preview_slot_occupied_returns_preview_active() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/download/theme-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"body { color: red; }".to_vec()))
+            .mount(&server)
+            .await;
+
+        let tmp = TempDir::new().unwrap();
+        let kp = Arc::new(Keypair::generate());
+        let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
+        let client = Arc::new(ShareClient::new(
+            url::Url::parse(&format!("{}/", server.uri())).unwrap(),
+            kp.clone(),
+            guard.clone(),
+        ));
+        let tofu = Arc::new(Mutex::new(TofuStore::open(tmp.path()).unwrap()));
+        let bundles_registry = Arc::new(Mutex::new(
+            RegistryHandle::load(tmp.path(), RegistryKind::Bundles).unwrap(),
+        ));
+        let themes_registry = Arc::new(Mutex::new(
+            RegistryHandle::load(tmp.path(), RegistryKind::Themes).unwrap(),
+        ));
+        let preview_slot = Arc::new(PreviewSlot::new());
+        let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopSwap);
+        let ctx = ShareContext {
+            identity: kp,
+            guard,
+            client,
+            tofu,
+            bundles_registry,
+            themes_registry,
+            limits: Arc::new(Mutex::new(BundleLimits::DEFAULT)),
+            current_version: Version::new(0, 0, 0),
+            preview_slot: preview_slot.clone(),
+            cancel_registry: Arc::new(Mutex::new(HashMap::new())),
+            theme_swap: theme_swap.clone(),
+        };
+
+        // Pre-occupy the slot with an unrelated session so the handler's
+        // own call surfaces `PreviewActive`.
+        let adapter = Arc::new(DynThemeSwap(theme_swap));
+        preview_slot
+            .start(adapter, b"occupied".to_vec(), Duration::from_secs(60))
+            .expect("pre-start");
+
+        let msg = json!({
+            "id": "prev-1",
+            "type": "explorer.preview",
+            "params": { "artifact_id": "theme-1" }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "PREVIEW_ACTIVE");
+        assert_eq!(parsed["error"]["kind"], "HostLocal");
+    }
+
+    /// `handle_cancel_preview` returns `NO_ACTIVE_PREVIEW` when the slot
+    /// is empty, regardless of the token value.
+    #[tokio::test]
+    async fn handle_cancel_preview_unknown_token_returns_no_active_preview() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "cancel-1",
+            "type": "explorer.cancelPreview",
+            "params": { "preview_token": Uuid::new_v4().to_string() }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "NO_ACTIVE_PREVIEW");
+    }
+
+    /// `handle_cancel_preview` with a malformed `preview_token` (not a
+    /// UUID) returns a BadInput envelope — parse errors short-circuit
+    /// before the slot is consulted.
+    #[tokio::test]
+    async fn handle_cancel_preview_malformed_token_returns_bad_input() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "cancel-bad",
+            "type": "explorer.cancelPreview",
+            "params": { "preview_token": "not-a-uuid" }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "BAD_INPUT");
+    }
+
+    /// `handle_get` returns a stable `NOT_IMPLEMENTED` envelope until the
+    /// `ShareClient::get_artifact` surface lands. Pins the code so the
+    /// editor binds to it.
+    #[tokio::test]
+    async fn handle_get_returns_not_implemented() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "get-1",
+            "type": "explorer.get",
+            "params": { "artifact_id": "abc" }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "NOT_IMPLEMENTED");
+        assert_eq!(parsed["error"]["kind"], "HostLocal");
     }
 }
