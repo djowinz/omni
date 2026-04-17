@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+build/
+**/target/
+**/.next/
+**/app/
+apps/desktop/dist/
+apps/desktop/app/
+apps/worker/.wrangler/
+
+# Generated files
+packages/shared-types/src/generated/
+apps/desktop/renderer/generated/
+
+# Rust artifacts
+target/
+Cargo.lock
+
+# Third-party
+vendor/
+
+# AI tool artifacts (gitignored; never formatted)
+docs/superpowers/
+.claude/
+.superpowers/
+
+# Misc
+*.log
+*.tsbuildinfo
