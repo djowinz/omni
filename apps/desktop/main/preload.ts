@@ -73,6 +73,16 @@ contextBridge.exposeInMainWorld('omni', {
   setLoginItemSettings: (openAtLogin: boolean) =>
     ipcRenderer.invoke('set-login-item-settings', openAtLogin),
 
+  // Share Hub streaming events (unsolicited progress + preview-result frames).
+  // See SHARE_EVENT_TYPES in main.ts and useShareWs.subscribe() in renderer/hooks/use-share-ws.ts.
+  onShareEvent: (cb: (frame: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, frame: unknown) => cb(frame);
+    ipcRenderer.on('share:event', handler);
+    return () => {
+      ipcRenderer.removeListener('share:event', handler);
+    };
+  },
+
   // Log tailing
   startLogTail: () => ipcRenderer.invoke('log:start'),
   stopLogTail: () => ipcRenderer.invoke('log:stop'),

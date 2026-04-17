@@ -156,6 +156,17 @@ ipcMain.handle('set-login-item-settings', (_event, openAtLogin: boolean) => {
   return { success: true };
 });
 
+// Unsolicited share-hub frames forwarded to the renderer via the 'share:event' ipc channel.
+// Added by #014 Wave 3a for useShareWs.subscribe() support. Future subscription types
+// (added by #016 etc.) extend this list inline per invariant #23.
+const SHARE_EVENT_TYPES = new Set<string>([
+  'explorer.installProgress',
+  'explorer.previewResult',
+  'explorer.forkProgress',
+  'upload.publishProgress',
+  'upload.packProgress',
+]);
+
 // IPC: request/response messages to host via WebSocket.
 // Waits up to 10s for the host connection before rejecting.
 ipcMain.handle('ws-message', async (_event, msg: any) => {
@@ -314,6 +325,12 @@ app.on('ready', async () => {
     }
     if (msg.type === 'preview.update') {
       mainWindow?.webContents.send('preview-update', { diff: msg.diff });
+    }
+    // Forward unsolicited share-hub frames to the renderer's 'share:event' channel.
+    // Silently drops if mainWindow is null (window closed). Does not interfere with
+    // the ws-message invoke path above — these type strings don't overlap with responseTypes.
+    if (typeof msg.type === 'string' && SHARE_EVENT_TYPES.has(msg.type)) {
+      mainWindow?.webContents.send('share:event', msg);
     }
   });
 

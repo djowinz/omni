@@ -98,7 +98,7 @@ export interface AppState {
   isDirty: boolean; // Unsaved changes
 
   // Sidebar panel selection
-  activePanel: 'components' | 'settings';
+  activePanel: 'components' | 'settings' | 'explore';
 
   // Auto-update
   updateReady: boolean;
@@ -129,7 +129,7 @@ export type AppAction =
   | { type: 'SET_ACTIVE_TAB'; payload: string | null }
   | { type: 'UPDATE_TAB_CONTENT'; payload: { id: string; content: string } }
   | { type: 'SET_THEME_FILE'; payload: { path: string; content: string } }
-  | { type: 'SET_ACTIVE_PANEL'; payload: 'components' | 'settings' }
+  | { type: 'SET_ACTIVE_PANEL'; payload: 'components' | 'settings' | 'explore' }
   | { type: 'SET_UPDATE_READY'; payload: { version: string; releaseDate: string } }
   | {
       type: 'SET_HWINFO_SENSORS';

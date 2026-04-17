@@ -21,6 +21,7 @@ interface OmniIpcBridge {
   stopLogTail: () => Promise<void>;
   onLogData: (callback: (lines: string[], fileSize: number) => void) => () => void;
   onLogError: (callback: (message: string) => void) => () => void;
+  onShareEvent: (cb: (frame: unknown) => void) => () => void;
 }
 
 declare global {

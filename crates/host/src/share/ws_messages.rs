@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use omni_bundle::{BundleLimits, Tag};
 use omni_guard_trait::Guard;
-use omni_identity::Keypair;
+use omni_identity::{Keypair, PublicKey};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -558,6 +558,15 @@ impl ThemeSwap for DynThemeSwap {
 /// `.await` points — a pattern that panics on a current-thread runtime.
 /// The shipped `share_runtime` in `WsSharedState` is built with
 /// `Builder::new_multi_thread()` (see `ws_server.rs`).
+///
+/// Integration-discovered fix (invariant #23): this dispatcher originally
+/// read `expected_fingerprint_hex` and rejected any non-null value. #014
+/// Wave 3a required end-to-end pubkey pinning for TOFU-mismatch coverage,
+/// so the field name + parsing were brought in line with the shipped
+/// `InstallRequest.expected_pubkey: Option<PublicKey>` in `install.rs` and
+/// the `ws-explorer.md` §explorer.install contract (umbrella §4.7 retro
+/// override). Original origin: #021 shipped the handler; #014 Wave 3a
+/// surfaced the drift and fixed it inline.
 async fn handle_install<F>(id: &str, params: Value, ctx: &ShareContext, send_fn: F) -> Option<String>
 where
     F: Fn(String) + Send + Sync + Clone + 'static,
@@ -570,22 +579,28 @@ where
         #[serde(default)]
         overwrite: bool,
         #[serde(default)]
-        expected_fingerprint_hex: Option<String>,
+        expected_pubkey_hex: Option<String>,
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
         Err(e) => return Some(bad_input(id, format!("bad explorer.install params: {e}"))),
     };
-    // `expected_pubkey` in `InstallRequest` is `Option<PublicKey>`, not a
-    // fingerprint; fingerprint-based pinning is out of scope for #021 and the
-    // shipped `install::install` does not accept one. Surface a BadInput if the
-    // editor sends one so the mismatch is visible rather than silently ignored.
-    if p.expected_fingerprint_hex.is_some() {
-        return Some(bad_input(
-            id,
-            "expected_fingerprint_hex pinning is not yet supported; omit the field",
-        ));
-    }
+    // Decode the optional pubkey pin. `PublicKey::from_hex` returns `None`
+    // for any value that isn't exactly 64 lowercase hex characters (32 bytes).
+    // A present-but-invalid hex string is rejected here with `BadInput` so
+    // callers get a clear diagnostic rather than a silent fallback to unpinned.
+    let expected_pubkey: Option<PublicKey> = match p.expected_pubkey_hex {
+        None => None,
+        Some(ref hex) => match PublicKey::from_hex(hex) {
+            Some(pk) => Some(pk),
+            None => {
+                return Some(bad_input(
+                    id,
+                    "expected_pubkey_hex must be a 64-character lowercase hex Ed25519 pubkey",
+                ))
+            }
+        },
+    };
     // `target_workspace` is a contract-level string; we interpret a non-empty
     // value as a workspace-relative path and fall back to
     // `bundles/<artifact_id>` under the default workspace root. The install
@@ -600,7 +615,7 @@ where
         artifact_id: p.artifact_id,
         target_path,
         overwrite: p.overwrite,
-        expected_pubkey: None,
+        expected_pubkey,
     };
 
     // Refresh `ctx.limits` from the Worker before enforcing. Per invariant
@@ -1082,6 +1097,84 @@ mod tests {
         assert_eq!(parsed["type"], "error");
         assert_eq!(parsed["error"]["code"], "BAD_INPUT");
         assert!(ctx.cancel_registry.lock().unwrap().is_empty());
+    }
+
+    // ---- INV23 regression tests (Wave 3a #014) ---------------------------------
+
+    /// Positive case: `explorer.install` with a valid `expected_pubkey_hex`
+    /// (64-hex, deterministic zero key) must NOT return `BAD_INPUT`. The
+    /// install pipeline proceeds past param-parsing and fails at the network
+    /// download step (ctx client points at `http://localhost:1/`), confirming
+    /// the pubkey was accepted and `InstallRequest.expected_pubkey` was
+    /// populated. If the dispatcher had rejected the non-null field (the
+    /// pre-INV23 behaviour) this would surface as `BAD_INPUT` instead.
+    ///
+    /// `multi_thread` flavor required because `handle_install` uses
+    /// `tokio::task::block_in_place`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handle_install_expected_pubkey_hex_accepted_and_forwarded() {
+        let (ctx, _tmp) = make_test_ctx();
+        // Deterministic 32-byte zero key encoded as 64 lowercase hex chars.
+        let zero_pubkey_hex = "00".repeat(32);
+        let msg = json!({
+            "id": "inv23-pos",
+            "type": "explorer.install",
+            "params": {
+                "artifact_id": "some-artifact",
+                "expected_pubkey_hex": zero_pubkey_hex,
+            }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        // Must NOT be BAD_INPUT — the pubkey parsed successfully and the
+        // pipeline was entered. The error is a network failure (no listener
+        // at localhost:1), not a param rejection.
+        assert_ne!(
+            parsed["error"]["code"], "BAD_INPUT",
+            "expected_pubkey_hex was rejected as BAD_INPUT (pre-INV23 regression): {parsed:?}"
+        );
+        assert_eq!(
+            parsed["type"], "error",
+            "expected a non-BAD_INPUT error (network failure), got: {parsed:?}"
+        );
+    }
+
+    /// Negative case: a request carrying the OLD field name
+    /// `expected_fingerprint_hex` (the pre-INV23 contract drift) must NOT
+    /// cause the dispatcher to read or act on the value. After the rename,
+    /// serde ignores unknown fields by default, so the field is silently
+    /// dropped. The install proceeds normally (reaching the network-failure
+    /// error), confirming the rename is effective — not additive — and the
+    /// old name is no longer wired to any logic.
+    ///
+    /// `multi_thread` flavor required because `handle_install` uses
+    /// `tokio::task::block_in_place`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handle_install_old_fingerprint_hex_field_is_ignored() {
+        let (ctx, _tmp) = make_test_ctx();
+        let zero_pubkey_hex = "00".repeat(32);
+        let msg = json!({
+            "id": "inv23-neg",
+            "type": "explorer.install",
+            "params": {
+                "artifact_id": "some-artifact",
+                // OLD field name — must be silently ignored after the rename.
+                "expected_fingerprint_hex": zero_pubkey_hex,
+            }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        // The old field name is unknown to serde and is silently dropped.
+        // The dispatcher must NOT reject it with BAD_INPUT. The install
+        // continues without pubkey pinning and fails at the network step.
+        assert_ne!(
+            parsed["error"]["code"], "BAD_INPUT",
+            "old field name caused BAD_INPUT — rename may not have taken effect: {parsed:?}"
+        );
+        assert_eq!(
+            parsed["type"], "error",
+            "expected a network error (not BAD_INPUT), got: {parsed:?}"
+        );
     }
 
     /// `handle_preview` returns `PREVIEW_ACTIVE` when the slot already
