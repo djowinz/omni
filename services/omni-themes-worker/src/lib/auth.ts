@@ -2,7 +2,7 @@
  * Request-signature verification for the Omni Worker.
  *
  * Implements the JWS envelope verification procedure from
- * `docs/superpowers/specs/contracts/worker-api.md` §2 using the Web Crypto
+ * `docs/contracts/worker-api.md` §2 using the Web Crypto
  * fallback path (see `services/omni-themes-worker/docs/jws-library-decision.md`
  * — the `@tsndr/cloudflare-worker-jwt` library does not support EdDSA so we
  * verify the compact JWS directly with `crypto.subtle.verify('Ed25519', …)`).

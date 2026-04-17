@@ -104,7 +104,7 @@ Security-level constants (path depth, compression ratio, path length) are NOT in
 
 ## Contract references
 
-- HTTP surface: `docs/superpowers/specs/contracts/worker-api.md` (includes §4.9 + §4.10 for config endpoints)
+- HTTP surface: `docs/contracts/worker-api.md` (includes §4.9 + §4.10 for config endpoints)
 - D1 schema source-of-truth: umbrella §6.2
 - Umbrella: `docs/superpowers/specs/2026-04-10-theme-sharing-umbrella.md`
 - Sub-spec: `docs/superpowers/specs/2026-04-10-theme-sharing-007-worker-infrastructure.md` (includes §Retro findings + 2026-04-14 D6/D7 refinement)

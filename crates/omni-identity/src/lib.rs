@@ -1,7 +1,7 @@
 //! Omni local identity: Ed25519 keypair, fingerprint, encrypted backup, TOFU registry.
 //!
 //! All byte layouts are authoritative per
-//! `docs/superpowers/specs/contracts/identity-file-format.md`.
+//! `docs/contracts/identity-file-format.md`.
 
 mod atomic;
 mod emojilist;

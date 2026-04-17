@@ -11,7 +11,7 @@
 //!   crate only enforces universal path safety, size limits, and structural
 //!   integrity (hashes match manifest).
 //!
-//! See `docs/superpowers/specs/contracts/canonical-hash-algorithm.md` for the
+//! See `docs/contracts/canonical-hash-algorithm.md` for the
 //! authoritative hash algorithm spec (schema_version = 1).
 
 mod error;

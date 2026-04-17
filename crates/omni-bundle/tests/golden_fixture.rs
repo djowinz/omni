@@ -8,7 +8,7 @@
 //! `canonical_hash` must reproduce the same hex output when given the same JSON
 //! bytes. Consumed by theme-sharing sub-spec #008's WASM-parity integration
 //! test. Authoritative algorithm spec:
-//! `docs/superpowers/specs/contracts/canonical-hash-algorithm.md`.
+//! `docs/contracts/canonical-hash-algorithm.md`.
 //!
 //! To regenerate (only when the `sample_manifest()` shape or the hash algorithm
 //! legitimately changes):

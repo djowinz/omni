@@ -4,7 +4,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ErrorBody } from "../src/types";
 
 /**
- * Covers the contract from docs/superpowers/specs/contracts/worker-api.md §3:
+ * Covers the contract from docs/contracts/worker-api.md §3:
  *  - envelope shape `{ error: { code, message, retry_after? }, kind?, detail? }`
  *  - `errorFromKind` as single source of truth for (kind, detail) → (status, code)
  *  - legacy positional retry-after form for pre-#008 call sites

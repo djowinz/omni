@@ -15,7 +15,7 @@ export interface ErrorResponseOptions {
 
 /**
  * Build a JSON error `Response` matching the contract envelope in
- * docs/superpowers/specs/contracts/worker-api.md §3. Usable in any context
+ * docs/contracts/worker-api.md §3. Usable in any context
  * (pure fn, no Hono `Context` needed).
  *
  * The 4th argument is either an options object (new style) or a bare

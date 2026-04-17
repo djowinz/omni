@@ -17,7 +17,7 @@ pub(crate) fn sha256_of(bytes: &[u8]) -> [u8; 32] {
 /// with earlier versions but intentionally unused.
 ///
 /// Authoritative algorithm specification:
-/// `docs/superpowers/specs/contracts/canonical-hash-algorithm.md`
+/// `docs/contracts/canonical-hash-algorithm.md`
 pub fn canonical_hash(manifest: &Manifest, _files: &BTreeMap<String, Vec<u8>>) -> [u8; 32] {
     let bytes = canonical_manifest_bytes(manifest)
         .expect("canonical manifest serialization must not fail for a validated manifest");
@@ -96,7 +96,7 @@ mod tests {
     /// format (RFC 8785 JCS serialization + SHA-256). If this value changes, the
     /// Worker's WASM copy of canonical_hash will compute a different dedup key
     /// than the native host — host/Worker dedup parity breaks. Authoritative
-    /// algorithm: `docs/superpowers/specs/contracts/canonical-hash-algorithm.md`.
+    /// algorithm: `docs/contracts/canonical-hash-algorithm.md`.
     #[test]
     fn canonical_hash_matches_golden() {
         let (m, f) = sample();

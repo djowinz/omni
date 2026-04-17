@@ -2,7 +2,7 @@ import type { Env } from "./env";
 
 /**
  * Structured error code vocabulary from
- * docs/superpowers/specs/contracts/worker-api.md §3.
+ * docs/contracts/worker-api.md §3.
  * Full set exported here so every handler imports from one place.
  */
 export type ErrorCode =

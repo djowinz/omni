@@ -8,7 +8,7 @@ use std::io::Read;
 fn packed_manifest_matches_json_schema() {
     // Load the authoritative schema. Path is relative to the crate's Cargo.toml.
     let schema_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/superpowers/specs/contracts/bundle-manifest.schema.json");
+        .join("../../docs/contracts/bundle-manifest.schema.json");
     let schema_text = std::fs::read_to_string(&schema_path)
         .expect("schema file present");
     let schema_json: serde_json::Value =
@@ -63,7 +63,7 @@ fn packed_manifest_with_resource_kinds_matches_schema() {
     manifest.resource_kinds = Some(kinds);
 
     let schema_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/superpowers/specs/contracts/bundle-manifest.schema.json");
+        .join("../../docs/contracts/bundle-manifest.schema.json");
     let schema_text = std::fs::read_to_string(&schema_path).expect("schema file present");
     let schema_json: serde_json::Value =
         serde_json::from_str(&schema_text).expect("schema is valid JSON");
