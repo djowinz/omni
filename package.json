@@ -1,0 +1,24 @@
+{
+  "name": "omni",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @omni/desktop dev",
+    "dev:worker": "pnpm --filter @omni/worker dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "types:gen": "cargo test -p shared",
+    "types:check": "cargo test -p shared && git diff --exit-code packages/shared-types/src/generated"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "eslint": "^9.15.0",
+    "typescript": "^5.6.3",
+    "@typescript-eslint/parser": "^8.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.15.0"
+  }
+}
