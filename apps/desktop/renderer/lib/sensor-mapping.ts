@@ -7,12 +7,19 @@ export interface HwInfoData {
   values: Array<{ path: string; value: number }>;
 }
 
+/**
+ * Metrics produced by {@link sensorSnapshotToMetrics}. Known sensor paths are
+ * typed via `MetricValues`; dynamic `hwinfo.*` paths may also be present when
+ * HWiNFO is connected, so the map also accepts arbitrary string keys.
+ */
+export type SensorMetrics = Partial<MetricValues> & Record<string, number | undefined>;
+
 /** Map a SensorSnapshot (ts-rs generated from Rust) to the frontend MetricValues type. */
 export function sensorSnapshotToMetrics(
   snapshot: SensorSnapshot,
   hwinfo?: HwInfoData,
-): Partial<MetricValues> {
-  const metrics: Partial<MetricValues> = {
+): SensorMetrics {
+  const metrics: SensorMetrics = {
     fps: snapshot.frame.fps,
     'frame-time': snapshot.frame.frame_time_ms,
     'frame-time.avg': snapshot.frame.frame_time_avg_ms,
@@ -35,7 +42,7 @@ export function sensorSnapshotToMetrics(
 
   if (hwinfo?.connected && hwinfo.values) {
     for (const { path, value } of hwinfo.values) {
-      (metrics as Record<string, number>)[path] = value;
+      metrics[path] = value;
     }
   }
 
