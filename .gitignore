@@ -4,6 +4,7 @@ target/
 apps/desktop/renderer/generated/
 node_modules/
 .next/
+*.tsbuildinfo
 
 # secrets ignore
 secrets/
