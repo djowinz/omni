@@ -1,20 +1,15 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
     "moduleResolution": "node",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
     "ignoreDeprecations": "6.0",
-    "forceConsistentCasingInFileNames": true,
     "outDir": "app",
     "lib": ["ES2020"],
     "allowJs": true,
     "noEmit": true,
     "incremental": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
     "jsx": "react-jsx",
     "plugins": [
       {
