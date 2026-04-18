@@ -15,7 +15,8 @@ import { useOmniState } from '@/hooks/use-omni-state';
 import { useBackend } from '@/hooks/use-backend';
 import { parseOmniContent, toggleWidgetEnabled, parseThemeImports } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
-import { Layers, Eye, EyeOff, Palette, FileCode, Puzzle, Plus } from 'lucide-react';
+import { Layers, Eye, EyeOff, Palette, FileCode, Puzzle, Plus, Upload as UploadIcon } from 'lucide-react';
+import { UploadDialog } from './upload-dialog';
 
 export function WidgetPanel() {
   const { state, dispatch, getCurrentOverlay, openThemeTab } = useOmniState();
@@ -58,6 +59,7 @@ export function WidgetPanel() {
   const [browseThemesOpen, setBrowseThemesOpen] = useState(false);
   const [newThemeName, setNewThemeName] = useState('');
   const [availableThemes, setAvailableThemes] = useState<string[]>([]);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   /** Insert a <theme src="..."> tag at the top of the current overlay content. */
   const addThemeToOverlay = (themePath: string) => {
@@ -131,6 +133,16 @@ export function WidgetPanel() {
           <Layers className="h-4 w-4 text-[#A855F7]" />
           <h2 className="text-sm font-medium text-[#FAFAFA]">Components</h2>
         </div>
+        <button
+          data-testid="components-publish-button"
+          onClick={() => setUploadOpen(true)}
+          disabled={!currentOverlay}
+          className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#71717A] hover:text-[#FAFAFA] disabled:opacity-40 disabled:hover:text-[#71717A] transition-colors"
+          title={currentOverlay ? 'Publish the current overlay' : 'Open an overlay to publish'}
+        >
+          <UploadIcon className="h-3.5 w-3.5" aria-hidden />
+          Publish
+        </button>
       </div>
 
       <ScrollArea className="flex-1">
@@ -369,6 +381,13 @@ export function WidgetPanel() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        sourcePath={currentOverlay ? `overlays/${currentOverlay.name}` : null}
+        mode="publish"
+      />
     </div>
   );
 }
