@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { SensorSnapshot } from '@/generated/SensorSnapshot';
+import type { SensorSnapshot } from '@omni/shared-types';
 import type { HwInfoData } from '@/lib/sensor-mapping';
 import { BackendApi } from '@/lib/backend-api';
 

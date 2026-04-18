@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { sensorSnapshotToMetrics } from '../sensor-mapping';
-import type { SensorSnapshot } from '@/generated/SensorSnapshot';
+import type { SensorSnapshot } from '@omni/shared-types';
 
 function makeSnapshot(overrides?: Partial<SensorSnapshot>): SensorSnapshot {
   return {

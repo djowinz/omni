@@ -1,5 +1,5 @@
 import { Radio } from 'lucide-react';
-import type { SensorSnapshot } from '@/generated/SensorSnapshot';
+import type { SensorSnapshot } from '@omni/shared-types';
 import type { HwInfoData } from '@/lib/sensor-mapping';
 import { useOmniState } from '@/hooks/use-omni-state';
 

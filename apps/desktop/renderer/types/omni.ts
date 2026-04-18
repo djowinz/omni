@@ -1,6 +1,6 @@
 // Core Types for Omni Overlay System
 
-import type { Config } from '@/generated/Config';
+import type { Config } from '@omni/shared-types';
 import type { EditorViewState } from '@/lib/persistence';
 
 /**

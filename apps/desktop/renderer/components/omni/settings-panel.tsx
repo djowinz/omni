@@ -6,7 +6,7 @@ import { Settings, ChevronRight, RotateCw, ScrollText } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { BackendApi } from '@/lib/backend-api';
-import type { Config } from '@/generated/Config';
+import type { Config } from '@omni/shared-types';
 import { KeybindRecorder } from './keybind-recorder';
 import { ProcessListDialog } from './process-list-dialog';
 import { GameDirectoriesDialog } from './game-directories-dialog';

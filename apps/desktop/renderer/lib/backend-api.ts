@@ -1,6 +1,4 @@
-import type { OmniFile } from '@/generated/OmniFile';
-import type { ParseError } from '@/generated/ParseError';
-import type { Config } from '@/generated/Config';
+import type { OmniFile, ParseError, Config } from '@omni/shared-types';
 
 /** Typed wrapper around window.omni.sendMessage for all backend operations. */
 export class BackendApi {

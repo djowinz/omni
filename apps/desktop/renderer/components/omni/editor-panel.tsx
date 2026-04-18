@@ -8,7 +8,7 @@ import { useBackend } from '@/hooks/use-backend';
 import { parseOmniContent } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
 import { omniDarkTheme, registerOmniLanguage, updateHwInfoSensors } from '@/lib/monaco-omni';
-import type { ParseError } from '@/generated/ParseError';
+import type { ParseError } from '@omni/shared-types';
 
 export function EditorPanel() {
   const { state, dispatch, getCurrentOverlay, saveCurrentOverlay, closeTab, getActiveTab } =

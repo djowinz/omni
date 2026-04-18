@@ -1,4 +1,4 @@
-import type { SensorSnapshot } from '@/generated/SensorSnapshot';
+import type { SensorSnapshot } from '@omni/shared-types';
 import type { MetricValues } from '@/types/omni';
 
 export interface HwInfoData {
