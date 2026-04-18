@@ -19,6 +19,7 @@
  */
 
 import type { editor, languages } from 'monaco-editor';
+import type * as monacoEditor from 'monaco-editor';
 import { getCSSLanguageService } from 'vscode-css-languageservice';
 import { getLanguageService as getHTMLLanguageService } from 'vscode-html-languageservice';
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -242,7 +243,7 @@ function extractBlock(
 // ── LSP → Monaco mapping ────────────────────────────────────────────
 
 function mapLspToMonaco(
-  monaco: typeof import('monaco-editor'),
+  monaco: typeof monacoEditor,
   lspList: { items: any[]; isIncomplete?: boolean },
   position: { lineNumber: number; column: number },
   blockStartLine: number,
@@ -346,7 +347,7 @@ export function updateHwInfoSensors(sensors: Array<{ path: string; label: string
 let _registered = false;
 
 /** Register the custom Omni language for .omni files */
-export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
+export function registerOmniLanguage(monaco: typeof monacoEditor) {
   if (_registered) return;
   _registered = true;
 
@@ -537,7 +538,16 @@ export function registerOmniLanguage(monaco: typeof import('monaco-editor')) {
       { open: '<', close: '>' },
     ],
     indentationRules: {
+      // The `\1` backreference targets the tag-name group but sits inside the
+      // outer capturing group, so the regex engine ignores it. This is a
+      // pre-existing bug from the initial Monaco setup — Monaco's indentation
+      // engine works well enough without a true balanced-tag check because
+      // decreaseIndentPattern handles closing tags. Keeping the regex as-is
+      // preserves behavior until someone rewrites the indent logic to use
+      // folding regions instead. Tracked as follow-up work outside this
+      // restructure.
       increaseIndentPattern:
+        // eslint-disable-next-line no-useless-backreference
         /(<(?!\/|!--|area|base|br|col|hr|img|input|link|meta|param)[a-zA-Z][a-zA-Z0-9-]*\b[^/>]*>(?!.*<\/\1>)\s*$)|\{[^}]*$/,
       decreaseIndentPattern: /^\s*(<\/[a-zA-Z][a-zA-Z0-9-]*\s*>|\})/,
     },

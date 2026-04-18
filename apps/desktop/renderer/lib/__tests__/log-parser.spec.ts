@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseLogLine, type ParsedLogLine } from '../log-parser';
+import { parseLogLine } from '../log-parser';
 
 describe('parseLogLine', () => {
   it('should parse a standard tracing log line', () => {

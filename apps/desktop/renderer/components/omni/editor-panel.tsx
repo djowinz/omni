@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
-import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
+import type { OnMount, BeforeMount } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
+import type * as monacoEditor from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { Button } from '@/components/ui/button';
 import { Code, Save, RotateCcw, X, Palette } from 'lucide-react';
@@ -18,15 +20,10 @@ export function EditorPanel() {
 
   const isShowingTab = activeTab != null;
   const displayContent = isShowingTab ? activeTab?.content : (currentOverlay?.content ?? '');
-  const displayName = isShowingTab
-    ? activeTab?.name
-    : currentOverlay
-      ? `${currentOverlay.name}.omni`
-      : '';
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
+  const monacoRef = useRef<typeof monacoEditor | null>(null);
   const [lineCount, setLineCount] = useState(1);
 
   // Determine Monaco language based on file type

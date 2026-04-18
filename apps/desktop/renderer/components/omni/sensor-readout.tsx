@@ -120,7 +120,7 @@ interface Props {
   hwinfo?: HwInfoData;
 }
 
-export function SensorReadout({ snapshot, hwinfo }: Props) {
+export function SensorReadout({ snapshot, hwinfo: _hwinfo }: Props) {
   const { state } = useOmniState();
   const entries = buildEntries(snapshot);
 

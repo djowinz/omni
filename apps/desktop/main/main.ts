@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, net } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -276,7 +276,7 @@ app.on('ready', async () => {
       return new Response(data, {
         headers: { 'Content-Type': contentType },
       });
-    } catch (e) {
+    } catch {
       return new Response('Internal Error', { status: 500 });
     }
   });

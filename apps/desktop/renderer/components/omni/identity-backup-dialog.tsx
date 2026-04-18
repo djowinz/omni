@@ -101,7 +101,6 @@ function toUserFacing(err: unknown): UserFacingError {
  * Tests + the smoke page must pass a `saveBackup` prop instead.
  */
 async function defaultSaveBackup(bytes: Uint8Array): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const electron = (window as any).electron;
   if (!electron?.ipcRenderer?.invoke) {
     throw new Error('Save bridge not available');
@@ -172,7 +171,7 @@ export function IdentityBackupDialog({
       onOpenChange(false);
     } catch (err) {
       const mapped = toUserFacing(err);
-      // eslint-disable-next-line no-console
+
       console.error('[identity-backup-dialog] save failed', mapped.opaquePayload);
       setError(mapped);
     } finally {

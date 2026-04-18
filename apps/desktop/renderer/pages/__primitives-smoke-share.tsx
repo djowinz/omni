@@ -49,7 +49,6 @@ function UseShareWsSmoke() {
   // Exercise the subscribe() surface at mount — ensures it compiles against the typed registry.
   useEffect(() => {
     const unsubscribe = subscribe('explorer.installProgress', (frame) => {
-      // eslint-disable-next-line no-console
       console.log('[smoke] installProgress frame', frame);
     });
     return unsubscribe;

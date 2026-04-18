@@ -67,9 +67,10 @@ export default [
       // complex type gymnastics). Desktop has 40+ legitimate usages that
       // deserve a dedicated tightening effort, not blanket fail-on-merge.
       '@typescript-eslint/no-explicit-any': 'off',
-      // Legacy-code warnings during initial lint adoption — surface but
-      // don't fail merge. Tighten to 'error' in a follow-up effort.
-      'no-empty': 'warn',
+      // Allow the `try { ... } catch {}` idiom for ignore-if-absent
+      // operations (e.g. `ipcMain.removeHandler` in Electron main).
+      'no-empty': ['warn', { allowEmptyCatch: true }],
+      // Legacy regex needs a targeted refactor; surface as warn for now.
       'no-useless-backreference': 'warn',
     },
   },
