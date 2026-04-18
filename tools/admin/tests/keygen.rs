@@ -5,7 +5,7 @@ use predicates::prelude::*;
 fn keygen_produces_loadable_file() {
     let tmp = tempfile::TempDir::new().unwrap();
     let out = tmp.path().join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
+    Command::cargo_bin("admin")
         .unwrap()
         .args(["keygen", "--output"])
         .arg(&out)
@@ -23,7 +23,7 @@ fn keygen_refuses_to_overwrite_existing_file() {
     let tmp = tempfile::TempDir::new().unwrap();
     let out = tmp.path().join("admin-identity.key");
     std::fs::write(&out, b"existing").unwrap();
-    Command::cargo_bin("omni-admin")
+    Command::cargo_bin("admin")
         .unwrap()
         .args(["keygen", "--output"])
         .arg(&out)
@@ -36,7 +36,7 @@ fn keygen_refuses_to_overwrite_existing_file() {
 fn keygen_json_mode_emits_pubkey_hex_field() {
     let tmp = tempfile::TempDir::new().unwrap();
     let out = tmp.path().join("admin-identity.key");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "keygen", "--output"])
         .arg(&out)

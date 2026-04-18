@@ -23,7 +23,7 @@ async fn vocab_list_emits_json() {
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -57,7 +57,7 @@ async fn vocab_add_appends_audit() {
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])
@@ -95,7 +95,7 @@ async fn vocab_remove_appends_audit() {
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])

@@ -23,7 +23,7 @@ async fn artifact_show_emits_json() {
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -59,7 +59,7 @@ async fn artifact_remove_appends_audit() {
     // `OMNI_ADMIN_AUDIT_DIR` redirects the audit log into tmp; see
     // `audit::log_path` for why this is needed on Windows.
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])

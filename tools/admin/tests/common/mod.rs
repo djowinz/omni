@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 #[allow(dead_code)] // not every test binary uses this helper
 pub fn mint_key(dir: &Path) -> PathBuf {
     let out = dir.join("admin-identity.key");
-    Command::cargo_bin("omni-admin")
+    Command::cargo_bin("admin")
         .unwrap()
         .args(["keygen", "--output"])
         .arg(&out)

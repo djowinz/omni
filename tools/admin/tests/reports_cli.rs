@@ -27,7 +27,7 @@ async fn reports_list_emits_json() {
     let server = start_list_mock(serde_json::json!({ "items": [], "next_cursor": null })).await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -63,7 +63,7 @@ async fn reports_action_appends_audit() {
     // `audit::log_path`; it bypasses `directories::BaseDirs`, which does
     // not honor a re-exported `USERPROFILE` on Windows.
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])

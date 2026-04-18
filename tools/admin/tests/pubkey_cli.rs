@@ -26,7 +26,7 @@ async fn pubkey_ban_appends_audit_with_cascade_counts() {
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--yes", "--worker-url"])
@@ -72,7 +72,7 @@ async fn pubkey_unban_appends_audit() {
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])

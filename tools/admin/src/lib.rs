@@ -1,4 +1,4 @@
-//! `omni-admin` — operator CLI for the themes worker moderation surface.
+//! `admin` — operator CLI for the themes worker moderation surface.
 //!
 //! This crate is scaffolded by Task 10 of the theme-sharing #012 plan. The
 //! top-level `Cli` / `Cmd` types live here (not in `main.rs`) so integration
@@ -16,7 +16,7 @@ pub mod key_file;
 /// Top-level CLI entry. Global flags apply to every subcommand.
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "omni-admin",
+    name = "admin",
     version,
     about = "Omni themes-worker operator CLI"
 )]

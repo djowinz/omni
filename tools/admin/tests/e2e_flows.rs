@@ -57,7 +57,7 @@ async fn admin_not_moderator_envelope_surfaces_error() {
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -112,7 +112,7 @@ async fn auth_envelope_maps_to_exit_code_3() {
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -167,7 +167,7 @@ async fn ban_author_cascade_audit_accumulates_across_invocations() {
     let audit_dir = tmp.path().join(".omni-admin");
 
     for _ in 0..2 {
-        let output = Command::cargo_bin("omni-admin")
+        let output = Command::cargo_bin("admin")
             .unwrap()
             .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
             .args(["--yes", "--worker-url"])
@@ -229,7 +229,7 @@ async fn reports_action_twice_covers_review_loop_endpoints() {
     let audit_dir = tmp.path().join(".omni-admin");
 
     for id in ["report-one", "report-two"] {
-        let output = Command::cargo_bin("omni-admin")
+        let output = Command::cargo_bin("admin")
             .unwrap()
             .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
             .args(["--worker-url"])

@@ -30,7 +30,7 @@ async fn stats_emits_json() {
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let out = Command::cargo_bin("omni-admin")
+    let out = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -53,7 +53,7 @@ async fn stats_emits_json() {
 
 #[test]
 fn review_help_prints_usage() {
-    Command::cargo_bin("omni-admin")
+    Command::cargo_bin("admin")
         .unwrap()
         .args(["review", "--help"])
         .assert()

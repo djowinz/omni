@@ -27,7 +27,7 @@ async fn limits_get_emits_json() {
         .await;
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .args(["--json", "--worker-url"])
         .arg(server.uri())
@@ -61,7 +61,7 @@ async fn limits_set_appends_audit() {
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])
@@ -103,7 +103,7 @@ async fn limits_set_force_sends_header() {
     let tmp = tempfile::TempDir::new().unwrap();
     let key = mint_key(tmp.path());
     let audit_dir = tmp.path().join(".omni-admin");
-    let output = Command::cargo_bin("omni-admin")
+    let output = Command::cargo_bin("admin")
         .unwrap()
         .env("OMNI_ADMIN_AUDIT_DIR", &audit_dir)
         .args(["--worker-url"])
