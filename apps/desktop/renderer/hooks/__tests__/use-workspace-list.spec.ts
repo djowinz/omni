@@ -14,7 +14,11 @@ describe('useWorkspaceList', () => {
       overlays: ['Default', 'Marathon'],
       themes: ['marathon.css'],
     }));
-    vi.stubGlobal('omni', { sendMessage, sendShareMessage: vi.fn(), onShareEvent: vi.fn(() => () => {}) });
+    vi.stubGlobal('omni', {
+      sendMessage,
+      sendShareMessage: vi.fn(),
+      onShareEvent: vi.fn(() => () => {}),
+    });
     const { useWorkspaceList } = await import('../use-workspace-list');
     const { result } = renderHook(() => useWorkspaceList());
 
@@ -28,7 +32,11 @@ describe('useWorkspaceList', () => {
     const sendMessage = vi.fn(async () => {
       throw new Error('IPC failed');
     });
-    vi.stubGlobal('omni', { sendMessage, sendShareMessage: vi.fn(), onShareEvent: vi.fn(() => () => {}) });
+    vi.stubGlobal('omni', {
+      sendMessage,
+      sendShareMessage: vi.fn(),
+      onShareEvent: vi.fn(() => () => {}),
+    });
     const { useWorkspaceList } = await import('../use-workspace-list');
     const { result } = renderHook(() => useWorkspaceList());
 
@@ -47,7 +55,11 @@ describe('useWorkspaceList', () => {
         themes: [],
       };
     });
-    vi.stubGlobal('omni', { sendMessage, sendShareMessage: vi.fn(), onShareEvent: vi.fn(() => () => {}) });
+    vi.stubGlobal('omni', {
+      sendMessage,
+      sendShareMessage: vi.fn(),
+      onShareEvent: vi.fn(() => () => {}),
+    });
     const { useWorkspaceList } = await import('../use-workspace-list');
     const { result } = renderHook(() => useWorkspaceList());
 

@@ -88,17 +88,10 @@ describe('UploadDialog', () => {
     const { UploadDialog } = await import('../upload-dialog');
 
     render(
-      <UploadDialog
-        open
-        onOpenChange={() => {}}
-        sourcePath="overlays/Marathon"
-        mode="publish"
-      />,
+      <UploadDialog open onOpenChange={() => {}} sourcePath="overlays/Marathon" mode="publish" />,
     );
 
-    await waitFor(() =>
-      expect(screen.getByTestId('upload-step-review')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByTestId('upload-step-review')).toBeInTheDocument());
     // Source picker not visible
     expect(screen.queryByTestId('upload-step-source')).toBeNull();
   });
@@ -121,9 +114,7 @@ describe('UploadDialog', () => {
 
     render(<UploadDialog open onOpenChange={() => {}} sourcePath={null} mode="publish" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('upload-step-source')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByTestId('upload-step-source')).toBeInTheDocument());
     expect(screen.getByText('Marathon')).toBeInTheDocument();
   });
 
@@ -148,12 +139,7 @@ describe('UploadDialog', () => {
     const { UploadDialog } = await import('../upload-dialog');
 
     render(
-      <UploadDialog
-        open
-        onOpenChange={() => {}}
-        sourcePath="overlays/Marathon"
-        mode="publish"
-      />,
+      <UploadDialog open onOpenChange={() => {}} sourcePath="overlays/Marathon" mode="publish" />,
     );
 
     // Step 2 — review; fill name
@@ -195,12 +181,7 @@ describe('UploadDialog', () => {
     const { UploadDialog } = await import('../upload-dialog');
 
     render(
-      <UploadDialog
-        open
-        onOpenChange={() => {}}
-        sourcePath="overlays/Marathon"
-        mode="publish"
-      />,
+      <UploadDialog open onOpenChange={() => {}} sourcePath="overlays/Marathon" mode="publish" />,
     );
 
     await user.type(await screen.findByTestId('upload-name'), 'Marathon');
@@ -251,8 +232,6 @@ describe('UploadDialog', () => {
     await user.click(screen.getByTestId('upload-next-button'));
 
     // Gate opens IdentityBackupDialog — title matches the 'first-publish' MODE_COPY
-    await waitFor(() =>
-      expect(screen.getByText(/Back up your identity/i)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/Back up your identity/i)).toBeInTheDocument());
   });
 });

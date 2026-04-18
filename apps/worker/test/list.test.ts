@@ -314,9 +314,7 @@ describe('GET /v1/list — author_pubkey filter (#015 T1)', () => {
   });
 
   it('filters by author_pubkey accepts uppercase hex (normalized to lowercase)', async () => {
-    const res = await SELF.fetch(
-      `https://worker.test/v1/list?author_pubkey=${PK_B.toUpperCase()}`,
-    );
+    const res = await SELF.fetch(`https://worker.test/v1/list?author_pubkey=${PK_B.toUpperCase()}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: Array<{ artifact_id: string }> };
     expect(body.items.map((x) => x.artifact_id).sort()).toEqual(['a3', 'a4']);

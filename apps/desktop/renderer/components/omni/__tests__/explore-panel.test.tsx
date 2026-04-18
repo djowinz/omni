@@ -128,8 +128,6 @@ describe('ExplorePanel', () => {
     );
     await user.click(screen.getByTestId('explore-upload-cta'));
     // Dialog renders step-source (no source prefilled)
-    await waitFor(() =>
-      expect(screen.getByTestId('upload-step-source')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByTestId('upload-step-source')).toBeInTheDocument());
   });
 });

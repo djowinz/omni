@@ -15,7 +15,16 @@ import { useOmniState } from '@/hooks/use-omni-state';
 import { useBackend } from '@/hooks/use-backend';
 import { parseOmniContent, toggleWidgetEnabled, parseThemeImports } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
-import { Layers, Eye, EyeOff, Palette, FileCode, Puzzle, Plus, Upload as UploadIcon } from 'lucide-react';
+import {
+  Layers,
+  Eye,
+  EyeOff,
+  Palette,
+  FileCode,
+  Puzzle,
+  Plus,
+  Upload as UploadIcon,
+} from 'lucide-react';
 import { UploadDialog } from './upload-dialog';
 
 export function WidgetPanel() {

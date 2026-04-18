@@ -13,10 +13,7 @@
 import { z } from 'zod';
 
 export const UploadFormSchema = z.object({
-  name: z
-    .string()
-    .min(1, 'Name is required')
-    .max(64, 'Name must be 64 characters or less'),
+  name: z.string().min(1, 'Name is required').max(64, 'Name must be 64 characters or less'),
   bump: z.enum(['patch', 'minor', 'major', 'none']),
   description: z.string().max(500, 'Description must be 500 characters or less').optional(),
   tags: z.array(z.string()).max(10, 'Up to 10 tags').default([]),

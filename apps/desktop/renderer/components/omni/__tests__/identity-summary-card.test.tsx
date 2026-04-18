@@ -6,13 +6,7 @@ import { IdentitySummaryCard } from '../identity-summary-card';
 
 describe('IdentitySummaryCard', () => {
   it('renders pubkey fingerprint + not-backed-up badge', () => {
-    render(
-      <IdentitySummaryCard
-        pubkeyHex={'ab'.repeat(32)}
-        fingerprintHex=""
-        backedUp={false}
-      />,
-    );
+    render(<IdentitySummaryCard pubkeyHex={'ab'.repeat(32)} fingerprintHex="" backedUp={false} />);
     expect(screen.getByTestId('identity-summary-card')).toBeInTheDocument();
     // With empty fingerprint (#006 deferred), falls back to pubkey short form
     expect(screen.getByText(/abab/)).toBeInTheDocument();
