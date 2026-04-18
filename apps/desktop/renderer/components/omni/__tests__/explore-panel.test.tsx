@@ -1,7 +1,7 @@
 /// <reference types="@testing-library/jest-dom/vitest" />
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import type { CachedArtifactDetail } from '../../../lib/share-types';
@@ -53,6 +53,14 @@ describe('ExplorePanel', () => {
     vi.doMock('../../../hooks/use-config-vocab', () => ({
       useConfigVocab: () => ({ tags: [], version: 0, loading: false, error: null }),
     }));
+    // UploadDialog's SourceStep loads the workspace via useWorkspaceList,
+    // which calls window.omni.sendMessage({ type: 'file.list' }). Stub it so
+    // the dialog can mount when the + Upload CTA is clicked.
+    vi.stubGlobal('omni', {
+      sendMessage: vi.fn(async () => ({ type: 'file.list', overlays: [], themes: [] })),
+      sendShareMessage: vi.fn(),
+      onShareEvent: vi.fn(() => () => {}),
+    });
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -109,11 +117,7 @@ describe('ExplorePanel', () => {
     expect(screen.getByTestId('explore-upload-cta')).toBeInTheDocument();
   });
 
-  it('clicking + Upload toasts "sub-spec #015"', async () => {
-    const toastInfoSpy = vi.fn();
-    vi.doMock('../../../lib/toast', () => ({
-      toast: { info: toastInfoSpy, success: vi.fn(), error: vi.fn() },
-    }));
+  it('clicking + Upload opens the UploadDialog', async () => {
     const Wrap = await loadWrap();
     const { ExplorePanel } = await import('../explore-panel');
     const user = userEvent.setup();
@@ -123,6 +127,9 @@ describe('ExplorePanel', () => {
       </Wrap>,
     );
     await user.click(screen.getByTestId('explore-upload-cta'));
-    expect(toastInfoSpy).toHaveBeenCalledWith(expect.stringMatching(/sub-spec #015/i));
+    // Dialog renders step-source (no source prefilled)
+    await waitFor(() =>
+      expect(screen.getByTestId('upload-step-source')).toBeInTheDocument(),
+    );
   });
 });

@@ -14,15 +14,17 @@
  * My Uploads depends on #015's upload.list flow.
  */
 
+import { useState } from 'react';
 import { Compass, Upload as UploadIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useExploreFilters, type ExploreTab } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
-import { toast } from '../../lib/toast';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
 import { ExploreDetail } from './explore-detail';
 import { ExploreEmptyState } from './explore-empty-state';
+import { UploadDialog } from './upload-dialog';
+import { MyUploadsView } from './my-uploads-view';
 
 const SUBTABS: { id: ExploreTab; label: string }[] = [
   { id: 'discover', label: 'Discover' },
@@ -40,8 +42,10 @@ export function ExplorePanel() {
     q: filters.q,
   });
 
+  const [uploadOpen, setUploadOpen] = useState(false);
+
   const handleUpload = () => {
-    toast.info('Upload dialog lands in sub-spec #015.');
+    setUploadOpen(true);
   };
 
   return (
@@ -110,12 +114,15 @@ export function ExplorePanel() {
             hint="Head to Discover to browse themes and bundles."
           />
         ) : (
-          <ExploreEmptyState
-            label="You haven't published anything yet."
-            hint="Click + Upload to share your first theme or bundle."
-          />
+          <MyUploadsView />
         )}
       </div>
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        sourcePath={null}
+        mode="publish"
+      />
     </div>
   );
 }
