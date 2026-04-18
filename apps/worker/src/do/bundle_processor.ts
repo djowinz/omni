@@ -1,8 +1,8 @@
-import { b64urlDecodeJson, b64urlEncode } from "../lib/base64url";
-import { classifyWasmError, errorFromKind } from "../lib/errors";
-import { hexEncode } from "../lib/hex";
-import type { SanitizeReport } from "../lib/sanitize";
-import { loadWasm } from "../lib/wasm";
+import { b64urlDecodeJson, b64urlEncode } from '../lib/base64url';
+import { classifyWasmError, errorFromKind } from '../lib/errors';
+import { hexEncode } from '../lib/hex';
+import type { SanitizeReport } from '../lib/sanitize';
+import { loadWasm } from '../lib/wasm';
 
 /**
  * # DO fetch contract (for Gamma / route callers)
@@ -52,20 +52,20 @@ import { loadWasm } from "../lib/wasm";
  */
 export class BundleProcessor {
   async fetch(req: Request): Promise<Response> {
-    if (req.method !== "POST") {
-      return errorFromKind("Malformed", "BadRequest", "method must be POST");
+    if (req.method !== 'POST') {
+      return errorFromKind('Malformed', 'BadRequest', 'method must be POST');
     }
 
     // Optional runtime limits passed via header (see contract above).
     let limits: unknown = undefined;
-    const limitsHeader = req.headers.get("X-Omni-Bundle-Limits");
+    const limitsHeader = req.headers.get('X-Omni-Bundle-Limits');
     if (limitsHeader !== null && limitsHeader.length > 0) {
       try {
         limits = b64urlDecodeJson(limitsHeader);
       } catch (e) {
         return errorFromKind(
-          "Malformed",
-          "BadRequest",
+          'Malformed',
+          'BadRequest',
           `invalid X-Omni-Bundle-Limits header: ${errMessage(e)}`,
         );
       }
@@ -77,13 +77,13 @@ export class BundleProcessor {
       bundleBytes = new Uint8Array(buf);
     } catch (e) {
       return errorFromKind(
-        "Malformed",
-        "BadRequest",
+        'Malformed',
+        'BadRequest',
         `failed to read request body: ${errMessage(e)}`,
       );
     }
     if (bundleBytes.length === 0) {
-      return errorFromKind("Malformed", "BadRequest", "empty request body");
+      return errorFromKind('Malformed', 'BadRequest', 'empty request body');
     }
 
     const { bundle, identity, sanitize } = await loadWasm();
@@ -115,9 +115,9 @@ export class BundleProcessor {
         };
         if (!magic.ok) {
           return errorFromKind(
-            "Unsafe",
-            "RejectedExecutableMagic",
-            `rejected executable magic ${magic.prefixHex ?? "?"} at ${entry.path}`,
+            'Unsafe',
+            'RejectedExecutableMagic',
+            `rejected executable magic ${magic.prefixHex ?? '?'} at ${entry.path}`,
           );
         }
         files[entry.path] = entry.bytes;
@@ -158,11 +158,7 @@ export class BundleProcessor {
         sanitized,
       );
     } catch (e) {
-      return errorFromKind(
-        "Io",
-        undefined,
-        `rehash failed: ${errMessage(e)}`,
-      );
+      return errorFromKind('Io', undefined, `rehash failed: ${errMessage(e)}`);
     }
     let repacked: Uint8Array;
     try {
@@ -177,11 +173,7 @@ export class BundleProcessor {
     try {
       hash = bundle.canonicalHash(sanitizedManifest);
     } catch (e) {
-      return errorFromKind(
-        "Io",
-        undefined,
-        `canonical_hash failed: ${errMessage(e)}`,
-      );
+      return errorFromKind('Io', undefined, `canonical_hash failed: ${errMessage(e)}`);
     }
 
     const responseBody = {
@@ -191,7 +183,7 @@ export class BundleProcessor {
     };
     return new Response(JSON.stringify(responseBody), {
       status: 200,
-      headers: { "content-type": "application/json; charset=utf-8" },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
     });
   }
 }
@@ -215,8 +207,8 @@ export class BundleProcessor {
 function classifyUnpackStage(e: unknown): Response {
   const c = classifyWasmError(e);
   // Override: at unpack, ZipBomb is artifact-level tamper, not content-level.
-  if (c.detail === "ZipBomb") {
-    return errorFromKind("Integrity", "ZipBomb", c.message);
+  if (c.detail === 'ZipBomb') {
+    return errorFromKind('Integrity', 'ZipBomb', c.message);
   }
   return errorFromKind(c.kind, c.detail, c.message);
 }
@@ -229,26 +221,26 @@ function classifySanitizeStage(e: unknown): Response {
   // regardless of whether the underlying parser's message contains words like
   // "malformed" that would otherwise trip the shared classifier's Malformed
   // branch.
-  if (lower.includes("handler error")) {
-    return errorFromKind("Unsafe", "HandlerRejected", msg);
+  if (lower.includes('handler error')) {
+    return errorFromKind('Unsafe', 'HandlerRejected', msg);
   }
   const c = classifyWasmError(e);
   // Default sanitize failure → Unsafe (old local classifier behavior) unless
   // the shared classifier identified a more specific category (size exceeded,
   // executable magic, unknown resource kind).
-  if (c.kind === "Io") {
-    return errorFromKind("Unsafe", "HandlerRejected", c.message);
+  if (c.kind === 'Io') {
+    return errorFromKind('Unsafe', 'HandlerRejected', c.message);
   }
   return errorFromKind(c.kind, c.detail, c.message);
 }
 
 function errMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
+  if (typeof e === 'string') return e;
   try {
     return String(e);
   } catch {
-    return "<unrepresentable error>";
+    return '<unrepresentable error>';
   }
 }
 
@@ -270,7 +262,7 @@ async function updateManifestHashes(
         // the classifier surfaces a structured error rather than a rehash one.
         return { ...f };
       }
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
       const arr = new Uint8Array(digest);
       return { ...f, sha256: hexEncode(arr) };
     }),

@@ -1,12 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { toast as sonnerToast } from "sonner";
-import { toast } from "../toast";
-import {
-  mapErrorToUserMessage,
-  type OmniError,
-} from "../map-error-to-user-message";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { toast as sonnerToast } from 'sonner';
+import { toast } from '../toast';
+import { mapErrorToUserMessage, type OmniError } from '../map-error-to-user-message';
 
-vi.mock("sonner", () => ({
+vi.mock('sonner', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
@@ -19,28 +16,28 @@ const writeText = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   writeText.mockReset();
-  vi.stubGlobal("navigator", { clipboard: { writeText } });
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
 });
 
-describe("toast wrapper", () => {
-  it("success() passes through to sonnerToast.success", () => {
-    toast.success("hi");
+describe('toast wrapper', () => {
+  it('success() passes through to sonnerToast.success', () => {
+    toast.success('hi');
     expect(sonnerToast.success).toHaveBeenCalledTimes(1);
-    expect(sonnerToast.success).toHaveBeenCalledWith("hi");
+    expect(sonnerToast.success).toHaveBeenCalledWith('hi');
   });
 
-  it("info() passes through to sonnerToast.info", () => {
-    toast.info("hi");
+  it('info() passes through to sonnerToast.info', () => {
+    toast.info('hi');
     expect(sonnerToast.info).toHaveBeenCalledTimes(1);
-    expect(sonnerToast.info).toHaveBeenCalledWith("hi");
+    expect(sonnerToast.info).toHaveBeenCalledWith('hi');
   });
 
   it("error() calls sonnerToast.error with mapped.text and a 'Report this' action", () => {
     const err: OmniError = {
-      code: "E_AUTH_001",
-      kind: "Auth",
-      detail: "server-internal-detail-sentinel",
-      message: "You are not signed in.",
+      code: 'E_AUTH_001',
+      kind: 'Auth',
+      detail: 'server-internal-detail-sentinel',
+      message: 'You are not signed in.',
     };
     const mapped = mapErrorToUserMessage(err);
 
@@ -52,16 +49,16 @@ describe("toast wrapper", () => {
     expect(text).toBe(err.message);
     expect(opts).toBeDefined();
     expect(opts.action).toBeDefined();
-    expect(opts.action.label).toBe("Report this");
-    expect(typeof opts.action.onClick).toBe("function");
+    expect(opts.action.label).toBe('Report this');
+    expect(typeof opts.action.onClick).toBe('function');
   });
 
-  it("error() action.onClick writes mapped.opaquePayload to the clipboard", () => {
+  it('error() action.onClick writes mapped.opaquePayload to the clipboard', () => {
     const err: OmniError = {
-      code: "E_INTEGRITY_009",
-      kind: "Integrity",
-      detail: "hash mismatch",
-      message: "Bundle failed integrity check.",
+      code: 'E_INTEGRITY_009',
+      kind: 'Integrity',
+      detail: 'hash mismatch',
+      message: 'Bundle failed integrity check.',
     };
     const mapped = mapErrorToUserMessage(err);
 
@@ -81,11 +78,11 @@ describe("toast wrapper", () => {
     });
   });
 
-  it("error() handles OmniError without detail (detail serialized as null)", () => {
+  it('error() handles OmniError without detail (detail serialized as null)', () => {
     const err: OmniError = {
-      code: "E_IO_002",
-      kind: "Io",
-      message: "Network hiccup.",
+      code: 'E_IO_002',
+      kind: 'Io',
+      message: 'Network hiccup.',
     };
     const mapped = mapErrorToUserMessage(err);
 

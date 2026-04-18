@@ -37,10 +37,10 @@ cargo run -p omni-host -- --service
 
 Commit messages determine the version bump when merged to `main`:
 
-| Prefix | Bump | Example |
-|--------|------|---------|
-| `major:` | Major (1.0.0 → 2.0.0) | `major: overhaul IPC protocol` |
-| `feat:` | Minor (1.1.0 → 1.2.0) | `feat: add temperature graph widget` |
+| Prefix          | Bump                  | Example                               |
+| --------------- | --------------------- | ------------------------------------- |
+| `major:`        | Major (1.0.0 → 2.0.0) | `major: overhaul IPC protocol`        |
+| `feat:`         | Minor (1.1.0 → 1.2.0) | `feat: add temperature graph widget`  |
 | Everything else | Patch (1.1.1 → 1.1.2) | `fix: correct frame time calculation` |
 
 The highest-level prefix in the commit log wins. If any commit says `major:`, the release is a major bump regardless of other commits.
@@ -82,13 +82,13 @@ Tests follow BDD patterns and focus on function input/output, not framework rend
 
 All scripts are in `scripts/` and composed via the Makefile:
 
-| Script | Purpose |
-|--------|---------|
-| `build-rust.sh` | Build Rust binaries + run tests (`--skip-tests` flag) |
-| `build-desktop.sh` | Install deps + run tests + build Electron (`--skip-tests` flag) |
-| `build-installer.sh` | Verify artifacts + package NSIS installer |
-| `gen-release-notes.sh` | Generate markdown from git log since last tag |
-| `release.sh` | Full pipeline: bump → tag → build → test → package → publish |
+| Script                 | Purpose                                                         |
+| ---------------------- | --------------------------------------------------------------- |
+| `build-rust.sh`        | Build Rust binaries + run tests (`--skip-tests` flag)           |
+| `build-desktop.sh`     | Install deps + run tests + build Electron (`--skip-tests` flag) |
+| `build-installer.sh`   | Verify artifacts + package NSIS installer                       |
+| `gen-release-notes.sh` | Generate markdown from git log since last tag                   |
+| `release.sh`           | Full pipeline: bump → tag → build → test → package → publish    |
 
 ## Linting
 

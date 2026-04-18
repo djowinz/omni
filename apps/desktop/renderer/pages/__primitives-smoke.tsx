@@ -42,8 +42,8 @@ export default function PrimitivesSmoke() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Primitives smoke harness</h1>
         <p className="text-sm text-muted-foreground">
-          Developer-only page for manually exercising the shared UI primitives
-          shipped in sub-spec #020. Not linked from any user-facing navigation.
+          Developer-only page for manually exercising the shared UI primitives shipped in sub-spec
+          #020. Not linked from any user-facing navigation.
         </p>
       </header>
 
@@ -114,10 +114,7 @@ export default function PrimitivesSmoke() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Toast notifications</h2>
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            onClick={() => toast.success('This is a success toast')}
-          >
+          <Button type="button" onClick={() => toast.success('This is a success toast')}>
             Trigger success toast
           </Button>
           <Button
@@ -137,9 +134,9 @@ export default function PrimitivesSmoke() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Expected: the error toast surfaces the <code>message</code>, never the{' '}
-          <code>detail</code>; its &ldquo;Report this&rdquo; action copies the
-          opaque payload (including the detail) to the clipboard.
+          Expected: the error toast surfaces the <code>message</code>, never the <code>detail</code>
+          ; its &ldquo;Report this&rdquo; action copies the opaque payload (including the detail) to
+          the clipboard.
         </p>
       </section>
     </div>

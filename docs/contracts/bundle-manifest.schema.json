@@ -33,9 +33,22 @@
       "uniqueItems": true,
       "items": {
         "enum": [
-          "dark", "light", "minimal", "gaming", "neon", "retro",
-          "cyberpunk", "pastel", "high-contrast", "monospace",
-          "racing", "flightsim", "mmo", "fps", "productivity", "creative"
+          "dark",
+          "light",
+          "minimal",
+          "gaming",
+          "neon",
+          "retro",
+          "cyberpunk",
+          "pastel",
+          "high-contrast",
+          "monospace",
+          "racing",
+          "flightsim",
+          "mmo",
+          "fps",
+          "productivity",
+          "creative"
         ]
       }
     },

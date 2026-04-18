@@ -16,6 +16,10 @@ apps/worker/.wrangler/
 packages/shared-types/src/generated/
 apps/desktop/renderer/generated/
 
+# Byte-stable cryptographic fixtures — formatting would invalidate hashes
+crates/*/tests/fixtures/
+apps/worker/test/fixtures/
+
 # Rust artifacts
 target/
 Cargo.lock

@@ -4,31 +4,30 @@ Moderation CLI for the Omni theme-sharing Worker. Reactive moderation: users fil
 
 ## Setup (first time)
 
-1. Generate the admin keypair on a moderator workstation:
+1.  Generate the admin keypair on a moderator workstation:
 
-       admin keygen --output ./admin-identity.key
+        admin keygen --output ./admin-identity.key
 
-   The command prints the hex-encoded public key.
+    The command prints the hex-encoded public key.
 
-2. Add the hex pubkey to the Worker's `OMNI_ADMIN_PUBKEYS` env var (comma-separated list; case-insensitive; trimmed) and redeploy. Multiple moderators = multiple entries.
+2.  Add the hex pubkey to the Worker's `OMNI_ADMIN_PUBKEYS` env var (comma-separated list; case-insensitive; trimmed) and redeploy. Multiple moderators = multiple entries.
 
-3. Move `admin-identity.key` to its permanent location:
+3.  Move `admin-identity.key` to its permanent location:
+    - **Linux/macOS:** `~/.config/omni/admin-identity.key` (mode `600`)
+    - **Windows:** `%APPDATA%\Omni\admin-identity.key` with an ACL locked to your user:
 
-   - **Linux/macOS:** `~/.config/omni/admin-identity.key` (mode `600`)
-   - **Windows:** `%APPDATA%\Omni\admin-identity.key` with an ACL locked to your user:
+          icacls "%APPDATA%\Omni\admin-identity.key" /inheritance:r /grant:r %USERNAME%:R
 
-         icacls "%APPDATA%\Omni\admin-identity.key" /inheritance:r /grant:r %USERNAME%:R
-
-   `admin` refuses to run if permissions are overbroad — standard hygiene, same pattern SSH (`StrictModes`), GnuPG (`~/.gnupg` 0700), and `kubectl` enforce.
+    `admin` refuses to run if permissions are overbroad — standard hygiene, same pattern SSH (`StrictModes`), GnuPG (`~/.gnupg` 0700), and `kubectl` enforce.
 
 ## Global flags
 
-| Flag | Effect |
-|---|---|
-| `--key-file <path>` | Override the default key path (also `OMNI_ADMIN_KEY_FILE` env). |
+| Flag                 | Effect                                                                                   |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `--key-file <path>`  | Override the default key path (also `OMNI_ADMIN_KEY_FILE` env).                          |
 | `--worker-url <url>` | Worker base URL (default `https://themes.omni.prod/`; also `OMNI_ADMIN_WORKER_URL` env). |
-| `--yes` | Skip interactive confirmations. Scripts only. |
-| `--json` | Emit machine-readable JSON instead of pretty text. |
+| `--yes`              | Skip interactive confirmations. Scripts only.                                            |
+| `--json`             | Emit machine-readable JSON instead of pretty text.                                       |
 
 ## Daily use
 
@@ -54,15 +53,15 @@ The log is local-only and forensic — the Worker's KV/D1 state plus its access 
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| `0` | Success |
-| `1` | Generic error (bad args, client-side failures) |
-| `2` | `Admin.*` (not moderator, bad tag, would-orphan, bad value, no-op) |
-| `3` | `Auth.*` (signature, stale timestamp, mismatched method/path) |
-| `4` | `Malformed` / `Integrity` |
-| `5` | `Io` |
-| `6` | `Quota` |
+| Code | Meaning                                                            |
+| ---- | ------------------------------------------------------------------ |
+| `0`  | Success                                                            |
+| `1`  | Generic error (bad args, client-side failures)                     |
+| `2`  | `Admin.*` (not moderator, bad tag, would-orphan, bad value, no-op) |
+| `3`  | `Auth.*` (signature, stale timestamp, mismatched method/path)      |
+| `4`  | `Malformed` / `Integrity`                                          |
+| `5`  | `Io`                                                               |
+| `6`  | `Quota`                                                            |
 
 `--json` mode emits the full `{ error: { code, kind, detail, message } }` envelope on failure so scripts can branch on `kind` without parsing stderr.
 

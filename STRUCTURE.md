@@ -42,10 +42,10 @@ An `apps/*` directory is an **independently-versioned, independently-deployed
 product**. Each app has its own release pipeline and its own user-visible
 distribution channel.
 
-| Current | Type | Distribution |
-|---|---|---|
+| Current         | Type               | Distribution               |
+| --------------- | ------------------ | -------------------------- |
 | `apps/desktop/` | Electron + Nextron | NSIS installer for Windows |
-| `apps/worker/` | Cloudflare Worker | `wrangler deploy` |
+| `apps/worker/`  | Cloudflare Worker  | `wrangler deploy`          |
 
 **Put something here if:** it's the top-level artifact a user or operator
 deploys/installs, with its own release cadence.
@@ -60,16 +60,16 @@ build time**. Rust binaries here (currently `host`, `overlay`) are components
 of `apps/desktop/` — they ship as subprocesses inside the desktop installer
 and have no independent release. Their version is the desktop app's version.
 
-| Current | Type | Role |
-|---|---|---|
-| `crates/host/` | bin (`omni-host.exe`) | Core service: WMI, IPC, bundle lifecycle |
-| `crates/overlay/` | bin (`omni-overlay.exe`) | Anti-cheat fallback overlay renderer |
-| `crates/shared/` | lib | Types shared across Rust + TS (ts-rs source of truth) |
-| `crates/bundle/` | lib | Bundle validation |
-| `crates/sanitize/` | lib | CSS/HTML sanitizer |
-| `crates/identity/` | lib | Ed25519 keypair + JWS signing |
-| `crates/omni-guard-trait/` | lib | Trait for the private `omni-guard` crate |
-| `crates/ultralight-sys/` | lib (FFI) | Ultralight SDK bindings |
+| Current                    | Type                     | Role                                                  |
+| -------------------------- | ------------------------ | ----------------------------------------------------- |
+| `crates/host/`             | bin (`omni-host.exe`)    | Core service: WMI, IPC, bundle lifecycle              |
+| `crates/overlay/`          | bin (`omni-overlay.exe`) | Anti-cheat fallback overlay renderer                  |
+| `crates/shared/`           | lib                      | Types shared across Rust + TS (ts-rs source of truth) |
+| `crates/bundle/`           | lib                      | Bundle validation                                     |
+| `crates/sanitize/`         | lib                      | CSS/HTML sanitizer                                    |
+| `crates/identity/`         | lib                      | Ed25519 keypair + JWS signing                         |
+| `crates/omni-guard-trait/` | lib                      | Trait for the private `omni-guard` crate              |
+| `crates/ultralight-sys/`   | lib (FFI)                | Ultralight SDK bindings                               |
 
 **Put something here if:** it's Rust code that `apps/desktop/` depends on, or
 a Rust library consumed by other Rust code.
@@ -83,8 +83,8 @@ own release channel (→ `apps/`, though no such Rust app exists today).
 Shared TypeScript packages consumed by `apps/*`. Each package has a
 `@omni/*` NPM scope name and is a pnpm workspace member.
 
-| Current | NPM name | Role |
-|---|---|---|
+| Current                  | NPM name             | Role                                                         |
+| ------------------------ | -------------------- | ------------------------------------------------------------ |
 | `packages/shared-types/` | `@omni/shared-types` | ts-rs output from `crates/shared`; the TS view of Rust types |
 
 **Put something here if:** it's TypeScript consumed by two or more apps, or
@@ -98,10 +98,10 @@ realistic cross-app reuse (keep it inside the app).
 Command-line tools for maintainers, CI, or contributors. **Never shipped
 to end users.**
 
-| Current | Language | Role |
-|---|---|---|
-| `tools/admin/` | Rust | Moderation CLI for the themes Worker |
-| `tools/integrity-hash/` | Rust | SHA-256 utility used in the release pipeline |
+| Current                 | Language | Role                                         |
+| ----------------------- | -------- | -------------------------------------------- |
+| `tools/admin/`          | Rust     | Moderation CLI for the themes Worker         |
+| `tools/integrity-hash/` | Rust     | SHA-256 utility used in the release pipeline |
 
 **Put something here if:** it's a CLI that only maintainers or CI will run,
 regardless of language.
@@ -162,6 +162,7 @@ Rust and TypeScript. Types are declared as Rust structs with `#[derive(TS)]`
 and emitted as TypeScript via `ts-rs` into `packages/shared-types/src/generated/`.
 
 **Workflow:**
+
 1. Add/change a type in `crates/shared/src/*.rs`
 2. Run `cargo test -p shared` (ts-rs generates the TS on the test run)
 3. Commit both the Rust change and the regenerated `.ts` files in the same PR
@@ -173,21 +174,21 @@ the PR fails.
 directly:
 
 ```ts
-import type { SensorSnapshot } from "@omni/shared-types";
+import type { SensorSnapshot } from '@omni/shared-types';
 ```
 
 ### Shared config
 
 All shared configuration lives at the repo root. Member packages extend.
 
-| Root file | Purpose |
-|---|---|
-| `tsconfig.base.json` | Shared TS compiler options |
-| `.prettierrc`, `.prettierignore` | Formatting (all Node packages) |
-| `eslint.config.js` | Flat-config lint rules (TS + React + Node + Worker presets) |
-| `package.json` | pnpm workspace root; scripts delegate via `pnpm -r` |
-| `pnpm-workspace.yaml` | Declares `apps/*` and `packages/*` as members |
-| `pnpm-lock.yaml` | Single consolidated lockfile |
+| Root file                        | Purpose                                                     |
+| -------------------------------- | ----------------------------------------------------------- |
+| `tsconfig.base.json`             | Shared TS compiler options                                  |
+| `.prettierrc`, `.prettierignore` | Formatting (all Node packages)                              |
+| `eslint.config.js`               | Flat-config lint rules (TS + React + Node + Worker presets) |
+| `package.json`                   | pnpm workspace root; scripts delegate via `pnpm -r`         |
+| `pnpm-workspace.yaml`            | Declares `apps/*` and `packages/*` as members               |
+| `pnpm-lock.yaml`                 | Single consolidated lockfile                                |
 
 Member packages should **not** redeclare configs — extend from root. If a
 member genuinely needs to override, do so with the narrowest possible delta
@@ -214,6 +215,7 @@ Currently: `vendor/ultralight/` (Ultralight SDK, consumed by
 ### `docs/` — what does and does not belong in VCS
 
 **In VCS:**
+
 - `docs/architecture.md` — runtime architecture
 - `docs/contributing.md` — contribution guide
 - `docs/contracts/` — cross-component authoritative contracts (schemas,
@@ -223,6 +225,7 @@ Currently: `vendor/ultralight/` (Ultralight SDK, consumed by
 - Per-crate/per-app `README.md` and `CONTRIBUTING.md` where useful
 
 **Never in VCS:**
+
 - `docs/superpowers/` is **gitignored** and must stay that way. It contains
   personal AI-tool artifacts (specs, plans, retros). These are not
   project documentation and must never be committed.

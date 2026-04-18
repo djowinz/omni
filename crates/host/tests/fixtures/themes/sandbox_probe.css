@@ -3,6 +3,6 @@
    This file itself is benign — the probe is a negative test: the renderer must
    not resolve the traversal. */
 :root {
-  --bg: url("../../../../etc/passwd");
+  --bg: url('../../../../etc/passwd');
   --text: #ffffff;
 }

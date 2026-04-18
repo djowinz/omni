@@ -14,16 +14,16 @@
  * cleanup could factor the `multipart parse → DO sanitize → decode` prefix
  * into a shared helper in `src/lib/upload_pipeline.ts`.
  */
-import { Hono } from "hono";
-import type { AppEnv } from "../types";
-import { errorResponse, errorFromKind } from "../lib/errors";
-import { verifyJws, AuthError } from "../lib/auth";
-import { isModerator } from "../lib/moderator";
-import { checkAndIncrement } from "../lib/rate_limit";
-import { parseMultipart, MultipartError } from "../lib/multipart";
-import { loadWasm } from "../lib/wasm";
-import { hexEncode } from "../lib/hex";
-import { b64urlDecode, b64urlEncodeJson } from "../lib/base64url";
+import { Hono } from 'hono';
+import type { AppEnv } from '../types';
+import { errorResponse, errorFromKind } from '../lib/errors';
+import { verifyJws, AuthError } from '../lib/auth';
+import { isModerator } from '../lib/moderator';
+import { checkAndIncrement } from '../lib/rate_limit';
+import { parseMultipart, MultipartError } from '../lib/multipart';
+import { loadWasm } from '../lib/wasm';
+import { hexEncode } from '../lib/hex';
+import { b64urlDecode, b64urlEncodeJson } from '../lib/base64url';
 
 const app = new Hono<AppEnv>();
 
@@ -59,25 +59,22 @@ function parseTags(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const p = JSON.parse(raw);
-    if (Array.isArray(p)) return p.filter((t): t is string => typeof t === "string");
+    if (Array.isArray(p)) return p.filter((t): t is string => typeof t === 'string');
   } catch {
     /* fall through */
   }
   return [];
 }
 
-function deriveStatus(row: ArtifactFullRow): "live" | "tombstoned" | "moderation_hold" {
-  if (row.is_removed) return "tombstoned";
+function deriveStatus(row: ArtifactFullRow): 'live' | 'tombstoned' | 'moderation_hold' {
+  if (row.is_removed) return 'tombstoned';
   // `moderation_hold` has no dedicated column in the #007 schema; future
   // moderation work will add one. Until then, a live artifact with any
   // report_count is still public (reports are evidence, not holds).
-  return "live";
+  return 'live';
 }
 
-async function loadArtifact(
-  env: AppEnv["Bindings"],
-  id: string,
-): Promise<ArtifactFullRow | null> {
+async function loadArtifact(env: AppEnv['Bindings'], id: string): Promise<ArtifactFullRow | null> {
   return env.META.prepare(
     `SELECT id, author_pubkey, name, kind, content_hash, thumbnail_hash,
             description, tags, license, version, omni_min_version, signature,
@@ -99,9 +96,9 @@ function artifactResponse(
     artifact_id: row.id,
     kind: row.kind,
     name: row.name,
-    description: row.description ?? "",
+    description: row.description ?? '',
     tags: parseTags(row.tags),
-    license: row.license ?? "",
+    license: row.license ?? '',
     version: row.version,
     omni_min_version: row.omni_min_version,
     // Extracted fresh from R2 per GET via the unsigned fast path
@@ -130,18 +127,18 @@ function artifactResponse(
 // GET /v1/artifact/:id  (unauthenticated; moderator optional for reports)
 // ---------------------------------------------------------------------------
 
-app.get("/:id", async (c) => {
+app.get('/:id', async (c) => {
   const env = c.env;
-  const id = c.req.param("id");
+  const id = c.req.param('id');
   const row = await loadArtifact(env, id);
-  if (!row) return errorFromKind("Malformed", "NotFound", "artifact not found");
+  if (!row) return errorFromKind('Malformed', 'NotFound', 'artifact not found');
 
   // Opportunistic auth — if the caller presented a JWS header, verify it so
   // moderators can see the `reports` count. Failure is non-fatal: we just
   // serve the public view. (Contract: route is unauthenticated by default.)
   let includeReports = false;
   const authHeader =
-    c.req.raw.headers.get("authorization") ?? c.req.raw.headers.get("Authorization");
+    c.req.raw.headers.get('authorization') ?? c.req.raw.headers.get('Authorization');
   if (authHeader) {
     try {
       const authed = await verifyJws(c.req.raw, env, new ArrayBuffer(0));
@@ -177,7 +174,7 @@ app.get("/:id", async (c) => {
 
   return new Response(JSON.stringify(artifactResponse(row, includeReports, manifest)), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 });
 
@@ -185,9 +182,9 @@ app.get("/:id", async (c) => {
 // PATCH /v1/artifact/:id  (author-only; dispatches to BundleProcessor DO)
 // ---------------------------------------------------------------------------
 
-app.patch("/:id", async (c) => {
+app.patch('/:id', async (c) => {
   const env = c.env;
-  const id = c.req.param("id");
+  const id = c.req.param('id');
   const body = await c.req.raw.arrayBuffer();
 
   // 1. Auth.
@@ -195,28 +192,30 @@ app.patch("/:id", async (c) => {
   try {
     authed = await verifyJws(c.req.raw, env, body);
   } catch (e) {
-    if (e instanceof AuthError) return errorFromKind("Auth", e.detail, e.message);
+    if (e instanceof AuthError) return errorFromKind('Auth', e.detail, e.message);
     throw e;
   }
 
   // 2. Load existing artifact.
   const row = await loadArtifact(env, id);
-  if (!row) return errorFromKind("Malformed", "NotFound", "artifact not found");
+  if (!row) return errorFromKind('Malformed', 'NotFound', 'artifact not found');
 
   // 3. Author match (bytewise on the raw 32-byte pubkey).
   const rowPub = new Uint8Array(row.author_pubkey);
   if (!bytesEqual(rowPub, authed.pubkey)) {
-    return errorFromKind("Auth", "Forbidden", "not the author of this artifact");
+    return errorFromKind('Auth', 'Forbidden', 'not the author of this artifact');
   }
 
   // 4. Rate limit.
   const dfHex = hexEncode(authed.device_fp);
   const pubHex = hexEncode(authed.pubkey);
-  const rl = await checkAndIncrement(env, dfHex, pubHex, "upload_update");
+  const rl = await checkAndIncrement(env, dfHex, pubHex, 'upload_update');
   if (!rl.allowed) {
-    if (rl.turnstile) return errorFromKind("Quota", "TurnstileRequired", "turnstile required");
-    return errorResponse(429, "RATE_LIMITED", "update rate limit exceeded", {
-      kind: "Quota", detail: "RateLimited", retryAfter: rl.retry_after,
+    if (rl.turnstile) return errorFromKind('Quota', 'TurnstileRequired', 'turnstile required');
+    return errorResponse(429, 'RATE_LIMITED', 'update rate limit exceeded', {
+      kind: 'Quota',
+      detail: 'RateLimited',
+      retryAfter: rl.retry_after,
     });
   }
 
@@ -235,7 +234,7 @@ app.patch("/:id", async (c) => {
     parts = await parseMultipart(formReq);
   } catch (e) {
     if (e instanceof MultipartError) {
-      return errorFromKind("Malformed", "BadRequest", `multipart: ${e.message}`);
+      return errorFromKind('Malformed', 'BadRequest', `multipart: ${e.message}`);
     }
     throw e;
   }
@@ -246,20 +245,21 @@ app.patch("/:id", async (c) => {
   // time (invariant #9b). Fail-closed if the KV is unseeded. The DO
   // returns JSON `{sanitized_bundle: base64url, sanitize_report,
   // canonical_hash: hex}` on success, or a structured error envelope.
-  const limitsRaw = await env.STATE.get("config:limits");
+  const limitsRaw = await env.STATE.get('config:limits');
   if (!limitsRaw) {
-    return errorResponse(500, "SERVER_ERROR", "config:limits not seeded", {
-      kind: "Io", detail: "Generic",
+    return errorResponse(500, 'SERVER_ERROR', 'config:limits not seeded', {
+      kind: 'Io',
+      detail: 'Generic',
     });
   }
   const limits = JSON.parse(limitsRaw);
   const doId = env.BUNDLE_PROCESSOR.idFromName(dfHex);
   const stub = env.BUNDLE_PROCESSOR.get(doId);
-  const doRes = await stub.fetch("https://do.internal/sanitize", {
-    method: "POST",
+  const doRes = await stub.fetch('https://do.internal/sanitize', {
+    method: 'POST',
     headers: {
-      "content-type": "application/octet-stream",
-      "X-Omni-Bundle-Limits": b64urlEncodeJson(limits),
+      'content-type': 'application/octet-stream',
+      'X-Omni-Bundle-Limits': b64urlEncodeJson(limits),
     },
     body: parts.bundle,
   });
@@ -268,7 +268,7 @@ app.patch("/:id", async (c) => {
     const text = await doRes.text();
     return new Response(text, {
       status: doRes.status,
-      headers: { "content-type": doRes.headers.get("content-type") ?? "application/json" },
+      headers: { 'content-type': doRes.headers.get('content-type') ?? 'application/json' },
     });
   }
 
@@ -280,8 +280,8 @@ app.patch("/:id", async (c) => {
 
   if (doBody.canonical_hash === row.content_hash) {
     return new Response(
-      JSON.stringify({ artifact_id: id, content_hash: row.content_hash, status: "unchanged" }),
-      { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
+      JSON.stringify({ artifact_id: id, content_hash: row.content_hash, status: 'unchanged' }),
+      { status: 200, headers: { 'content-type': 'application/json; charset=utf-8' } },
     );
   }
 
@@ -293,7 +293,7 @@ app.patch("/:id", async (c) => {
   try {
     const { bundle } = await loadWasm();
     const m = bundle.unpackManifest(sanitizedBytes, undefined) as { version?: string };
-    if (typeof m.version === "string") newVersion = m.version;
+    if (typeof m.version === 'string') newVersion = m.version;
   } catch {
     // keep existing version
   }
@@ -307,7 +307,9 @@ app.patch("/:id", async (c) => {
       `UPDATE artifacts
          SET content_hash = ?, version = ?, updated_at = ?
        WHERE id = ?`,
-    ).bind(doBody.canonical_hash, newVersion, now, id).run(),
+    )
+      .bind(doBody.canonical_hash, newVersion, now, id)
+      .run(),
   ]);
 
   return new Response(
@@ -318,9 +320,9 @@ app.patch("/:id", async (c) => {
       thumbnail_url: `/v1/thumbnail/${row.thumbnail_hash}`,
       created_at: row.created_at,
       updated_at: now,
-      status: "updated",
+      status: 'updated',
     }),
-    { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
+    { status: 200, headers: { 'content-type': 'application/json; charset=utf-8' } },
   );
 });
 
@@ -328,31 +330,29 @@ app.patch("/:id", async (c) => {
 // DELETE /v1/artifact/:id  (author-only soft delete)
 // ---------------------------------------------------------------------------
 
-app.delete("/:id", async (c) => {
+app.delete('/:id', async (c) => {
   const env = c.env;
-  const id = c.req.param("id");
+  const id = c.req.param('id');
 
   // DELETE has an empty body; JWS binds over the empty-string body hash.
   let authed;
   try {
     authed = await verifyJws(c.req.raw, env, new ArrayBuffer(0));
   } catch (e) {
-    if (e instanceof AuthError) return errorFromKind("Auth", e.detail, e.message);
+    if (e instanceof AuthError) return errorFromKind('Auth', e.detail, e.message);
     throw e;
   }
 
   const row = await loadArtifact(env, id);
-  if (!row) return errorFromKind("Malformed", "NotFound", "artifact not found");
+  if (!row) return errorFromKind('Malformed', 'NotFound', 'artifact not found');
 
   const rowPub = new Uint8Array(row.author_pubkey);
   if (!bytesEqual(rowPub, authed.pubkey)) {
-    return errorFromKind("Auth", "Forbidden", "not the author of this artifact");
+    return errorFromKind('Auth', 'Forbidden', 'not the author of this artifact');
   }
 
   // Soft-delete: mark removed; keep install_daily history intact.
-  await env.META.prepare(
-    `UPDATE artifacts SET is_removed = 1, updated_at = ? WHERE id = ?`,
-  )
+  await env.META.prepare(`UPDATE artifacts SET is_removed = 1, updated_at = ? WHERE id = ?`)
     .bind(Math.floor(Date.now() / 1000), id)
     .run();
 

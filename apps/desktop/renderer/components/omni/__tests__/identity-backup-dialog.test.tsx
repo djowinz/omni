@@ -38,12 +38,7 @@ describe('IdentityBackupDialog', () => {
   it('disables submit until passphrase+confirm match and length ≥ 12', async () => {
     const user = userEvent.setup();
     render(
-      <IdentityBackupDialog
-        open
-        onOpenChange={vi.fn()}
-        onSuccess={vi.fn()}
-        mode="first-publish"
-      />,
+      <IdentityBackupDialog open onOpenChange={vi.fn()} onSuccess={vi.fn()} mode="first-publish" />,
     );
 
     const submit = screen.getByRole('button', { name: /save backup/i });
@@ -69,9 +64,7 @@ describe('IdentityBackupDialog', () => {
   });
 
   it('on WS success calls onSuccess with saveBackup path and closes dialog', async () => {
-    const sendMessage = vi
-      .fn()
-      .mockResolvedValue({ encrypted_bytes_b64: 'YWJj' }); // "abc"
+    const sendMessage = vi.fn().mockResolvedValue({ encrypted_bytes_b64: 'YWJj' }); // "abc"
     stubOmni(sendMessage);
 
     const saveBackup = vi.fn(async (_bytes: Uint8Array) => '/fake/path.omniid');
@@ -90,18 +83,13 @@ describe('IdentityBackupDialog', () => {
     );
 
     await user.type(screen.getByLabelText('Passphrase'), VALID_PASSPHRASE);
-    await user.type(
-      screen.getByLabelText('Confirm passphrase'),
-      VALID_PASSPHRASE,
-    );
+    await user.type(screen.getByLabelText('Confirm passphrase'), VALID_PASSPHRASE);
 
     const submit = screen.getByRole('button', { name: /save backup/i });
     await waitFor(() => expect(submit).toBeEnabled());
     await user.click(submit);
 
-    await waitFor(() =>
-      expect(onSuccess).toHaveBeenCalledWith('/fake/path.omniid'),
-    );
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('/fake/path.omniid'));
     expect(sendMessage).toHaveBeenCalledWith({
       type: 'identity.backup',
       passphrase: VALID_PASSPHRASE,
@@ -139,10 +127,7 @@ describe('IdentityBackupDialog', () => {
     );
 
     await user.type(screen.getByLabelText('Passphrase'), VALID_PASSPHRASE);
-    await user.type(
-      screen.getByLabelText('Confirm passphrase'),
-      VALID_PASSPHRASE,
-    );
+    await user.type(screen.getByLabelText('Confirm passphrase'), VALID_PASSPHRASE);
 
     const submit = screen.getByRole('button', { name: /save backup/i });
     await waitFor(() => expect(submit).toBeEnabled());

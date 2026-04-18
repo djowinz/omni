@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { env } from "cloudflare:test";
-import { Hono } from "hono";
-import type { Env } from "../src/env";
-import config, { _resetConfigCaches } from "../src/routes/config";
+import { describe, it, expect, beforeEach } from 'vitest';
+import { env } from 'cloudflare:test';
+import { Hono } from 'hono';
+import type { Env } from '../src/env';
+import config, { _resetConfigCaches } from '../src/routes/config';
 
 /**
  * Tier B — public, unauthenticated reads for `GET /v1/config/vocab` and
@@ -18,11 +18,11 @@ import config, { _resetConfigCaches } from "../src/routes/config";
  *      runtime-configurable, which they are not.
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
-const SEED_VOCAB = { tags: ["dark", "light", "minimal"], version: 1 };
+const SEED_VOCAB = { tags: ['dark', 'light', 'minimal'], version: 1 };
 const SEED_LIMITS = {
   max_bundle_compressed: 5_242_880,
   max_bundle_uncompressed: 10_485_760,
@@ -40,46 +40,46 @@ const SEED_LIMITS = {
 
 function mkApp() {
   const app = new Hono<{ Bindings: Env }>();
-  app.route("/v1/config", config);
+  app.route('/v1/config', config);
   return app;
 }
 
 function mkGet(path: string): Request {
-  return new Request(`https://worker.test${path}`, { method: "GET" });
+  return new Request(`https://worker.test${path}`, { method: 'GET' });
 }
 
 beforeEach(async () => {
   _resetConfigCaches();
-  await env.STATE.put("config:vocab", JSON.stringify(SEED_VOCAB));
-  await env.STATE.put("config:limits", JSON.stringify(SEED_LIMITS));
+  await env.STATE.put('config:vocab', JSON.stringify(SEED_VOCAB));
+  await env.STATE.put('config:limits', JSON.stringify(SEED_LIMITS));
 });
 
-describe("GET /v1/config/vocab", () => {
-  it("returns seeded KV with Cache-Control: public, max-age=60", async () => {
-    const res = await mkApp().fetch(mkGet("/v1/config/vocab"), env);
+describe('GET /v1/config/vocab', () => {
+  it('returns seeded KV with Cache-Control: public, max-age=60', async () => {
+    const res = await mkApp().fetch(mkGet('/v1/config/vocab'), env);
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60');
     const body = (await res.json()) as typeof SEED_VOCAB;
     expect(body.tags).toEqual(SEED_VOCAB.tags);
     expect(body.version).toBe(SEED_VOCAB.version);
   });
 
-  it("500s when KV is unseeded", async () => {
+  it('500s when KV is unseeded', async () => {
     _resetConfigCaches();
-    await env.STATE.delete("config:vocab");
-    const res = await mkApp().fetch(mkGet("/v1/config/vocab"), env);
+    await env.STATE.delete('config:vocab');
+    const res = await mkApp().fetch(mkGet('/v1/config/vocab'), env);
     expect(res.status).toBe(500);
     const json = (await res.json()) as { error: { code: string }; kind: string };
-    expect(json.error.code).toBe("SERVER_ERROR");
-    expect(json.kind).toBe("Io");
+    expect(json.error.code).toBe('SERVER_ERROR');
+    expect(json.kind).toBe('Io');
   });
 });
 
-describe("GET /v1/config/limits", () => {
-  it("returns public view with Cache-Control and without SECURITY invariants", async () => {
-    const res = await mkApp().fetch(mkGet("/v1/config/limits"), env);
+describe('GET /v1/config/limits', () => {
+  it('returns public view with Cache-Control and without SECURITY invariants', async () => {
+    const res = await mkApp().fetch(mkGet('/v1/config/limits'), env);
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60');
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.max_bundle_compressed).toBe(SEED_LIMITS.max_bundle_compressed);
     expect(body.max_bundle_uncompressed).toBe(SEED_LIMITS.max_bundle_uncompressed);
@@ -88,18 +88,18 @@ describe("GET /v1/config/limits", () => {
     expect(body.updated_at).toBe(SEED_LIMITS.updated_at);
     // Architectural invariant #9b: these are compile-time constants in
     // `omni-bundle` and MUST NOT surface on the wire as if runtime-tunable.
-    expect("MAX_PATH_DEPTH" in body).toBe(false);
-    expect("MAX_COMPRESSION_RATIO" in body).toBe(false);
-    expect("MAX_PATH_LENGTH" in body).toBe(false);
+    expect('MAX_PATH_DEPTH' in body).toBe(false);
+    expect('MAX_COMPRESSION_RATIO' in body).toBe(false);
+    expect('MAX_PATH_LENGTH' in body).toBe(false);
   });
 
-  it("500s when KV is unseeded", async () => {
+  it('500s when KV is unseeded', async () => {
     _resetConfigCaches();
-    await env.STATE.delete("config:limits");
-    const res = await mkApp().fetch(mkGet("/v1/config/limits"), env);
+    await env.STATE.delete('config:limits');
+    const res = await mkApp().fetch(mkGet('/v1/config/limits'), env);
     expect(res.status).toBe(500);
     const json = (await res.json()) as { error: { code: string }; kind: string };
-    expect(json.error.code).toBe("SERVER_ERROR");
-    expect(json.kind).toBe("Io");
+    expect(json.error.code).toBe('SERVER_ERROR');
+    expect(json.kind).toBe('Io');
   });
 });

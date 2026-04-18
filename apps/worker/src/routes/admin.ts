@@ -1,10 +1,10 @@
-import { Hono } from "hono";
-import type { AppEnv } from "../types";
-import { errorFromKind } from "../lib/errors";
-import { verifyJws, AuthError } from "../lib/auth";
-import { isModerator } from "../lib/moderator";
-import { _resetConfigCaches } from "./config";
-import { hexEncode, hexDecode } from "../lib/hex";
+import { Hono } from 'hono';
+import type { AppEnv } from '../types';
+import { errorFromKind } from '../lib/errors';
+import { verifyJws, AuthError } from '../lib/auth';
+import { isModerator } from '../lib/moderator';
+import { _resetConfigCaches } from './config';
+import { hexEncode, hexDecode } from '../lib/hex';
 
 /**
  * Moderator-only admin endpoints. Spec §9a/9b, contract §4.11/4.12.
@@ -41,7 +41,7 @@ interface LimitsShape {
  *  so the caller can `try { ... } catch (r) { return r; }`. */
 async function requireModerator(
   req: Request,
-  env: AppEnv["Bindings"],
+  env: AppEnv['Bindings'],
   body: ArrayBuffer,
 ): Promise<string> {
   let pubkey: Uint8Array;
@@ -50,21 +50,13 @@ async function requireModerator(
     pubkey = auth.pubkey;
   } catch (e) {
     if (e instanceof AuthError) {
-      throw errorFromKind("Auth", e.detail, e.message);
+      throw errorFromKind('Auth', e.detail, e.message);
     }
-    throw errorFromKind(
-      "Auth",
-      "MalformedEnvelope",
-      e instanceof Error ? e.message : String(e),
-    );
+    throw errorFromKind('Auth', 'MalformedEnvelope', e instanceof Error ? e.message : String(e));
   }
   const pubkeyHex = hexEncode(pubkey);
   if (!isModerator(pubkeyHex, env)) {
-    throw errorFromKind(
-      "Admin",
-      "NotModerator",
-      "pubkey is not on the moderator allowlist",
-    );
+    throw errorFromKind('Admin', 'NotModerator', 'pubkey is not on the moderator allowlist');
   }
   return pubkeyHex;
 }
@@ -74,7 +66,7 @@ const app = new Hono<AppEnv>();
 // ---------------------------------------------------------------------------
 // PATCH /v1/admin/vocab — contract §4.11, spec §9a
 // ---------------------------------------------------------------------------
-app.patch("/vocab", async (c) => {
+app.patch('/vocab', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -86,48 +78,34 @@ app.patch("/vocab", async (c) => {
   try {
     parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+    return errorFromKind('Malformed', 'BadRequest', 'body is not valid JSON');
   }
-  if (!parsed || typeof parsed !== "object") {
-    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  if (!parsed || typeof parsed !== 'object') {
+    return errorFromKind('Malformed', 'BadRequest', 'body must be a JSON object');
   }
   const { add, remove } = parsed as { add?: unknown; remove?: unknown };
   const addList = add === undefined ? [] : add;
   const removeList = remove === undefined ? [] : remove;
   if (!Array.isArray(addList) || !Array.isArray(removeList)) {
-    return errorFromKind("Admin", "BadTag", "add/remove must be string arrays");
+    return errorFromKind('Admin', 'BadTag', 'add/remove must be string arrays');
   }
   for (const t of addList) {
-    if (typeof t !== "string" || !TAG_RE.test(t)) {
-      return errorFromKind(
-        "Admin",
-        "BadTag",
-        `invalid tag in 'add': ${JSON.stringify(t)}`,
-      );
+    if (typeof t !== 'string' || !TAG_RE.test(t)) {
+      return errorFromKind('Admin', 'BadTag', `invalid tag in 'add': ${JSON.stringify(t)}`);
     }
   }
   for (const t of removeList) {
-    if (typeof t !== "string" || !TAG_RE.test(t)) {
-      return errorFromKind(
-        "Admin",
-        "BadTag",
-        `invalid tag in 'remove': ${JSON.stringify(t)}`,
-      );
+    if (typeof t !== 'string' || !TAG_RE.test(t)) {
+      return errorFromKind('Admin', 'BadTag', `invalid tag in 'remove': ${JSON.stringify(t)}`);
     }
   }
   if (addList.length === 0 && removeList.length === 0) {
-    return errorFromKind(
-      "Admin",
-      "NoOp",
-      "at least one of 'add' or 'remove' must be non-empty",
-    );
+    return errorFromKind('Admin', 'NoOp', "at least one of 'add' or 'remove' must be non-empty");
   }
 
-  const current = (await c.env.STATE.get("config:vocab", "json")) as
-    | VocabShape
-    | null;
+  const current = (await c.env.STATE.get('config:vocab', 'json')) as VocabShape | null;
   if (current === null) {
-    return errorFromKind("Io", undefined, "config:vocab not seeded");
+    return errorFromKind('Io', undefined, 'config:vocab not seeded');
   }
 
   const tagSet = new Set(current.tags);
@@ -138,19 +116,19 @@ app.patch("/vocab", async (c) => {
     tags: [...tagSet].sort(),
     version: (current.version ?? 0) + 1,
   };
-  await c.env.STATE.put("config:vocab", JSON.stringify(next));
+  await c.env.STATE.put('config:vocab', JSON.stringify(next));
   _resetConfigCaches();
 
   return new Response(JSON.stringify(next), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 });
 
 // ---------------------------------------------------------------------------
 // PATCH /v1/admin/limits — contract §4.12, spec §9b
 // ---------------------------------------------------------------------------
-app.patch("/limits", async (c) => {
+app.patch('/limits', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -162,61 +140,61 @@ app.patch("/limits", async (c) => {
   try {
     parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+    return errorFromKind('Malformed', 'BadRequest', 'body is not valid JSON');
   }
-  if (!parsed || typeof parsed !== "object") {
-    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  if (!parsed || typeof parsed !== 'object') {
+    return errorFromKind('Malformed', 'BadRequest', 'body must be a JSON object');
   }
 
   const patch = parsed as Partial<Record<keyof LimitsShape, unknown>>;
 
-  const current = (await c.env.STATE.get("config:limits", "json")) as
-    | LimitsShape
-    | null;
+  const current = (await c.env.STATE.get('config:limits', 'json')) as LimitsShape | null;
   if (current === null) {
-    return errorFromKind("Io", undefined, "config:limits not seeded");
+    return errorFromKind('Io', undefined, 'config:limits not seeded');
   }
 
   const next: LimitsShape = { ...current };
 
-  function takeNum(field: "max_bundle_compressed" | "max_bundle_uncompressed" | "max_entries"): Response | null {
+  function takeNum(
+    field: 'max_bundle_compressed' | 'max_bundle_uncompressed' | 'max_entries',
+  ): Response | null {
     if (patch[field] === undefined) return null;
     const v = patch[field];
-    if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v)) {
-      return errorFromKind("Admin", "BadValue", `${field} must be an integer`);
+    if (typeof v !== 'number' || !Number.isFinite(v) || !Number.isInteger(v)) {
+      return errorFromKind('Admin', 'BadValue', `${field} must be an integer`);
     }
     if (v <= 0) {
-      return errorFromKind("Admin", "BadValue", `${field} must be > 0`);
+      return errorFromKind('Admin', 'BadValue', `${field} must be > 0`);
     }
     next[field] = v;
     return null;
   }
 
   const errs =
-    takeNum("max_bundle_compressed") ??
-    takeNum("max_bundle_uncompressed") ??
-    takeNum("max_entries");
+    takeNum('max_bundle_compressed') ??
+    takeNum('max_bundle_uncompressed') ??
+    takeNum('max_entries');
   if (errs !== null) return errs;
 
   if (next.max_bundle_compressed > next.max_bundle_uncompressed) {
     return errorFromKind(
-      "Admin",
-      "BadValue",
-      "max_bundle_compressed must be ≤ max_bundle_uncompressed",
+      'Admin',
+      'BadValue',
+      'max_bundle_compressed must be ≤ max_bundle_uncompressed',
     );
   }
   if (next.max_entries < 1) {
-    return errorFromKind("Admin", "BadValue", "max_entries must be ≥ 1");
+    return errorFromKind('Admin', 'BadValue', 'max_entries must be ≥ 1');
   }
 
   // Orphan check — only if we're lowering max_bundle_compressed.
-  const force = c.req.header("X-Omni-Admin-Force") === "true";
+  const force = c.req.header('X-Omni-Admin-Force') === 'true';
   if (!force && next.max_bundle_compressed < current.max_bundle_compressed) {
     const largest = await largestLiveArtifactSize(c.env);
     if (largest !== null && largest > next.max_bundle_compressed) {
       return errorFromKind(
-        "Admin",
-        "WouldOrphanArtifacts",
+        'Admin',
+        'WouldOrphanArtifacts',
         `lowering max_bundle_compressed to ${next.max_bundle_compressed} would orphan existing artifact(s) (largest=${largest}); set X-Omni-Admin-Force: true to override`,
       );
     }
@@ -225,12 +203,12 @@ app.patch("/limits", async (c) => {
   next.version = (current.version ?? 0) + 1;
   next.updated_at = Math.floor(Date.now() / 1000);
 
-  await c.env.STATE.put("config:limits", JSON.stringify(next));
+  await c.env.STATE.put('config:limits', JSON.stringify(next));
   _resetConfigCaches();
 
   return new Response(JSON.stringify(next), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 });
 
@@ -240,16 +218,14 @@ app.patch("/limits", async (c) => {
  * head lookups are acceptable and simpler than denormalizing size into D1
  * (which would ripple through upload + PATCH paths in sibling tasks).
  */
-async function largestLiveArtifactSize(
-  env: AppEnv["Bindings"],
-): Promise<number | null> {
+async function largestLiveArtifactSize(env: AppEnv['Bindings']): Promise<number | null> {
   const rows = await env.META.prepare(
-    "SELECT DISTINCT content_hash FROM artifacts WHERE is_removed = 0",
+    'SELECT DISTINCT content_hash FROM artifacts WHERE is_removed = 0',
   ).all<{ content_hash: string }>();
   let max: number | null = null;
   for (const row of rows.results ?? []) {
     const head = await env.BLOBS.head(row.content_hash);
-    if (head && typeof head.size === "number") {
+    if (head && typeof head.size === 'number') {
       if (max === null || head.size > max) max = head.size;
     }
   }
@@ -260,8 +236,8 @@ async function largestLiveArtifactSize(
 // Reports queue (T6) — contract §4.13–§4.15.
 // ---------------------------------------------------------------------------
 
-type ReportStatus = "pending" | "reviewed" | "actioned";
-type ReportAction = "no_action" | "removed" | "banned_author";
+type ReportStatus = 'pending' | 'reviewed' | 'actioned';
+type ReportAction = 'no_action' | 'removed' | 'banned_author';
 
 interface ReportRecord {
   id: string;
@@ -277,17 +253,9 @@ interface ReportRecord {
   action_notes?: string;
 }
 
-const VALID_STATUSES: ReadonlySet<ReportStatus> = new Set([
-  "pending",
-  "reviewed",
-  "actioned",
-]);
-const STATUS_ORDER: readonly ReportStatus[] = ["pending", "reviewed", "actioned"];
-const VALID_ACTIONS: ReadonlySet<ReportAction> = new Set([
-  "no_action",
-  "removed",
-  "banned_author",
-]);
+const VALID_STATUSES: ReadonlySet<ReportStatus> = new Set(['pending', 'reviewed', 'actioned']);
+const STATUS_ORDER: readonly ReportStatus[] = ['pending', 'reviewed', 'actioned'];
+const VALID_ACTIONS: ReadonlySet<ReportAction> = new Set(['no_action', 'removed', 'banned_author']);
 
 /**
  * Admin-facing report view — contract §4.13 field names.
@@ -341,7 +309,7 @@ interface ReportsCursor {
 }
 
 function encodeReportsCursor(c: ReportsCursor): string {
-  return btoa(JSON.stringify(c)).replace(/=+$/, "");
+  return btoa(JSON.stringify(c)).replace(/=+$/, '');
 }
 function decodeReportsCursor(s: string): ReportsCursor | null {
   try {
@@ -354,7 +322,7 @@ function decodeReportsCursor(s: string): ReportsCursor | null {
 }
 
 async function listReportsForStatus(
-  env: AppEnv["Bindings"],
+  env: AppEnv['Bindings'],
   status: ReportStatus,
   limit: number,
   kvCursor: string | undefined,
@@ -366,10 +334,8 @@ async function listReportsForStatus(
   });
   const items: AdminReportView[] = [];
   for (const key of list.keys) {
-    const id = key.name.split(":").pop()!;
-    const rec = (await env.STATE.get(`reports:${id}`, "json")) as
-      | ReportRecord
-      | null;
+    const id = key.name.split(':').pop()!;
+    const rec = (await env.STATE.get(`reports:${id}`, 'json')) as ReportRecord | null;
     if (rec !== null) items.push(adminReportView(rec));
   }
   const nextKvCursor = list.list_complete ? undefined : list.cursor;
@@ -377,7 +343,7 @@ async function listReportsForStatus(
 }
 
 // GET /v1/admin/reports?status=&cursor=&limit=
-app.get("/reports", async (c) => {
+app.get('/reports', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -385,29 +351,19 @@ app.get("/reports", async (c) => {
     return r as Response;
   }
 
-  const statusQuery = c.req.query("status");
+  const statusQuery = c.req.query('status');
   const statusParam =
-    statusQuery === undefined || statusQuery === ""
-      ? undefined
-      : (statusQuery as ReportStatus);
+    statusQuery === undefined || statusQuery === '' ? undefined : (statusQuery as ReportStatus);
   if (statusParam !== undefined && !VALID_STATUSES.has(statusParam)) {
-    return errorFromKind(
-      "Malformed",
-      "BadRequest",
-      `invalid status: ${statusParam}`,
-    );
+    return errorFromKind('Malformed', 'BadRequest', `invalid status: ${statusParam}`);
   }
-  const cursorParam = c.req.query("cursor") ?? undefined;
-  const limitRaw = c.req.query("limit");
+  const cursorParam = c.req.query('cursor') ?? undefined;
+  const limitRaw = c.req.query('limit');
   let limit = 25; // contract §4.13 default
   if (limitRaw !== undefined) {
     const parsed = Number.parseInt(limitRaw, 10);
     if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100) {
-      return errorFromKind(
-        "Malformed",
-        "BadRequest",
-        "limit must be in [1, 100]",
-      );
+      return errorFromKind('Malformed', 'BadRequest', 'limit must be in [1, 100]');
     }
     limit = parsed;
   }
@@ -425,7 +381,7 @@ app.get("/reports", async (c) => {
     if (nextKvCursor) resp.next_cursor = nextKvCursor;
     return new Response(JSON.stringify(resp), {
       status: 200,
-      headers: { "content-type": "application/json; charset=utf-8" },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
     });
   }
 
@@ -436,7 +392,7 @@ app.get("/reports", async (c) => {
   if (cursorParam !== undefined) {
     const decoded = decodeReportsCursor(cursorParam);
     if (decoded === null) {
-      return errorFromKind("Malformed", "BadRequest", "invalid cursor");
+      return errorFromKind('Malformed', 'BadRequest', 'invalid cursor');
     }
     startStatusIdx = STATUS_ORDER.indexOf(decoded.status);
     kvCursor = decoded.kv;
@@ -467,28 +423,24 @@ app.get("/reports", async (c) => {
   if (nextCursor) resp.next_cursor = nextCursor;
   return new Response(JSON.stringify(resp), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 });
 
 // GET /v1/admin/report/:id
-app.get("/report/:id", async (c) => {
+app.get('/report/:id', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
   } catch (r) {
     return r as Response;
   }
-  const id = c.req.param("id");
-  const report = (await c.env.STATE.get(`reports:${id}`, "json")) as
-    | ReportRecord
-    | null;
+  const id = c.req.param('id');
+  const report = (await c.env.STATE.get(`reports:${id}`, 'json')) as ReportRecord | null;
   if (report === null) {
-    return errorFromKind("Malformed", "NotFound", `report ${id} not found`);
+    return errorFromKind('Malformed', 'NotFound', `report ${id} not found`);
   }
-  const linked_artifact = await c.env.META.prepare(
-    "SELECT * FROM artifacts WHERE id = ? LIMIT 1",
-  )
+  const linked_artifact = await c.env.META.prepare('SELECT * FROM artifacts WHERE id = ? LIMIT 1')
     .bind(report.artifact_id)
     .first();
   return new Response(
@@ -498,13 +450,13 @@ app.get("/report/:id", async (c) => {
     }),
     {
       status: 200,
-      headers: { "content-type": "application/json; charset=utf-8" },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
     },
   );
 });
 
 // POST /v1/admin/report/:id/action
-app.post("/report/:id/action", async (c) => {
+app.post('/report/:id/action', async (c) => {
   const body = await c.req.arrayBuffer();
   let pubkeyHex: string;
   try {
@@ -517,46 +469,39 @@ app.post("/report/:id/action", async (c) => {
   try {
     parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+    return errorFromKind('Malformed', 'BadRequest', 'body is not valid JSON');
   }
-  if (!parsed || typeof parsed !== "object") {
-    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  if (!parsed || typeof parsed !== 'object') {
+    return errorFromKind('Malformed', 'BadRequest', 'body must be a JSON object');
   }
   const { action, notes } = parsed as { action?: unknown; notes?: unknown };
-  if (typeof action !== "string" || !VALID_ACTIONS.has(action as ReportAction)) {
-    return errorFromKind(
-      "Malformed",
-      "BadRequest",
-      `invalid action: ${JSON.stringify(action)}`,
-    );
+  if (typeof action !== 'string' || !VALID_ACTIONS.has(action as ReportAction)) {
+    return errorFromKind('Malformed', 'BadRequest', `invalid action: ${JSON.stringify(action)}`);
   }
   // Treat explicit JSON null as "not provided" — the CLI emits `notes: null`
   // when the operator omits `--notes`, and `typeof null === "object"` would
   // otherwise reject it. Defense-in-depth; the CLI is fixed separately.
-  if (notes !== undefined && notes !== null && typeof notes !== "string") {
-    return errorFromKind("Malformed", "BadRequest", "notes must be a string");
+  if (notes !== undefined && notes !== null && typeof notes !== 'string') {
+    return errorFromKind('Malformed', 'BadRequest', 'notes must be a string');
   }
 
-  const id = c.req.param("id");
-  const existing = (await c.env.STATE.get(`reports:${id}`, "json")) as
-    | ReportRecord
-    | null;
+  const id = c.req.param('id');
+  const existing = (await c.env.STATE.get(`reports:${id}`, 'json')) as ReportRecord | null;
   if (existing === null) {
-    return errorFromKind("Malformed", "NotFound", `report ${id} not found`);
+    return errorFromKind('Malformed', 'NotFound', `report ${id} not found`);
   }
-  if (existing.status !== "pending") {
-    return errorFromKind("Admin", "NoOp", "report already actioned");
+  if (existing.status !== 'pending') {
+    return errorFromKind('Admin', 'NoOp', 'report already actioned');
   }
 
-  const newStatus: ReportStatus =
-    action === "no_action" ? "reviewed" : "actioned";
+  const newStatus: ReportStatus = action === 'no_action' ? 'reviewed' : 'actioned';
   const updated: ReportRecord = {
     ...existing,
     status: newStatus,
     actioned_by: pubkeyHex,
     action: action as ReportAction,
   };
-  if (typeof notes === "string") updated.action_notes = notes;
+  if (typeof notes === 'string') updated.action_notes = notes;
 
   // Swap secondary-index key. Best-effort: delete old before writing new so
   // a crash between the two leaves the queue clean of the pending entry.
@@ -572,7 +517,7 @@ app.post("/report/:id/action", async (c) => {
   // Contract §4.15: response is the updated report object directly (no wrapper).
   return new Response(JSON.stringify(adminReportView(updated)), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 });
 
@@ -598,7 +543,7 @@ app.post("/report/:id/action", async (c) => {
  * Consumed by T8 (ban-author cascade) and the `/artifact/:id/remove` handler
  * below. Keep the return-value contract stable — T8 branches on it.
  */
-export type TombstoneStatus = "removed" | "already_tombstoned" | "not_found";
+export type TombstoneStatus = 'removed' | 'already_tombstoned' | 'not_found';
 export interface TombstoneResult {
   status: TombstoneStatus;
   /** Canonical content_hash of the artifact. Undefined only when `status ===
@@ -607,12 +552,12 @@ export interface TombstoneResult {
 }
 
 export async function tombstoneArtifact(
-  env: AppEnv["Bindings"],
+  env: AppEnv['Bindings'],
   id: string,
   reason: string,
 ): Promise<TombstoneResult> {
   const row = await env.META.prepare(
-    "SELECT id, content_hash, thumbnail_hash, is_removed FROM artifacts WHERE id = ?",
+    'SELECT id, content_hash, thumbnail_hash, is_removed FROM artifacts WHERE id = ?',
   )
     .bind(id)
     .first<{
@@ -621,28 +566,26 @@ export async function tombstoneArtifact(
       thumbnail_hash: string | null;
       is_removed: number;
     }>();
-  if (!row) return { status: "not_found" };
+  if (!row) return { status: 'not_found' };
 
   if (row.is_removed) {
     const existingTomb = await env.META.prepare(
-      "SELECT content_hash FROM tombstones WHERE content_hash = ?",
+      'SELECT content_hash FROM tombstones WHERE content_hash = ?',
     )
       .bind(row.content_hash)
       .first<{ content_hash: string }>();
     if (existingTomb) {
-      return { status: "already_tombstoned", content_hash: row.content_hash };
+      return { status: 'already_tombstoned', content_hash: row.content_hash };
     }
   }
 
   const now = Math.floor(Date.now() / 1000);
   await env.META.prepare(
-    "INSERT OR REPLACE INTO tombstones (content_hash, reason, removed_at) VALUES (?, ?, ?)",
+    'INSERT OR REPLACE INTO tombstones (content_hash, reason, removed_at) VALUES (?, ?, ?)',
   )
     .bind(row.content_hash, reason, now)
     .run();
-  await env.META.prepare(
-    "UPDATE artifacts SET is_removed = 1, updated_at = ? WHERE id = ?",
-  )
+  await env.META.prepare('UPDATE artifacts SET is_removed = 1, updated_at = ? WHERE id = ?')
     .bind(now, id)
     .run();
 
@@ -663,10 +606,10 @@ export async function tombstoneArtifact(
     }
   }
 
-  return { status: "removed", content_hash: row.content_hash };
+  return { status: 'removed', content_hash: row.content_hash };
 }
 
-app.post("/artifact/:id/remove", async (c) => {
+app.post('/artifact/:id/remove', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -678,20 +621,20 @@ app.post("/artifact/:id/remove", async (c) => {
   try {
     parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+    return errorFromKind('Malformed', 'BadRequest', 'body is not valid JSON');
   }
-  if (!parsed || typeof parsed !== "object") {
-    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  if (!parsed || typeof parsed !== 'object') {
+    return errorFromKind('Malformed', 'BadRequest', 'body must be a JSON object');
   }
   const { reason } = parsed as { reason?: unknown };
-  if (typeof reason !== "string" || reason.length === 0) {
-    return errorFromKind("Malformed", "BadRequest", "reason must be a non-empty string");
+  if (typeof reason !== 'string' || reason.length === 0) {
+    return errorFromKind('Malformed', 'BadRequest', 'reason must be a non-empty string');
   }
 
-  const id = c.req.param("id");
+  const id = c.req.param('id');
   const result = await tombstoneArtifact(c.env, id, reason);
-  if (result.status === "not_found") {
-    return errorFromKind("Malformed", "NotFound", `artifact ${id} not found`);
+  if (result.status === 'not_found') {
+    return errorFromKind('Malformed', 'NotFound', `artifact ${id} not found`);
   }
 
   return new Response(
@@ -700,7 +643,7 @@ app.post("/artifact/:id/remove", async (c) => {
       status: result.status,
       content_hash: result.content_hash,
     }),
-    { status: 200, headers: { "content-type": "application/json; charset=utf-8" } },
+    { status: 200, headers: { 'content-type': 'application/json; charset=utf-8' } },
   );
 });
 
@@ -726,10 +669,10 @@ async function parseJsonBody(body: ArrayBuffer): Promise<Record<string, unknown>
   try {
     parsed = body.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return errorFromKind("Malformed", "BadRequest", "body is not valid JSON");
+    return errorFromKind('Malformed', 'BadRequest', 'body is not valid JSON');
   }
-  if (!parsed || typeof parsed !== "object") {
-    return errorFromKind("Malformed", "BadRequest", "body must be a JSON object");
+  if (!parsed || typeof parsed !== 'object') {
+    return errorFromKind('Malformed', 'BadRequest', 'body must be a JSON object');
   }
   return parsed as Record<string, unknown>;
 }
@@ -737,12 +680,12 @@ async function parseJsonBody(body: ArrayBuffer): Promise<Record<string, unknown>
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 }
 
 // POST /v1/admin/pubkey/ban
-app.post("/pubkey/ban", async (c) => {
+app.post('/pubkey/ban', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -753,15 +696,15 @@ app.post("/pubkey/ban", async (c) => {
   if (parsedOrErr instanceof Response) return parsedOrErr;
   const { pubkey, reason } = parsedOrErr as { pubkey?: unknown; reason?: unknown };
 
-  if (typeof pubkey !== "string") {
-    return errorFromKind("Malformed", "BadRequest", "pubkey must be a string");
+  if (typeof pubkey !== 'string') {
+    return errorFromKind('Malformed', 'BadRequest', 'pubkey must be a string');
   }
   const pubkeyHex = pubkey.toLowerCase();
   if (!HEX64_RE.test(pubkeyHex)) {
-    return errorFromKind("Malformed", "BadRequest", "pubkey must be 64-char hex");
+    return errorFromKind('Malformed', 'BadRequest', 'pubkey must be 64-char hex');
   }
-  if (typeof reason !== "string" || reason.length === 0) {
-    return errorFromKind("Malformed", "BadRequest", "reason must be a non-empty string");
+  if (typeof reason !== 'string' || reason.length === 0) {
+    return errorFromKind('Malformed', 'BadRequest', 'reason must be a non-empty string');
   }
 
   const pubkeyBlob = hexDecode(pubkeyHex);
@@ -776,21 +719,16 @@ app.post("/pubkey/ban", async (c) => {
   )
     .bind(pubkeyBlob, now)
     .run();
-  await c.env.META.prepare(
-    `UPDATE authors SET is_denied = 1 WHERE pubkey = ?`,
-  )
+  await c.env.META.prepare(`UPDATE authors SET is_denied = 1 WHERE pubkey = ?`)
     .bind(pubkeyBlob)
     .run();
 
   // KV mirror for fast-path verifyJws + rate_limit denylist checks.
-  await c.env.STATE.put(
-    `denylist:pubkey:${pubkeyHex}`,
-    JSON.stringify({ reason, at: now }),
-  );
+  await c.env.STATE.put(`denylist:pubkey:${pubkeyHex}`, JSON.stringify({ reason, at: now }));
 
   // Cascade: tombstone every live artifact by this author.
   const liveRows = await c.env.META.prepare(
-    "SELECT id FROM artifacts WHERE author_pubkey = ? AND is_removed = 0",
+    'SELECT id FROM artifacts WHERE author_pubkey = ? AND is_removed = 0',
   )
     .bind(pubkeyBlob)
     .all<{ id: string }>();
@@ -799,12 +737,8 @@ app.post("/pubkey/ban", async (c) => {
   let cascade_errors = 0;
   for (const row of liveRows.results ?? []) {
     try {
-      const result = await tombstoneArtifact(
-        c.env,
-        row.id,
-        `author ban: ${reason}`,
-      );
-      if (result.status === "removed") cascade_count++;
+      const result = await tombstoneArtifact(c.env, row.id, `author ban: ${reason}`);
+      if (result.status === 'removed') cascade_count++;
     } catch {
       cascade_errors++;
     }
@@ -812,14 +746,14 @@ app.post("/pubkey/ban", async (c) => {
 
   return jsonResponse({
     pubkey: pubkeyHex,
-    status: "banned",
+    status: 'banned',
     cascade_count,
     cascade_errors,
   });
 });
 
 // POST /v1/admin/pubkey/unban
-app.post("/pubkey/unban", async (c) => {
+app.post('/pubkey/unban', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -830,18 +764,16 @@ app.post("/pubkey/unban", async (c) => {
   if (parsedOrErr instanceof Response) return parsedOrErr;
   const { pubkey } = parsedOrErr as { pubkey?: unknown };
 
-  if (typeof pubkey !== "string") {
-    return errorFromKind("Malformed", "BadRequest", "pubkey must be a string");
+  if (typeof pubkey !== 'string') {
+    return errorFromKind('Malformed', 'BadRequest', 'pubkey must be a string');
   }
   const pubkeyHex = pubkey.toLowerCase();
   if (!HEX64_RE.test(pubkeyHex)) {
-    return errorFromKind("Malformed", "BadRequest", "pubkey must be 64-char hex");
+    return errorFromKind('Malformed', 'BadRequest', 'pubkey must be 64-char hex');
   }
 
   const pubkeyBlob = hexDecode(pubkeyHex);
-  await c.env.META.prepare(
-    `UPDATE authors SET is_denied = 0 WHERE pubkey = ?`,
-  )
+  await c.env.META.prepare(`UPDATE authors SET is_denied = 0 WHERE pubkey = ?`)
     .bind(pubkeyBlob)
     .run();
   await c.env.STATE.delete(`denylist:pubkey:${pubkeyHex}`);
@@ -849,11 +781,11 @@ app.post("/pubkey/unban", async (c) => {
   // Tombstones are intentionally NOT resurrected (spec §5 — unban lifts the
   // gate on future uploads but does not undo moderation decisions on prior
   // content).
-  return jsonResponse({ pubkey: pubkeyHex, status: "unbanned" });
+  return jsonResponse({ pubkey: pubkeyHex, status: 'unbanned' });
 });
 
 // POST /v1/admin/device/ban
-app.post("/device/ban", async (c) => {
+app.post('/device/ban', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -867,27 +799,24 @@ app.post("/device/ban", async (c) => {
     reason?: unknown;
   };
 
-  if (typeof device_fp !== "string") {
-    return errorFromKind("Malformed", "BadRequest", "device_fp must be a string");
+  if (typeof device_fp !== 'string') {
+    return errorFromKind('Malformed', 'BadRequest', 'device_fp must be a string');
   }
   const dfHex = device_fp.toLowerCase();
   if (!HEX64_RE.test(dfHex)) {
-    return errorFromKind("Malformed", "BadRequest", "device_fp must be 64-char hex");
+    return errorFromKind('Malformed', 'BadRequest', 'device_fp must be 64-char hex');
   }
-  if (typeof reason !== "string" || reason.length === 0) {
-    return errorFromKind("Malformed", "BadRequest", "reason must be a non-empty string");
+  if (typeof reason !== 'string' || reason.length === 0) {
+    return errorFromKind('Malformed', 'BadRequest', 'reason must be a non-empty string');
   }
 
   const now = Math.floor(Date.now() / 1000);
-  await c.env.STATE.put(
-    `denylist:device:${dfHex}`,
-    JSON.stringify({ reason, at: now }),
-  );
-  return jsonResponse({ device_fp: dfHex, status: "banned" });
+  await c.env.STATE.put(`denylist:device:${dfHex}`, JSON.stringify({ reason, at: now }));
+  return jsonResponse({ device_fp: dfHex, status: 'banned' });
 });
 
 // POST /v1/admin/device/unban
-app.post("/device/unban", async (c) => {
+app.post('/device/unban', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -898,16 +827,16 @@ app.post("/device/unban", async (c) => {
   if (parsedOrErr instanceof Response) return parsedOrErr;
   const { device_fp } = parsedOrErr as { device_fp?: unknown };
 
-  if (typeof device_fp !== "string") {
-    return errorFromKind("Malformed", "BadRequest", "device_fp must be a string");
+  if (typeof device_fp !== 'string') {
+    return errorFromKind('Malformed', 'BadRequest', 'device_fp must be a string');
   }
   const dfHex = device_fp.toLowerCase();
   if (!HEX64_RE.test(dfHex)) {
-    return errorFromKind("Malformed", "BadRequest", "device_fp must be 64-char hex");
+    return errorFromKind('Malformed', 'BadRequest', 'device_fp must be 64-char hex');
   }
 
   await c.env.STATE.delete(`denylist:device:${dfHex}`);
-  return jsonResponse({ device_fp: dfHex, status: "unbanned" });
+  return jsonResponse({ device_fp: dfHex, status: 'unbanned' });
 });
 
 // ---------------------------------------------------------------------------
@@ -927,7 +856,7 @@ app.post("/device/unban", async (c) => {
 //   vocab_version   : `config:vocab` JSON .version, default 0.
 //   limits_version  : `config:limits` JSON .version, default 0.
 // ---------------------------------------------------------------------------
-app.get("/stats", async (c) => {
+app.get('/stats', async (c) => {
   const body = await c.req.arrayBuffer();
   try {
     await requireModerator(c.req.raw, c.env, body);
@@ -947,28 +876,24 @@ app.get("/stats", async (c) => {
     vocabBlob,
     limitsBlob,
   ] = await Promise.all([
-    countKvPrefix(c.env, "reports-by-status:pending:"),
-    countKvPrefix(c.env, "reports-by-status:reviewed:"),
-    countKvPrefix(c.env, "reports-by-status:actioned:"),
-    c.env.META.prepare(
-      "SELECT COUNT(*) AS c FROM authors WHERE is_denied = 1",
-    ).first<{ c: number | bigint | string }>(),
-    countKvPrefix(c.env, "denylist:device:"),
-    c.env.META.prepare(
-      "SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 0",
-    ).first<{ c: number | bigint | string }>(),
-    c.env.META.prepare(
-      "SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 1",
-    ).first<{ c: number | bigint | string }>(),
-    c.env.META.prepare(
-      "SELECT COALESCE(SUM(install_count), 0) AS c FROM artifacts",
-    ).first<{ c: number | bigint | string }>(),
-    c.env.STATE.get("config:vocab", "json") as Promise<
-      { version?: number } | null
-    >,
-    c.env.STATE.get("config:limits", "json") as Promise<
-      { version?: number } | null
-    >,
+    countKvPrefix(c.env, 'reports-by-status:pending:'),
+    countKvPrefix(c.env, 'reports-by-status:reviewed:'),
+    countKvPrefix(c.env, 'reports-by-status:actioned:'),
+    c.env.META.prepare('SELECT COUNT(*) AS c FROM authors WHERE is_denied = 1').first<{
+      c: number | bigint | string;
+    }>(),
+    countKvPrefix(c.env, 'denylist:device:'),
+    c.env.META.prepare('SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 0').first<{
+      c: number | bigint | string;
+    }>(),
+    c.env.META.prepare('SELECT COUNT(*) AS c FROM artifacts WHERE is_removed = 1').first<{
+      c: number | bigint | string;
+    }>(),
+    c.env.META.prepare('SELECT COALESCE(SUM(install_count), 0) AS c FROM artifacts').first<{
+      c: number | bigint | string;
+    }>(),
+    c.env.STATE.get('config:vocab', 'json') as Promise<{ version?: number } | null>,
+    c.env.STATE.get('config:limits', 'json') as Promise<{ version?: number } | null>,
   ]);
 
   return jsonResponse({
@@ -990,8 +915,8 @@ app.get("/stats", async (c) => {
  *  driver behavior on large counts. */
 function toNum(v: number | bigint | string | undefined | null): number {
   if (v === null || v === undefined) return 0;
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
+  if (typeof v === 'number') return v;
+  if (typeof v === 'bigint') return Number(v);
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
@@ -1000,10 +925,7 @@ function toNum(v: number | bigint | string | undefined | null): number {
  *  count. Single-page is the common case (pending queues stay small);
  *  the loop is for future growth. Local helper — not shared, no other
  *  caller today. */
-async function countKvPrefix(
-  env: AppEnv["Bindings"],
-  prefix: string,
-): Promise<number> {
+async function countKvPrefix(env: AppEnv['Bindings'], prefix: string): Promise<number> {
   let count = 0;
   let cursor: string | undefined;
   do {

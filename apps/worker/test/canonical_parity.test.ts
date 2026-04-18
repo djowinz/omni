@@ -21,10 +21,9 @@
  * If (1) fails, that is a real WASM bug — DO NOT regenerate the golden.
  * Surface BLOCKED per plan guidance.
  */
-import { describe, it, expect } from "vitest";
-import { canonicalHash } from "../src/lib/canonical";
-import { loadWasm } from "../src/lib/wasm";
-
+import { describe, it, expect } from 'vitest';
+import { canonicalHash } from '../src/lib/canonical';
+import { loadWasm } from '../src/lib/wasm';
 
 // The workerd-based test pool does not implement `node:fs`, so we load the
 // golden fixtures via Vite's `?raw` asset transform at build time. The two
@@ -43,18 +42,18 @@ import { loadWasm } from "../src/lib/wasm";
 // to these two lines — if a future config makes `?raw` resolvable in the
 // type system, tsc will flag the directives as unused and prompt removal.
 // @ts-expect-error — `?raw` is a Vite import suffix handled at transform time.
-import manifestRaw from "../../../crates/bundle/tests/fixtures/golden-manifest.json?raw";
+import manifestRaw from '../../../crates/bundle/tests/fixtures/golden-manifest.json?raw';
 // @ts-expect-error — `?raw` is a Vite import suffix handled at transform time.
-import hashRaw from "../../../crates/bundle/tests/fixtures/golden-hash.hex?raw";
+import hashRaw from '../../../crates/bundle/tests/fixtures/golden-hash.hex?raw';
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-describe("canonical_hash WASM↔native parity (umbrella §8.2)", () => {
-  it("wasm canonicalHash(golden-manifest) matches committed golden hex", async () => {
+describe('canonical_hash WASM↔native parity (umbrella §8.2)', () => {
+  it('wasm canonicalHash(golden-manifest) matches committed golden hex', async () => {
     await loadWasm();
 
     // Raw bytes = the RFC 8785 JCS canonical form on disk.
@@ -69,13 +68,10 @@ describe("canonical_hash WASM↔native parity (umbrella §8.2)", () => {
     const wasmHex = toHex(wasmHash);
 
     // (2) SHA-256 of the on-disk canonical bytes directly.
-    const directDigest = new Uint8Array(
-      await crypto.subtle.digest("SHA-256", manifestBytes),
-    );
+    const directDigest = new Uint8Array(await crypto.subtle.digest('SHA-256', manifestBytes));
     const directHex = toHex(directDigest);
 
     // Diagnostic — surfaces all three when a failure lands in CI logs.
-    // eslint-disable-next-line no-console
     console.log(
       `[canonical_parity] golden=${goldenHex}\n[canonical_parity] wasm  =${wasmHex}\n[canonical_parity] direct=${directHex}`,
     );

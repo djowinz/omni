@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { env } from "cloudflare:test";
-import * as ed from "@noble/ed25519";
-import type { Env } from "../src/env";
-import { verifyJws, AuthError } from "../src/lib/auth";
+import { describe, it, expect, beforeEach } from 'vitest';
+import { env } from 'cloudflare:test';
+import * as ed from '@noble/ed25519';
+import type { Env } from '../src/env';
+import { verifyJws, AuthError } from '../src/lib/auth';
 
 /**
  * Tier B — Miniflare-backed tests for the attached-payload JWS verifier
@@ -26,16 +26,16 @@ import { verifyJws, AuthError } from "../src/lib/auth";
  * Fixture keypair comes from `test/fixtures/fixtures.json` (plan #008 W1T3).
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
 // ---------------------------------------------------------------------------
 // Fixture key material (plan #008 W1T3 — seed 0x07 repeated, matching native).
 // ---------------------------------------------------------------------------
-const SEED_HEX = "0707070707070707070707070707070707070707070707070707070707070707";
-const PUBKEY_HEX = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const DF_HEX = "dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
+const PUBKEY_HEX = 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c';
+const DF_HEX = 'dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -43,8 +43,8 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, '0');
   return s;
 }
 
@@ -54,18 +54,16 @@ const DF_BYTES = hexToBytes(DF_HEX);
 
 /** Standard base64 (RFC 4648 §4, `+/` alphabet, padding preserved). */
 function b64StdEncode(bytes: Uint8Array): string {
-  let bin = "";
+  let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
   return btoa(bin);
 }
 
-const B64URL_CHARS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const B64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
 function b64urlEncode(bytes: Uint8Array | string): string {
-  const b =
-    typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  let s = "";
+  const b = typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes;
+  let s = '';
   let i = 0;
   for (; i + 3 <= b.length; i += 3) {
     const n = (b[i]! << 16) | (b[i + 1]! << 8) | b[i + 2]!;
@@ -86,7 +84,7 @@ function b64urlEncode(bytes: Uint8Array | string): string {
 
 async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const d = await crypto.subtle.digest("SHA-256", buf);
+  const d = await crypto.subtle.digest('SHA-256', buf);
   return bytesToHex(new Uint8Array(d));
 }
 
@@ -114,9 +112,9 @@ interface SignOptions {
  */
 async function signJws(o: SignOptions = {}): Promise<string> {
   const body = o.body ?? new Uint8Array();
-  const query = o.query ?? "";
-  const method = o.method ?? "POST";
-  const path = o.path ?? "/v1/upload";
+  const query = o.query ?? '';
+  const method = o.method ?? 'POST';
+  const path = o.path ?? '/v1/upload';
   const ts = o.ts ?? Math.floor(Date.now() / 1000);
   const sanitizeVersion = o.sanitizeVersion ?? 1;
   const pubkey = o.pubkey ?? PUBKEY_BYTES;
@@ -127,9 +125,9 @@ async function signJws(o: SignOptions = {}): Promise<string> {
   // Field order matches `HttpJwsClaims` struct declaration: alg, crv, typ,
   // kid, df, ts, method, path, query_sha256, body_sha256, sanitize_version.
   const claims = {
-    alg: "EdDSA",
-    crv: "Ed25519",
-    typ: "Omni-HTTP-JWS",
+    alg: 'EdDSA',
+    crv: 'Ed25519',
+    typ: 'Omni-HTTP-JWS',
     kid: b64StdEncode(pubkey),
     df: b64StdEncode(dfBytes),
     ts,
@@ -154,14 +152,17 @@ async function signJws(o: SignOptions = {}): Promise<string> {
   return `${headerB64}.${payloadB64}.${b64urlEncode(sig)}`;
 }
 
-function mkReq(jws: string | null, opts: { method?: string; path?: string; body?: Uint8Array; query?: string } = {}): Request {
-  const method = opts.method ?? "POST";
-  const query = opts.query ?? "";
-  const url = `https://worker.test${opts.path ?? "/v1/upload"}${query ? `?${query}` : ""}`;
+function mkReq(
+  jws: string | null,
+  opts: { method?: string; path?: string; body?: Uint8Array; query?: string } = {},
+): Request {
+  const method = opts.method ?? 'POST';
+  const query = opts.query ?? '';
+  const url = `https://worker.test${opts.path ?? '/v1/upload'}${query ? `?${query}` : ''}`;
   const headers = new Headers();
-  if (jws !== null) headers.set("Authorization", `Omni-JWS ${jws}`);
+  if (jws !== null) headers.set('Authorization', `Omni-JWS ${jws}`);
   const init: RequestInit = { method, headers };
-  if (opts.body !== undefined && method !== "GET") {
+  if (opts.body !== undefined && method !== 'GET') {
     init.body = opts.body;
   }
   return new Request(url, init);
@@ -184,8 +185,8 @@ beforeEach(async () => {
   await env.STATE.delete(`denylist:pubkey:${PUBKEY_HEX}`);
 });
 
-describe("verifyJws — happy path", () => {
-  it("accepts a correctly-signed request and returns AuthedRequest", async () => {
+describe('verifyJws — happy path', () => {
+  it('accepts a correctly-signed request and returns AuthedRequest', async () => {
     const body = new TextEncoder().encode('{"hello":"world"}');
     const jws = await signJws({ body });
     const req = mkReq(jws, { body });
@@ -196,55 +197,52 @@ describe("verifyJws — happy path", () => {
     expect(auth.ts).toBeGreaterThan(0);
   });
 
-  it("accepts empty-body + empty-query GET-shaped request", async () => {
+  it('accepts empty-body + empty-query GET-shaped request', async () => {
     const body = new Uint8Array();
-    const jws = await signJws({ method: "POST", path: "/v1/report", body });
-    const req = mkReq(jws, { method: "POST", path: "/v1/report", body });
+    const jws = await signJws({ method: 'POST', path: '/v1/report', body });
+    const req = mkReq(jws, { method: 'POST', path: '/v1/report', body });
     const auth = await verifyJws(req, env, body.buffer as ArrayBuffer);
     expect(bytesToHex(auth.pubkey)).toBe(PUBKEY_HEX);
   });
 
-  it("accepts non-empty query when hashed into query_sha256", async () => {
+  it('accepts non-empty query when hashed into query_sha256', async () => {
     const body = new Uint8Array();
-    const query = "kind=bundle&sort=new";
-    const jws = await signJws({ body, query, path: "/v1/list", method: "GET" });
-    const req = mkReq(jws, { method: "GET", path: "/v1/list", query });
+    const query = 'kind=bundle&sort=new';
+    const jws = await signJws({ body, query, path: '/v1/list', method: 'GET' });
+    const req = mkReq(jws, { method: 'GET', path: '/v1/list', query });
     const auth = await verifyJws(req, env, body.buffer as ArrayBuffer);
     expect(auth.sanitize_version).toBe(1);
   });
 });
 
-describe("verifyJws — envelope failures", () => {
-  it("missing Authorization → AUTH_MALFORMED_ENVELOPE", async () => {
+describe('verifyJws — envelope failures', () => {
+  it('missing Authorization → AUTH_MALFORMED_ENVELOPE', async () => {
     const req = mkReq(null);
-    const ae = await expectAuthError(
-      verifyJws(req, env, new ArrayBuffer(0)),
-      "MalformedEnvelope",
-    );
-    expect(ae.code).toBe("AUTH_MALFORMED_ENVELOPE");
+    const ae = await expectAuthError(verifyJws(req, env, new ArrayBuffer(0)), 'MalformedEnvelope');
+    expect(ae.code).toBe('AUTH_MALFORMED_ENVELOPE');
   });
 
-  it("wrong prefix (Bearer) → AUTH_MALFORMED_ENVELOPE", async () => {
+  it('wrong prefix (Bearer) → AUTH_MALFORMED_ENVELOPE', async () => {
     const body = new Uint8Array();
     const jws = await signJws({ body });
-    const req = new Request("https://worker.test/v1/upload", {
-      method: "POST",
+    const req = new Request('https://worker.test/v1/upload', {
+      method: 'POST',
       headers: { Authorization: `Bearer ${jws}` },
     });
-    await expectAuthError(verifyJws(req, env, body.buffer as ArrayBuffer), "MalformedEnvelope");
+    await expectAuthError(verifyJws(req, env, body.buffer as ArrayBuffer), 'MalformedEnvelope');
   });
 
-  it("non-3-segment compact → AUTH_MALFORMED_ENVELOPE", async () => {
-    const req = new Request("https://worker.test/v1/upload", {
-      method: "POST",
-      headers: { Authorization: "Omni-JWS aaa.bbb" },
+  it('non-3-segment compact → AUTH_MALFORMED_ENVELOPE', async () => {
+    const req = new Request('https://worker.test/v1/upload', {
+      method: 'POST',
+      headers: { Authorization: 'Omni-JWS aaa.bbb' },
     });
-    await expectAuthError(verifyJws(req, env, new ArrayBuffer(0)), "MalformedEnvelope");
+    await expectAuthError(verifyJws(req, env, new ArrayBuffer(0)), 'MalformedEnvelope');
   });
 });
 
-describe("verifyJws — header validation", () => {
-  it("alg = HS256 → AUTH_UNSUPPORTED_ALG", async () => {
+describe('verifyJws — header validation', () => {
+  it('alg = HS256 → AUTH_UNSUPPORTED_ALG', async () => {
     const body = new Uint8Array();
     const jws = await signJws({
       body,
@@ -253,59 +251,56 @@ describe("verifyJws — header validation", () => {
     const req = mkReq(jws, { body });
     const ae = await expectAuthError(
       verifyJws(req, env, body.buffer as ArrayBuffer),
-      "UnsupportedAlg",
+      'UnsupportedAlg',
     );
-    expect(ae.code).toBe("AUTH_UNSUPPORTED_ALG");
+    expect(ae.code).toBe('AUTH_UNSUPPORTED_ALG');
   });
 });
 
-describe("verifyJws — signature validation", () => {
-  it("mutated signature → AUTH_BAD_SIGNATURE", async () => {
+describe('verifyJws — signature validation', () => {
+  it('mutated signature → AUTH_BAD_SIGNATURE', async () => {
     const body = new Uint8Array();
     const jws = await signJws({ body, mutateSignature: true });
     const req = mkReq(jws, { body });
     const ae = await expectAuthError(
       verifyJws(req, env, body.buffer as ArrayBuffer),
-      "BadSignature",
+      'BadSignature',
     );
-    expect(ae.code).toBe("AUTH_BAD_SIGNATURE");
+    expect(ae.code).toBe('AUTH_BAD_SIGNATURE');
   });
 });
 
-describe("verifyJws — claim-vs-request validation", () => {
-  it("ts drift > 300s → AUTH_STALE_TIMESTAMP", async () => {
+describe('verifyJws — claim-vs-request validation', () => {
+  it('ts drift > 300s → AUTH_STALE_TIMESTAMP', async () => {
     const body = new Uint8Array();
     const jws = await signJws({ body, ts: Math.floor(Date.now() / 1000) - 400 });
     const req = mkReq(jws, { body });
-    await expectAuthError(
-      verifyJws(req, env, body.buffer as ArrayBuffer),
-      "StaleTimestamp",
-    );
+    await expectAuthError(verifyJws(req, env, body.buffer as ArrayBuffer), 'StaleTimestamp');
   });
 
-  it("method mismatch → AUTH_MISMATCHED_METHOD_OR_PATH", async () => {
+  it('method mismatch → AUTH_MISMATCHED_METHOD_OR_PATH', async () => {
     const body = new Uint8Array();
-    const jws = await signJws({ body, method: "PATCH" });
-    const req = mkReq(jws, { method: "POST", body });
+    const jws = await signJws({ body, method: 'PATCH' });
+    const req = mkReq(jws, { method: 'POST', body });
     await expectAuthError(
       verifyJws(req, env, body.buffer as ArrayBuffer),
-      "MismatchedMethodOrPath",
+      'MismatchedMethodOrPath',
     );
   });
 
-  it("path mismatch → AUTH_MISMATCHED_METHOD_OR_PATH", async () => {
+  it('path mismatch → AUTH_MISMATCHED_METHOD_OR_PATH', async () => {
     const body = new Uint8Array();
-    const jws = await signJws({ body, path: "/v1/report" });
-    const req = mkReq(jws, { path: "/v1/upload", body });
+    const jws = await signJws({ body, path: '/v1/report' });
+    const req = mkReq(jws, { path: '/v1/upload', body });
     await expectAuthError(
       verifyJws(req, env, body.buffer as ArrayBuffer),
-      "MismatchedMethodOrPath",
+      'MismatchedMethodOrPath',
     );
   });
 
-  it("body_sha256 mismatch → AUTH_BODY_OR_QUERY_MISMATCH", async () => {
-    const signedBody = new TextEncoder().encode("signed-body");
-    const actualBody = new TextEncoder().encode("different-body");
+  it('body_sha256 mismatch → AUTH_BODY_OR_QUERY_MISMATCH', async () => {
+    const signedBody = new TextEncoder().encode('signed-body');
+    const actualBody = new TextEncoder().encode('different-body');
     const jws = await signJws({ body: signedBody });
     const req = mkReq(jws, { body: actualBody });
     // But signature would fail first if signed_body and actual_body yield
@@ -315,45 +310,39 @@ describe("verifyJws — claim-vs-request validation", () => {
     // compares to claim, so we get BodyOrQueryMismatch as intended.
     await expectAuthError(
       verifyJws(req, env, actualBody.buffer as ArrayBuffer),
-      "BodyOrQueryMismatch",
+      'BodyOrQueryMismatch',
     );
   });
 
-  it("query_sha256 mismatch → AUTH_BODY_OR_QUERY_MISMATCH", async () => {
+  it('query_sha256 mismatch → AUTH_BODY_OR_QUERY_MISMATCH', async () => {
     const body = new Uint8Array();
-    const jws = await signJws({ body, query: "a=1", path: "/v1/list", method: "GET" });
+    const jws = await signJws({ body, query: 'a=1', path: '/v1/list', method: 'GET' });
     // Present a different query on the actual request.
-    const req = mkReq(jws, { method: "GET", path: "/v1/list", query: "a=2" });
-    await expectAuthError(
-      verifyJws(req, env, body.buffer as ArrayBuffer),
-      "BodyOrQueryMismatch",
-    );
+    const req = mkReq(jws, { method: 'GET', path: '/v1/list', query: 'a=2' });
+    await expectAuthError(verifyJws(req, env, body.buffer as ArrayBuffer), 'BodyOrQueryMismatch');
   });
 
-  it("sanitize_version mismatch → AUTH_UNSUPPORTED_VERSION", async () => {
+  it('sanitize_version mismatch → AUTH_UNSUPPORTED_VERSION', async () => {
     const body = new Uint8Array();
     const jws = await signJws({ body, sanitizeVersion: 0 });
     const req = mkReq(jws, { body });
     // env.EXPECTED_SANITIZE_VERSION is unset → default 1; claim 0 != 1.
-    await expectAuthError(
-      verifyJws(req, env, body.buffer as ArrayBuffer),
-      "UnsupportedVersion",
-    );
+    await expectAuthError(verifyJws(req, env, body.buffer as ArrayBuffer), 'UnsupportedVersion');
   });
 });
 
-describe("verifyJws — denylist", () => {
-  it("denylisted pubkey → UNKNOWN_PUBKEY", async () => {
+describe('verifyJws — denylist', () => {
+  it('denylisted pubkey → UNKNOWN_PUBKEY', async () => {
     try {
-      await env.STATE.put(`denylist:pubkey:${PUBKEY_HEX}`, "1");
+      await env.STATE.put(`denylist:pubkey:${PUBKEY_HEX}`, '1');
       const body = new Uint8Array();
       const jws = await signJws({ body });
       const req = mkReq(jws, { body });
       const ae = await expectAuthError(
         verifyJws(req, env, body.buffer as ArrayBuffer),
-        "UnknownPubkey",
+        'UnknownPubkey',
       );
-      expect(ae.code).toBe("UNKNOWN_PUBKEY");
+      expect(ae.code).toBe('UNKNOWN_PUBKEY');
     } finally {
       await env.STATE.delete(`denylist:pubkey:${PUBKEY_HEX}`);
     }

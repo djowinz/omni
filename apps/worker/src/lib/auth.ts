@@ -42,10 +42,10 @@
  * Per architectural invariant #2, the signing key is the author's single
  * Ed25519 identity key (same key used for bundle content signing).
  */
-import type { Env } from "../env";
-import type { ErrorCode } from "../types";
-import { b64urlDecode } from "./base64url";
-import { hexEncode } from "./hex";
+import type { Env } from '../env';
+import type { ErrorCode } from '../types';
+import { b64urlDecode } from './base64url';
+import { hexEncode } from './hex';
 
 /** Server's required sanitize-pipeline version. Bumped in lockstep with the
  *  sanitize crate; defaults to 1 when `EXPECTED_SANITIZE_VERSION` is unset. */
@@ -73,12 +73,12 @@ export interface AuthedRequest {
  * system through the single mapping table in `src/lib/errors.ts`.
  */
 export class AuthError extends Error {
-  readonly kind = "Auth" as const;
+  readonly kind = 'Auth' as const;
   readonly detail: string;
   readonly code: ErrorCode;
   constructor(detail: string, code: ErrorCode, message: string) {
     super(message);
-    this.name = "AuthError";
+    this.name = 'AuthError';
     this.detail = detail;
     this.code = code;
   }
@@ -90,7 +90,7 @@ export class AuthError extends Error {
 
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const digest = await crypto.subtle.digest("SHA-256", buf);
+  const digest = await crypto.subtle.digest('SHA-256', buf);
   return hexEncode(new Uint8Array(digest));
 }
 
@@ -122,20 +122,19 @@ interface HttpJwsClaims {
 }
 
 function asClaims(v: unknown): HttpJwsClaims {
-  if (!v || typeof v !== "object") throw new Error("claims not object");
+  if (!v || typeof v !== 'object') throw new Error('claims not object');
   const o = v as Record<string, unknown>;
-  const req = (k: string, t: "string" | "number") => {
-    if (typeof o[k] !== t)
-      throw new Error(`claims.${k} missing or not ${t}`);
+  const req = (k: string, t: 'string' | 'number') => {
+    if (typeof o[k] !== t) throw new Error(`claims.${k} missing or not ${t}`);
   };
-  req("method", "string");
-  req("path", "string");
-  req("ts", "number");
-  req("body_sha256", "string");
-  req("query_sha256", "string");
-  req("sanitize_version", "number");
-  req("kid", "string");
-  req("df", "string");
+  req('method', 'string');
+  req('path', 'string');
+  req('ts', 'number');
+  req('body_sha256', 'string');
+  req('query_sha256', 'string');
+  req('sanitize_version', 'number');
+  req('kid', 'string');
+  req('df', 'string');
   // `alg`, `crv`, `typ` claim fields are redundant with the JWS header and
   // are accepted-if-present / ignored; not required for verification.
   return o as unknown as HttpJwsClaims;
@@ -169,45 +168,41 @@ function b64StdDecode(s: string): Uint8Array {
  * single-read). Handlers do `const body = await req.arrayBuffer(); const auth
  * = await verifyJws(req, env, body);` then reuse `body` downstream.
  */
-export async function verifyJws(
-  req: Request,
-  env: Env,
-  body: ArrayBuffer,
-): Promise<AuthedRequest> {
+export async function verifyJws(req: Request, env: Env, body: ArrayBuffer): Promise<AuthedRequest> {
   // Step 1 — parse Authorization header.
-  const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
+  const authHeader = req.headers.get('authorization') ?? req.headers.get('Authorization');
   if (!authHeader) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "missing Authorization header",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
+      'missing Authorization header',
     );
   }
-  const PREFIX = "Omni-JWS ";
+  const PREFIX = 'Omni-JWS ';
   if (!authHeader.startsWith(PREFIX)) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
       "Authorization header must start with 'Omni-JWS '",
     );
   }
   const compact = authHeader.slice(PREFIX.length).trim();
 
   // Step 2 — split compact JWS.
-  const parts = compact.split(".");
+  const parts = compact.split('.');
   if (parts.length !== 3) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "JWS compact form must have 3 segments",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
+      'JWS compact form must have 3 segments',
     );
   }
   const [headerB64, payloadB64, sigB64] = parts as [string, string, string];
   if (!headerB64 || !payloadB64 || !sigB64) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "JWS compact form has empty segment",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
+      'JWS compact form has empty segment',
     );
   }
 
@@ -218,16 +213,16 @@ export async function verifyJws(
     headerObj = JSON.parse(new TextDecoder().decode(b64urlDecode(headerB64)));
   } catch {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "JWS header is not valid JSON",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
+      'JWS header is not valid JSON',
     );
   }
-  if (headerObj["alg"] !== "EdDSA") {
+  if (headerObj['alg'] !== 'EdDSA') {
     throw new AuthError(
-      "UnsupportedAlg",
-      "AUTH_UNSUPPORTED_ALG",
-      `JWS alg must be EdDSA, got ${String(headerObj["alg"])}`,
+      'UnsupportedAlg',
+      'AUTH_UNSUPPORTED_ALG',
+      `JWS alg must be EdDSA, got ${String(headerObj['alg'])}`,
     );
   }
 
@@ -238,8 +233,8 @@ export async function verifyJws(
     claims = asClaims(raw);
   } catch (e) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
       `JWS claims invalid: ${(e as Error).message}`,
     );
   }
@@ -254,15 +249,15 @@ export async function verifyJws(
     pubkey = b64StdDecode(claims.kid);
   } catch {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "claims.kid is not valid base64",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
+      'claims.kid is not valid base64',
     );
   }
   if (pubkey.length !== 32) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
       `claims.kid must be 32 bytes, got ${pubkey.length}`,
     );
   }
@@ -270,14 +265,14 @@ export async function verifyJws(
   let verified = false;
   try {
     const key = await crypto.subtle.importKey(
-      "raw",
+      'raw',
       pubkey as BufferSource,
-      { name: "Ed25519" },
+      { name: 'Ed25519' },
       false,
-      ["verify"],
+      ['verify'],
     );
     verified = await crypto.subtle.verify(
-      "Ed25519",
+      'Ed25519',
       key,
       sig as BufferSource,
       signingInput as BufferSource,
@@ -286,17 +281,13 @@ export async function verifyJws(
     // Malformed signature bytes or key length surface as BadSignature — the
     // envelope-level parsing already ran in steps 1–4.
     throw new AuthError(
-      "BadSignature",
-      "AUTH_BAD_SIGNATURE",
+      'BadSignature',
+      'AUTH_BAD_SIGNATURE',
       `JWS signature verify threw: ${(e as Error).message}`,
     );
   }
   if (!verified) {
-    throw new AuthError(
-      "BadSignature",
-      "AUTH_BAD_SIGNATURE",
-      "JWS signature did not verify",
-    );
+    throw new AuthError('BadSignature', 'AUTH_BAD_SIGNATURE', 'JWS signature did not verify');
   }
 
   // Step 6 — timestamp drift. Skew in either direction is a failure; the
@@ -304,8 +295,8 @@ export async function verifyJws(
   const now = Math.floor(Date.now() / 1000);
   if (!Number.isFinite(claims.ts) || Math.abs(now - claims.ts) > MAX_TS_DRIFT_SECONDS) {
     throw new AuthError(
-      "StaleTimestamp",
-      "AUTH_STALE_TIMESTAMP",
+      'StaleTimestamp',
+      'AUTH_STALE_TIMESTAMP',
       `ts drift > ${MAX_TS_DRIFT_SECONDS}s (now=${now}, claim=${claims.ts})`,
     );
   }
@@ -314,15 +305,15 @@ export async function verifyJws(
   const reqUrl = new URL(req.url);
   if (claims.method !== req.method) {
     throw new AuthError(
-      "MismatchedMethodOrPath",
-      "AUTH_MISMATCHED_METHOD_OR_PATH",
+      'MismatchedMethodOrPath',
+      'AUTH_MISMATCHED_METHOD_OR_PATH',
       `method mismatch: claim=${claims.method} actual=${req.method}`,
     );
   }
   if (claims.path !== reqUrl.pathname) {
     throw new AuthError(
-      "MismatchedMethodOrPath",
-      "AUTH_MISMATCHED_METHOD_OR_PATH",
+      'MismatchedMethodOrPath',
+      'AUTH_MISMATCHED_METHOD_OR_PATH',
       `path mismatch: claim=${claims.path} actual=${reqUrl.pathname}`,
     );
   }
@@ -331,30 +322,31 @@ export async function verifyJws(
   const actualBodyHash = await sha256Hex(body);
   if (!constantTimeEqual(actualBodyHash, claims.body_sha256.toLowerCase())) {
     throw new AuthError(
-      "BodyOrQueryMismatch",
-      "AUTH_BODY_OR_QUERY_MISMATCH",
-      "body_sha256 claim does not match request body",
+      'BodyOrQueryMismatch',
+      'AUTH_BODY_OR_QUERY_MISMATCH',
+      'body_sha256 claim does not match request body',
     );
   }
-  const queryString = reqUrl.search.startsWith("?") ? reqUrl.search.slice(1) : reqUrl.search;
+  const queryString = reqUrl.search.startsWith('?') ? reqUrl.search.slice(1) : reqUrl.search;
   const actualQueryHash = await sha256Hex(new TextEncoder().encode(queryString));
   if (!constantTimeEqual(actualQueryHash, claims.query_sha256.toLowerCase())) {
     throw new AuthError(
-      "BodyOrQueryMismatch",
-      "AUTH_BODY_OR_QUERY_MISMATCH",
-      "query_sha256 claim does not match request query string",
+      'BodyOrQueryMismatch',
+      'AUTH_BODY_OR_QUERY_MISMATCH',
+      'query_sha256 claim does not match request query string',
     );
   }
 
   // Step 9 — sanitize_version gate. Server's expected version lives in env
   // (bumped in lockstep with the sanitize crate); default to 1.
   const expectedSanitize =
-    parseSanitizeVersion((env as Env & { EXPECTED_SANITIZE_VERSION?: string })
-      .EXPECTED_SANITIZE_VERSION) ?? DEFAULT_EXPECTED_SANITIZE_VERSION;
+    parseSanitizeVersion(
+      (env as Env & { EXPECTED_SANITIZE_VERSION?: string }).EXPECTED_SANITIZE_VERSION,
+    ) ?? DEFAULT_EXPECTED_SANITIZE_VERSION;
   if (claims.sanitize_version !== expectedSanitize) {
     throw new AuthError(
-      "UnsupportedVersion",
-      "AUTH_UNSUPPORTED_VERSION",
+      'UnsupportedVersion',
+      'AUTH_UNSUPPORTED_VERSION',
       `sanitize_version mismatch: claim=${claims.sanitize_version} expected=${expectedSanitize}`,
     );
   }
@@ -367,11 +359,7 @@ export async function verifyJws(
   const pubkeyHex = hexEncode(pubkey);
   const deniedPub = await env.STATE.get(`denylist:pubkey:${pubkeyHex}`);
   if (deniedPub !== null) {
-    throw new AuthError(
-      "UnknownPubkey",
-      "UNKNOWN_PUBKEY",
-      "pubkey is denylisted",
-    );
+    throw new AuthError('UnknownPubkey', 'UNKNOWN_PUBKEY', 'pubkey is denylisted');
   }
 
   // All gates passed — decode df and hand the auth context to the caller.
@@ -380,15 +368,15 @@ export async function verifyJws(
     device_fp = b64StdDecode(claims.df);
   } catch {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
-      "claims.df is not valid base64",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
+      'claims.df is not valid base64',
     );
   }
   if (device_fp.length !== 32) {
     throw new AuthError(
-      "MalformedEnvelope",
-      "AUTH_MALFORMED_ENVELOPE",
+      'MalformedEnvelope',
+      'AUTH_MALFORMED_ENVELOPE',
       `claims.df must be 32 bytes, got ${device_fp.length}`,
     );
   }
@@ -402,7 +390,7 @@ export async function verifyJws(
 }
 
 function parseSanitizeVersion(v: string | undefined): number | null {
-  if (v === undefined || v === null || v === "") return null;
+  if (v === undefined || v === null || v === '') return null;
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 }

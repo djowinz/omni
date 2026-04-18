@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import { env } from "cloudflare:test";
-import type { Env } from "../src/env";
-import { loadWasm } from "../src/lib/wasm";
+import { describe, it, expect, beforeAll } from 'vitest';
+import { env } from 'cloudflare:test';
+import type { Env } from '../src/env';
+import { loadWasm } from '../src/lib/wasm';
 
 /**
  * Tier B — BundleProcessor Durable Object under Miniflare.
@@ -22,14 +22,14 @@ import { loadWasm } from "../src/lib/wasm";
  *   - empty body rejection
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
 // ---------------------------------------------------------------------------
 // Fixture key material — matches test/fixtures/fixtures.json (seed 0x07 rep).
 // ---------------------------------------------------------------------------
-const SEED_HEX = "0707070707070707070707070707070707070707070707070707070707070707";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -37,13 +37,13 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, '0');
   return s;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", bytes);
+  const d = await crypto.subtle.digest('SHA-256', bytes);
   return bytesToHex(new Uint8Array(d));
 }
 
@@ -58,7 +58,7 @@ const OVERLAY_BYTES = new TextEncoder().encode(
   '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
 );
 const THEME_CSS_BYTES = new TextEncoder().encode(
-  "/* test */\nbody { background: #111; color: #eee; }\n",
+  '/* test */\nbody { background: #111; color: #eee; }\n',
 );
 const STUB_TTF = new Uint8Array([
   0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -77,26 +77,26 @@ async function buildSignedBundle(opts: BundleOpts = {}): Promise<Uint8Array> {
   const includeFont = opts.includeFont ?? false;
 
   const entries: Array<{ path: string; bytes: Uint8Array }> = [
-    { path: "overlay.omni", bytes: OVERLAY_BYTES },
-    { path: "themes/default.css", bytes: opts.overrideThemeCss ?? THEME_CSS_BYTES },
+    { path: 'overlay.omni', bytes: OVERLAY_BYTES },
+    { path: 'themes/default.css', bytes: opts.overrideThemeCss ?? THEME_CSS_BYTES },
   ];
   if (includeFont) {
     entries.push({
-      path: "fonts/stub.ttf",
+      path: 'fonts/stub.ttf',
       bytes: opts.fontBytes ?? STUB_TTF,
     });
   }
 
   const manifest: Record<string, unknown> = {
     schema_version: 1,
-    name: "inline-do-test",
-    version: "1.0.0",
-    omni_min_version: "0.1.0",
-    description: "inline fixture for do.test.ts",
+    name: 'inline-do-test',
+    version: '1.0.0',
+    omni_min_version: '0.1.0',
+    description: 'inline fixture for do.test.ts',
     tags: [],
-    license: "MIT",
-    entry_overlay: "overlay.omni",
-    default_theme: "themes/default.css",
+    license: 'MIT',
+    entry_overlay: 'overlay.omni',
+    default_theme: 'themes/default.css',
     sensor_requirements: [],
     files: await Promise.all(
       entries.map(async (f) => ({
@@ -110,15 +110,15 @@ async function buildSignedBundle(opts: BundleOpts = {}): Promise<Uint8Array> {
       // include a trailing slash, else it falls through to the default
       // handler whose default_max_size silently shadows the declared cap.
       theme: {
-        dir: "themes",
-        extensions: [".css"],
+        dir: 'themes',
+        extensions: ['.css'],
         max_size_bytes: opts.themeMaxSize ?? 1_048_576,
       },
       ...(includeFont
         ? {
             font: {
-              dir: "fonts",
-              extensions: [".ttf", ".otf"],
+              dir: 'fonts',
+              extensions: ['.ttf', '.otf'],
               max_size_bytes: opts.fontMaxSize ?? 4_194_304,
             },
           }
@@ -133,14 +133,14 @@ async function buildSignedBundle(opts: BundleOpts = {}): Promise<Uint8Array> {
 async function callDO(bundleBytes: Uint8Array, dfHex: string): Promise<Response> {
   const id = env.BUNDLE_PROCESSOR.idFromName(dfHex);
   const stub = env.BUNDLE_PROCESSOR.get(id);
-  return stub.fetch("https://do.internal/sanitize", {
-    method: "POST",
-    headers: { "content-type": "application/octet-stream" },
+  return stub.fetch('https://do.internal/sanitize', {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream' },
     body: bundleBytes,
   });
 }
 
-describe("BundleProcessor DO — sanitize pipeline", () => {
+describe('BundleProcessor DO — sanitize pipeline', () => {
   beforeAll(async () => {
     // Warm the WASM cache inside the test isolate; the DO isolate warms on
     // first fetch. Surfacing any binding error here avoids cross-isolate
@@ -148,49 +148,49 @@ describe("BundleProcessor DO — sanitize pipeline", () => {
     await loadWasm();
   });
 
-  it("happy path: theme-only bundle is sanitized and repacked", async () => {
+  it('happy path: theme-only bundle is sanitized and repacked', async () => {
     const bytes = await buildSignedBundle({ includeFont: false });
-    const res = await callDO(bytes, "df-theme-happy");
+    const res = await callDO(bytes, 'df-theme-happy');
     expect(res.status, await res.clone().text()).toBe(200);
     const body = (await res.json()) as {
       sanitized_bundle: string;
       sanitize_report: { version: number; files: unknown[] };
       canonical_hash: string;
     };
-    expect(typeof body.sanitized_bundle).toBe("string");
+    expect(typeof body.sanitized_bundle).toBe('string');
     expect(body.sanitized_bundle.length).toBeGreaterThan(0);
     expect(body.sanitize_report.version).toBe(1);
     expect(Array.isArray(body.sanitize_report.files)).toBe(true);
     expect(body.canonical_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("bundle-with-font dispatches sanitize (stub TTF is rejected by OTS as Unsafe)", async () => {
+  it('bundle-with-font dispatches sanitize (stub TTF is rejected by OTS as Unsafe)', async () => {
     // The stub font is OTS-unparseable by design (numTables=0). That matches
     // the on-disk W1T3 fixture contract documented in test/fixtures/README.md
     // "Font fixture caveat" — this test proves the DO classifies the handler
     // rejection as Unsafe (422) rather than a 500 or an Integrity mismatch.
     const bytes = await buildSignedBundle({ includeFont: true });
-    const res = await callDO(bytes, "df-font-dispatch");
+    const res = await callDO(bytes, 'df-font-dispatch');
     expect(res.status, await res.clone().text()).toBe(422);
     const body = (await res.json()) as { kind?: string };
-    expect(body.kind).toBe("Unsafe");
+    expect(body.kind).toBe('Unsafe');
   });
 
-  it("executable magic (MZ prefix) in a font slot → Unsafe.RejectedExecutableMagic", async () => {
+  it('executable magic (MZ prefix) in a font slot → Unsafe.RejectedExecutableMagic', async () => {
     const evil = new Uint8Array(1024);
     evil[0] = 0x4d; // 'M'
     evil[1] = 0x5a; // 'Z'
     for (let i = 2; i < evil.length; i++) evil[i] = i & 0xff;
 
     const bytes = await buildSignedBundle({ includeFont: true, fontBytes: evil });
-    const res = await callDO(bytes, "df-exec-magic");
+    const res = await callDO(bytes, 'df-exec-magic');
     expect(res.status, await res.clone().text()).toBe(422);
     const body = (await res.json()) as { kind?: string; detail?: string };
-    expect(body.kind).toBe("Unsafe");
-    expect(body.detail).toBe("RejectedExecutableMagic");
+    expect(body.kind).toBe('Unsafe');
+    expect(body.detail).toBe('RejectedExecutableMagic');
   });
 
-  it("oversized single file is rejected with SIZE_EXCEEDED", async () => {
+  it('oversized single file is rejected with SIZE_EXCEEDED', async () => {
     // Inflate the CSS past the DEFAULT theme handler cap (131072 bytes) so
     // the size-exceeded check fires regardless of whether the dispatch uses
     // the declared resource_kinds or falls through to the built-in default.
@@ -209,24 +209,24 @@ describe("BundleProcessor DO — sanitize pipeline", () => {
       crypto.getRandomValues(bigCss.subarray(off, Math.min(off + 65536, size)));
     }
     // Keep a CSS-ish prefix so file-type dispatch still treats it as theme.
-    const prefix = new TextEncoder().encode("body{}\n");
+    const prefix = new TextEncoder().encode('body{}\n');
     bigCss.set(prefix, 0);
     const bytes = await buildSignedBundle({
       includeFont: false,
       overrideThemeCss: bigCss,
     });
-    const res = await callDO(bytes, "df-oversize");
+    const res = await callDO(bytes, 'df-oversize');
     // 413 per worker-api.md §3 SizeExceeded row; body carries kind=Malformed.
     expect(res.status, await res.clone().text()).toBe(413);
     const body = (await res.json()) as {
       error: { code: string };
       kind?: string;
     };
-    expect(body.error.code).toBe("SIZE_EXCEEDED");
-    expect(body.kind).toBe("Malformed");
+    expect(body.error.code).toBe('SIZE_EXCEEDED');
+    expect(body.kind).toBe('Malformed');
   });
 
-  it("tampered bundle → Integrity rejection (ZipBomb guard or JWS mismatch)", async () => {
+  it('tampered bundle → Integrity rejection (ZipBomb guard or JWS mismatch)', async () => {
     // Mirror the W1T3 tampering pattern: flip a byte inside the zip payload.
     // The fixture README notes this trips ZipBomb before the JWS check; we
     // assert "Integrity" without pinning the sub-kind, which matches both
@@ -250,16 +250,16 @@ describe("BundleProcessor DO — sanitize pipeline", () => {
     expect(cdOffset).toBeGreaterThan(64);
     tampered[cdOffset - 32] ^= 0xff;
 
-    const res = await callDO(tampered, "df-tampered");
+    const res = await callDO(tampered, 'df-tampered');
     expect(res.status, await res.clone().text()).toBe(422);
     const body = (await res.json()) as { kind?: string };
-    expect(body.kind).toBe("Integrity");
+    expect(body.kind).toBe('Integrity');
   });
 
-  it("rejects empty body with 400 BAD_REQUEST", async () => {
-    const res = await callDO(new Uint8Array(0), "df-empty");
+  it('rejects empty body with 400 BAD_REQUEST', async () => {
+    const res = await callDO(new Uint8Array(0), 'df-empty');
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.code).toBe('BAD_REQUEST');
   });
 });

@@ -29,11 +29,11 @@ This writes:
 
 ## Seeds
 
-| Thing                | Value                                             |
-|----------------------|---------------------------------------------------|
-| `TEST_KEYPAIR_SEED`  | `Uint8Array(32).fill(7)` — pure test material     |
-| Pubkey               | Derived from seed via Web Crypto (Ed25519)         |
-| Device fingerprint   | `sha256(pubkey \|\| "omni-test-df")` — 32 bytes     |
+| Thing               | Value                                           |
+| ------------------- | ----------------------------------------------- |
+| `TEST_KEYPAIR_SEED` | `Uint8Array(32).fill(7)` — pure test material   |
+| Pubkey              | Derived from seed via Web Crypto (Ed25519)      |
+| Device fingerprint  | `sha256(pubkey \|\| "omni-test-df")` — 32 bytes |
 
 The DF derivation is a fixture-only convention. Real Omni clients derive DF
 from `omni-guard::device_fingerprint()` against hardware identity. Tests that
@@ -44,7 +44,7 @@ need a stable DF bind to this computed value.
 `bundle-with-font.omnipkg` embeds a 12-byte minimal SFNT stub (`numTables=0`).
 It is **not** an OTS-parseable font: `omni-sanitize`'s font handler will
 reject it at sanitize time. This is intentional — the fixture's purpose is
-exercising the *dispatch route*, not the sanitize-success path. A future
+exercising the _dispatch route_, not the sanitize-success path. A future
 sanitize-success fixture should swap in an OFL-licensed open font (e.g.
 Roboto-subset) and document the license here.
 

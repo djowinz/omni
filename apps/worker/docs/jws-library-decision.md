@@ -71,7 +71,7 @@ costs <10 KB and removing it again is cheap. If Task 5 ends up never
 importing it, the cleanup pass should drop it then.
 
 `@noble/ed25519` is retained for test fixtures (probe + future
-integration tests that need to *sign* EdDSA JWS to exercise the
+integration tests that need to _sign_ EdDSA JWS to exercise the
 verifier). workerd's Web Crypto exposes `Ed25519` for sign as well,
 so production paths should prefer `crypto.subtle`; noble stays in
 `dependencies` for now but can be moved to `devDependencies` once

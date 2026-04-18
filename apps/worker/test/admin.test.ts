@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { env, applyD1Migrations } from "cloudflare:test";
-import { Hono } from "hono";
-import * as ed from "@noble/ed25519";
-import type { Env } from "../src/env";
-import { signJws as signJwsShared } from "./helpers/signer";
-import admin from "../src/routes/admin";
-import config, { _resetConfigCaches } from "../src/routes/config";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
+import { env, applyD1Migrations } from 'cloudflare:test';
+import { Hono } from 'hono';
+import * as ed from '@noble/ed25519';
+import type { Env } from '../src/env';
+import { signJws as signJwsShared } from './helpers/signer';
+import admin from '../src/routes/admin';
+import config, { _resetConfigCaches } from '../src/routes/config';
 
 /**
  * Tier B — Miniflare-backed tests for admin vocab + limits mutations and the
@@ -18,21 +18,17 @@ import config, { _resetConfigCaches } from "../src/routes/config";
  * flip to moderator simply by patching the binding.
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
 // Fixture keypair from W1T3 (matches auth.test.ts; same seed → same pubkey).
-const SEED_HEX =
-  "0707070707070707070707070707070707070707070707070707070707070707";
-const PUBKEY_HEX =
-  "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const DF_HEX =
-  "dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
+const PUBKEY_HEX = 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c';
+const DF_HEX = 'dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1';
 
 // A second keypair (seed 0x08 repeated) for the non-moderator case.
-const OUTSIDER_SEED_HEX =
-  "0808080808080808080808080808080808080808080808080808080808080808";
+const OUTSIDER_SEED_HEX = '0808080808080808080808080808080808080808080808080808080808080808';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -40,8 +36,8 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, '0');
   return s;
 }
 
@@ -81,9 +77,9 @@ function mkReq(
   extraHeaders: Record<string, string> = {},
 ): Request {
   const headers = new Headers({ ...extraHeaders });
-  if (jws !== null) headers.set("Authorization", `Omni-JWS ${jws}`);
+  if (jws !== null) headers.set('Authorization', `Omni-JWS ${jws}`);
   const init: RequestInit = { method, headers };
-  if (method !== "GET" && method !== "HEAD") init.body = body;
+  if (method !== 'GET' && method !== 'HEAD') init.body = body;
   return new Request(`https://worker.test${path}`, init);
 }
 
@@ -91,13 +87,13 @@ function mkReq(
 // wire in index.ts.
 function mkApp() {
   const app = new Hono<{ Bindings: Env }>();
-  app.route("/v1/admin", admin);
-  app.route("/v1/config", config);
+  app.route('/v1/admin', admin);
+  app.route('/v1/config', config);
   return app;
 }
 
 // Seed helpers.
-const SEED_VOCAB = { tags: ["dark", "light", "minimal"], version: 1 };
+const SEED_VOCAB = { tags: ['dark', 'light', 'minimal'], version: 1 };
 const SEED_LIMITS = {
   max_bundle_compressed: 5_242_880,
   max_bundle_uncompressed: 10_485_760,
@@ -113,10 +109,8 @@ const SEED_LIMITS = {
 const originalAdminPubkeys = env.OMNI_ADMIN_PUBKEYS;
 
 beforeAll(async () => {
-  const migrations = await import("cloudflare:test").then(
-    (m) =>
-      (m as unknown as { listMigrations?: () => Promise<unknown> })
-        .listMigrations?.(),
+  const migrations = await import('cloudflare:test').then((m) =>
+    (m as unknown as { listMigrations?: () => Promise<unknown> }).listMigrations?.(),
   );
   if (migrations) {
     await applyD1Migrations(
@@ -137,45 +131,43 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   // Clean rows from any prior test that seeded artifacts.
-  await env.META.exec("DELETE FROM artifacts");
-  await env.META.exec("DELETE FROM authors");
+  await env.META.exec('DELETE FROM artifacts');
+  await env.META.exec('DELETE FROM authors');
   _resetConfigCaches();
   // Reset KV state.
-  await env.STATE.put("config:vocab", JSON.stringify(SEED_VOCAB));
-  await env.STATE.put("config:limits", JSON.stringify(SEED_LIMITS));
+  await env.STATE.put('config:vocab', JSON.stringify(SEED_VOCAB));
+  await env.STATE.put('config:limits', JSON.stringify(SEED_LIMITS));
   // Ensure fixture pubkey is denylist-clear so verifyJws passes.
   await env.STATE.delete(`denylist:pubkey:${PUBKEY_HEX}`);
   // Install the fixture as the sole moderator.
-  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS =
-    PUBKEY_HEX;
+  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS = PUBKEY_HEX;
 });
 
 afterAll(() => {
-  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS =
-    originalAdminPubkeys;
+  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS = originalAdminPubkeys;
 });
 
 // ---------------------------------------------------------------------------
 // GET /v1/config/vocab + /v1/config/limits
 // ---------------------------------------------------------------------------
-describe("GET /v1/config/vocab", () => {
-  it("returns seeded KV with Cache-Control", async () => {
+describe('GET /v1/config/vocab', () => {
+  it('returns seeded KV with Cache-Control', async () => {
     const app = mkApp();
-    const res = await app.fetch(mkReq("GET", "/v1/config/vocab", new Uint8Array(), null), env);
+    const res = await app.fetch(mkReq('GET', '/v1/config/vocab', new Uint8Array(), null), env);
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60');
     const body = (await res.json()) as typeof SEED_VOCAB;
     expect(body.tags).toEqual(SEED_VOCAB.tags);
     expect(body.version).toBe(SEED_VOCAB.version);
   });
 });
 
-describe("GET /v1/config/limits", () => {
-  it("returns public view without compile-time security constants", async () => {
+describe('GET /v1/config/limits', () => {
+  it('returns public view without compile-time security constants', async () => {
     const app = mkApp();
-    const res = await app.fetch(mkReq("GET", "/v1/config/limits", new Uint8Array(), null), env);
+    const res = await app.fetch(mkReq('GET', '/v1/config/limits', new Uint8Array(), null), env);
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60');
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.max_bundle_compressed).toBe(SEED_LIMITS.max_bundle_compressed);
     expect(body.max_bundle_uncompressed).toBe(SEED_LIMITS.max_bundle_uncompressed);
@@ -183,102 +175,97 @@ describe("GET /v1/config/limits", () => {
     expect(body.version).toBe(SEED_LIMITS.version);
     expect(body.updated_at).toBe(SEED_LIMITS.updated_at);
     // Invariant #9b: compile-time constants MUST NOT leak into the wire body.
-    expect("MAX_PATH_DEPTH" in body).toBe(false);
-    expect("MAX_COMPRESSION_RATIO" in body).toBe(false);
-    expect("MAX_PATH_LENGTH" in body).toBe(false);
+    expect('MAX_PATH_DEPTH' in body).toBe(false);
+    expect('MAX_COMPRESSION_RATIO' in body).toBe(false);
+    expect('MAX_PATH_LENGTH' in body).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
 // PATCH /v1/admin/vocab
 // ---------------------------------------------------------------------------
-describe("PATCH /v1/admin/vocab", () => {
-  it("non-moderator pubkey → Admin.NotModerator 403", async () => {
+describe('PATCH /v1/admin/vocab', () => {
+  it('non-moderator pubkey → Admin.NotModerator 403', async () => {
     const app = mkApp();
-    const body = new TextEncoder().encode(JSON.stringify({ add: ["newtag"] }));
+    const body = new TextEncoder().encode(JSON.stringify({ add: ['newtag'] }));
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/vocab",
+      method: 'PATCH',
+      path: '/v1/admin/vocab',
       body,
       seedHex: OUTSIDER_SEED_HEX,
     });
-    const res = await app.fetch(mkReq("PATCH", "/v1/admin/vocab", body, jws), env);
+    const res = await app.fetch(mkReq('PATCH', '/v1/admin/vocab', body, jws), env);
     expect(res.status).toBe(403);
     const json = (await res.json()) as {
       error: { code: string };
       kind: string;
       detail: string;
     };
-    expect(json.error.code).toBe("ADMIN_NOT_MODERATOR");
-    expect(json.kind).toBe("Admin");
-    expect(json.detail).toBe("NotModerator");
+    expect(json.error.code).toBe('ADMIN_NOT_MODERATOR');
+    expect(json.kind).toBe('Admin');
+    expect(json.detail).toBe('NotModerator');
   });
 
-  it("moderator add: bumps version + round-trip GET shows the new tag", async () => {
+  it('moderator add: bumps version + round-trip GET shows the new tag', async () => {
     const app = mkApp();
-    const body = new TextEncoder().encode(JSON.stringify({ add: ["newtag"] }));
+    const body = new TextEncoder().encode(JSON.stringify({ add: ['newtag'] }));
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/vocab",
+      method: 'PATCH',
+      path: '/v1/admin/vocab',
       body,
     });
-    const res = await app.fetch(mkReq("PATCH", "/v1/admin/vocab", body, jws), env);
+    const res = await app.fetch(mkReq('PATCH', '/v1/admin/vocab', body, jws), env);
     expect(res.status).toBe(200);
     const next = (await res.json()) as typeof SEED_VOCAB;
     expect(next.version).toBe(SEED_VOCAB.version + 1);
-    expect(next.tags).toContain("newtag");
+    expect(next.tags).toContain('newtag');
 
     _resetConfigCaches();
-    const read = await app.fetch(
-      mkReq("GET", "/v1/config/vocab", new Uint8Array(), null),
-      env,
-    );
+    const read = await app.fetch(mkReq('GET', '/v1/config/vocab', new Uint8Array(), null), env);
     const readBody = (await read.json()) as typeof SEED_VOCAB;
-    expect(readBody.tags).toContain("newtag");
+    expect(readBody.tags).toContain('newtag');
     expect(readBody.version).toBe(SEED_VOCAB.version + 1);
   });
 
-  it("bad tag (uppercase + space) → Admin.BadTag 400", async () => {
+  it('bad tag (uppercase + space) → Admin.BadTag 400', async () => {
     const app = mkApp();
-    const body = new TextEncoder().encode(JSON.stringify({ add: ["Bad Tag"] }));
+    const body = new TextEncoder().encode(JSON.stringify({ add: ['Bad Tag'] }));
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/vocab",
+      method: 'PATCH',
+      path: '/v1/admin/vocab',
       body,
     });
-    const res = await app.fetch(mkReq("PATCH", "/v1/admin/vocab", body, jws), env);
+    const res = await app.fetch(mkReq('PATCH', '/v1/admin/vocab', body, jws), env);
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: { code: string }; detail: string };
-    expect(json.error.code).toBe("ADMIN_BAD_TAG");
-    expect(json.detail).toBe("BadTag");
+    expect(json.error.code).toBe('ADMIN_BAD_TAG');
+    expect(json.detail).toBe('BadTag');
   });
 
-  it("empty body {} → Admin.NoOp 400", async () => {
+  it('empty body {} → Admin.NoOp 400', async () => {
     const app = mkApp();
     const body = new TextEncoder().encode(JSON.stringify({}));
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/vocab",
+      method: 'PATCH',
+      path: '/v1/admin/vocab',
       body,
     });
-    const res = await app.fetch(mkReq("PATCH", "/v1/admin/vocab", body, jws), env);
+    const res = await app.fetch(mkReq('PATCH', '/v1/admin/vocab', body, jws), env);
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: { code: string }; detail: string };
-    expect(json.error.code).toBe("ADMIN_NO_OP");
-    expect(json.detail).toBe("NoOp");
+    expect(json.error.code).toBe('ADMIN_NO_OP');
+    expect(json.detail).toBe('NoOp');
   });
 });
 
 // ---------------------------------------------------------------------------
 // PATCH /v1/admin/limits
 // ---------------------------------------------------------------------------
-describe("PATCH /v1/admin/limits", () => {
+describe('PATCH /v1/admin/limits', () => {
   async function seedArtifact(sizeBytes: number, contentHash: string): Promise<void> {
     // Insert author + artifact row (foreign-key on pubkey).
     const pubBlob = hexToBytes(PUBKEY_HEX);
-    await env.META.prepare(
-      "INSERT OR IGNORE INTO authors (pubkey, created_at) VALUES (?, ?)",
-    )
+    await env.META.prepare('INSERT OR IGNORE INTO authors (pubkey, created_at) VALUES (?, ?)')
       .bind(pubBlob, 1_700_000_000)
       .run();
     await env.META.prepare(
@@ -299,38 +286,34 @@ describe("PATCH /v1/admin/limits", () => {
     await env.BLOBS.put(contentHash, new Uint8Array(sizeBytes));
   }
 
-  it("lowering below largest artifact without force → WouldOrphanArtifacts 409", async () => {
-    await seedArtifact(2000, "hash-2000-a".padEnd(64, "0"));
+  it('lowering below largest artifact without force → WouldOrphanArtifacts 409', async () => {
+    await seedArtifact(2000, 'hash-2000-a'.padEnd(64, '0'));
     const app = mkApp();
-    const body = new TextEncoder().encode(
-      JSON.stringify({ max_bundle_compressed: 1000 }),
-    );
+    const body = new TextEncoder().encode(JSON.stringify({ max_bundle_compressed: 1000 }));
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/limits",
+      method: 'PATCH',
+      path: '/v1/admin/limits',
       body,
     });
-    const res = await app.fetch(mkReq("PATCH", "/v1/admin/limits", body, jws), env);
+    const res = await app.fetch(mkReq('PATCH', '/v1/admin/limits', body, jws), env);
     expect(res.status).toBe(409);
     const json = (await res.json()) as { detail: string; error: { code: string } };
-    expect(json.detail).toBe("WouldOrphanArtifacts");
-    expect(json.error.code).toBe("ADMIN_WOULD_ORPHAN_ARTIFACTS");
+    expect(json.detail).toBe('WouldOrphanArtifacts');
+    expect(json.error.code).toBe('ADMIN_WOULD_ORPHAN_ARTIFACTS');
   });
 
-  it("lowering below largest artifact WITH X-Omni-Admin-Force → succeeds + version bumps", async () => {
-    await seedArtifact(2000, "hash-2000-b".padEnd(64, "0"));
+  it('lowering below largest artifact WITH X-Omni-Admin-Force → succeeds + version bumps', async () => {
+    await seedArtifact(2000, 'hash-2000-b'.padEnd(64, '0'));
     const app = mkApp();
-    const body = new TextEncoder().encode(
-      JSON.stringify({ max_bundle_compressed: 1000 }),
-    );
+    const body = new TextEncoder().encode(JSON.stringify({ max_bundle_compressed: 1000 }));
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/limits",
+      method: 'PATCH',
+      path: '/v1/admin/limits',
       body,
     });
     const res = await app.fetch(
-      mkReq("PATCH", "/v1/admin/limits", body, jws, {
-        "X-Omni-Admin-Force": "true",
+      mkReq('PATCH', '/v1/admin/limits', body, jws, {
+        'X-Omni-Admin-Force': 'true',
       }),
       env,
     );
@@ -341,7 +324,7 @@ describe("PATCH /v1/admin/limits", () => {
     expect(next.updated_at).toBeGreaterThanOrEqual(SEED_LIMITS.updated_at);
   });
 
-  it("max_bundle_compressed > max_bundle_uncompressed → Admin.BadValue 400", async () => {
+  it('max_bundle_compressed > max_bundle_uncompressed → Admin.BadValue 400', async () => {
     const app = mkApp();
     const body = new TextEncoder().encode(
       JSON.stringify({
@@ -350,14 +333,14 @@ describe("PATCH /v1/admin/limits", () => {
       }),
     );
     const { jws } = await signJws({
-      method: "PATCH",
-      path: "/v1/admin/limits",
+      method: 'PATCH',
+      path: '/v1/admin/limits',
       body,
     });
-    const res = await app.fetch(mkReq("PATCH", "/v1/admin/limits", body, jws), env);
+    const res = await app.fetch(mkReq('PATCH', '/v1/admin/limits', body, jws), env);
     expect(res.status).toBe(400);
     const json = (await res.json()) as { detail: string; error: { code: string } };
-    expect(json.detail).toBe("BadValue");
-    expect(json.error.code).toBe("ADMIN_BAD_VALUE");
+    expect(json.detail).toBe('BadValue');
+    expect(json.error.code).toBe('ADMIN_BAD_VALUE');
   });
 });

@@ -1,7 +1,7 @@
-import { Hono } from "hono";
-import type { AppEnv } from "../types";
-import { errorResponse } from "../lib/errors";
-import type { KVNamespace } from "@cloudflare/workers-types";
+import { Hono } from 'hono';
+import type { AppEnv } from '../types';
+import { errorResponse } from '../lib/errors';
+import type { KVNamespace } from '@cloudflare/workers-types';
 
 /**
  * Public, unauthenticated reads of the runtime-tunable config. Values are
@@ -61,7 +61,7 @@ export function _resetConfigCaches(): void {
 async function readVocab(kv: KVNamespace): Promise<unknown | null> {
   const now = Date.now();
   if (vocabCache && vocabCache.expiresAt > now) return vocabCache.value;
-  const raw = await kv.get("config:vocab", "json");
+  const raw = await kv.get('config:vocab', 'json');
   if (raw === null) return null;
   vocabCache = { value: raw, expiresAt: now + CACHE_TTL_MS };
   return raw;
@@ -70,7 +70,7 @@ async function readVocab(kv: KVNamespace): Promise<unknown | null> {
 async function readLimits(kv: KVNamespace): Promise<LimitsPublic | null> {
   const now = Date.now();
   if (limitsCache && limitsCache.expiresAt > now) return limitsCache.value;
-  const raw = (await kv.get("config:limits", "json")) as LimitsStored | null;
+  const raw = (await kv.get('config:limits', 'json')) as LimitsStored | null;
   if (raw === null) return null;
   const view = publicLimitsView(raw);
   limitsCache = { value: view, expiresAt: now + CACHE_TTL_MS };
@@ -79,34 +79,34 @@ async function readLimits(kv: KVNamespace): Promise<LimitsPublic | null> {
 
 const app = new Hono<AppEnv>();
 
-app.get("/vocab", async (c) => {
+app.get('/vocab', async (c) => {
   const value = await readVocab(c.env.STATE);
   if (value === null) {
-    return errorResponse(500, "SERVER_ERROR", "config:vocab not seeded", {
-      kind: "Io",
+    return errorResponse(500, 'SERVER_ERROR', 'config:vocab not seeded', {
+      kind: 'Io',
     });
   }
   return new Response(JSON.stringify(value), {
     status: 200,
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=60",
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'public, max-age=60',
     },
   });
 });
 
-app.get("/limits", async (c) => {
+app.get('/limits', async (c) => {
   const value = await readLimits(c.env.STATE);
   if (value === null) {
-    return errorResponse(500, "SERVER_ERROR", "config:limits not seeded", {
-      kind: "Io",
+    return errorResponse(500, 'SERVER_ERROR', 'config:limits not seeded', {
+      kind: 'Io',
     });
   }
   return new Response(JSON.stringify(value), {
     status: 200,
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=60",
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'public, max-age=60',
     },
   });
 });

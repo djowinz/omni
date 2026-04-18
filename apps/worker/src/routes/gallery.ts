@@ -5,11 +5,11 @@
  * updated_at DESC. No pagination — the `upload_new` daily quota (5/day) caps
  * authors at a low-enough count that a full scan is cheap.
  */
-import { Hono } from "hono";
-import type { AppEnv } from "../types";
-import { errorFromKind } from "../lib/errors";
-import { verifyJws, AuthError } from "../lib/auth";
-import { hexEncode } from "../lib/hex";
+import { Hono } from 'hono';
+import type { AppEnv } from '../types';
+import { errorFromKind } from '../lib/errors';
+import { verifyJws, AuthError } from '../lib/auth';
+import { hexEncode } from '../lib/hex';
 
 const app = new Hono<AppEnv>();
 
@@ -30,14 +30,14 @@ function parseTags(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const p = JSON.parse(raw);
-    if (Array.isArray(p)) return p.filter((t): t is string => typeof t === "string");
+    if (Array.isArray(p)) return p.filter((t): t is string => typeof t === 'string');
   } catch {
     /* fall through */
   }
   return [];
 }
 
-app.get("/", async (c) => {
+app.get('/', async (c) => {
   const env = c.env;
   const req = c.req.raw;
 
@@ -45,7 +45,7 @@ app.get("/", async (c) => {
   try {
     authed = await verifyJws(req, env, new ArrayBuffer(0));
   } catch (e) {
-    if (e instanceof AuthError) return errorFromKind("Auth", e.detail, e.message);
+    if (e instanceof AuthError) return errorFromKind('Auth', e.detail, e.message);
     throw e;
   }
 
@@ -77,7 +77,7 @@ app.get("/", async (c) => {
 
   return new Response(JSON.stringify({ items }), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 });
 

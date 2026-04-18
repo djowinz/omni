@@ -109,12 +109,12 @@ All user data lives in `%APPDATA%\Omni\`:
 
 The project uses a Makefile as the unified entry point:
 
-| Command | Description |
-|---------|-------------|
-| `make build` | Build Rust + desktop |
-| `make test` | Run all tests |
-| `make installer` | Full installer (builds everything first) |
-| `make release INCREMENT=patch` | Full release pipeline |
-| `make dev` | Start desktop dev server |
+| Command                        | Description                              |
+| ------------------------------ | ---------------------------------------- |
+| `make build`                   | Build Rust + desktop                     |
+| `make test`                    | Run all tests                            |
+| `make installer`               | Full installer (builds everything first) |
+| `make release INCREMENT=patch` | Full release pipeline                    |
+| `make dev`                     | Start desktop dev server                 |
 
 See [Contributing](contributing.md) for development setup details.

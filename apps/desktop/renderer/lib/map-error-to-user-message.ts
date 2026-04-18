@@ -10,22 +10,14 @@
 
 export interface OmniError {
   code: string;
-  kind:
-    | "Malformed"
-    | "Unsafe"
-    | "Integrity"
-    | "Io"
-    | "Auth"
-    | "Quota"
-    | "Admin"
-    | "HostLocal";
+  kind: 'Malformed' | 'Unsafe' | 'Integrity' | 'Io' | 'Auth' | 'Quota' | 'Admin' | 'HostLocal';
   detail?: string;
   message: string;
 }
 
 export interface UserFacingError {
-  severity: "info" | "warning" | "error";
-  icon: "warn" | "block" | "retry" | "info";
+  severity: 'info' | 'warning' | 'error';
+  icon: 'warn' | 'block' | 'retry' | 'info';
   /** ALWAYS `error.message` — never `error.detail`. */
   text: string;
   /** `JSON.stringify({ code, kind, detail })` for "Report this" clipboard. */
@@ -33,34 +25,34 @@ export interface UserFacingError {
 }
 
 export function mapErrorToUserMessage(error: OmniError): UserFacingError {
-  let severity: UserFacingError["severity"];
-  let icon: UserFacingError["icon"];
+  let severity: UserFacingError['severity'];
+  let icon: UserFacingError['icon'];
 
   // Exhaustive switch — adding a new OmniError kind without updating this
   // mapping must produce a TypeScript error at the `_exhaustive` line below.
   switch (error.kind) {
-    case "Auth":
-    case "Quota":
-    case "Admin":
-      severity = "error";
-      icon = "warn";
+    case 'Auth':
+    case 'Quota':
+    case 'Admin':
+      severity = 'error';
+      icon = 'warn';
       break;
-    case "Integrity":
-      severity = "error";
-      icon = "block";
+    case 'Integrity':
+      severity = 'error';
+      icon = 'block';
       break;
-    case "Io":
-      severity = "warning";
-      icon = "retry";
+    case 'Io':
+      severity = 'warning';
+      icon = 'retry';
       break;
-    case "HostLocal":
-      severity = "warning";
-      icon = "warn";
+    case 'HostLocal':
+      severity = 'warning';
+      icon = 'warn';
       break;
-    case "Malformed":
-    case "Unsafe":
-      severity = "warning";
-      icon = "warn";
+    case 'Malformed':
+    case 'Unsafe':
+      severity = 'warning';
+      icon = 'warn';
       break;
     default: {
       const _exhaustive: never = error.kind;

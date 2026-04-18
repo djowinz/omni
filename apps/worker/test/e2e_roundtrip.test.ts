@@ -39,20 +39,20 @@
  * — that is the strongest cross-impl guarantee available without the Worker
  * re-signing, which invariant #1 forbids.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { env, SELF, applyD1Migrations } from "cloudflare:test";
-import type { Env } from "../src/env";
-import { loadWasm } from "../src/lib/wasm";
-import { signJws as signJwsShared } from "./helpers/signer";
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { env, SELF, applyD1Migrations } from 'cloudflare:test';
+import type { Env } from '../src/env';
+import { loadWasm } from '../src/lib/wasm';
+import { signJws as signJwsShared } from './helpers/signer';
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
 // ---- Fixture key material (must match test/fixtures/fixtures.json) --------
-const SEED_HEX = "0707070707070707070707070707070707070707070707070707070707070707";
-const PUBKEY_HEX = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const DF_HEX = "dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
+const PUBKEY_HEX = 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c';
+const DF_HEX = 'dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -60,12 +60,12 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, '0');
   return s;
 }
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", bytes);
+  const d = await crypto.subtle.digest('SHA-256', bytes);
   return bytesToHex(new Uint8Array(d));
 }
 
@@ -78,7 +78,7 @@ const OVERLAY_BYTES = new TextEncoder().encode(
   '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
 );
 const THEME_CSS_BYTES = new TextEncoder().encode(
-  "/* omni e2e */\nbody { background: #111; color: #eee; }\n",
+  '/* omni e2e */\nbody { background: #111; color: #eee; }\n',
 );
 
 interface BuiltBundle {
@@ -89,25 +89,25 @@ interface BuiltBundle {
 async function buildThemeOnlyBundle(): Promise<BuiltBundle> {
   const { identity } = await loadWasm();
   const entries = [
-    { path: "overlay.omni", bytes: OVERLAY_BYTES },
-    { path: "themes/default.css", bytes: THEME_CSS_BYTES },
+    { path: 'overlay.omni', bytes: OVERLAY_BYTES },
+    { path: 'themes/default.css', bytes: THEME_CSS_BYTES },
   ];
   const manifest: Record<string, unknown> = {
     schema_version: 1,
-    name: "e2e-roundtrip",
-    version: "1.0.0",
-    omni_min_version: "0.1.0",
-    description: "W4T16 miniflare round-trip fixture",
+    name: 'e2e-roundtrip',
+    version: '1.0.0',
+    omni_min_version: '0.1.0',
+    description: 'W4T16 miniflare round-trip fixture',
     tags: [],
-    license: "MIT",
-    entry_overlay: "overlay.omni",
-    default_theme: "themes/default.css",
+    license: 'MIT',
+    entry_overlay: 'overlay.omni',
+    default_theme: 'themes/default.css',
     sensor_requirements: [],
     files: await Promise.all(
       entries.map(async (f) => ({ path: f.path, sha256: await sha256Hex(f.bytes) })),
     ),
     resource_kinds: {
-      theme: { dir: "themes/", extensions: [".css"], max_size_bytes: 1_048_576 },
+      theme: { dir: 'themes/', extensions: ['.css'], max_size_bytes: 1_048_576 },
     },
   };
   const filesMap = new Map(entries.map((f) => [f.path, f.bytes] as const));
@@ -133,69 +133,81 @@ async function signJws(opts: {
 }
 
 // ---- Multipart helper (matches upload.test.ts) ---------------------------
-function buildMultipart(bundle: Uint8Array, thumbnail: Uint8Array): {
-  body: Uint8Array; contentType: string;
+function buildMultipart(
+  bundle: Uint8Array,
+  thumbnail: Uint8Array,
+): {
+  body: Uint8Array;
+  contentType: string;
 } {
-  const boundary = "----omni-e2e-" + Math.random().toString(36).slice(2);
+  const boundary = '----omni-e2e-' + Math.random().toString(36).slice(2);
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   parts.push(enc.encode(`--${boundary}\r\n`));
-  parts.push(enc.encode(`Content-Disposition: form-data; name="bundle"; filename="bundle.omnipkg"\r\n`));
+  parts.push(
+    enc.encode(`Content-Disposition: form-data; name="bundle"; filename="bundle.omnipkg"\r\n`),
+  );
   parts.push(enc.encode(`Content-Type: application/octet-stream\r\n\r\n`));
   parts.push(bundle);
   parts.push(enc.encode(`\r\n--${boundary}\r\n`));
-  parts.push(enc.encode(`Content-Disposition: form-data; name="thumbnail"; filename="thumb.png"\r\n`));
+  parts.push(
+    enc.encode(`Content-Disposition: form-data; name="thumbnail"; filename="thumb.png"\r\n`),
+  );
   parts.push(enc.encode(`Content-Type: image/png\r\n\r\n`));
   parts.push(thumbnail);
   parts.push(enc.encode(`\r\n--${boundary}--\r\n`));
-  let total = 0; for (const p of parts) total += p.byteLength;
-  const out = new Uint8Array(total); let off = 0;
-  for (const p of parts) { out.set(p, off); off += p.byteLength; }
+  let total = 0;
+  for (const p of parts) total += p.byteLength;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.byteLength;
+  }
   return { body: out, contentType: `multipart/form-data; boundary=${boundary}` };
 }
 
 // Minimal 1x1 transparent PNG — same constant as upload.test.ts.
 const TINY_PNG = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-  0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
-  0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
-  0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+  0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
   0x42, 0x60, 0x82,
 ]);
 
 // ---- Environment wiring --------------------------------------------------
 async function resetEnv(): Promise<void> {
-  for (const prefix of ["quota:", "denylist:", "df_pubkey_velocity:"]) {
+  for (const prefix of ['quota:', 'denylist:', 'df_pubkey_velocity:']) {
     const list = await env.STATE.list({ prefix });
     for (const k of list.keys) await env.STATE.delete(k.name);
   }
-  await env.META.exec("DELETE FROM artifacts");
-  await env.META.exec("DELETE FROM content_hashes");
-  await env.META.exec("DELETE FROM authors");
-  await env.META.exec("DELETE FROM tombstones");
-  await env.META.exec("DELETE FROM install_daily");
+  await env.META.exec('DELETE FROM artifacts');
+  await env.META.exec('DELETE FROM content_hashes');
+  await env.META.exec('DELETE FROM authors');
+  await env.META.exec('DELETE FROM tombstones');
+  await env.META.exec('DELETE FROM install_daily');
 }
 
 async function seedVocab(): Promise<void> {
-  await env.STATE.put("config:vocab", JSON.stringify({ tags: [], version: 1 }));
+  await env.STATE.put('config:vocab', JSON.stringify({ tags: [], version: 1 }));
 }
 async function seedLimits(): Promise<void> {
-  await env.STATE.put("config:limits", JSON.stringify({
-    max_bundle_compressed: 5_242_880,
-    max_bundle_uncompressed: 10_485_760,
-    max_entries: 32,
-    version: 1,
-    updated_at: 0,
-  }));
+  await env.STATE.put(
+    'config:limits',
+    JSON.stringify({
+      max_bundle_compressed: 5_242_880,
+      max_bundle_uncompressed: 10_485_760,
+      max_entries: 32,
+      version: 1,
+      updated_at: 0,
+    }),
+  );
 }
 
 beforeAll(async () => {
-  const migrations = await import("cloudflare:test").then(
-    (m) => (m as unknown as { listMigrations?: () => Promise<unknown> }).listMigrations?.(),
+  const migrations = await import('cloudflare:test').then((m) =>
+    (m as unknown as { listMigrations?: () => Promise<unknown> }).listMigrations?.(),
   );
   if (migrations) {
     await applyD1Migrations(
@@ -228,24 +240,24 @@ beforeEach(async () => {
 });
 
 const CLIENT_HEADERS = {
-  "X-Omni-Version": "0.1.0",
-  "X-Omni-Sanitize-Version": "1",
+  'X-Omni-Version': '0.1.0',
+  'X-Omni-Sanitize-Version': '1',
 };
 
-describe("miniflare end-to-end: upload → list → download (W4T16)", () => {
-  it("round-trips a signed theme bundle through the full HTTPS surface", async () => {
+describe('miniflare end-to-end: upload → list → download (W4T16)', () => {
+  it('round-trips a signed theme bundle through the full HTTPS surface', async () => {
     // --- 1. Build + upload --------------------------------------------------
     const { bytes: uploadBytes, manifest } = await buildThemeOnlyBundle();
     expect(uploadBytes.byteLength).toBeGreaterThan(0);
 
     const { body, contentType } = buildMultipart(uploadBytes, TINY_PNG);
-    const jws = await signJws({ method: "POST", path: "/v1/upload", body });
-    const uploadRes = await SELF.fetch("https://worker.test/v1/upload", {
-      method: "POST",
+    const jws = await signJws({ method: 'POST', path: '/v1/upload', body });
+    const uploadRes = await SELF.fetch('https://worker.test/v1/upload', {
+      method: 'POST',
       headers: {
         ...CLIENT_HEADERS,
-        "Authorization": `Omni-JWS ${jws}`,
-        "Content-Type": contentType,
+        Authorization: `Omni-JWS ${jws}`,
+        'Content-Type': contentType,
       },
       body,
     });
@@ -255,7 +267,7 @@ describe("miniflare end-to-end: upload → list → download (W4T16)", () => {
       content_hash: string;
       status: string;
     };
-    expect(uploadBody.status).toBe("created");
+    expect(uploadBody.status).toBe('created');
     expect(uploadBody.artifact_id.length).toBeGreaterThan(0);
     expect(uploadBody.content_hash).toMatch(/^[0-9a-f]{64}$/);
 
@@ -267,10 +279,9 @@ describe("miniflare end-to-end: upload → list → download (W4T16)", () => {
     const { bundle: bundleWasm } = await loadWasm();
 
     // --- 2. List (must include the upload) ---------------------------------
-    const listRes = await SELF.fetch(
-      "https://worker.test/v1/list?kind=theme&sort=new",
-      { headers: { ...CLIENT_HEADERS } },
-    );
+    const listRes = await SELF.fetch('https://worker.test/v1/list?kind=theme&sort=new', {
+      headers: { ...CLIENT_HEADERS },
+    });
     expect(listRes.status, await listRes.clone().text()).toBe(200);
     const listBody = (await listRes.json()) as {
       items: Array<{
@@ -281,38 +292,39 @@ describe("miniflare end-to-end: upload → list → download (W4T16)", () => {
       }>;
     };
     const hit = listBody.items.find((i) => i.artifact_id === uploadBody.artifact_id);
-    expect(hit, "uploaded artifact must appear in /v1/list").toBeTruthy();
+    expect(hit, 'uploaded artifact must appear in /v1/list').toBeTruthy();
     expect(hit!.name).toBe(manifest.name);
-    expect(hit!.kind).toBe("theme");
+    expect(hit!.kind).toBe('theme');
     // Note: list.content_hash === upload.content_hash (both read D1 row).
     // Keep this assertion soft — the DB row stores the pre-sanitize manifest
     // hash, and the upload route returns the same. Test this as a consistency
     // check; if it ever diverges, that is a real bug in one of the routes.
     expect(hit!.content_hash).toBe(uploadBody.content_hash);
     // Also assert against D1 directly as a belt-and-suspenders cross-check:
-    const dbRow = await env.META.prepare(
-      "SELECT content_hash FROM artifacts WHERE id = ?",
-    ).bind(uploadBody.artifact_id).first<{ content_hash: string }>();
-    expect(dbRow?.content_hash, `db=${dbRow?.content_hash} upload=${uploadBody.content_hash}`).toBe(uploadBody.content_hash);
+    const dbRow = await env.META.prepare('SELECT content_hash FROM artifacts WHERE id = ?')
+      .bind(uploadBody.artifact_id)
+      .first<{ content_hash: string }>();
+    expect(dbRow?.content_hash, `db=${dbRow?.content_hash} upload=${uploadBody.content_hash}`).toBe(
+      uploadBody.content_hash,
+    );
 
     // --- 3. Download + contract headers ------------------------------------
-    const dlRes = await SELF.fetch(
-      `https://worker.test/v1/download/${uploadBody.artifact_id}`,
-      { headers: { "cf-connecting-ip": "198.51.100.7" } },
-    );
+    const dlRes = await SELF.fetch(`https://worker.test/v1/download/${uploadBody.artifact_id}`, {
+      headers: { 'cf-connecting-ip': '198.51.100.7' },
+    });
     expect(dlRes.status, await dlRes.clone().text()).toBe(200);
-    expect(dlRes.headers.get("content-type")).toContain("application/octet-stream");
-    expect(dlRes.headers.get("X-Omni-Content-Hash")).toBe(uploadBody.content_hash);
-    expect(dlRes.headers.get("X-Omni-Author-Pubkey")).toBe(PUBKEY_HEX);
+    expect(dlRes.headers.get('content-type')).toContain('application/octet-stream');
+    expect(dlRes.headers.get('X-Omni-Content-Hash')).toBe(uploadBody.content_hash);
+    expect(dlRes.headers.get('X-Omni-Author-Pubkey')).toBe(PUBKEY_HEX);
     // X-Omni-Signature: the Worker's sanitize repack strips the JWS entry
     // (invariant #1 — the Worker cannot re-sign) and the current WASM surface
     // does not expose the raw signature either way. Per contract §4.2 the
     // header is omitted entirely rather than emitted with a placeholder.
-    expect(dlRes.headers.get("X-Omni-Signature")).toBeNull();
+    expect(dlRes.headers.get('X-Omni-Signature')).toBeNull();
     // X-Omni-Manifest must parse as JSON (via base64) and match the uploaded
     // manifest's identity fields. The unsigned-fast-path `bundle.unpackManifest`
     // populates this header even on stripped-JWS blobs.
-    const dlManifestB64 = dlRes.headers.get("X-Omni-Manifest");
+    const dlManifestB64 = dlRes.headers.get('X-Omni-Manifest');
     expect(dlManifestB64).toBeTruthy();
     const dlHeaderManifest = JSON.parse(atob(dlManifestB64!)) as Record<string, unknown>;
     expect(dlHeaderManifest.name).toBe(manifest.name);
@@ -333,8 +345,10 @@ describe("miniflare end-to-end: upload → list → download (W4T16)", () => {
     // Stored blob is UNSIGNED (Worker repack drops JWS). Use the unsigned
     // `bundle.unpackManifest` fast path to parse the container and verify the
     // manifest survived the sanitize round-trip.
-    const dlManifest = bundleWasm.unpackManifest(downloadedBytes, undefined) as
-      Record<string, unknown>;
+    const dlManifest = bundleWasm.unpackManifest(downloadedBytes, undefined) as Record<
+      string,
+      unknown
+    >;
     expect(dlManifest.name).toBe(manifest.name);
     expect(dlManifest.version).toBe(manifest.version);
     expect(dlManifest.schema_version).toBe(manifest.schema_version);

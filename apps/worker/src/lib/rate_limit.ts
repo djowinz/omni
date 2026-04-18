@@ -15,14 +15,14 @@
  *                                                 distinct pubkeys in last 24h
  *   - `flags:vm:<df_hex>`                         presence flag → 25% limits
  */
-import type { Env } from "../env";
+import type { Env } from '../env';
 
 export type RateLimitAction =
-  | "upload_new"
-  | "upload_update"
-  | "upload_new_bundle"
-  | "download"
-  | "report";
+  | 'upload_new'
+  | 'upload_update'
+  | 'upload_new_bundle'
+  | 'download'
+  | 'report';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -38,7 +38,7 @@ export interface RateLimitResult {
 
 interface Window {
   /** "day" = YYYY-MM-DD, "minute" = YYYY-MM-DDTHH:MM */
-  kind: "day" | "minute";
+  kind: 'day' | 'minute';
   /** Suffix used in the KV key. */
   suffix: string;
   /** Seconds until the window rolls over (upper bound; used for retry_after). */
@@ -88,7 +88,7 @@ function dayWindow(now: Date): Window {
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const secondsUntilRollover = Math.max(1, Math.ceil((next - now.getTime()) / 1000));
   return {
-    kind: "day",
+    kind: 'day',
     suffix,
     secondsUntilRollover,
     ttl: Math.max(KV_MIN_TTL_SECONDS, secondsUntilRollover + DAY_TTL_SLOP_SECONDS),
@@ -111,7 +111,7 @@ function minuteWindow(now: Date): Window {
   );
   const secondsUntilRollover = Math.max(1, Math.ceil((next - now.getTime()) / 1000));
   return {
-    kind: "minute",
+    kind: 'minute',
     suffix,
     secondsUntilRollover,
     ttl: MINUTE_WINDOW_SECONDS + MINUTE_TTL_SLOP_SECONDS,
@@ -119,7 +119,7 @@ function minuteWindow(now: Date): Window {
 }
 
 function scale(env: Env): number {
-  const raw = env.OMNI_THEMES_RATE_LIMIT_SCALE ?? "1";
+  const raw = env.OMNI_THEMES_RATE_LIMIT_SCALE ?? '1';
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return 1;
   return parsed;
@@ -163,9 +163,9 @@ async function checkAndUpdateVelocity(
         entries = parsed.filter(
           (e): e is VelocityEntry =>
             e !== null &&
-            typeof e === "object" &&
-            typeof (e as VelocityEntry).p === "string" &&
-            typeof (e as VelocityEntry).t === "number",
+            typeof e === 'object' &&
+            typeof (e as VelocityEntry).p === 'string' &&
+            typeof (e as VelocityEntry).t === 'number',
         );
       }
     } catch {
@@ -230,7 +230,7 @@ export async function checkAndIncrement(
   const vmFlag = (await kv.get(`flags:vm:${df_hex}`)) !== null;
 
   // --- Turnstile velocity check (only meaningful for authed actions). ---
-  if (pubkey_hex && action !== "download") {
+  if (pubkey_hex && action !== 'download') {
     const tripped = await checkAndUpdateVelocity(kv, df_hex, pubkey_hex, now.getTime());
     if (tripped) {
       return { allowed: false, turnstile: true };
@@ -276,9 +276,7 @@ export async function checkAndIncrement(
   }
 
   // All counters under their caps → increment every relevant key.
-  await Promise.all(
-    checks.map((c, i) => bumpCounter(kv, c.key, c.window.ttl, currents[i])),
-  );
+  await Promise.all(checks.map((c, i) => bumpCounter(kv, c.key, c.window.ttl, currents[i])));
 
   return { allowed: true };
 }

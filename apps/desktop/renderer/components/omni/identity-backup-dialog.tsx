@@ -49,10 +49,7 @@ const STRENGTH_RANK: Record<PasswordStrength, number> = {
   strong: 3,
 };
 
-const MODE_COPY: Record<
-  IdentityBackupMode,
-  { title: string; description: string }
-> = {
+const MODE_COPY: Record<IdentityBackupMode, { title: string; description: string }> = {
   'first-publish': {
     title: 'Back up your identity',
     description:
@@ -82,19 +79,14 @@ function base64ToBytes(b64: string): Uint8Array {
 function isOmniError(value: unknown): value is OmniError {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.code === 'string' &&
-    typeof v.kind === 'string' &&
-    typeof v.message === 'string'
-  );
+  return typeof v.code === 'string' && typeof v.kind === 'string' && typeof v.message === 'string';
 }
 
 function toUserFacing(err: unknown): UserFacingError {
   if (isOmniError(err)) {
     return mapErrorToUserMessage(err);
   }
-  const message =
-    err instanceof Error && err.message ? err.message : 'Save failed';
+  const message = err instanceof Error && err.message ? err.message : 'Save failed';
   return mapErrorToUserMessage({
     code: 'HOST_LOCAL',
     kind: 'HostLocal',
@@ -114,9 +106,7 @@ async function defaultSaveBackup(bytes: Uint8Array): Promise<string> {
   if (!electron?.ipcRenderer?.invoke) {
     throw new Error('Save bridge not available');
   }
-  const path: string | undefined = await electron.ipcRenderer.invoke(
-    'dialog:saveIdentityBackup',
-  );
+  const path: string | undefined = await electron.ipcRenderer.invoke('dialog:saveIdentityBackup');
   if (!path) throw new Error('Save cancelled');
   await electron.ipcRenderer.invoke('fs:writeFile', { path, bytes });
   return path;
@@ -136,10 +126,7 @@ export function IdentityBackupDialog({
   const [error, setError] = useState<UserFacingError | null>(null);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
 
-  const strength = useMemo(
-    () => computeStrength(passphrase, MIN_PASSPHRASE_LENGTH),
-    [passphrase],
-  );
+  const strength = useMemo(() => computeStrength(passphrase, MIN_PASSPHRASE_LENGTH), [passphrase]);
   const passphrasesMatch = passphrase.length > 0 && passphrase === confirm;
   const meetsLength = passphrase.length >= MIN_PASSPHRASE_LENGTH;
   const meetsStrength = STRENGTH_RANK[strength] >= STRENGTH_RANK.medium;
@@ -174,8 +161,7 @@ export function IdentityBackupDialog({
       // BackendApi singleton in the future when the method moves there).
       void backend;
       const response = await bridge({ type: 'identity.backup', passphrase });
-      const b64: unknown = (response as { encrypted_bytes_b64?: unknown })
-        ?.encrypted_bytes_b64;
+      const b64: unknown = (response as { encrypted_bytes_b64?: unknown })?.encrypted_bytes_b64;
       if (typeof b64 !== 'string') {
         throw new Error('Malformed identity.backup response');
       }
@@ -233,13 +219,10 @@ export function IdentityBackupDialog({
               disabled={submitting}
               autoFocus
             />
-            <PasswordStrengthMeter
-              value={passphrase}
-              minLength={MIN_PASSPHRASE_LENGTH}
-            />
+            <PasswordStrengthMeter value={passphrase} minLength={MIN_PASSPHRASE_LENGTH} />
             <p className="text-xs text-muted-foreground">
-              At least {MIN_PASSPHRASE_LENGTH} characters. Mix cases, digits, and symbols
-              to reach &ldquo;Medium&rdquo; or stronger.
+              At least {MIN_PASSPHRASE_LENGTH} characters. Mix cases, digits, and symbols to reach
+              &ldquo;Medium&rdquo; or stronger.
             </p>
           </div>
 
@@ -265,12 +248,7 @@ export function IdentityBackupDialog({
             >
               <span>{error.text}</span>
               <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleReport}
-                >
+                <Button type="button" variant="outline" size="sm" onClick={handleReport}>
                   {copyStatus === 'copied' ? 'Copied' : 'Report this'}
                 </Button>
               </div>

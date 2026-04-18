@@ -22,7 +22,7 @@ output, the PR fails.
 ## Consumer usage
 
 ```ts
-import type { SensorSnapshot, BitmapHeader } from "@omni/shared-types";
+import type { SensorSnapshot, BitmapHeader } from '@omni/shared-types';
 ```
 
 Never import from `@omni/shared-types/src/generated/...` directly — the

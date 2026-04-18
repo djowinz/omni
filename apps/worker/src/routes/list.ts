@@ -8,15 +8,15 @@
  *
  * Unauthenticated route (§4.3). Edge-cacheable: `Cache-Control: public, max-age=60`.
  */
-import { Hono } from "hono";
-import type { AppEnv } from "../types";
-import { errorFromKind } from "../lib/errors";
-import { encodeCursor, decodeCursor, type Cursor } from "../lib/cursor";
-import { hexEncode } from "../lib/hex";
+import { Hono } from 'hono';
+import type { AppEnv } from '../types';
+import { errorFromKind } from '../lib/errors';
+import { encodeCursor, decodeCursor, type Cursor } from '../lib/cursor';
+import { hexEncode } from '../lib/hex';
 
 const app = new Hono<AppEnv>();
 
-type SortMode = "new" | "installs" | "name";
+type SortMode = 'new' | 'installs' | 'name';
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -53,7 +53,7 @@ function parseTagsColumn(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.filter((t): t is string => typeof t === "string");
+    if (Array.isArray(parsed)) return parsed.filter((t): t is string => typeof t === 'string');
   } catch {
     /* column may be a plain csv in legacy rows */
   }
@@ -88,8 +88,8 @@ function rowToItem(row: ArtifactRow): ListItem {
 }
 
 function sortModeFrom(raw: string | undefined): SortMode {
-  if (raw === "installs" || raw === "name") return raw;
-  return "new";
+  if (raw === 'installs' || raw === 'name') return raw;
+  return 'new';
 }
 
 function clampLimit(raw: string | undefined): number {
@@ -102,23 +102,23 @@ function clampLimit(raw: string | undefined): number {
 /** Keyset predicate for the given sort mode. Returns SQL fragment + binds. */
 function keysetPredicate(sort: SortMode, cur: Cursor): { sql: string; binds: unknown[] } {
   switch (sort) {
-    case "new":
+    case 'new':
       // ORDER BY created_at DESC, id ASC  →  strictly after (t, i) means
       // (created_at < t) OR (created_at = t AND id > i)
       return {
-        sql: "AND (created_at < ? OR (created_at = ? AND id > ?))",
+        sql: 'AND (created_at < ? OR (created_at = ? AND id > ?))',
         binds: [Number(cur.t), Number(cur.t), cur.i],
       };
-    case "installs":
+    case 'installs':
       return {
-        sql: "AND (install_count < ? OR (install_count = ? AND id > ?))",
+        sql: 'AND (install_count < ? OR (install_count = ? AND id > ?))',
         binds: [Number(cur.t), Number(cur.t), cur.i],
       };
-    case "name":
+    case 'name':
       // ORDER BY name ASC, id ASC  →  strictly after (t, i) means
       // (name > t) OR (name = t AND id > i)
       return {
-        sql: "AND (name > ? OR (name = ? AND id > ?))",
+        sql: 'AND (name > ? OR (name = ? AND id > ?))',
         binds: [String(cur.t), String(cur.t), cur.i],
       };
   }
@@ -126,39 +126,39 @@ function keysetPredicate(sort: SortMode, cur: Cursor): { sql: string; binds: unk
 
 function orderClause(sort: SortMode): string {
   switch (sort) {
-    case "new":
-      return "ORDER BY created_at DESC, id ASC";
-    case "installs":
-      return "ORDER BY install_count DESC, id ASC";
-    case "name":
-      return "ORDER BY name ASC, id ASC";
+    case 'new':
+      return 'ORDER BY created_at DESC, id ASC';
+    case 'installs':
+      return 'ORDER BY install_count DESC, id ASC';
+    case 'name':
+      return 'ORDER BY name ASC, id ASC';
   }
 }
 
 function cursorValueForRow(row: ArtifactRow, sort: SortMode): number | string {
   switch (sort) {
-    case "new":
+    case 'new':
       return row.created_at;
-    case "installs":
+    case 'installs':
       return row.install_count;
-    case "name":
+    case 'name':
       return row.name;
   }
 }
 
-app.get("/", async (c) => {
+app.get('/', async (c) => {
   const url = new URL(c.req.url);
-  const kindParam = url.searchParams.get("kind") ?? undefined;
-  const sort = sortModeFrom(url.searchParams.get("sort") ?? undefined);
-  const cursorRaw = url.searchParams.get("cursor") ?? undefined;
-  const limit = clampLimit(url.searchParams.get("limit") ?? undefined);
-  const tagParams = url.searchParams.getAll("tag");
+  const kindParam = url.searchParams.get('kind') ?? undefined;
+  const sort = sortModeFrom(url.searchParams.get('sort') ?? undefined);
+  const cursorRaw = url.searchParams.get('cursor') ?? undefined;
+  const limit = clampLimit(url.searchParams.get('limit') ?? undefined);
+  const tagParams = url.searchParams.getAll('tag');
 
-  const conditions: string[] = ["is_removed = 0"];
+  const conditions: string[] = ['is_removed = 0'];
   const binds: unknown[] = [];
 
-  if (kindParam && kindParam !== "all") {
-    conditions.push("kind = ?");
+  if (kindParam && kindParam !== 'all') {
+    conditions.push('kind = ?');
     binds.push(kindParam);
   }
 
@@ -169,20 +169,20 @@ app.get("/", async (c) => {
     binds.push(`%"${t}"%`);
   }
 
-  let cursorSql = "";
+  let cursorSql = '';
   if (cursorRaw) {
     let cur: Cursor;
     try {
       cur = decodeCursor(cursorRaw);
     } catch {
-      return errorFromKind("Malformed", "BadRequest", "cursor is malformed");
+      return errorFromKind('Malformed', 'BadRequest', 'cursor is malformed');
     }
     const pred = keysetPredicate(sort, cur);
     cursorSql = ` ${pred.sql}`;
     binds.push(...pred.binds);
   }
 
-  const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const sql = `
     SELECT id, author_pubkey, name, kind, content_hash, thumbnail_hash,
            tags, install_count, created_at, updated_at
@@ -213,8 +213,8 @@ app.get("/", async (c) => {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      "Cache-Control": "public, max-age=60",
+      'content-type': 'application/json; charset=utf-8',
+      'Cache-Control': 'public, max-age=60',
     },
   });
 });

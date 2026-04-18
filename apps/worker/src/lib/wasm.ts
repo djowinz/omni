@@ -10,13 +10,13 @@
  * of each wasm-bindgen JS shim. The default async `init(...)` would try to
  * `fetch()` a relative URL at runtime, which the Workers runtime forbids.
  */
-import * as BundleNS from "../wasm/omni_bundle.js";
-import * as IdentityNS from "../wasm/omni_identity.js";
-import * as SanitizeNS from "../wasm/omni_sanitize.js";
+import * as BundleNS from '../wasm/omni_bundle.js';
+import * as IdentityNS from '../wasm/omni_identity.js';
+import * as SanitizeNS from '../wasm/omni_sanitize.js';
 
-import bundleModule from "../wasm/omni_bundle.wasm";
-import identityModule from "../wasm/omni_identity.wasm";
-import sanitizeModule from "../wasm/omni_sanitize.wasm";
+import bundleModule from '../wasm/omni_bundle.wasm';
+import identityModule from '../wasm/omni_identity.wasm';
+import sanitizeModule from '../wasm/omni_sanitize.wasm';
 
 export interface WasmBindings {
   bundle: typeof BundleNS;

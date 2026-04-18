@@ -6,7 +6,7 @@
  * queries) round-trip cleanly because the base64url helpers go through
  * `TextEncoder` / `TextDecoder`.
  */
-import { b64urlDecodeJson, b64urlEncodeJson } from "./base64url";
+import { b64urlDecodeJson, b64urlEncodeJson } from './base64url';
 
 export interface Cursor {
   t: number | string;
@@ -21,11 +21,11 @@ export function decodeCursor(s: string): Cursor {
   const parsed = b64urlDecodeJson<Cursor>(s);
   if (
     parsed === null ||
-    typeof parsed !== "object" ||
-    (typeof parsed.t !== "number" && typeof parsed.t !== "string") ||
-    typeof parsed.i !== "string"
+    typeof parsed !== 'object' ||
+    (typeof parsed.t !== 'number' && typeof parsed.t !== 'string') ||
+    typeof parsed.i !== 'string'
   ) {
-    throw new Error("decodeCursor: malformed cursor payload");
+    throw new Error('decodeCursor: malformed cursor payload');
   }
   return parsed;
 }

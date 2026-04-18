@@ -1,3 +1,11 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'
+
+# Native deps whose install-time build scripts we explicitly allow.
+# (pnpm v10+ blocks by default; these are required by Cloudflare Workers
+# tooling, sharp, and vite/esbuild.)
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true

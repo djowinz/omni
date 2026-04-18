@@ -8,7 +8,7 @@ A customizable game overlay for Windows. Build overlays with HTML and CSS, see r
 > layout and naming conventions, and [`docs/contributing.md`](./docs/contributing.md)
 > for the contribution workflow.
 
-----
+---
 
 ![Omni Desktop Editor](docs/images/editor-preview.png)
 
@@ -46,30 +46,28 @@ Run `OmniSetup.exe` and follow the prompts. Omni installs to `Program Files` and
 
 ### Available Sensors
 
-| Path | Description |
-|------|-------------|
-| `{fps}` | Frames per second |
-| `{frame-time}` | Frame time (ms) |
-| `{cpu.usage}` | CPU usage (%) |
-| `{cpu.temp}` | CPU temperature |
-| `{gpu.usage}` | GPU usage (%) |
-| `{gpu.temp}` | GPU temperature |
-| `{gpu.clock}` | GPU core clock (MHz) |
-| `{gpu.vram.used}` | VRAM used (MB) |
-| `{gpu.vram.total}` | VRAM total (MB) |
-| `{gpu.power}` | GPU power draw (W) |
-| `{ram.usage}` | RAM usage (%) |
-| `{ram.used}` | RAM used (MB) |
-| `{ram.total}` | RAM total (MB) |
+| Path               | Description          |
+| ------------------ | -------------------- |
+| `{fps}`            | Frames per second    |
+| `{frame-time}`     | Frame time (ms)      |
+| `{cpu.usage}`      | CPU usage (%)        |
+| `{cpu.temp}`       | CPU temperature      |
+| `{gpu.usage}`      | GPU usage (%)        |
+| `{gpu.temp}`       | GPU temperature      |
+| `{gpu.clock}`      | GPU core clock (MHz) |
+| `{gpu.vram.used}`  | VRAM used (MB)       |
+| `{gpu.vram.total}` | VRAM total (MB)      |
+| `{gpu.power}`      | GPU power draw (W)   |
+| `{ram.usage}`      | RAM usage (%)        |
+| `{ram.used}`       | RAM used (MB)        |
+| `{ram.total}`      | RAM total (MB)       |
 
 ### Conditional Classes
 
 Apply CSS classes based on metric values:
 
 ```html
-<div class="temp" class:warning="{gpu.temp} > 80" class:critical="{gpu.temp} > 95">
-  {gpu.temp}
-</div>
+<div class="temp" class:warning="{gpu.temp} > 80" class:critical="{gpu.temp} > 95">{gpu.temp}</div>
 ```
 
 ## Scanner Configuration

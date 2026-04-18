@@ -23,7 +23,12 @@ interface PasswordStrengthMeterProps {
 }
 
 const SEGMENT_COUNT: Record<PasswordStrength, number> = { none: 0, weak: 1, medium: 2, strong: 3 };
-const LABEL: Record<PasswordStrength, string> = { none: '', weak: 'Weak', medium: 'Medium', strong: 'Strong' };
+const LABEL: Record<PasswordStrength, string> = {
+  none: '',
+  weak: 'Weak',
+  medium: 'Medium',
+  strong: 'Strong',
+};
 const FILL_CLASS: Record<PasswordStrength, string> = {
   none: '',
   weak: 'bg-destructive',
@@ -37,7 +42,11 @@ const LABEL_CLASS: Record<PasswordStrength, string> = {
   strong: 'text-emerald-600 dark:text-emerald-500',
 };
 
-export function PasswordStrengthMeter({ value, minLength = 12, className }: PasswordStrengthMeterProps) {
+export function PasswordStrengthMeter({
+  value,
+  minLength = 12,
+  className,
+}: PasswordStrengthMeterProps) {
   const strength = computeStrength(value, minLength);
   const filled = SEGMENT_COUNT[strength];
   return (

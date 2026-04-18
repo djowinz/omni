@@ -8,14 +8,14 @@ which holds personal AI-tool artifacts (design specs, plans, retros).
 
 ## Current contracts
 
-| File | Owner | Consumed by |
-|---|---|---|
-| `bundle-manifest.schema.json` | `crates/bundle` | `crates/bundle/tests/integration_schema.rs` validates packed manifests against this schema |
-| `canonical-hash-algorithm.md` | `crates/bundle` | `crates/bundle/src/hash.rs` implements this algorithm |
-| `data-sensor-attributes.md` | `crates/host` + `apps/desktop` | Host emits sensor paths; renderer consumes them |
-| `identity-file-format.md` | `crates/identity` | Load/save format for Ed25519 keypairs |
-| `worker-api.md` | `apps/worker` | HTTP + error contract between desktop and Worker |
-| `ws-explorer.md` | `apps/desktop` ↔ `crates/host` | WebSocket explorer protocol |
+| File                          | Owner                          | Consumed by                                                                                |
+| ----------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `bundle-manifest.schema.json` | `crates/bundle`                | `crates/bundle/tests/integration_schema.rs` validates packed manifests against this schema |
+| `canonical-hash-algorithm.md` | `crates/bundle`                | `crates/bundle/src/hash.rs` implements this algorithm                                      |
+| `data-sensor-attributes.md`   | `crates/host` + `apps/desktop` | Host emits sensor paths; renderer consumes them                                            |
+| `identity-file-format.md`     | `crates/identity`              | Load/save format for Ed25519 keypairs                                                      |
+| `worker-api.md`               | `apps/worker`                  | HTTP + error contract between desktop and Worker                                           |
+| `ws-explorer.md`              | `apps/desktop` ↔ `crates/host` | WebSocket explorer protocol                                                                |
 
 ## Stability and versioning
 

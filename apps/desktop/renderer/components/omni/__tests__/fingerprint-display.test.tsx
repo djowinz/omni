@@ -9,7 +9,7 @@ const EMOJI: [string, string, string, string, string, string] = [
   '\u{1F525}', // 🔥
   '\u{1F4A7}', // 💧
   '\u{1F308}', // 🌈
-  '\u{26A1}',  // ⚡
+  '\u{26A1}', // ⚡
 ];
 
 describe('FingerprintDisplay', () => {
@@ -33,14 +33,7 @@ describe('FingerprintDisplay', () => {
   });
 
   it('shows emoji in tooltip when showEmoji + inline', () => {
-    render(
-      <FingerprintDisplay
-        words={WORDS}
-        emoji={EMOJI}
-        variant="inline"
-        showEmoji
-      />,
-    );
+    render(<FingerprintDisplay words={WORDS} emoji={EMOJI} variant="inline" showEmoji />);
     const btn = screen.getByRole('button');
     const title = btn.getAttribute('title') ?? '';
     for (const e of EMOJI) {
@@ -49,14 +42,7 @@ describe('FingerprintDisplay', () => {
   });
 
   it('suppresses emoji in tooltip when showEmoji={false}', () => {
-    render(
-      <FingerprintDisplay
-        words={WORDS}
-        emoji={EMOJI}
-        variant="inline"
-        showEmoji={false}
-      />,
-    );
+    render(<FingerprintDisplay words={WORDS} emoji={EMOJI} variant="inline" showEmoji={false} />);
     const btn = screen.getByRole('button');
     const title = btn.getAttribute('title') ?? '';
     for (const e of EMOJI) {
@@ -69,9 +55,7 @@ describe('FingerprintDisplay', () => {
     vi.stubGlobal('navigator', { clipboard: { writeText } });
 
     const onCopy = vi.fn();
-    render(
-      <FingerprintDisplay words={WORDS} emoji={EMOJI} onCopy={onCopy} />,
-    );
+    render(<FingerprintDisplay words={WORDS} emoji={EMOJI} onCopy={onCopy} />);
 
     fireEvent.click(screen.getByRole('button'));
     // Allow the async clipboard promise + onCopy callback to resolve.
@@ -84,12 +68,7 @@ describe('FingerprintDisplay', () => {
 
   it('merges className prop onto the root element', () => {
     const { container } = render(
-      <FingerprintDisplay
-        words={WORDS}
-        emoji={EMOJI}
-        variant="inline"
-        className="custom-class"
-      />,
+      <FingerprintDisplay words={WORDS} emoji={EMOJI} variant="inline" className="custom-class" />,
     );
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).toContain('custom-class');

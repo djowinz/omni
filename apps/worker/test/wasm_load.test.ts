@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { loadWasm, __resetWasmForTests } from "../src/lib/wasm";
-import { canonicalHash } from "../src/lib/canonical";
+import { describe, it, expect } from 'vitest';
+import { loadWasm, __resetWasmForTests } from '../src/lib/wasm';
+import { canonicalHash } from '../src/lib/canonical';
 
 /**
  * Tier B — smoke-tests the three WASM modules instantiate under miniflare
@@ -8,35 +8,35 @@ import { canonicalHash } from "../src/lib/canonical";
  * `canonical_hash` is a separate test (W4T15).
  */
 
-describe("loadWasm()", () => {
-  it("caches the bindings across calls", async () => {
+describe('loadWasm()', () => {
+  it('caches the bindings across calls', async () => {
     __resetWasmForTests();
     const a = await loadWasm();
     const b = await loadWasm();
     expect(b).toBe(a);
     // All three namespaces are present and carry their advertised surface.
-    expect(typeof a.bundle.canonicalHash).toBe("function");
-    expect(typeof a.bundle.pack).toBe("function");
-    expect(typeof a.bundle.unpack).toBe("function");
-    expect(typeof a.identity.unpackSignedBundle).toBe("function");
-    expect(typeof a.identity.signJws).toBe("function");
-    expect(typeof a.identity.verifyJws).toBe("function");
-    expect(typeof a.sanitize.sanitizeBundle).toBe("function");
-    expect(typeof a.sanitize.sanitizeTheme).toBe("function");
-    expect(typeof a.sanitize.rejectExecutableMagic).toBe("function");
+    expect(typeof a.bundle.canonicalHash).toBe('function');
+    expect(typeof a.bundle.pack).toBe('function');
+    expect(typeof a.bundle.unpack).toBe('function');
+    expect(typeof a.identity.unpackSignedBundle).toBe('function');
+    expect(typeof a.identity.signJws).toBe('function');
+    expect(typeof a.identity.verifyJws).toBe('function');
+    expect(typeof a.sanitize.sanitizeBundle).toBe('function');
+    expect(typeof a.sanitize.sanitizeTheme).toBe('function');
+    expect(typeof a.sanitize.rejectExecutableMagic).toBe('function');
   });
 
-  it("bundle.canonicalHash returns a 32-byte digest on a minimal manifest", async () => {
+  it('bundle.canonicalHash returns a 32-byte digest on a minimal manifest', async () => {
     const { bundle } = await loadWasm();
     // Minimal manifest shape accepted by `serde_wasm_bindgen::from_value`
     // into `omni_bundle::Manifest` — full golden-vector parity is W4T15.
     const manifest = {
       schema_version: 1,
-      kind: "theme",
-      name: "smoke",
-      version: "0.0.1",
-      author_pubkey: "00".repeat(32),
-      created_at: "2026-04-14T00:00:00Z",
+      kind: 'theme',
+      name: 'smoke',
+      version: '0.0.1',
+      author_pubkey: '00'.repeat(32),
+      created_at: '2026-04-14T00:00:00Z',
       files: [],
       resource_kinds: {},
     };
@@ -52,7 +52,7 @@ describe("loadWasm()", () => {
     }
   });
 
-  it("rejectExecutableMagic flags an MZ prefix (invariant #19c)", async () => {
+  it('rejectExecutableMagic flags an MZ prefix (invariant #19c)', async () => {
     const { sanitize } = await loadWasm();
     const mz = new Uint8Array([0x4d, 0x5a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     const r = sanitize.rejectExecutableMagic(mz) as { ok: boolean; prefixHex?: string };
@@ -61,15 +61,15 @@ describe("loadWasm()", () => {
   });
 });
 
-describe("canonicalHash wrapper", () => {
-  it("returns a Uint8Array from canonical.ts", async () => {
+describe('canonicalHash wrapper', () => {
+  it('returns a Uint8Array from canonical.ts', async () => {
     const manifest = {
       schema_version: 1,
-      kind: "theme",
-      name: "wrapper",
-      version: "0.0.1",
-      author_pubkey: "00".repeat(32),
-      created_at: "2026-04-14T00:00:00Z",
+      kind: 'theme',
+      name: 'wrapper',
+      version: '0.0.1',
+      author_pubkey: '00'.repeat(32),
+      created_at: '2026-04-14T00:00:00Z',
       files: [],
       resource_kinds: {},
     };

@@ -4,7 +4,7 @@
  * invariant #6. Callers pass a parsed manifest object; we return the 32-byte
  * digest as a `Uint8Array`.
  */
-import { loadWasm } from "./wasm";
+import { loadWasm } from './wasm';
 
 export async function canonicalHash(manifest: object): Promise<Uint8Array> {
   const { bundle } = await loadWasm();

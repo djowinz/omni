@@ -1,4 +1,4 @@
-import type { Env } from "../env";
+import type { Env } from '../env';
 
 /**
  * Returns true iff `pubkeyHex` is in the comma-separated `OMNI_ADMIN_PUBKEYS`
@@ -9,11 +9,11 @@ import type { Env } from "../env";
  * per worker-api.md §3.
  */
 export function isModerator(pubkeyHex: string, env: Env): boolean {
-  const raw = env.OMNI_ADMIN_PUBKEYS ?? "";
+  const raw = env.OMNI_ADMIN_PUBKEYS ?? '';
   const normalized = pubkeyHex.trim().toLowerCase();
   if (!normalized) return false;
   return raw
-    .split(",")
+    .split(',')
     .map((k) => k.trim().toLowerCase())
     .filter(Boolean)
     .includes(normalized);

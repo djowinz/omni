@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { env, applyD1Migrations } from "cloudflare:test";
-import { Hono } from "hono";
-import * as ed from "@noble/ed25519";
-import type { Env } from "../src/env";
-import { signJws as signJwsShared } from "./helpers/signer";
-import admin from "../src/routes/admin";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
+import { env, applyD1Migrations } from 'cloudflare:test';
+import { Hono } from 'hono';
+import * as ed from '@noble/ed25519';
+import type { Env } from '../src/env';
+import { signJws as signJwsShared } from './helpers/signer';
+import admin from '../src/routes/admin';
 
 /**
  * Tier B — Miniflare-backed tests for T9 (#012): GET /v1/admin/stats.
@@ -17,18 +17,14 @@ import admin from "../src/routes/admin";
  *   - Non-moderator JWS → Admin.NotModerator 403.
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
-const SEED_HEX =
-  "0707070707070707070707070707070707070707070707070707070707070707";
-const PUBKEY_HEX =
-  "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const DF_HEX =
-  "dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1";
-const OUTSIDER_SEED_HEX =
-  "0808080808080808080808080808080808080808080808080808080808080808";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
+const PUBKEY_HEX = 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c';
+const DF_HEX = 'dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1';
+const OUTSIDER_SEED_HEX = '0808080808080808080808080808080808080808080808080808080808080808';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -36,8 +32,8 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, '0');
   return s;
 }
 
@@ -67,32 +63,25 @@ async function signJws(o: SignOpts): Promise<{ jws: string; pubkeyHex: string }>
   return { jws, pubkeyHex };
 }
 
-function mkReq(
-  method: string,
-  path: string,
-  body: Uint8Array,
-  jws: string | null,
-): Request {
+function mkReq(method: string, path: string, body: Uint8Array, jws: string | null): Request {
   const headers = new Headers();
-  if (jws !== null) headers.set("Authorization", `Omni-JWS ${jws}`);
+  if (jws !== null) headers.set('Authorization', `Omni-JWS ${jws}`);
   const init: RequestInit = { method, headers };
-  if (method !== "GET" && method !== "HEAD") init.body = body;
+  if (method !== 'GET' && method !== 'HEAD') init.body = body;
   return new Request(`https://worker.test${path}`, init);
 }
 
 function mkApp() {
   const app = new Hono<{ Bindings: Env }>();
-  app.route("/v1/admin", admin);
+  app.route('/v1/admin', admin);
   return app;
 }
 
 const originalAdminPubkeys = env.OMNI_ADMIN_PUBKEYS;
 
 beforeAll(async () => {
-  const migrations = await import("cloudflare:test").then(
-    (m) =>
-      (m as unknown as { listMigrations?: () => Promise<unknown> })
-        .listMigrations?.(),
+  const migrations = await import('cloudflare:test').then((m) =>
+    (m as unknown as { listMigrations?: () => Promise<unknown> }).listMigrations?.(),
   );
   if (migrations) {
     await applyD1Migrations(
@@ -119,28 +108,26 @@ async function clearKvPrefix(prefix: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  await env.META.exec("DELETE FROM artifacts");
-  await env.META.exec("DELETE FROM authors");
-  await clearKvPrefix("reports:");
-  await clearKvPrefix("reports-by-status:");
-  await clearKvPrefix("denylist:device:");
-  await clearKvPrefix("denylist:pubkey:");
-  await env.STATE.delete("config:vocab");
-  await env.STATE.delete("config:limits");
-  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS =
-    PUBKEY_HEX;
+  await env.META.exec('DELETE FROM artifacts');
+  await env.META.exec('DELETE FROM authors');
+  await clearKvPrefix('reports:');
+  await clearKvPrefix('reports-by-status:');
+  await clearKvPrefix('denylist:device:');
+  await clearKvPrefix('denylist:pubkey:');
+  await env.STATE.delete('config:vocab');
+  await env.STATE.delete('config:limits');
+  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS = PUBKEY_HEX;
 });
 
 afterAll(() => {
-  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS =
-    originalAdminPubkeys;
+  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS = originalAdminPubkeys;
 });
 
 // --- seeders -----------------------------------------------------------
 
 async function seedReport(
   id: string,
-  status: "pending" | "actioned",
+  status: 'pending' | 'actioned',
   receivedAt: number,
 ): Promise<void> {
   const rec = {
@@ -149,17 +136,14 @@ async function seedReport(
     reporter_pubkey: PUBKEY_HEX,
     reporter_df: DF_HEX,
     artifact_id: `art_${id}`,
-    category: "malware",
+    category: 'malware',
     note: null,
     status,
-    actioned_by: status === "actioned" ? PUBKEY_HEX : null,
-    action: status === "actioned" ? "removed" : null,
+    actioned_by: status === 'actioned' ? PUBKEY_HEX : null,
+    action: status === 'actioned' ? 'removed' : null,
   };
   await env.STATE.put(`reports:${id}`, JSON.stringify(rec));
-  await env.STATE.put(
-    `reports-by-status:${status}:${receivedAt}:${id}`,
-    id,
-  );
+  await env.STATE.put(`reports-by-status:${status}:${receivedAt}:${id}`, id);
 }
 
 async function seedAuthor(byteFill: number, isDenied: 0 | 1): Promise<void> {
@@ -202,36 +186,30 @@ async function seedArtifact(
 
 // --- tests -------------------------------------------------------------
 
-describe("GET /v1/admin/stats", () => {
-  it("non-moderator → Admin.NotModerator 403", async () => {
+describe('GET /v1/admin/stats', () => {
+  it('non-moderator → Admin.NotModerator 403', async () => {
     const app = mkApp();
     const { jws } = await signJws({
-      method: "GET",
-      path: "/v1/admin/stats",
+      method: 'GET',
+      path: '/v1/admin/stats',
       body: new Uint8Array(),
       seedHex: OUTSIDER_SEED_HEX,
     });
-    const res = await app.fetch(
-      mkReq("GET", "/v1/admin/stats", new Uint8Array(), jws),
-      env,
-    );
+    const res = await app.fetch(mkReq('GET', '/v1/admin/stats', new Uint8Array(), jws), env);
     expect(res.status).toBe(403);
     const j = (await res.json()) as { kind: string; detail: string };
-    expect(j.kind).toBe("Admin");
-    expect(j.detail).toBe("NotModerator");
+    expect(j.kind).toBe('Admin');
+    expect(j.detail).toBe('NotModerator');
   });
 
-  it("empty state → all zeros, vocab/limits versions default to 0", async () => {
+  it('empty state → all zeros, vocab/limits versions default to 0', async () => {
     const app = mkApp();
     const { jws } = await signJws({
-      method: "GET",
-      path: "/v1/admin/stats",
+      method: 'GET',
+      path: '/v1/admin/stats',
       body: new Uint8Array(),
     });
-    const res = await app.fetch(
-      mkReq("GET", "/v1/admin/stats", new Uint8Array(), jws),
-      env,
-    );
+    const res = await app.fetch(mkReq('GET', '/v1/admin/stats', new Uint8Array(), jws), env);
     expect(res.status, await res.clone().text()).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
@@ -250,10 +228,10 @@ describe("GET /v1/admin/stats", () => {
 
   it("aggregates seeded mixed state into the spec'd shape", async () => {
     // Reports: 3 pending, 1 actioned.
-    await seedReport("r1", "pending", 1_700_000_001);
-    await seedReport("r2", "pending", 1_700_000_002);
-    await seedReport("r3", "pending", 1_700_000_003);
-    await seedReport("r4", "actioned", 1_700_000_004);
+    await seedReport('r1', 'pending', 1_700_000_001);
+    await seedReport('r2', 'pending', 1_700_000_002);
+    await seedReport('r3', 'pending', 1_700_000_003);
+    await seedReport('r4', 'actioned', 1_700_000_004);
 
     // Authors: 2 denied, 3 not denied.
     await seedAuthor(0x10, 1);
@@ -264,28 +242,25 @@ describe("GET /v1/admin/stats", () => {
 
     // Devices: 2 banned.
     await env.STATE.put(
-      `denylist:device:${"aa".repeat(32)}`,
-      JSON.stringify({ reason: "x", at: 1_700_000_000 }),
+      `denylist:device:${'aa'.repeat(32)}`,
+      JSON.stringify({ reason: 'x', at: 1_700_000_000 }),
     );
     await env.STATE.put(
-      `denylist:device:${"bb".repeat(32)}`,
-      JSON.stringify({ reason: "y", at: 1_700_000_000 }),
+      `denylist:device:${'bb'.repeat(32)}`,
+      JSON.stringify({ reason: 'y', at: 1_700_000_000 }),
     );
 
     // Artifacts: 5 total, 1 tombstoned. Install counts: 10/20/30/0/0 → 60.
-    await seedArtifact("a1", 0x20, 10, 0);
-    await seedArtifact("a2", 0x20, 20, 0);
-    await seedArtifact("a3", 0x21, 30, 0);
-    await seedArtifact("a4", 0x21, 0, 0);
-    await seedArtifact("a5", 0x22, 0, 1); // tombstoned
+    await seedArtifact('a1', 0x20, 10, 0);
+    await seedArtifact('a2', 0x20, 20, 0);
+    await seedArtifact('a3', 0x21, 30, 0);
+    await seedArtifact('a4', 0x21, 0, 0);
+    await seedArtifact('a5', 0x22, 0, 1); // tombstoned
 
     // Vocab/limits config blobs.
+    await env.STATE.put('config:vocab', JSON.stringify({ tags: ['minimal', 'neon'], version: 3 }));
     await env.STATE.put(
-      "config:vocab",
-      JSON.stringify({ tags: ["minimal", "neon"], version: 3 }),
-    );
-    await env.STATE.put(
-      "config:limits",
+      'config:limits',
       JSON.stringify({
         max_bundle_compressed: 1024,
         max_bundle_uncompressed: 4096,
@@ -297,14 +272,11 @@ describe("GET /v1/admin/stats", () => {
 
     const app = mkApp();
     const { jws } = await signJws({
-      method: "GET",
-      path: "/v1/admin/stats",
+      method: 'GET',
+      path: '/v1/admin/stats',
       body: new Uint8Array(),
     });
-    const res = await app.fetch(
-      mkReq("GET", "/v1/admin/stats", new Uint8Array(), jws),
-      env,
-    );
+    const res = await app.fetch(mkReq('GET', '/v1/admin/stats', new Uint8Array(), jws), env);
     expect(res.status, await res.clone().text()).toBe(200);
     const body = await res.json();
     expect(body).toEqual({

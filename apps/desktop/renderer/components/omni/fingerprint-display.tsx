@@ -50,11 +50,7 @@ export function FingerprintDisplay({
     <button
       type="button"
       onClick={handleCopy}
-      title={
-        variant === 'inline' && showEmoji
-          ? `${emojiJoined}\nClick to copy`
-          : 'Click to copy'
-      }
+      title={variant === 'inline' && showEmoji ? `${emojiJoined}\nClick to copy` : 'Click to copy'}
       aria-label={`Copy fingerprint: ${copyPayload}`}
       className="font-mono text-sm cursor-pointer hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
     >

@@ -41,6 +41,9 @@ apps/worker/.wrangler/
 # Wrangler Cache
 .wrangler
 
+# wasm-pack output directories (built under each WASM crate during deploy)
+crates/*/pkg/
+
 # Worker WASM build outputs
 apps/worker/src/wasm/*.wasm
 apps/worker/src/wasm/*.js

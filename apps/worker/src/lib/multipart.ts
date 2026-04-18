@@ -17,20 +17,17 @@ export class MultipartError extends Error {
   readonly part: string;
   constructor(part: string, message: string) {
     super(message);
-    this.name = "MultipartError";
+    this.name = 'MultipartError';
     this.part = part;
   }
 }
 
-async function readPart(
-  form: FormData,
-  name: string,
-): Promise<Uint8Array> {
+async function readPart(form: FormData, name: string): Promise<Uint8Array> {
   const v = form.get(name);
   if (v === null) {
     throw new MultipartError(name, `missing multipart part: ${name}`);
   }
-  if (typeof v === "string") {
+  if (typeof v === 'string') {
     throw new MultipartError(name, `multipart part ${name} must be a file, got string`);
   }
   // `v` is a File/Blob in Workers runtime.
@@ -43,9 +40,12 @@ export async function parseMultipart(req: Request): Promise<MultipartParts> {
   try {
     form = await req.formData();
   } catch (e) {
-    throw new MultipartError("_envelope", `failed to parse multipart body: ${(e as Error).message}`);
+    throw new MultipartError(
+      '_envelope',
+      `failed to parse multipart body: ${(e as Error).message}`,
+    );
   }
-  const bundle = await readPart(form, "bundle");
-  const thumbnail = await readPart(form, "thumbnail");
+  const bundle = await readPart(form, 'bundle');
+  const thumbnail = await readPart(form, 'thumbnail');
   return { bundle, thumbnail };
 }

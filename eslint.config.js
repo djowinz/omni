@@ -23,6 +23,8 @@ export default [
       '.claude/**',
       '.superpowers/**',
       '**/*.tsbuildinfo',
+      // wasm-pack / wasm-bindgen generated JS glue — not authored by us
+      'apps/worker/src/wasm/**',
     ],
   },
 
@@ -44,6 +46,10 @@ export default [
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
+      // TypeScript's own compiler catches undefined identifiers; ESLint's
+      // no-undef is redundant and doesn't understand ambient declarations
+      // (Cloudflare Worker globals, Node types, etc.).
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
@@ -52,6 +58,43 @@ export default [
         'warn',
         { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
       ],
+      // Empty-interface-extends pattern is idiomatic for augmenting ambient
+      // declarations (`declare module "cloudflare:test" { interface
+      // ProvidedEnv extends Env {} }`). The rule's preferred `type X = Y`
+      // form doesn't work inside `declare module` blocks.
+      '@typescript-eslint/no-empty-object-type': 'off',
+      // Pragmatic default: `any` is occasionally necessary (legacy code,
+      // complex type gymnastics). Desktop has 40+ legitimate usages that
+      // deserve a dedicated tightening effort, not blanket fail-on-merge.
+      '@typescript-eslint/no-explicit-any': 'off',
+      // Legacy-code warnings during initial lint adoption — surface but
+      // don't fail merge. Tighten to 'error' in a follow-up effort.
+      'no-empty': 'warn',
+      'no-useless-backreference': 'warn',
+    },
+  },
+
+  // Node-authored .mjs/.js scripts (dev tooling, fixture generators)
+  {
+    files: ['**/scripts/**/*.{js,mjs}', '**/test/fixtures/**/*.{js,mjs}'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: {
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        Buffer: 'readonly',
+        console: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        URL: 'readonly',
+        crypto: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+      },
+    },
+    rules: {
+      'no-undef': 'off',
     },
   },
 

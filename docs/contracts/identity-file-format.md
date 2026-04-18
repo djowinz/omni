@@ -39,6 +39,7 @@ Total length: exactly 74 bytes.
 ### Atomic write
 
 Writers MUST:
+
 1. Write to `identity.key.tmp` with mode `0o600` (POSIX) / current-user-only ACL (Windows).
 2. `fsync` the file.
 3. `rename` atomically over `identity.key`.
@@ -119,11 +120,11 @@ Same atomic-write contract as `identity.key`. Derived key and plaintext buffers 
 
 ## 3. Location defaults
 
-| Platform | `identity.key` path |
-|---|---|
-| Windows | `%APPDATA%\omni\identity.key` |
-| macOS | `~/Library/Application Support/omni/identity.key` |
-| Linux | `$XDG_CONFIG_HOME/omni/identity.key` (fallback `~/.config/omni/identity.key`) |
+| Platform | `identity.key` path                                                           |
+| -------- | ----------------------------------------------------------------------------- |
+| Windows  | `%APPDATA%\omni\identity.key`                                                 |
+| macOS    | `~/Library/Application Support/omni/identity.key`                             |
+| Linux    | `$XDG_CONFIG_HOME/omni/identity.key` (fallback `~/.config/omni/identity.key`) |
 
 `.omniid` backup files live wherever the user chooses — no canonical location.
 

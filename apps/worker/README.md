@@ -97,10 +97,10 @@ Security-level constants (path depth, compression ratio, path length) are NOT in
 
 ## Environment variables
 
-| Var | Prod | Dev | Meaning |
-|---|---|---|---|
-| `OMNI_THEMES_ENV` | `prod` | `dev` | Tags logs; controls error verbosity in #008. |
-| `OMNI_THEMES_RATE_LIMIT_SCALE` | `1` | `10` | Multiplies per-day quotas; `10` = 10× relaxed. |
+| Var                            | Prod   | Dev   | Meaning                                        |
+| ------------------------------ | ------ | ----- | ---------------------------------------------- |
+| `OMNI_THEMES_ENV`              | `prod` | `dev` | Tags logs; controls error verbosity in #008.   |
+| `OMNI_THEMES_RATE_LIMIT_SCALE` | `1`    | `10`  | Multiplies per-day quotas; `10` = 10× relaxed. |
 
 ## Contract references
 

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { env, applyD1Migrations } from "cloudflare:test";
-import type { Env } from "../src/env";
-import app from "../src/index";
-import { signJws as signJwsShared } from "./helpers/signer";
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { env, applyD1Migrations } from 'cloudflare:test';
+import type { Env } from '../src/env';
+import app from '../src/index';
+import { signJws as signJwsShared } from './helpers/signer';
 
 /**
  * Tier B — Miniflare-backed tests for POST /v1/report (plan #008 W3T13,
@@ -16,24 +16,20 @@ import { signJws as signJwsShared } from "./helpers/signer";
  * `migrations/0001_initial_schema.sql` file wrangler applies in prod.
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
 // ---------------------------------------------------------------------------
 // Fixture key material (plan #008 W1T3 — seed 0x07 * 32, matching native).
 // ---------------------------------------------------------------------------
-const SEED_HEX =
-  "0707070707070707070707070707070707070707070707070707070707070707";
-const PUBKEY_HEX =
-  "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const DF_HEX =
-  "dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
+const PUBKEY_HEX = 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c';
+const DF_HEX = 'dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++)
-    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
   return out;
 }
 
@@ -43,9 +39,9 @@ const SEED = hexToBytes(SEED_HEX);
 let dfCounter = 0;
 function freshDfHex(): string {
   dfCounter += 1;
-  const suffix = dfCounter.toString(16).padStart(8, "0");
+  const suffix = dfCounter.toString(16).padStart(8, '0');
   // 64 hex chars — 32 bytes. Prefix with zeros, tail with counter.
-  return ("00".repeat(32)).slice(0, 56) + suffix;
+  return '00'.repeat(32).slice(0, 56) + suffix;
 }
 
 interface SignOptions {
@@ -63,8 +59,8 @@ async function signJws(o: SignOptions = {}): Promise<string> {
   const kid = o.kidHex ?? PUBKEY_HEX;
   const df = o.dfHex ?? DF_HEX;
   return signJwsShared({
-    method: o.method ?? "POST",
-    path: o.path ?? "/v1/report",
+    method: o.method ?? 'POST',
+    path: o.path ?? '/v1/report',
     body: o.body,
     query: o.query,
     seed: SEED,
@@ -85,22 +81,21 @@ async function mkRequest(
     rawBody?: Uint8Array; // override the body bytes (for malformed-JSON tests)
   } = {},
 ): Promise<Request> {
-  const bodyBytes =
-    opts.rawBody ?? new TextEncoder().encode(JSON.stringify(bodyObj));
+  const bodyBytes = opts.rawBody ?? new TextEncoder().encode(JSON.stringify(bodyObj));
   const headers = new Headers({
-    "content-type": "application/json",
-    "X-Omni-Version": "0.1.0",
-    "X-Omni-Sanitize-Version": "1",
+    'content-type': 'application/json',
+    'X-Omni-Version': '0.1.0',
+    'X-Omni-Sanitize-Version': '1',
   });
   if (opts.includeAuth !== false) {
     const jws = await signJws({
       body: bodyBytes,
-      path: "/v1/report",
-      method: "POST",
+      path: '/v1/report',
+      method: 'POST',
       kidHex: opts.kidHex,
       dfHex: opts.dfHex,
     });
-    headers.set("Authorization", `Omni-JWS ${jws}`);
+    headers.set('Authorization', `Omni-JWS ${jws}`);
   }
   // Request requires an ArrayBuffer view; slice to a standalone buffer so
   // workerd doesn't complain about SharedArrayBuffer-typed backings.
@@ -108,8 +103,8 @@ async function mkRequest(
     bodyBytes.byteOffset,
     bodyBytes.byteOffset + bodyBytes.byteLength,
   ) as ArrayBuffer;
-  return new Request("https://worker.test/v1/report", {
-    method: "POST",
+  return new Request('https://worker.test/v1/report', {
+    method: 'POST',
     headers,
     body: buf,
   });
@@ -118,7 +113,7 @@ async function mkRequest(
 // ---------------------------------------------------------------------------
 // D1 schema seeding. The same migration file wrangler applies in prod.
 // ---------------------------------------------------------------------------
-const ARTIFACT_ID = "artifact_under_test";
+const ARTIFACT_ID = 'artifact_under_test';
 const OTHER_PUBKEY_BYTES = new Uint8Array(32).fill(0xaa);
 
 async function seedArtifact(id: string = ARTIFACT_ID): Promise<void> {
@@ -127,7 +122,7 @@ async function seedArtifact(id: string = ARTIFACT_ID): Promise<void> {
     `INSERT OR IGNORE INTO authors (pubkey, display_name, created_at)
      VALUES (?, ?, ?)`,
   )
-    .bind(OTHER_PUBKEY_BYTES, "seed_author", Math.floor(Date.now() / 1000))
+    .bind(OTHER_PUBKEY_BYTES, 'seed_author', Math.floor(Date.now() / 1000))
     .run();
   await env.META.prepare(
     `INSERT OR IGNORE INTO artifacts (
@@ -139,11 +134,11 @@ async function seedArtifact(id: string = ARTIFACT_ID): Promise<void> {
       id,
       OTHER_PUBKEY_BYTES,
       `name_${id}`,
-      "theme",
+      'theme',
       `hash_${id}`,
       `thumb_${id}`,
-      "1.0.0",
-      "0.1.0",
+      '1.0.0',
+      '0.1.0',
       new Uint8Array(64),
       Math.floor(Date.now() / 1000),
       Math.floor(Date.now() / 1000),
@@ -156,10 +151,8 @@ beforeAll(async () => {
   // vitest-pool-workers runtime injects migrations via the test config when
   // `migrations_dir` is set in wrangler.toml; applyD1Migrations is a no-op
   // if they're already present (the d1_migrations table is idempotent).
-  const migrations = await import("cloudflare:test").then(
-    (m) =>
-      (m as unknown as { listMigrations?: () => Promise<unknown> })
-        .listMigrations?.(),
+  const migrations = await import('cloudflare:test').then((m) =>
+    (m as unknown as { listMigrations?: () => Promise<unknown> }).listMigrations?.(),
   );
   if (migrations) {
     await applyD1Migrations(
@@ -176,7 +169,7 @@ beforeAll(async () => {
          total_uploads INTEGER NOT NULL DEFAULT 0,
          is_new_creator INTEGER NOT NULL DEFAULT 1,
          is_denied INTEGER NOT NULL DEFAULT 0
-       )`.replace(/\s+/g, " "),
+       )`.replace(/\s+/g, ' '),
     );
     await env.META.exec(
       `CREATE TABLE IF NOT EXISTS artifacts (
@@ -199,7 +192,7 @@ beforeAll(async () => {
          is_removed INTEGER NOT NULL DEFAULT 0,
          is_featured INTEGER NOT NULL DEFAULT 0,
          UNIQUE (author_pubkey, name)
-       )`.replace(/\s+/g, " "),
+       )`.replace(/\s+/g, ' '),
     );
   }
 });
@@ -207,9 +200,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Fresh artifact row per test so report_count assertions are deterministic;
   // DELETE cascades aren't wired so we just overwrite the row.
-  await env.META.prepare(`DELETE FROM artifacts WHERE id = ?`)
-    .bind(ARTIFACT_ID)
-    .run();
+  await env.META.prepare(`DELETE FROM artifacts WHERE id = ?`).bind(ARTIFACT_ID).run();
   await seedArtifact(ARTIFACT_ID);
   // Clear the velocity + quota KVs for our fixture DF so tests don't
   // interact (report quota is daily — use a fresh DF per-test where needed).
@@ -220,21 +211,21 @@ beforeEach(async () => {
 // Tests.
 // ---------------------------------------------------------------------------
 
-describe("POST /v1/report — happy path", () => {
-  it("accepts a valid report, persists KV, and bumps report_count", async () => {
+describe('POST /v1/report — happy path', () => {
+  it('accepts a valid report, persists KV, and bumps report_count', async () => {
     const df = freshDfHex();
     const req = await mkRequest(
       {
         artifact_id: ARTIFACT_ID,
-        category: "malware",
-        note: "suspicious behavior",
+        category: 'malware',
+        note: 'suspicious behavior',
       },
       { dfHex: df },
     );
     const res = await app.fetch(req, env);
     expect(res.status, await res.clone().text()).toBe(200);
     const body = (await res.json()) as { report_id: string; status: string };
-    expect(body.status).toBe("received");
+    expect(body.status).toBe('received');
     expect(body.report_id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
@@ -244,27 +235,22 @@ describe("POST /v1/report — happy path", () => {
     expect(stored).not.toBeNull();
     const rec = JSON.parse(stored!);
     expect(rec.artifact_id).toBe(ARTIFACT_ID);
-    expect(rec.category).toBe("malware");
-    expect(rec.note).toBe("suspicious behavior");
+    expect(rec.category).toBe('malware');
+    expect(rec.note).toBe('suspicious behavior');
     expect(rec.reporter_pubkey).toBe(PUBKEY_HEX);
     expect(rec.reporter_df).toBe(df);
-    expect(typeof rec.received_at).toBe("number");
+    expect(typeof rec.received_at).toBe('number');
 
     // D1 side-effect.
-    const row = await env.META.prepare(
-      "SELECT report_count FROM artifacts WHERE id = ?",
-    )
+    const row = await env.META.prepare('SELECT report_count FROM artifacts WHERE id = ?')
       .bind(ARTIFACT_ID)
       .first<{ report_count: number }>();
     expect(row?.report_count).toBe(1);
   });
 
-  it("accepts a valid report with omitted note (note is optional)", async () => {
+  it('accepts a valid report with omitted note (note is optional)', async () => {
     const df = freshDfHex();
-    const req = await mkRequest(
-      { artifact_id: ARTIFACT_ID, category: "nsfw" },
-      { dfHex: df },
-    );
+    const req = await mkRequest({ artifact_id: ARTIFACT_ID, category: 'nsfw' }, { dfHex: df });
     const res = await app.fetch(req, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { report_id: string };
@@ -275,10 +261,10 @@ describe("POST /v1/report — happy path", () => {
   });
 });
 
-describe("POST /v1/report — authentication", () => {
-  it("missing Authorization → 401 AUTH_MALFORMED_ENVELOPE", async () => {
+describe('POST /v1/report — authentication', () => {
+  it('missing Authorization → 401 AUTH_MALFORMED_ENVELOPE', async () => {
     const req = await mkRequest(
-      { artifact_id: ARTIFACT_ID, category: "other" },
+      { artifact_id: ARTIFACT_ID, category: 'other' },
       { includeAuth: false },
     );
     const res = await app.fetch(req, env);
@@ -287,16 +273,16 @@ describe("POST /v1/report — authentication", () => {
       error: { code: string };
       kind?: string;
     };
-    expect(body.error.code).toBe("AUTH_MALFORMED_ENVELOPE");
-    expect(body.kind).toBe("Auth");
+    expect(body.error.code).toBe('AUTH_MALFORMED_ENVELOPE');
+    expect(body.kind).toBe('Auth');
   });
 });
 
-describe("POST /v1/report — body validation", () => {
-  it("unknown category → 400 BAD_REQUEST kind=Malformed", async () => {
+describe('POST /v1/report — body validation', () => {
+  it('unknown category → 400 BAD_REQUEST kind=Malformed', async () => {
     const df = freshDfHex();
     const req = await mkRequest(
-      { artifact_id: ARTIFACT_ID, category: "spam" /* not in set */ },
+      { artifact_id: ARTIFACT_ID, category: 'spam' /* not in set */ },
       { dfHex: df },
     );
     const res = await app.fetch(req, env);
@@ -306,30 +292,30 @@ describe("POST /v1/report — body validation", () => {
       kind?: string;
       detail?: string;
     };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.kind).toBe("Malformed");
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.kind).toBe('Malformed');
   });
 
-  it("missing artifact_id → 400 BAD_REQUEST", async () => {
+  it('missing artifact_id → 400 BAD_REQUEST', async () => {
     const df = freshDfHex();
-    const req = await mkRequest({ category: "malware" }, { dfHex: df });
+    const req = await mkRequest({ category: 'malware' }, { dfHex: df });
     const res = await app.fetch(req, env);
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
       error: { code: string };
       kind?: string;
     };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.kind).toBe("Malformed");
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.kind).toBe('Malformed');
   });
 
-  it("note > 500 chars → 400 BAD_REQUEST kind=Malformed", async () => {
+  it('note > 500 chars → 400 BAD_REQUEST kind=Malformed', async () => {
     const df = freshDfHex();
     const req = await mkRequest(
       {
         artifact_id: ARTIFACT_ID,
-        category: "other",
-        note: "a".repeat(501),
+        category: 'other',
+        note: 'a'.repeat(501),
       },
       { dfHex: df },
     );
@@ -339,18 +325,18 @@ describe("POST /v1/report — body validation", () => {
       error: { code: string; message: string };
       kind?: string;
     };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.kind).toBe("Malformed");
-    expect(body.error.message.toLowerCase()).toContain("note");
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.kind).toBe('Malformed');
+    expect(body.error.message.toLowerCase()).toContain('note');
   });
 
-  it("note exactly 500 chars is accepted (boundary)", async () => {
+  it('note exactly 500 chars is accepted (boundary)', async () => {
     const df = freshDfHex();
     const req = await mkRequest(
       {
         artifact_id: ARTIFACT_ID,
-        category: "impersonation",
-        note: "b".repeat(500),
+        category: 'impersonation',
+        note: 'b'.repeat(500),
       },
       { dfHex: df },
     );
@@ -359,11 +345,11 @@ describe("POST /v1/report — body validation", () => {
   });
 });
 
-describe("POST /v1/report — missing artifact", () => {
-  it("unknown artifact_id → 404 NOT_FOUND", async () => {
+describe('POST /v1/report — missing artifact', () => {
+  it('unknown artifact_id → 404 NOT_FOUND', async () => {
     const df = freshDfHex();
     const req = await mkRequest(
-      { artifact_id: "does_not_exist_xyz", category: "illegal" },
+      { artifact_id: 'does_not_exist_xyz', category: 'illegal' },
       { dfHex: df },
     );
     const res = await app.fetch(req, env);
@@ -373,30 +359,30 @@ describe("POST /v1/report — missing artifact", () => {
       kind?: string;
       detail?: string;
     };
-    expect(body.error.code).toBe("NOT_FOUND");
-    expect(body.kind).toBe("Malformed");
-    expect(body.detail).toBe("NotFound");
+    expect(body.error.code).toBe('NOT_FOUND');
+    expect(body.kind).toBe('Malformed');
+    expect(body.detail).toBe('NotFound');
   });
 });
 
-describe("POST /v1/report — rate limiting", () => {
-  it("21st report from a single DF in a day → 429 RATE_LIMITED", async () => {
+describe('POST /v1/report — rate limiting', () => {
+  it('21st report from a single DF in a day → 429 RATE_LIMITED', async () => {
     // Fresh DF so the daily counter starts empty. Use a stable hex DF that
     // is 32 bytes; the dfHex claim must round-trip through hex decoder.
-    const df = "ab".repeat(32); // 64 hex chars = 32 bytes
+    const df = 'ab'.repeat(32); // 64 hex chars = 32 bytes
     // Clear any prior state just in case.
     await env.STATE.delete(`df_pubkey_velocity:${df}`);
     const now = new Date();
     const y = now.getUTCFullYear();
-    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(now.getUTCDate()).padStart(2, "0");
+    const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(now.getUTCDate()).padStart(2, '0');
     await env.STATE.delete(`quota:device:${df}:${y}-${m}-${d}`);
     await env.STATE.delete(`quota:pubkey:${PUBKEY_HEX}:${y}-${m}-${d}`);
 
     // 20 allowed reports.
     for (let i = 0; i < 20; i++) {
       const req = await mkRequest(
-        { artifact_id: ARTIFACT_ID, category: "other", note: `r${i}` },
+        { artifact_id: ARTIFACT_ID, category: 'other', note: `r${i}` },
         { dfHex: df },
       );
       const res = await app.fetch(req, env);
@@ -404,18 +390,15 @@ describe("POST /v1/report — rate limiting", () => {
     }
 
     // 21st — quota exhausted.
-    const req = await mkRequest(
-      { artifact_id: ARTIFACT_ID, category: "other" },
-      { dfHex: df },
-    );
+    const req = await mkRequest({ artifact_id: ARTIFACT_ID, category: 'other' }, { dfHex: df });
     const res = await app.fetch(req, env);
     expect(res.status).toBe(429);
     const body = (await res.json()) as {
       error: { code: string; retry_after?: number };
       kind?: string;
     };
-    expect(body.error.code).toBe("RATE_LIMITED");
-    expect(body.kind).toBe("Quota");
+    expect(body.error.code).toBe('RATE_LIMITED');
+    expect(body.kind).toBe('Quota');
     expect(body.error.retry_after).toBeGreaterThan(0);
   });
 });

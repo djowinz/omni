@@ -19,9 +19,9 @@
  * Returns `{ sanitizedBundleBytes, sanitizeReport, canonicalHash }`; the
  * canonical hash is computed from the post-sanitize manifest per invariant #6.
  */
-import type { Env } from "../env";
-import { b64urlDecode, b64urlEncodeJson } from "./base64url";
-import { hexDecode } from "./hex";
+import type { Env } from '../env';
+import { b64urlDecode, b64urlEncodeJson } from './base64url';
+import { hexDecode } from './hex';
 
 export interface SanitizeReport {
   version: number;
@@ -51,10 +51,10 @@ export async function sanitizeViaDO(
 ): Promise<SanitizeResult> {
   const id = env.BUNDLE_PROCESSOR.idFromName(dfHex);
   const stub = env.BUNDLE_PROCESSOR.get(id);
-  const headers: Record<string, string> = { "content-type": "application/octet-stream" };
-  if (limits !== undefined) headers["X-Omni-Bundle-Limits"] = b64urlEncodeJson(limits);
-  const res = await stub.fetch("https://do.internal/sanitize", {
-    method: "POST",
+  const headers: Record<string, string> = { 'content-type': 'application/octet-stream' };
+  if (limits !== undefined) headers['X-Omni-Bundle-Limits'] = b64urlEncodeJson(limits);
+  const res = await stub.fetch('https://do.internal/sanitize', {
+    method: 'POST',
     headers,
     body: bundleBytes,
   });

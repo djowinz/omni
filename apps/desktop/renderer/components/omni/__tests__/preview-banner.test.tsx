@@ -62,7 +62,6 @@ function Initializer({ initial }: { initial?: { token: string; artifact: CachedA
     if (initial) {
       setPreview(initial.token, initial.artifact);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return null;
 }

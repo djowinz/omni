@@ -12,7 +12,6 @@ import * as ed from '@noble/ed25519';
 
 const b64u = (buf) =>
   Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const b64uDecode = (s) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
 
 const enc = new TextEncoder();
 const priv = ed.utils.randomSecretKey();
@@ -74,13 +73,7 @@ try {
 //     reconstructed signing-input bytes. This is the FALLBACK_WEBCRYPTO path.
 let p2c_ok = false;
 try {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    pub,
-    { name: 'Ed25519' },
-    false,
-    ['verify'],
-  );
+  const key = await crypto.subtle.importKey('raw', pub, { name: 'Ed25519' }, false, ['verify']);
   p2c_ok = await crypto.subtle.verify('Ed25519', key, sig, signingInput);
   console.log('  webcrypto verify(signingInput):', p2c_ok);
 } catch (e) {
@@ -88,15 +81,17 @@ try {
 }
 
 console.log('\n=== Summary ===');
-console.log(JSON.stringify(
-  {
-    library: '@tsndr/cloudflare-worker-jwt@3.2.1',
-    noble: '@noble/ed25519@3.1.0',
-    probe1_attached_lib: p1_ok,
-    probe2a_lib_detached_compact: p2a_ok,
-    probe2b_lib_reconstructed: p2b_ok,
-    probe2c_webcrypto_signingInput: p2c_ok,
-  },
-  null,
-  2,
-));
+console.log(
+  JSON.stringify(
+    {
+      library: '@tsndr/cloudflare-worker-jwt@3.2.1',
+      noble: '@noble/ed25519@3.1.0',
+      probe1_attached_lib: p1_ok,
+      probe2a_lib_detached_compact: p2a_ok,
+      probe2b_lib_reconstructed: p2b_ok,
+      probe2c_webcrypto_signingInput: p2c_ok,
+    },
+    null,
+    2,
+  ),
+);

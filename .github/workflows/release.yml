@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       increment:
-        description: "Version increment type"
+        description: 'Version increment type'
         required: true
         type: choice
         options:

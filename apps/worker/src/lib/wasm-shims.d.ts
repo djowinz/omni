@@ -8,16 +8,14 @@
  * identity,sanitize}/src/wasm.rs`. Keep these signatures in lockstep.
  */
 
-declare module "*.wasm" {
+declare module '*.wasm' {
   const module: WebAssembly.Module;
   export default module;
 }
 
-declare module "*/omni_bundle.js" {
+declare module '*/omni_bundle.js' {
   export function initSync(opts: { module: WebAssembly.Module }): unknown;
-  export default function init(
-    moduleOrPath?: WebAssembly.Module | URL | string,
-  ): Promise<unknown>;
+  export default function init(moduleOrPath?: WebAssembly.Module | URL | string): Promise<unknown>;
   export function canonicalHash(manifest: unknown): Uint8Array;
   export function pack(manifest: unknown, files: unknown, limits?: unknown): Uint8Array;
   export function unpack(bytes: Uint8Array, limits?: unknown): WasmUnpackHandle;
@@ -29,11 +27,9 @@ declare module "*/omni_bundle.js" {
   }
 }
 
-declare module "*/omni_identity.js" {
+declare module '*/omni_identity.js' {
   export function initSync(opts: { module: WebAssembly.Module }): unknown;
-  export default function init(
-    moduleOrPath?: WebAssembly.Module | URL | string,
-  ): Promise<unknown>;
+  export default function init(moduleOrPath?: WebAssembly.Module | URL | string): Promise<unknown>;
   export function canonicalHash(manifest: unknown): Uint8Array;
   export function pack(manifest: unknown, files: unknown, limits?: unknown): Uint8Array;
   export function unpack(bytes: Uint8Array, limits?: unknown): unknown;
@@ -46,10 +42,7 @@ declare module "*/omni_identity.js" {
     privKey: Uint8Array,
     limits?: unknown,
   ): Uint8Array;
-  export function unpackSignedBundle(
-    bytes: Uint8Array,
-    limits?: unknown,
-  ): WasmSignedBundleHandle;
+  export function unpackSignedBundle(bytes: Uint8Array, limits?: unknown): WasmSignedBundleHandle;
   export class WasmSignedBundleHandle {
     manifest(): unknown;
     authorPubkey(): Uint8Array;
@@ -58,11 +51,9 @@ declare module "*/omni_identity.js" {
   }
 }
 
-declare module "*/omni_sanitize.js" {
+declare module '*/omni_sanitize.js' {
   export function initSync(opts: { module: WebAssembly.Module }): unknown;
-  export default function init(
-    moduleOrPath?: WebAssembly.Module | URL | string,
-  ): Promise<unknown>;
+  export default function init(moduleOrPath?: WebAssembly.Module | URL | string): Promise<unknown>;
   export function canonicalHash(manifest: unknown): Uint8Array;
   export function pack(manifest: unknown, files: unknown, limits?: unknown): Uint8Array;
   export function unpack(bytes: Uint8Array, limits?: unknown): unknown;

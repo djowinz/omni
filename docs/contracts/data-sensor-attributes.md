@@ -6,14 +6,14 @@ Bound elements in sanitized bundle HTML bind to live sensor updates via the priv
 
 ## 1. Attributes
 
-| Attribute | Required | Value grammar | Semantics |
-|---|---|---|---|
-| `data-sensor` | yes | `sensor-path` | Bind element to a sensor reading |
-| `data-sensor-format` | no | `raw|percent|bytes|temperature|frequency` | How to stringify numeric value |
-| `data-sensor-precision` | no | `[0-9]+` (0–6) | Decimal places for numeric formats |
-| `data-sensor-threshold-warn` | no | signed decimal | If value ≥ this, element gains class `sensor-warn` |
-| `data-sensor-threshold-critical` | no | signed decimal | If value ≥ this, element gains class `sensor-critical` (supersedes warn) |
-| `data-sensor-target` | no | `text|attr:<name>|class|style-var:<name>` | Where the formatted value is written; default `text` |
+| Attribute                        | Required | Value grammar  | Semantics                                                                |
+| -------------------------------- | -------- | -------------- | ------------------------------------------------------------------------ | ----- | ----------------- | ---------------------------------------------------- | ------------------------------ |
+| `data-sensor`                    | yes      | `sensor-path`  | Bind element to a sensor reading                                         |
+| `data-sensor-format`             | no       | `raw           | percent                                                                  | bytes | temperature       | frequency`                                           | How to stringify numeric value |
+| `data-sensor-precision`          | no       | `[0-9]+` (0–6) | Decimal places for numeric formats                                       |
+| `data-sensor-threshold-warn`     | no       | signed decimal | If value ≥ this, element gains class `sensor-warn`                       |
+| `data-sensor-threshold-critical` | no       | signed decimal | If value ≥ this, element gains class `sensor-critical` (supersedes warn) |
+| `data-sensor-target`             | no       | `text          | attr:<name>                                                              | class | style-var:<name>` | Where the formatted value is written; default `text` |
 
 ## 2. BNF grammar
 
@@ -68,23 +68,23 @@ On any other tag, the attribute is stripped by sanitize and a `FileReport` note 
 
 ## 5. Target semantics
 
-| `data-sensor-target` | Effect of each update |
-|---|---|
-| *(unset)* or `text` | `element.textContent = formatted` |
-| `attr:<name>` | `element.setAttribute("<name>", formatted)` (name whitelist same as ammonia's allowed attrs) |
-| `class` | `element.className = formatted` (value must match `[a-zA-Z0-9_-\s]*`; bootstrap rejects otherwise) |
-| `style-var:<ident>` | `element.style.setProperty("--<ident>", formatted)` (only CSS custom properties; no other inline style writes allowed) |
+| `data-sensor-target` | Effect of each update                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| _(unset)_ or `text`  | `element.textContent = formatted`                                                                                      |
+| `attr:<name>`        | `element.setAttribute("<name>", formatted)` (name whitelist same as ammonia's allowed attrs)                           |
+| `class`              | `element.className = formatted` (value must match `[a-zA-Z0-9_-\s]*`; bootstrap rejects otherwise)                     |
+| `style-var:<ident>`  | `element.style.setProperty("--<ident>", formatted)` (only CSS custom properties; no other inline style writes allowed) |
 
 Threshold classes (`sensor-warn`, `sensor-critical`) are always applied in addition to target writes.
 
 ## 6. Formatting reference
 
-| Format | Input | Output |
-|---|---|---|
-| `raw` | number | `value.toFixed(precision)` |
-| `percent` | 0..1 float or 0..100 int | scales to 0..100, `.toFixed(precision) + "%"` |
-| `bytes` | integer bytes | SI prefix (`KB`, `MB`, `GB`, `TB`) at given precision |
-| `temperature` | °C float | `"<value.toFixed(precision)>°C"` |
-| `frequency` | Hz integer | `MHz`/`GHz` prefix at given precision |
+| Format        | Input                    | Output                                                |
+| ------------- | ------------------------ | ----------------------------------------------------- |
+| `raw`         | number                   | `value.toFixed(precision)`                            |
+| `percent`     | 0..1 float or 0..100 int | scales to 0..100, `.toFixed(precision) + "%"`         |
+| `bytes`       | integer bytes            | SI prefix (`KB`, `MB`, `GB`, `TB`) at given precision |
+| `temperature` | °C float                 | `"<value.toFixed(precision)>°C"`                      |
+| `frequency`   | Hz integer               | `MHz`/`GHz` prefix at given precision                 |
 
 The formatter is implemented once inside the privileged bootstrap; bundles cannot override it.

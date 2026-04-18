@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { env, applyD1Migrations } from "cloudflare:test";
-import { Hono } from "hono";
-import * as ed from "@noble/ed25519";
-import type { Env } from "../src/env";
-import { signJws as signJwsShared } from "./helpers/signer";
-import admin from "../src/routes/admin";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
+import { env, applyD1Migrations } from 'cloudflare:test';
+import { Hono } from 'hono';
+import * as ed from '@noble/ed25519';
+import type { Env } from '../src/env';
+import { signJws as signJwsShared } from './helpers/signer';
+import admin from '../src/routes/admin';
 
 /**
  * Tier B — Miniflare-backed tests for T7 (#012): POST /v1/admin/artifact/:id/remove.
@@ -21,19 +21,15 @@ import admin from "../src/routes/admin";
  *     re-upload of identical content_hash is rejected by #008's check.
  */
 
-declare module "cloudflare:test" {
+declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
 }
 
-const SEED_HEX =
-  "0707070707070707070707070707070707070707070707070707070707070707";
-const PUBKEY_HEX =
-  "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const DF_HEX =
-  "dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1";
+const SEED_HEX = '0707070707070707070707070707070707070707070707070707070707070707';
+const PUBKEY_HEX = 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c';
+const DF_HEX = 'dc9773ca5d79ecfdedf0c8cca1cfecac9bc39c09550aec75a8cbe8b2a13b67a1';
 
-const OUTSIDER_SEED_HEX =
-  "0808080808080808080808080808080808080808080808080808080808080808";
+const OUTSIDER_SEED_HEX = '0808080808080808080808080808080808080808080808080808080808080808';
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
@@ -41,8 +37,8 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, '0');
   return s;
 }
 
@@ -72,39 +68,36 @@ async function signJws(o: SignOpts): Promise<{ jws: string; pubkeyHex: string }>
   return { jws, pubkeyHex };
 }
 
-function mkReq(
-  method: string,
-  path: string,
-  body: Uint8Array,
-  jws: string | null,
-): Request {
+function mkReq(method: string, path: string, body: Uint8Array, jws: string | null): Request {
   const headers = new Headers();
-  if (jws !== null) headers.set("Authorization", `Omni-JWS ${jws}`);
+  if (jws !== null) headers.set('Authorization', `Omni-JWS ${jws}`);
   const init: RequestInit = { method, headers };
-  if (method !== "GET" && method !== "HEAD") init.body = body;
+  if (method !== 'GET' && method !== 'HEAD') init.body = body;
   return new Request(`https://worker.test${path}`, init);
 }
 
 function mkApp() {
   const app = new Hono<{ Bindings: Env }>();
-  app.route("/v1/admin", admin);
+  app.route('/v1/admin', admin);
   return app;
 }
 
 const originalAdminPubkeys = env.OMNI_ADMIN_PUBKEYS;
 const AUTHOR_PUBKEY_BYTES = new Uint8Array(32).fill(0xaa);
 
-const ART_ID = "art_tomb";
-const CONTENT_HASH = "c".repeat(64);
-const THUMB_HASH = "d".repeat(64);
+const ART_ID = 'art_tomb';
+const CONTENT_HASH = 'c'.repeat(64);
+const THUMB_HASH = 'd'.repeat(64);
 const BUNDLE_KEY = `bundles/${CONTENT_HASH}.omnipkg`;
 const THUMB_KEY = `thumbnails/${THUMB_HASH}.png`;
 
-async function seedArtifact(opts: {
-  id?: string;
-  contentHash?: string;
-  thumbHash?: string;
-} = {}): Promise<void> {
+async function seedArtifact(
+  opts: {
+    id?: string;
+    contentHash?: string;
+    thumbHash?: string;
+  } = {},
+): Promise<void> {
   const id = opts.id ?? ART_ID;
   const contentHash = opts.contentHash ?? CONTENT_HASH;
   const thumbHash = opts.thumbHash ?? THUMB_HASH;
@@ -136,10 +129,8 @@ async function putBlob(key: string, body: Uint8Array): Promise<void> {
 }
 
 beforeAll(async () => {
-  const migrations = await import("cloudflare:test").then(
-    (m) =>
-      (m as unknown as { listMigrations?: () => Promise<unknown> })
-        .listMigrations?.(),
+  const migrations = await import('cloudflare:test').then((m) =>
+    (m as unknown as { listMigrations?: () => Promise<unknown> }).listMigrations?.(),
   );
   if (migrations) {
     await applyD1Migrations(
@@ -160,41 +151,41 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await env.META.exec("DELETE FROM artifacts");
-  await env.META.exec("DELETE FROM authors");
-  await env.META.exec("DELETE FROM tombstones");
+  await env.META.exec('DELETE FROM artifacts');
+  await env.META.exec('DELETE FROM authors');
+  await env.META.exec('DELETE FROM tombstones');
   // Clear R2 of the fixture keys (best-effort; these are the only keys the
   // tests touch).
   for (const key of [BUNDLE_KEY, THUMB_KEY]) {
-    try { await env.BLOBS.delete(key); } catch { /* ignore */ }
+    try {
+      await env.BLOBS.delete(key);
+    } catch {
+      /* ignore */
+    }
   }
-  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS =
-    PUBKEY_HEX;
+  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS = PUBKEY_HEX;
 });
 
 afterAll(() => {
-  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS =
-    originalAdminPubkeys;
+  (env as unknown as { OMNI_ADMIN_PUBKEYS: string }).OMNI_ADMIN_PUBKEYS = originalAdminPubkeys;
 });
 
 // ---------------------------------------------------------------------------
-describe("POST /v1/admin/artifact/:id/remove", () => {
-  it("tombstones artifact: is_removed=1, tombstone row written, R2 deleted", async () => {
+describe('POST /v1/admin/artifact/:id/remove', () => {
+  it('tombstones artifact: is_removed=1, tombstone row written, R2 deleted', async () => {
     await seedArtifact();
     await putBlob(BUNDLE_KEY, new Uint8Array([0x01, 0x02, 0x03]));
     await putBlob(THUMB_KEY, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
 
     const app = mkApp();
-    const bodyBytes = new TextEncoder().encode(
-      JSON.stringify({ reason: "copyright violation" }),
-    );
+    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: 'copyright violation' }));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status, await res.clone().text()).toBe(200);
@@ -204,23 +195,21 @@ describe("POST /v1/admin/artifact/:id/remove", () => {
       content_hash: string;
     };
     expect(body.artifact_id).toBe(ART_ID);
-    expect(body.status).toBe("removed");
+    expect(body.status).toBe('removed');
     expect(body.content_hash).toBe(CONTENT_HASH);
 
-    const row = await env.META.prepare(
-      "SELECT is_removed FROM artifacts WHERE id = ?",
-    )
+    const row = await env.META.prepare('SELECT is_removed FROM artifacts WHERE id = ?')
       .bind(ART_ID)
       .first<{ is_removed: number }>();
     expect(row?.is_removed).toBe(1);
 
     const tomb = await env.META.prepare(
-      "SELECT content_hash, reason FROM tombstones WHERE content_hash = ?",
+      'SELECT content_hash, reason FROM tombstones WHERE content_hash = ?',
     )
       .bind(CONTENT_HASH)
       .first<{ content_hash: string; reason: string }>();
     expect(tomb?.content_hash).toBe(CONTENT_HASH);
-    expect(tomb?.reason).toBe("copyright violation");
+    expect(tomb?.reason).toBe('copyright violation');
 
     const bundleObj = await env.BLOBS.get(BUNDLE_KEY);
     expect(bundleObj).toBeNull();
@@ -228,32 +217,32 @@ describe("POST /v1/admin/artifact/:id/remove", () => {
     expect(thumbObj).toBeNull();
   });
 
-  it("idempotent: re-run returns already_tombstoned, no extra side effects", async () => {
+  it('idempotent: re-run returns already_tombstoned, no extra side effects', async () => {
     await seedArtifact();
     await putBlob(BUNDLE_KEY, new Uint8Array([0x01]));
 
     const app = mkApp();
-    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: "x" }));
+    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: 'x' }));
 
     const s1 = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res1 = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, s1.jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, s1.jws),
       env,
     );
     expect(res1.status).toBe(200);
 
     // Second call — tombstone row + is_removed already in place.
     const s2 = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res2 = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, s2.jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, s2.jws),
       env,
     );
     expect(res2.status).toBe(200);
@@ -261,114 +250,114 @@ describe("POST /v1/admin/artifact/:id/remove", () => {
       status: string;
       content_hash: string;
     };
-    expect(body2.status).toBe("already_tombstoned");
+    expect(body2.status).toBe('already_tombstoned');
     expect(body2.content_hash).toBe(CONTENT_HASH);
 
     // Still exactly one tombstone row.
     const count = await env.META.prepare(
-      "SELECT COUNT(*) AS n FROM tombstones WHERE content_hash = ?",
+      'SELECT COUNT(*) AS n FROM tombstones WHERE content_hash = ?',
     )
       .bind(CONTENT_HASH)
       .first<{ n: number }>();
     expect(count?.n).toBe(1);
   });
 
-  it("unknown id → Malformed.NotFound 404", async () => {
+  it('unknown id → Malformed.NotFound 404', async () => {
     const app = mkApp();
-    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: "x" }));
+    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: 'x' }));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/nonexistent/remove`,
       body: bodyBytes,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/nonexistent/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/nonexistent/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status).toBe(404);
     const j = (await res.json()) as { kind: string; detail: string };
-    expect(j.kind).toBe("Malformed");
-    expect(j.detail).toBe("NotFound");
+    expect(j.kind).toBe('Malformed');
+    expect(j.detail).toBe('NotFound');
   });
 
-  it("non-moderator → Admin.NotModerator 403", async () => {
+  it('non-moderator → Admin.NotModerator 403', async () => {
     await seedArtifact();
     const app = mkApp();
-    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: "x" }));
+    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: 'x' }));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
       seedHex: OUTSIDER_SEED_HEX,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status).toBe(403);
     const j = (await res.json()) as { kind: string; detail: string };
-    expect(j.kind).toBe("Admin");
-    expect(j.detail).toBe("NotModerator");
+    expect(j.kind).toBe('Admin');
+    expect(j.detail).toBe('NotModerator');
   });
 
-  it("missing reason → Malformed.BadRequest", async () => {
+  it('missing reason → Malformed.BadRequest', async () => {
     await seedArtifact();
     const app = mkApp();
     const bodyBytes = new TextEncoder().encode(JSON.stringify({}));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status).toBe(400);
     const j = (await res.json()) as { kind: string; detail: string };
-    expect(j.kind).toBe("Malformed");
-    expect(j.detail).toBe("BadRequest");
+    expect(j.kind).toBe('Malformed');
+    expect(j.detail).toBe('BadRequest');
   });
 
-  it("empty reason → Malformed.BadRequest", async () => {
+  it('empty reason → Malformed.BadRequest', async () => {
     await seedArtifact();
     const app = mkApp();
-    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: "" }));
+    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: '' }));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status).toBe(400);
     const j = (await res.json()) as { kind: string; detail: string };
-    expect(j.kind).toBe("Malformed");
-    expect(j.detail).toBe("BadRequest");
+    expect(j.kind).toBe('Malformed');
+    expect(j.detail).toBe('BadRequest');
   });
 
-  it("non-string reason → Malformed.BadRequest", async () => {
+  it('non-string reason → Malformed.BadRequest', async () => {
     await seedArtifact();
     const app = mkApp();
     const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: 42 }));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status).toBe(400);
     const j = (await res.json()) as { kind: string; detail: string };
-    expect(j.kind).toBe("Malformed");
-    expect(j.detail).toBe("BadRequest");
+    expect(j.kind).toBe('Malformed');
+    expect(j.detail).toBe('BadRequest');
   });
 
-  it("written tombstone row matches upload-side SELECT shape (re-upload rejection wiring)", async () => {
+  it('written tombstone row matches upload-side SELECT shape (re-upload rejection wiring)', async () => {
     // This validates the contract with #008's upload.ts tombstone guard:
     //   SELECT content_hash FROM tombstones WHERE content_hash = ?
     // If this row exists with `content_hash` matching the canonical hash of
@@ -376,24 +365,20 @@ describe("POST /v1/admin/artifact/:id/remove", () => {
     // Seeding through the admin handler here proves the wiring end-to-end.
     await seedArtifact();
     const app = mkApp();
-    const bodyBytes = new TextEncoder().encode(
-      JSON.stringify({ reason: "malware" }),
-    );
+    const bodyBytes = new TextEncoder().encode(JSON.stringify({ reason: 'malware' }));
     const { jws } = await signJws({
-      method: "POST",
+      method: 'POST',
       path: `/v1/admin/artifact/${ART_ID}/remove`,
       body: bodyBytes,
     });
     const res = await app.fetch(
-      mkReq("POST", `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
+      mkReq('POST', `/v1/admin/artifact/${ART_ID}/remove`, bodyBytes, jws),
       env,
     );
     expect(res.status).toBe(200);
 
     // Exact shape upload.ts SELECTs on.
-    const hit = await env.META.prepare(
-      "SELECT content_hash FROM tombstones WHERE content_hash = ?",
-    )
+    const hit = await env.META.prepare('SELECT content_hash FROM tombstones WHERE content_hash = ?')
       .bind(CONTENT_HASH)
       .first<{ content_hash: string }>();
     expect(hit).not.toBeNull();

@@ -19,17 +19,17 @@
  *  13. (never bump install_daily here)
  *  14. Respond
  */
-import { Hono } from "hono";
-import type { AppEnv } from "../types";
-import type { Env } from "../env";
-import { errorResponse, errorFromKind, classifyWasmError } from "../lib/errors";
-import { verifyJws, AuthError } from "../lib/auth";
-import { checkAndIncrement, type RateLimitAction } from "../lib/rate_limit";
-import { parseMultipart, MultipartError } from "../lib/multipart";
-import { loadWasm } from "../lib/wasm";
-import { canonicalHash } from "../lib/canonical";
-import { sanitizeViaDO } from "../lib/sanitize";
-import { hexEncode } from "../lib/hex";
+import { Hono } from 'hono';
+import type { AppEnv } from '../types';
+import type { Env } from '../env';
+import { errorResponse, errorFromKind, classifyWasmError } from '../lib/errors';
+import { verifyJws, AuthError } from '../lib/auth';
+import { checkAndIncrement, type RateLimitAction } from '../lib/rate_limit';
+import { parseMultipart, MultipartError } from '../lib/multipart';
+import { loadWasm } from '../lib/wasm';
+import { canonicalHash } from '../lib/canonical';
+import { sanitizeViaDO } from '../lib/sanitize';
+import { hexEncode } from '../lib/hex';
 
 const app = new Hono<AppEnv>();
 
@@ -51,17 +51,17 @@ interface Limits {
  * isolate TTL cache lives in `config.ts` for public read paths.
  */
 async function getLimits(env: Env): Promise<Limits | Response> {
-  const raw = await env.STATE.get("config:limits");
+  const raw = await env.STATE.get('config:limits');
   if (raw === null) {
-    return errorResponse(500, "SERVER_ERROR", "config:limits not seeded", {
-      kind: "Io",
+    return errorResponse(500, 'SERVER_ERROR', 'config:limits not seeded', {
+      kind: 'Io',
     });
   }
   return JSON.parse(raw) as Limits;
 }
 
 async function getVocab(env: Env) {
-  const raw = await env.STATE.get("config:vocab");
+  const raw = await env.STATE.get('config:vocab');
   const fallback = { tags: [] as string[], version: 1 };
   return raw ? (JSON.parse(raw) as typeof fallback) : fallback;
 }
@@ -80,9 +80,14 @@ function levenshtein1(a: string, b: string): boolean {
   }
   // Insertion/deletion (differ by 1)
   const [s, t] = la < lb ? [a, b] : [b, a];
-  let i = 0, j = 0, skipped = 0;
+  let i = 0,
+    j = 0,
+    skipped = 0;
   while (i < s.length && j < t.length) {
-    if (s[i] === t[j]) { i++; j++; } else {
+    if (s[i] === t[j]) {
+      i++;
+      j++;
+    } else {
       if (++skipped > 1) return false;
       j++;
     }
@@ -96,7 +101,7 @@ function suggestAlternatives(badTag: string, vocab: string[]): string[] {
 
 /** Read the request body with a hard cap; reject over-cap before arrayBuffer. */
 async function readBodyWithCap(req: Request, cap: number): Promise<ArrayBuffer | { over: true }> {
-  const lenHeader = req.headers.get("content-length");
+  const lenHeader = req.headers.get('content-length');
   if (lenHeader !== null) {
     const n = Number(lenHeader);
     if (Number.isFinite(n) && n > cap) return { over: true };
@@ -106,14 +111,17 @@ async function readBodyWithCap(req: Request, cap: number): Promise<ArrayBuffer |
     const reader = req.body.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
         total += value.byteLength;
         if (total > cap) {
-          try { await reader.cancel(); } catch { /* swallow */ }
+          try {
+            await reader.cancel();
+          } catch {
+            /* swallow */
+          }
           return { over: true };
         }
         chunks.push(value);
@@ -121,7 +129,10 @@ async function readBodyWithCap(req: Request, cap: number): Promise<ArrayBuffer |
     }
     const out = new Uint8Array(total);
     let off = 0;
-    for (const c of chunks) { out.set(c, off); off += c.byteLength; }
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.byteLength;
+    }
     return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
   }
   return new ArrayBuffer(0);
@@ -141,15 +152,15 @@ interface Manifest {
 
 function isThemeOnly(manifest: Manifest): boolean {
   const kinds = manifest.resource_kinds;
-  if (!kinds || typeof kinds !== "object") return true;
+  if (!kinds || typeof kinds !== 'object') return true;
   const keys = Object.keys(kinds);
   if (keys.length === 0) return true;
-  return keys.every((k) => k === "theme");
+  return keys.every((k) => k === 'theme');
 }
 
 // ---------- Route -----------------------------------------------------------
 
-app.post("/", async (c) => {
+app.post('/', async (c) => {
   const env = c.env;
   const req = c.req.raw;
   const url = new URL(req.url);
@@ -159,8 +170,8 @@ app.post("/", async (c) => {
   if (limitsOrErr instanceof Response) return limitsOrErr;
   const limits = limitsOrErr;
   const bodyOrOver = await readBodyWithCap(req, limits.max_bundle_compressed);
-  if ("over" in (bodyOrOver as object) && (bodyOrOver as { over: true }).over) {
-    return errorFromKind("Malformed", "SizeExceeded", "request body exceeds max_bundle_compressed");
+  if ('over' in (bodyOrOver as object) && (bodyOrOver as { over: true }).over) {
+    return errorFromKind('Malformed', 'SizeExceeded', 'request body exceeds max_bundle_compressed');
   }
   const body = bodyOrOver as ArrayBuffer;
 
@@ -170,7 +181,7 @@ app.post("/", async (c) => {
     auth = await verifyJws(req, env, body);
   } catch (e) {
     if (e instanceof AuthError) {
-      return errorFromKind("Auth", e.detail, e.message);
+      return errorFromKind('Auth', e.detail, e.message);
     }
     throw e;
   }
@@ -179,16 +190,16 @@ app.post("/", async (c) => {
   const dfHex = hexEncode(auth.device_fp);
 
   // Step 3 — rate limit. `artifact_id` as query param signals update path.
-  const isUpdate = url.searchParams.has("artifact_id");
-  const action: RateLimitAction = isUpdate ? "upload_update" : "upload_new";
+  const isUpdate = url.searchParams.has('artifact_id');
+  const action: RateLimitAction = isUpdate ? 'upload_update' : 'upload_new';
   const rl = await checkAndIncrement(env, dfHex, pubkeyHex, action);
   if (!rl.allowed) {
     if (rl.turnstile) {
-      return errorFromKind("Quota", "TurnstileRequired", "turnstile challenge required");
+      return errorFromKind('Quota', 'TurnstileRequired', 'turnstile challenge required');
     }
-    return errorResponse(429, "RATE_LIMITED", "rate limit exceeded", {
-      kind: "Quota",
-      detail: "RateLimited",
+    return errorResponse(429, 'RATE_LIMITED', 'rate limit exceeded', {
+      kind: 'Quota',
+      detail: 'RateLimited',
       retryAfter: rl.retry_after,
     });
   }
@@ -205,7 +216,7 @@ app.post("/", async (c) => {
     parts = await parseMultipart(formReq);
   } catch (e) {
     if (e instanceof MultipartError) {
-      return errorFromKind("Malformed", "BadRequest", `multipart: ${e.message}`);
+      return errorFromKind('Malformed', 'BadRequest', `multipart: ${e.message}`);
     }
     throw e;
   }
@@ -224,7 +235,10 @@ app.post("/", async (c) => {
   // Per invariant #6a: we do NOT read signature.jws ourselves. Use the
   // signed-bundle path for both validation and content signature verify.
   try {
-    signedHandle = identity.unpackSignedBundle(parts.bundle, undefined) as unknown as SignedHandleLike;
+    signedHandle = identity.unpackSignedBundle(
+      parts.bundle,
+      undefined,
+    ) as unknown as SignedHandleLike;
     manifest = signedHandle.manifest() as Manifest;
   } catch (e) {
     const cat = classifyWasmError(e);
@@ -235,32 +249,44 @@ app.post("/", async (c) => {
   const authorPub = signedHandle.authorPubkey();
   const authorPubHex = hexEncode(authorPub);
   if (authorPubHex !== pubkeyHex) {
-    try { signedHandle.free?.(); } catch { /* swallow */ }
-    return errorFromKind("Auth", "Forbidden", "bundle author pubkey does not match request kid");
+    try {
+      signedHandle.free?.();
+    } catch {
+      /* swallow */
+    }
+    return errorFromKind('Auth', 'Forbidden', 'bundle author pubkey does not match request kid');
   }
 
   // Step 7 — tag validation
   const vocab = await getVocab(env);
   const tags = Array.isArray(manifest.tags) ? manifest.tags : [];
   for (const t of tags) {
-    if (typeof t !== "string" || !vocab.tags.includes(t)) {
-      try { (signedHandle as SignedHandleLike | null)?.free?.(); } catch { /* swallow */ }
-      const suggested = typeof t === "string" ? suggestAlternatives(t, vocab.tags) : [];
+    if (typeof t !== 'string' || !vocab.tags.includes(t)) {
+      try {
+        (signedHandle as SignedHandleLike | null)?.free?.();
+      } catch {
+        /* swallow */
+      }
+      const suggested = typeof t === 'string' ? suggestAlternatives(t, vocab.tags) : [];
       const body: Record<string, unknown> = {
-        error: { code: "MANIFEST_INVALID", message: `unknown tag: ${String(t)}` },
-        kind: "Malformed",
-        detail: "UnknownTag",
+        error: { code: 'MANIFEST_INVALID', message: `unknown tag: ${String(t)}` },
+        kind: 'Malformed',
+        detail: 'UnknownTag',
         suggested_alternatives: suggested,
       };
       return new Response(JSON.stringify(body), {
         status: 400,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: { 'content-type': 'application/json; charset=utf-8' },
       });
     }
   }
 
   // Release the handle — the DO re-opens the bundle to iterate files.
-  try { signedHandle?.free?.(); } catch { /* swallow */ }
+  try {
+    signedHandle?.free?.();
+  } catch {
+    /* swallow */
+  }
   signedHandle = null;
 
   // Step 8 — sanitize path. All uploads route through the BundleProcessor DO.
@@ -272,11 +298,13 @@ app.post("/", async (c) => {
 
   // Non-theme bundles also count against `upload_new_bundle`.
   if (!themeOnly && !isUpdate) {
-    const rl2 = await checkAndIncrement(env, dfHex, pubkeyHex, "upload_new_bundle");
+    const rl2 = await checkAndIncrement(env, dfHex, pubkeyHex, 'upload_new_bundle');
     if (!rl2.allowed) {
-      if (rl2.turnstile) return errorFromKind("Quota", "TurnstileRequired", "turnstile required");
-      return errorResponse(429, "RATE_LIMITED", "bundle rate limit exceeded", {
-        kind: "Quota", detail: "RateLimited", retryAfter: rl2.retry_after,
+      if (rl2.turnstile) return errorFromKind('Quota', 'TurnstileRequired', 'turnstile required');
+      return errorResponse(429, 'RATE_LIMITED', 'bundle rate limit exceeded', {
+        kind: 'Quota',
+        detail: 'RateLimited',
+        retryAfter: rl2.retry_after,
       });
     }
   }
@@ -295,18 +323,24 @@ app.post("/", async (c) => {
 
   // Step 10 — dedup / tombstone
   const tombRow = await env.META.prepare(
-    "SELECT content_hash FROM tombstones WHERE content_hash = ?",
-  ).bind(contentHash).first<{ content_hash: string }>();
+    'SELECT content_hash FROM tombstones WHERE content_hash = ?',
+  )
+    .bind(contentHash)
+    .first<{ content_hash: string }>();
   if (tombRow) {
-    return errorFromKind("Integrity", "Tombstoned", "content is tombstoned");
+    return errorFromKind('Integrity', 'Tombstoned', 'content is tombstoned');
   }
   const dedupRow = await env.META.prepare(
-    "SELECT artifact_id FROM content_hashes WHERE content_hash = ?",
-  ).bind(contentHash).first<{ artifact_id: string }>();
+    'SELECT artifact_id FROM content_hashes WHERE content_hash = ?',
+  )
+    .bind(contentHash)
+    .first<{ artifact_id: string }>();
   if (dedupRow) {
     const row = await env.META.prepare(
-      "SELECT id, content_hash, thumbnail_hash, created_at FROM artifacts WHERE id = ? AND is_removed = 0",
-    ).bind(dedupRow.artifact_id).first<{ id: string; content_hash: string; thumbnail_hash: string; created_at: number }>();
+      'SELECT id, content_hash, thumbnail_hash, created_at FROM artifacts WHERE id = ? AND is_removed = 0',
+    )
+      .bind(dedupRow.artifact_id)
+      .first<{ id: string; content_hash: string; thumbnail_hash: string; created_at: number }>();
     if (row) {
       return Response.json({
         artifact_id: row.id,
@@ -314,7 +348,7 @@ app.post("/", async (c) => {
         r2_url: `r2://bundles/${row.content_hash}.omnipkg`,
         thumbnail_url: `r2://thumbnails/${row.thumbnail_hash}.png`,
         created_at: row.created_at,
-        status: "deduplicated",
+        status: 'deduplicated',
       });
     }
   }
@@ -323,15 +357,17 @@ app.post("/", async (c) => {
   const authorPubkeyBlob = auth.pubkey;
   if (!isUpdate) {
     const nameRow = await env.META.prepare(
-      "SELECT id FROM artifacts WHERE author_pubkey = ? AND name = ?",
-    ).bind(authorPubkeyBlob, manifest.name).first<{ id: string }>();
+      'SELECT id FROM artifacts WHERE author_pubkey = ? AND name = ?',
+    )
+      .bind(authorPubkeyBlob, manifest.name)
+      .first<{ id: string }>();
     if (nameRow) {
-      return errorFromKind("Malformed", "Conflict", "name already used by this author");
+      return errorFromKind('Malformed', 'Conflict', 'name already used by this author');
     }
   }
 
   // Step 12 — persist R2 + D1
-  const thumbHashBuf = await crypto.subtle.digest("SHA-256", parts.thumbnail as BufferSource);
+  const thumbHashBuf = await crypto.subtle.digest('SHA-256', parts.thumbnail as BufferSource);
   const thumbHash = hexEncode(new Uint8Array(thumbHashBuf));
 
   await env.BLOBS.put(`bundles/${contentHash}.omnipkg`, sanitized.sanitizedBundleBytes);
@@ -339,14 +375,16 @@ app.post("/", async (c) => {
 
   const artifactId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
-  const kind = themeOnly ? "theme" : "bundle";
+  const kind = themeOnly ? 'theme' : 'bundle';
 
   // Author upsert (first-seen).
   await env.META.prepare(
     `INSERT INTO authors (pubkey, created_at, total_uploads, is_new_creator, is_denied)
      VALUES (?, ?, 1, 1, 0)
      ON CONFLICT(pubkey) DO UPDATE SET total_uploads = total_uploads + 1`,
-  ).bind(authorPubkeyBlob, now).run();
+  )
+    .bind(authorPubkeyBlob, now)
+    .run();
 
   // The D1 `signature` column is a legacy denormalization. The real content
   // signature lives inside the stored `.omnipkg` (the `signature.jws` zip
@@ -364,27 +402,31 @@ app.post("/", async (c) => {
       tags, license, version, omni_min_version, signature, created_at, updated_at,
       install_count, report_count, is_removed, is_featured)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0)`,
-  ).bind(
-    artifactId,
-    authorPubkeyBlob,
-    manifest.name,
-    kind,
-    contentHash,
-    thumbHash,
-    manifest.description ?? null,
-    JSON.stringify(tags),
-    manifest.license ?? null,
-    manifest.version,
-    manifest.omni_min_version,
-    signatureEmpty,
-    now,
-    now,
-  ).run();
+  )
+    .bind(
+      artifactId,
+      authorPubkeyBlob,
+      manifest.name,
+      kind,
+      contentHash,
+      thumbHash,
+      manifest.description ?? null,
+      JSON.stringify(tags),
+      manifest.license ?? null,
+      manifest.version,
+      manifest.omni_min_version,
+      signatureEmpty,
+      now,
+      now,
+    )
+    .run();
 
   await env.META.prepare(
     `INSERT OR IGNORE INTO content_hashes (content_hash, artifact_id, first_seen_at)
      VALUES (?, ?, ?)`,
-  ).bind(contentHash, artifactId, now).run();
+  )
+    .bind(contentHash, artifactId, now)
+    .run();
 
   // Step 14 — respond
   return Response.json({
@@ -393,7 +435,7 @@ app.post("/", async (c) => {
     r2_url: `r2://bundles/${contentHash}.omnipkg`,
     thumbnail_url: `r2://thumbnails/${thumbHash}.png`,
     created_at: now,
-    status: "created",
+    status: 'created',
   });
 });
 

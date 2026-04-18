@@ -7,7 +7,7 @@ export interface Env {
   META: D1Database;
   STATE: KVNamespace;
   BUNDLE_PROCESSOR: DurableObjectNamespace;
-  OMNI_THEMES_ENV: "dev" | "prod";
+  OMNI_THEMES_ENV: 'dev' | 'prod';
   OMNI_THEMES_RATE_LIMIT_SCALE: string;
   /**
    * Comma-separated lowercase hex Ed25519 pubkeys allowlisted as moderators.
