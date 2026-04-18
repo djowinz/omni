@@ -3,6 +3,8 @@ dist/
 target/
 apps/desktop/renderer/generated/
 node_modules/
+**/node_modules/
+packages/*/dist/
 .next/
 *.tsbuildinfo
 
@@ -33,6 +35,9 @@ apps/desktop/docs
 # Worker service secrets
 services/**/.dev.vars
 
+# Cloudflare Worker
+apps/worker/.wrangler/
+
 # Wrangler Cache
 .wrangler
 
@@ -44,3 +49,7 @@ apps/worker/src/wasm/*.d.ts
 # Worker test fixtures (regenerated from seed; never commit binaries)
 apps/worker/test/fixtures/*.omnipkg
 apps/worker/test/fixtures/fixtures.json
+
+# Old (deleted) paths — prevent accidental resurrection
+/default/
+/services/

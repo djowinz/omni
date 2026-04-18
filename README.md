@@ -4,6 +4,10 @@
 
 A customizable game overlay for Windows. Build overlays with HTML and CSS, see real-time hardware metrics, and display them on top of any game.
 
+> **Contributors:** See [`STRUCTURE.md`](./STRUCTURE.md) for the repository
+> layout and naming conventions, and [`docs/contributing.md`](./docs/contributing.md)
+> for the contribution workflow.
+
 ----
 
 ![Omni Desktop Editor](docs/images/editor-preview.png)

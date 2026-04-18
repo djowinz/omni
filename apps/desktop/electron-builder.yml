@@ -17,7 +17,6 @@ files:
   - '!**/*.map'
   - '!tsconfig.json'
   - '!postcss.config.mjs'
-  - '!pnpm-workspace.yaml'
 extraFiles:
   # Rust host binary
   - from: '../../target/release/omni-host.exe'
