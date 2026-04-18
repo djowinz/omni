@@ -840,6 +840,8 @@ async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
         cursor: Option<String>,
         #[serde(default)]
         limit: Option<u32>,
+        #[serde(default)]
+        author_pubkey: Option<String>,
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
@@ -851,6 +853,7 @@ async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
         tag: p.tags.unwrap_or_default(),
         cursor: p.cursor,
         limit: p.limit,
+        author_pubkey: p.author_pubkey,
     };
     match ctx.client.list(lp).await {
         Ok(lr) => {
@@ -1044,7 +1047,10 @@ mod tests {
         let msg = json!({ "id": "r-backup-gate", "type": "identity.show" });
         let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
         let parsed: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(parsed["params"]["backed_up"], serde_json::Value::Bool(false));
+        assert_eq!(
+            parsed["params"]["backed_up"],
+            serde_json::Value::Bool(false)
+        );
     }
 
     #[tokio::test]

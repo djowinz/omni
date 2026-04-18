@@ -59,6 +59,12 @@ pub struct ListParams {
     pub tag: Vec<String>,
     pub cursor: Option<String>,
     pub limit: Option<u32>,
+    /// Optional 64-hex author pubkey filter. When `Some`, the worker
+    /// returns only that author's artifacts. Used by #015's My Uploads
+    /// sub-tab, which passes the editor's own pubkey to show the
+    /// current user's published work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_pubkey: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -398,6 +404,9 @@ impl ShareClient {
             }
             if let Some(l) = params.limit {
                 q.append_pair("limit", &l.to_string());
+            }
+            if let Some(pk) = &params.author_pubkey {
+                q.append_pair("author_pubkey", pk);
             }
         }
         let query = url.query().unwrap_or("").to_string();
@@ -892,6 +901,73 @@ mod tests {
             }
             other => panic!("expected ServerReject, got {other:?}"),
         }
+    }
+
+    /// #015 T2 regression guard: when `ListParams::author_pubkey` is `Some`,
+    /// the constructed `/v1/list` URL carries the `author_pubkey` query
+    /// parameter. wiremock's `query_param` matcher only returns 200 when
+    /// the query string contains the expected value — if a future refactor
+    /// drops the field from `list()`'s query building, the mock falls
+    /// through and the test fails.
+    #[tokio::test]
+    async fn list_appends_author_pubkey_query_param() {
+        use wiremock::matchers::query_param;
+        let server = MockServer::start().await;
+        let expected_pk = "aa".repeat(32);
+        Mock::given(method("GET"))
+            .and(path("/v1/list"))
+            .and(query_param("author_pubkey", expected_pk.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let lr = client
+            .list(ListParams {
+                kind: None,
+                sort: None,
+                tag: Vec::new(),
+                cursor: None,
+                limit: None,
+                author_pubkey: Some(expected_pk.clone()),
+            })
+            .await
+            .expect("list ok");
+        assert!(lr.items.is_empty());
+    }
+
+    /// #015 T2 back-compat: when `author_pubkey` is `None`, the query
+    /// string must NOT contain an `author_pubkey` param. Guards against
+    /// accidentally serializing an empty string (which the worker's
+    /// 64-hex regex would reject).
+    #[tokio::test]
+    async fn list_omits_author_pubkey_when_none() {
+        use wiremock::matchers::query_param_is_missing;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/list"))
+            .and(query_param_is_missing("author_pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let lr = client
+            .list(ListParams {
+                kind: None,
+                sort: None,
+                tag: Vec::new(),
+                cursor: None,
+                limit: None,
+                author_pubkey: None,
+            })
+            .await
+            .expect("list ok");
+        assert!(lr.items.is_empty());
     }
 
     /// Roundtrip-derive sanity: the struct is Serialize+Deserialize, so editors
