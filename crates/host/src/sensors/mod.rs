@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 use sysinfo::System;
 use tracing::info;
 
@@ -153,7 +153,7 @@ impl SensorPoller {
                 {
                     snapshot.gpu = match &gpu {
                         Some(g) => g.poll(),
-                        None => omni_shared::GpuData::default(),
+                        None => shared::GpuData::default(),
                     };
                     gpu_group.last_poll = now;
                     any_updated = true;

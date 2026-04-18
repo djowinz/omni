@@ -1,4 +1,4 @@
-use omni_sanitize::{sanitize_bundle, SanitizeError};
+use sanitize::{sanitize_bundle, SanitizeError};
 
 mod common;
 
@@ -6,8 +6,11 @@ fn tiny_png() -> Vec<u8> {
     use image::{ImageBuffer, Rgba};
     let buf: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_pixel(1, 1, Rgba([255, 0, 0, 255]));
     let mut out = Vec::new();
-    buf.write_to(&mut std::io::Cursor::new(&mut out), image::ImageOutputFormat::Png)
-        .unwrap();
+    buf.write_to(
+        &mut std::io::Cursor::new(&mut out),
+        image::ImageOutputFormat::Png,
+    )
+    .unwrap();
     out
 }
 

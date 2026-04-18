@@ -4,7 +4,7 @@
 //! rules 4 and 6a:
 //!
 //! - **Signing / verification** lives in `omni-identity` (`pack_signed_bundle`,
-//!   `unpack_signed_bundle`). `omni_bundle::pack` / `unpack` are low-level
+//!   `unpack_signed_bundle`). `bundle::pack` / `unpack` are low-level
 //!   primitives that every other sub-system consumes *through* `omni-identity`.
 //! - **Per-kind content validation** (what CSS is valid, what PNG bytes are
 //!   valid, executable magic-byte deny-list) lives in `omni-sanitize`. This

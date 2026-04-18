@@ -27,11 +27,21 @@ const DATA_SENSOR_ATTRS: &[&str] = &[
 pub(crate) struct OverlayHandler;
 
 impl Handler for OverlayHandler {
-    fn kind(&self) -> &'static str { "overlay" }
-    fn default_dir(&self) -> &'static str { "" }
-    fn default_extensions(&self) -> &'static [&'static str] { &["omni"] }
-    fn default_max_size(&self) -> u64 { 131_072 }
-    fn file_kind(&self) -> FileKind { FileKind::Overlay }
+    fn kind(&self) -> &'static str {
+        "overlay"
+    }
+    fn default_dir(&self) -> &'static str {
+        ""
+    }
+    fn default_extensions(&self) -> &'static [&'static str] {
+        &["omni"]
+    }
+    fn default_max_size(&self) -> u64 {
+        131_072
+    }
+    fn file_kind(&self) -> FileKind {
+        FileKind::Overlay
+    }
 
     fn sanitize(&self, path: &str, bytes: &[u8]) -> Result<Vec<u8>, SanitizeError> {
         validate_xml_structure(self.kind(), path, bytes)?;
@@ -39,7 +49,11 @@ impl Handler for OverlayHandler {
     }
 }
 
-fn validate_xml_structure(kind: &'static str, path: &str, bytes: &[u8]) -> Result<(), SanitizeError> {
+fn validate_xml_structure(
+    kind: &'static str,
+    path: &str,
+    bytes: &[u8],
+) -> Result<(), SanitizeError> {
     let mut reader = Reader::from_reader(bytes);
     reader.trim_text(true);
     reader.expand_empty_elements(false);
@@ -52,27 +66,35 @@ fn validate_xml_structure(kind: &'static str, path: &str, bytes: &[u8]) -> Resul
         match reader.read_event_into(&mut buf) {
             Err(e) => {
                 return Err(SanitizeError::Handler {
-                    kind, path: path.into(),
-                    detail: format!("xml parse: {e}"), source: None,
+                    kind,
+                    path: path.into(),
+                    detail: format!("xml parse: {e}"),
+                    source: None,
                 });
             }
             Ok(Event::Eof) => break,
             Ok(Event::DocType(_)) => {
                 return Err(SanitizeError::Handler {
-                    kind, path: path.into(),
-                    detail: "DOCTYPE disallowed".into(), source: None,
+                    kind,
+                    path: path.into(),
+                    detail: "DOCTYPE disallowed".into(),
+                    source: None,
                 });
             }
             Ok(Event::PI(_)) => {
                 return Err(SanitizeError::Handler {
-                    kind, path: path.into(),
-                    detail: "processing instruction disallowed".into(), source: None,
+                    kind,
+                    path: path.into(),
+                    detail: "processing instruction disallowed".into(),
+                    source: None,
                 });
             }
             Ok(Event::CData(_)) => {
                 return Err(SanitizeError::Handler {
-                    kind, path: path.into(),
-                    detail: "CDATA disallowed".into(), source: None,
+                    kind,
+                    path: path.into(),
+                    detail: "CDATA disallowed".into(),
+                    source: None,
                 });
             }
             Ok(Event::Start(ref e)) => {
@@ -80,8 +102,12 @@ fn validate_xml_structure(kind: &'static str, path: &str, bytes: &[u8]) -> Resul
                     seen_root = true;
                     if !ALLOWED_ROOT.contains(&e.name().as_ref()) {
                         return Err(SanitizeError::Handler {
-                            kind, path: path.into(),
-                            detail: format!("unexpected root: {}", String::from_utf8_lossy(e.name().as_ref())),
+                            kind,
+                            path: path.into(),
+                            detail: format!(
+                                "unexpected root: {}",
+                                String::from_utf8_lossy(e.name().as_ref())
+                            ),
                             source: None,
                         });
                     }
@@ -89,19 +115,27 @@ fn validate_xml_structure(kind: &'static str, path: &str, bytes: &[u8]) -> Resul
                 depth += 1;
                 if depth > MAX_DEPTH {
                     return Err(SanitizeError::Handler {
-                        kind, path: path.into(),
-                        detail: format!("depth > {MAX_DEPTH}"), source: None,
+                        kind,
+                        path: path.into(),
+                        detail: format!("depth > {MAX_DEPTH}"),
+                        source: None,
                     });
                 }
             }
-            Ok(Event::End(_)) => { depth = depth.saturating_sub(1); }
+            Ok(Event::End(_)) => {
+                depth = depth.saturating_sub(1);
+            }
             Ok(Event::Empty(ref e)) => {
                 if !seen_root {
                     seen_root = true;
                     if !ALLOWED_ROOT.contains(&e.name().as_ref()) {
                         return Err(SanitizeError::Handler {
-                            kind, path: path.into(),
-                            detail: format!("unexpected root: {}", String::from_utf8_lossy(e.name().as_ref())),
+                            kind,
+                            path: path.into(),
+                            detail: format!(
+                                "unexpected root: {}",
+                                String::from_utf8_lossy(e.name().as_ref())
+                            ),
                             source: None,
                         });
                     }
@@ -114,9 +148,16 @@ fn validate_xml_structure(kind: &'static str, path: &str, bytes: &[u8]) -> Resul
     Ok(())
 }
 
-fn sanitize_template_body(kind: &'static str, path: &str, bytes: &[u8]) -> Result<Vec<u8>, SanitizeError> {
+fn sanitize_template_body(
+    kind: &'static str,
+    path: &str,
+    bytes: &[u8],
+) -> Result<Vec<u8>, SanitizeError> {
     let src = std::str::from_utf8(bytes).map_err(|e| SanitizeError::Handler {
-        kind, path: path.into(), detail: format!("utf8: {e}"), source: Some(Box::new(e)),
+        kind,
+        path: path.into(),
+        detail: format!("utf8: {e}"),
+        source: Some(Box::new(e)),
     })?;
     let (start_idx, body_start) = match src.find("<template>") {
         Some(i) => (i, i + "<template>".len()),
@@ -126,23 +167,53 @@ fn sanitize_template_body(kind: &'static str, path: &str, bytes: &[u8]) -> Resul
         Some(j) => body_start + j,
         None => {
             return Err(SanitizeError::Handler {
-                kind, path: path.into(),
-                detail: "unterminated <template>".into(), source: None,
+                kind,
+                path: path.into(),
+                detail: "unterminated <template>".into(),
+                source: None,
             });
         }
     };
     let body = &src[body_start..body_end];
 
     let tags: HashSet<&str> = [
-        "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "ul", "ol",
-        "li", "img", "br", "section", "article", "header", "footer", "nav", "main", "figure",
+        "div",
+        "span",
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "strong",
+        "em",
+        "ul",
+        "ol",
+        "li",
+        "img",
+        "br",
+        "section",
+        "article",
+        "header",
+        "footer",
+        "nav",
+        "main",
+        "figure",
         "figcaption",
-    ].into_iter().collect();
+    ]
+    .into_iter()
+    .collect();
 
     let mut tag_attrs: HashMap<&str, HashSet<&str>> = HashMap::new();
     for t in &tags {
         if *t == "img" {
-            tag_attrs.insert(*t, ["src", "alt", "width", "height", "class", "id", "style"].into_iter().collect());
+            tag_attrs.insert(
+                *t,
+                ["src", "alt", "width", "height", "class", "id", "style"]
+                    .into_iter()
+                    .collect(),
+            );
         } else {
             tag_attrs.insert(*t, DATA_SENSOR_ATTRS.iter().copied().collect());
         }

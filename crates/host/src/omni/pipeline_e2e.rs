@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 use super::history::SensorHistory;
 use super::html_builder::{

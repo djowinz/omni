@@ -12,7 +12,7 @@ wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [features]
 default = []
-wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys", "getrandom/js", "omni-bundle/wasm"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys", "getrandom/js", "bundle/wasm"]
 
 [dependencies]
 thiserror = "1"
@@ -28,7 +28,7 @@ serde_json = "1"
 hex = "0.4"
 subtle = "2"
 base64 = "0.22"
-omni-bundle = { path = "../omni-bundle" }
+bundle = { path = "../bundle" }
 getrandom = { version = "0.2", default-features = false }
 wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
@@ -56,7 +56,7 @@ windows-sys = { version = "0.52", features = [
 tempfile = "3"
 ed25519-dalek = "2"
 jsonwebtoken = "9"
-omni-bundle = { path = "../omni-bundle" }
+bundle = { path = "../bundle" }
 serde = { version = "1", features = ["derive"] }
 semver = { version = "1", features = ["serde"] }
 sha2 = "0.10"

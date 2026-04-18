@@ -1,7 +1,7 @@
 mod fixtures;
 
+use bundle::{pack, BundleLimits};
 use fixtures::sample_bundle;
-use omni_bundle::{pack, BundleLimits};
 
 #[test]
 fn pack_is_byte_deterministic() {

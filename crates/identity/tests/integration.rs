@@ -1,6 +1,6 @@
 //! End-to-end integration tests for omni-identity.
 
-use omni_identity::{Keypair, TofuRegistry, TofuResult};
+use identity::{Keypair, TofuRegistry, TofuResult};
 use tempfile::tempdir;
 
 #[test]
@@ -61,8 +61,8 @@ fn fingerprint_display_is_stable() {
 
 // -------- Retro D3 / D9 / D-004-A public API coverage --------
 
+use identity::{verify_jws, IdentityError};
 use jsonwebtoken::{Algorithm, Header};
-use omni_identity::{verify_jws, IdentityError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,16 +149,16 @@ fn bundle_error_from_impl_public_surface() {
     // The From<BundleError> impl is part of the public API; exercise it via
     // the ? operator shape callers will use.
     fn wrap() -> Result<(), IdentityError> {
-        Err(omni_bundle::BundleError::Unsafe {
-            kind: omni_bundle::UnsafeKind::Path,
+        Err(bundle::BundleError::Unsafe {
+            kind: bundle::UnsafeKind::Path,
             detail: "../x".into(),
         })?;
         Ok(())
     }
     let err = wrap().unwrap_err();
     match err {
-        IdentityError::Bundle(omni_bundle::BundleError::Unsafe {
-            kind: omni_bundle::UnsafeKind::Path,
+        IdentityError::Bundle(bundle::BundleError::Unsafe {
+            kind: bundle::UnsafeKind::Path,
             detail,
         }) => {
             assert_eq!(detail, "../x");
@@ -175,8 +175,8 @@ fn error_variants_display_stably() {
         IdentityError::MissingSignature.to_string(),
         "missing signature"
     );
-    let be = omni_bundle::BundleError::Unsafe {
-        kind: omni_bundle::UnsafeKind::TooManyEntries,
+    let be = bundle::BundleError::Unsafe {
+        kind: bundle::UnsafeKind::TooManyEntries,
         detail: "64".into(),
     };
     let ie: IdentityError = be.into();

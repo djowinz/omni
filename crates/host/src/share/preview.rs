@@ -152,10 +152,7 @@ impl PreviewSlot {
     }
 
     pub fn is_active(&self) -> bool {
-        self.inner
-            .lock()
-            .expect("preview slot poisoned")
-            .is_some()
+        self.inner.lock().expect("preview slot poisoned").is_some()
     }
 }
 

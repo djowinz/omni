@@ -14,13 +14,13 @@
 use std::collections::BTreeMap;
 
 use base64::Engine;
+use bundle::{
+    canonical_hash, pack as bundle_pack, unpack as bundle_unpack, BundleError, BundleLimits,
+    FileEntry, IntegrityKind, Manifest,
+};
 use jsonwebtoken::{
     jwk::{AlgorithmParameters, EllipticCurve, Jwk, OctetKeyPairParameters, OctetKeyPairType},
     Algorithm, Header,
-};
-use omni_bundle::{
-    canonical_hash, pack as bundle_pack, unpack as bundle_unpack, BundleError, BundleLimits,
-    FileEntry, IntegrityKind, Manifest,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

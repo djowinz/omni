@@ -174,12 +174,18 @@ mod tests {
             version: "1.0.0".parse().unwrap(),
             omni_min_version: "0.1.0".parse().unwrap(),
             description: "d".into(),
-            tags: vec![Tag::new("dark").unwrap(), Tag::new("high-contrast").unwrap()],
+            tags: vec![
+                Tag::new("dark").unwrap(),
+                Tag::new("high-contrast").unwrap(),
+            ],
             license: "MIT".into(),
             entry_overlay: "overlay.omni".into(),
             default_theme: Some("themes/default.css".into()),
             sensor_requirements: vec!["cpu.usage".into()],
-            files: vec![FileEntry { path: "overlay.omni".into(), sha256: [1u8; 32] }],
+            files: vec![FileEntry {
+                path: "overlay.omni".into(),
+                sha256: [1u8; 32],
+            }],
             resource_kinds: None,
         }
     }
@@ -241,7 +247,10 @@ mod tests {
 
     #[test]
     fn hex_sha256_roundtrips() {
-        let fe = FileEntry { path: "x".into(), sha256: [0xab; 32] };
+        let fe = FileEntry {
+            path: "x".into(),
+            sha256: [0xab; 32],
+        };
         let s = serde_json::to_string(&fe).unwrap();
         assert!(s.contains(&"ab".repeat(32)));
         let back: FileEntry = serde_json::from_str(&s).unwrap();

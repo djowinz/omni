@@ -1,5 +1,5 @@
-use omni_admin::auth::{self, HttpClaims};
-use omni_identity::Keypair;
+use admin::auth::{self, HttpClaims};
+use identity::Keypair;
 
 #[test]
 fn signs_http_jws_with_admin_keypair() {

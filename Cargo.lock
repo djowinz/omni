@@ -9,6 +9,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "admin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "base64",
+ "chrono",
+ "clap",
+ "dialoguer",
+ "directories",
+ "hex",
+ "identity",
+ "jsonwebtoken",
+ "predicates",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "urlencoding",
+ "windows 0.58.0",
+ "wiremock",
+]
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,6 +337,26 @@ name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
+
+[[package]]
+name = "bundle"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "hex",
+ "js-sys",
+ "jsonschema",
+ "proptest",
+ "semver",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "zip",
+]
 
 [[package]]
 name = "bytecheck"
@@ -1305,6 +1352,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "host"
+version = "0.1.0"
+dependencies = [
+ "backon",
+ "base64",
+ "bundle",
+ "ctrlc",
+ "futures",
+ "futures-util",
+ "hex",
+ "identity",
+ "image",
+ "lightningcss",
+ "moka",
+ "notify",
+ "omni-guard",
+ "omni-guard-trait",
+ "quick-xml 0.37.5",
+ "regex-lite",
+ "reqwest",
+ "sanitize",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shared",
+ "sysinfo",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "ts-rs",
+ "tungstenite",
+ "ultralight-sys",
+ "url",
+ "uuid",
+ "walkdir",
+ "windows 0.58.0",
+ "wiremock",
+ "wmi",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1532,6 +1624,34 @@ name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
+
+[[package]]
+name = "identity"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "base64",
+ "bundle",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "getrandom 0.2.17",
+ "hex",
+ "hmac",
+ "js-sys",
+ "jsonwebtoken",
+ "rand 0.8.5",
+ "semver",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "windows-sys 0.52.0",
+ "zeroize",
+]
 
 [[package]]
 name = "idna"
@@ -2156,53 +2276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "omni-admin"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "base64",
- "chrono",
- "clap",
- "dialoguer",
- "directories",
- "hex",
- "jsonwebtoken",
- "omni-identity",
- "predicates",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "urlencoding",
- "windows 0.58.0",
- "wiremock",
-]
-
-[[package]]
-name = "omni-bundle"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.2.17",
- "hex",
- "js-sys",
- "jsonschema",
- "proptest",
- "semver",
- "serde",
- "serde-wasm-bindgen",
- "serde_jcs",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "zip",
-]
-
-[[package]]
 name = "omni-guard"
 version = "0.1.0"
 dependencies = [
@@ -2217,121 +2290,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "omni-host"
-version = "0.1.0"
-dependencies = [
- "backon",
- "base64",
- "ctrlc",
- "futures",
- "futures-util",
- "hex",
- "image",
- "lightningcss",
- "moka",
- "notify",
- "omni-bundle",
- "omni-guard",
- "omni-guard-trait",
- "omni-identity",
- "omni-sanitize",
- "omni-shared",
- "quick-xml 0.37.5",
- "regex-lite",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "sysinfo",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "ts-rs",
- "tungstenite",
- "ultralight-sys",
- "url",
- "uuid",
- "walkdir",
- "windows 0.58.0",
- "wiremock",
- "wmi",
-]
-
-[[package]]
-name = "omni-identity"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "base64",
- "chacha20poly1305",
- "ed25519-dalek",
- "getrandom 0.2.17",
- "hex",
- "hmac",
- "js-sys",
- "jsonwebtoken",
- "omni-bundle",
- "rand 0.8.5",
- "semver",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2",
- "subtle",
- "tempfile",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "windows-sys 0.52.0",
- "zeroize",
-]
-
-[[package]]
-name = "omni-overlay-exe"
-version = "0.1.0"
-dependencies = [
- "omni-shared",
- "tracing",
- "tracing-subscriber",
- "windows 0.58.0",
-]
-
-[[package]]
-name = "omni-sanitize"
-version = "0.1.0"
-dependencies = [
- "ammonia",
- "getrandom 0.3.4",
- "hex",
- "hex-literal",
- "image",
- "js-sys",
- "lightningcss",
- "omni-bundle",
- "omni-identity",
- "proptest",
- "quick-xml 0.31.0",
- "semver",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
- "ttf-parser",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "omni-shared"
-version = "0.1.0"
-dependencies = [
- "ts-rs",
 ]
 
 [[package]]
@@ -2369,6 +2327,16 @@ name = "outref"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
+
+[[package]]
+name = "overlay"
+version = "0.1.0"
+dependencies = [
+ "shared",
+ "tracing",
+ "tracing-subscriber",
+ "windows 0.58.0",
+]
 
 [[package]]
 name = "parcel_selectors"
@@ -3179,6 +3147,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "sanitize"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "bundle",
+ "getrandom 0.3.4",
+ "hex",
+ "hex-literal",
+ "identity",
+ "image",
+ "js-sys",
+ "lightningcss",
+ "proptest",
+ "quick-xml 0.31.0",
+ "semver",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "ttf-parser",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3336,6 +3329,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "shared"
+version = "0.1.0"
+dependencies = [
+ "ts-rs",
 ]
 
 [[package]]

@@ -14,11 +14,21 @@ const MAX_REENCODED: u64 = 1_048_576;
 pub(crate) struct ImageHandler;
 
 impl Handler for ImageHandler {
-    fn kind(&self) -> &'static str { "image" }
-    fn default_dir(&self) -> &'static str { "images" }
-    fn default_extensions(&self) -> &'static [&'static str] { &["png", "jpg", "jpeg", "webp"] }
-    fn default_max_size(&self) -> u64 { 1_572_864 }
-    fn file_kind(&self) -> FileKind { FileKind::Image }
+    fn kind(&self) -> &'static str {
+        "image"
+    }
+    fn default_dir(&self) -> &'static str {
+        "images"
+    }
+    fn default_extensions(&self) -> &'static [&'static str] {
+        &["png", "jpg", "jpeg", "webp"]
+    }
+    fn default_max_size(&self) -> u64 {
+        1_572_864
+    }
+    fn file_kind(&self) -> FileKind {
+        FileKind::Image
+    }
 
     fn sanitize(&self, path: &str, bytes: &[u8]) -> Result<Vec<u8>, SanitizeError> {
         let fmt = ImageFormat::from_path(path).map_err(|e| SanitizeError::Handler {

@@ -15,7 +15,7 @@
 //! Two paths are covered:
 //!
 //! 1. HTTP-auth — host→Worker request signing. Native oracle is
-//!    `omni_identity::http_jws::sign_http_jws` (shipped on `theme-sharing`;
+//!    `identity::http_jws::sign_http_jws` (shipped on `theme-sharing`;
 //!    will land here after rebase). Header `{"typ":"Omni-HTTP-JWS","alg":"EdDSA"}`,
 //!    claims shape `HttpJwsClaims` (alg/crv/typ/kid/df/ts/method/path/...).
 //!    Pre-rebase we inline the native construction (`Header` + `Keypair::sign_jws`);
@@ -26,8 +26,8 @@
 
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
+use identity::Keypair;
 use jsonwebtoken::{Algorithm, Header};
-use omni_identity::Keypair;
 use serde::{Deserialize, Serialize};
 
 const B64URL: base64::engine::general_purpose::GeneralPurpose =
@@ -36,7 +36,7 @@ const B64_STD: base64::engine::general_purpose::GeneralPurpose =
     base64::engine::general_purpose::STANDARD;
 
 // Field order mirrors `src/wasm_jws_core.rs` and the shipped
-// `omni_identity::http_jws::HttpJwsClaims`. Reordering here WILL break the
+// `identity::http_jws::HttpJwsClaims`. Reordering here WILL break the
 // parity assertion below — that's the point of the gate.
 #[derive(Serialize, Deserialize, Clone)]
 struct HttpJwsClaimsMirror {
@@ -186,7 +186,8 @@ fn bundle_jws_native_and_wasm_parity_with_embedded_jwk() {
     let wasm_jws = wasm_sign_bundle(&claims, &seed);
 
     assert_eq!(
-        native_jws, wasm_jws,
+        native_jws,
+        wasm_jws,
         "Bundle JWS byte-parity broken with embedded jwk.\n\
          native head: {}\n\
          wasm   head: {}",

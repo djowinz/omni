@@ -12,7 +12,7 @@ use super::expression;
 use super::history::SensorHistory;
 use super::interpolation::{interpolate, EvalCtx};
 use super::types::{HtmlNode, OmniFile};
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 /// Default styling for `<chart>` and `<chart-card>` elements. Loaded before
 /// user widget styles so users can override any rule. Provides a reasonable
@@ -872,7 +872,7 @@ mod tests {
     fn compute_update_diff_emits_attribute_changes() {
         use crate::omni::history::SensorHistory;
         use crate::omni::types::{HtmlNode, OmniFile, Widget};
-        use omni_shared::SensorSnapshot;
+        use shared::SensorSnapshot;
         use std::collections::HashMap;
 
         let mut snapshot = SensorSnapshot::default();
@@ -1008,7 +1008,7 @@ mod render_tests {
     use super::*;
     use crate::omni::history::SensorHistory;
     use crate::omni::types::HtmlNode;
-    use omni_shared::SensorSnapshot;
+    use shared::SensorSnapshot;
     use std::collections::HashMap;
 
     #[test]
@@ -1168,7 +1168,7 @@ mod render_tests {
     #[test]
     fn compute_diff_populates_classes_only() {
         use crate::omni::types::{ConditionalClass, HtmlNode, OmniFile, Widget};
-        use omni_shared::SensorSnapshot;
+        use shared::SensorSnapshot;
         use std::collections::HashMap;
 
         let mut snap = SensorSnapshot::default();
@@ -1212,7 +1212,7 @@ mod render_tests {
     #[test]
     fn collect_values_gathers_lowered_paths() {
         use crate::omni::types::{HtmlNode, OmniFile, Widget};
-        use omni_shared::SensorSnapshot;
+        use shared::SensorSnapshot;
         use std::collections::HashMap;
 
         let mut snap = SensorSnapshot::default();

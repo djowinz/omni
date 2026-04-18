@@ -6,9 +6,8 @@
 /// Windows reserved filename stems, uppercase. Match is case-insensitive and
 /// applies whether or not the name carries an extension (per Win32 rules).
 const WINDOWS_RESERVED_STEMS: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL",
-    "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-    "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+    "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
 /// Validate a user-chosen overlay name.
@@ -87,8 +86,15 @@ mod sanitize_tests {
 
     #[test]
     fn accepts_reasonable_names() {
-        for good in ["my-hud", "Cyberpunk HUD", "a", "with_underscore",
-                     "unicode-Ω-ok", "digits-123", "dot.in.middle"] {
+        for good in [
+            "my-hud",
+            "Cyberpunk HUD",
+            "a",
+            "with_underscore",
+            "unicode-Ω-ok",
+            "digits-123",
+            "dot.in.middle",
+        ] {
             assert!(sanitize_name(good).is_ok(), "expected ok: {good:?}");
         }
     }
@@ -117,16 +123,29 @@ mod sanitize_tests {
 
     #[test]
     fn rejects_path_traversal_and_separators() {
-        for bad in ["../evil", "foo/bar", "foo\\bar", "/abs", "\\abs",
-                    "c:name", "ads:stream"] {
+        for bad in [
+            "../evil",
+            "foo/bar",
+            "foo\\bar",
+            "/abs",
+            "\\abs",
+            "c:name",
+            "ads:stream",
+        ] {
             assert!(sanitize_name(bad).is_err(), "expected err: {bad:?}");
         }
     }
 
     #[test]
     fn rejects_forbidden_chars() {
-        for bad in ["star*name", "q?mark", "quo\"te", "less<than",
-                    "greater>than", "pipe|name"] {
+        for bad in [
+            "star*name",
+            "q?mark",
+            "quo\"te",
+            "less<than",
+            "greater>than",
+            "pipe|name",
+        ] {
             assert!(sanitize_name(bad).is_err(), "expected err: {bad:?}");
         }
     }
@@ -141,11 +160,9 @@ mod sanitize_tests {
     #[test]
     fn rejects_all_windows_reserved_stems_all_case_variants_and_with_ext() {
         let bases = [
-            "CON", "PRN", "AUX", "NUL",
-            "COM0", "COM1", "COM2", "COM3", "COM4",
-            "COM5", "COM6", "COM7", "COM8", "COM9",
-            "LPT0", "LPT1", "LPT2", "LPT3", "LPT4",
-            "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+            "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+            "COM7", "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7",
+            "LPT8", "LPT9",
         ];
         let case_variants = |s: &str| -> Vec<String> {
             vec![
@@ -154,26 +171,38 @@ mod sanitize_tests {
                 {
                     let mut c = s.chars();
                     match c.next() {
-                        Some(first) => format!("{}{}",
+                        Some(first) => format!(
+                            "{}{}",
                             first.to_ascii_uppercase(),
-                            c.as_str().to_ascii_lowercase()),
+                            c.as_str().to_ascii_lowercase()
+                        ),
                         None => String::new(),
                     }
                 },
-                s.chars().enumerate().map(|(i, c)| {
-                    if i % 2 == 0 { c.to_ascii_lowercase() }
-                    else { c.to_ascii_uppercase() }
-                }).collect(),
+                s.chars()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        if i % 2 == 0 {
+                            c.to_ascii_lowercase()
+                        } else {
+                            c.to_ascii_uppercase()
+                        }
+                    })
+                    .collect(),
             ]
         };
         for base in bases {
             for v in case_variants(base) {
-                assert!(sanitize_name(&v).is_err(),
-                    "expected err for reserved stem {v:?}");
+                assert!(
+                    sanitize_name(&v).is_err(),
+                    "expected err for reserved stem {v:?}"
+                );
                 for ext in [".txt", ".omni", ".json"] {
                     let with_ext = format!("{v}{ext}");
-                    assert!(sanitize_name(&with_ext).is_err(),
-                        "expected err for reserved+ext {with_ext:?}");
+                    assert!(
+                        sanitize_name(&with_ext).is_err(),
+                        "expected err for reserved+ext {with_ext:?}"
+                    );
                 }
             }
         }
@@ -349,11 +378,9 @@ pub fn fork_to_local(
     {
         // Scope the writer so the file handle closes before commit()'s
         // rename — on Windows an open handle blocks directory rename.
-        let file = std::fs::File::create(&origin_path)
-            .map_err(ForkError::OriginWriteFailed)?;
+        let file = std::fs::File::create(&origin_path).map_err(ForkError::OriginWriteFailed)?;
         let mut writer = std::io::BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, &origin)
-            .map_err(ForkError::OriginSerdeFailed)?;
+        serde_json::to_writer_pretty(&mut writer, &origin).map_err(ForkError::OriginSerdeFailed)?;
         use std::io::Write;
         writer.flush().map_err(ForkError::OriginWriteFailed)?;
     }
@@ -452,7 +479,8 @@ mod fork_tests {
             },
             &overlays,
             &reg,
-        ).expect("fork ok");
+        )
+        .expect("fork ok");
         assert_eq!(out.name, "my-copy");
         assert!(out.path.join("overlay.omni").exists());
         assert!(out.path.join("themes/dark.css").exists());
@@ -476,7 +504,8 @@ mod fork_tests {
             },
             &overlays,
             &reg,
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(matches!(err, ForkError::TargetExists(ref n) if n == "collide"));
     }
 
@@ -491,7 +520,8 @@ mod fork_tests {
             },
             &overlays,
             &reg,
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(matches!(err, ForkError::SourceNotFound(ref s) if s == "nope"));
     }
 
@@ -506,7 +536,8 @@ mod fork_tests {
             },
             &overlays,
             &reg,
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(matches!(err, ForkError::NameInvalid(_)));
     }
 
@@ -523,7 +554,8 @@ mod fork_tests {
             },
             &overlays,
             &reg,
-        ).unwrap();
+        )
+        .unwrap();
         let after: Vec<_> = walk(&source);
         assert_eq!(before, after);
     }

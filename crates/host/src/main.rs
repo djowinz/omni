@@ -394,7 +394,7 @@ fn run_host() {
     );
     info!("Press Ctrl+C to stop");
 
-    let mut latest_snapshot = omni_shared::SensorSnapshot::default();
+    let mut latest_snapshot = shared::SensorSnapshot::default();
 
     // Determine overlay exe path (next to host exe)
     let overlay_exe_path = std::env::current_exe()
@@ -923,11 +923,11 @@ enum BuildShareCtxError {
     #[error("worker URL invalid: {0}")]
     WorkerUrl(#[source] url::ParseError),
     #[error("identity load failed: {0}")]
-    IdentityLoad(#[source] omni_identity::IdentityError),
+    IdentityLoad(#[source] identity::IdentityError),
     #[error("guard init failed: {0}")]
     GuardInit(#[source] omni_guard_trait::GuardError),
     #[error("tofu store load failed: {0}")]
-    TofuLoad(#[source] omni_identity::IdentityError),
+    TofuLoad(#[source] identity::IdentityError),
     #[error("registry load failed: {0}")]
     RegistryLoad(#[source] omni_host::share::registry::RegistryError),
 }
@@ -971,7 +971,7 @@ fn load_baseline_theme_css(data_dir: &std::path::Path, overlay_name: &str) -> Ve
 /// Design notes:
 /// - Sync function. Avoids spinning a second tokio runtime just for startup;
 ///   `BundleLimits::DEFAULT` is the conservative startup value per
-///   `omni_bundle::BundleLimits` doc. A periodic refresh driven from the
+///   `bundle::BundleLimits` doc. A periodic refresh driven from the
 ///   existing `share_runtime` is out of scope for this wave (plan #021 §6).
 /// - Worker URL comes from `OMNI_WORKER_URL`; dev fallback matches the
 ///   wrangler default documented in `services/omni-themes-worker/README.md`.
@@ -984,12 +984,12 @@ fn build_share_context(
     overlay_name: &str,
     pending_theme_slot: omni_host::share::preview_impl::PendingSlot,
 ) -> Result<omni_host::share::ws_messages::ShareContext, BuildShareCtxError> {
+    use omni_host::share::client::ShareClient;
     use omni_host::share::preview::{PreviewSlot, ThemeSwap};
     use omni_host::share::preview_impl::ThemeSwapImpl;
     use omni_host::share::registry::{RegistryHandle, RegistryKind};
     use omni_host::share::tofu::TofuStore;
     use omni_host::share::ws_messages::ShareContext;
-    use omni_host::share::client::ShareClient;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
@@ -999,7 +999,7 @@ fn build_share_context(
 
     let identity_path = state.data_dir.join("identity.key");
     let identity = Arc::new(
-        omni_identity::Keypair::load_or_create(&identity_path)
+        identity::Keypair::load_or_create(&identity_path)
             .map_err(BuildShareCtxError::IdentityLoad)?,
     );
 
@@ -1007,7 +1007,11 @@ fn build_share_context(
     let guard_box = omni_host::guard::make_guard().map_err(BuildShareCtxError::GuardInit)?;
     let guard: Arc<dyn omni_guard_trait::Guard> = Arc::from(guard_box);
 
-    let client = Arc::new(ShareClient::new(worker_url, identity.clone(), guard.clone()));
+    let client = Arc::new(ShareClient::new(
+        worker_url,
+        identity.clone(),
+        guard.clone(),
+    ));
 
     let tofu = Arc::new(Mutex::new(
         TofuStore::open(&state.data_dir).map_err(BuildShareCtxError::TofuLoad)?,
@@ -1023,7 +1027,7 @@ fn build_share_context(
 
     // Conservative startup value; Worker `/v1/config/limits` refresh is out
     // of scope for this wave per spec #021 §6.
-    let limits = Arc::new(Mutex::new(omni_bundle::BundleLimits::DEFAULT));
+    let limits = Arc::new(Mutex::new(bundle::BundleLimits::DEFAULT));
 
     // `CARGO_PKG_VERSION` is the crate's own Cargo.toml `version` field,
     // which the workspace guarantees is valid semver. An invalid value would

@@ -20,7 +20,7 @@ use serde_json::json;
 
 use crate::share::install::{BadBundleKind, InstallError, InstallOutcome, InstallProgress};
 use crate::share::preview::PreviewError;
-use omni_identity::TofuResult;
+use identity::TofuResult;
 
 /// D-004-J error payload shape. Serializes into the `error` field of an
 /// `explorer.*` error envelope:
@@ -351,7 +351,7 @@ mod tests {
     // ---- #021 contract-serializer tests --------------------------------
 
     use crate::share::install::{InstallOutcome, InstallProgress, InstallWarning};
-    use omni_identity::{Keypair, PublicKey, TofuResult};
+    use identity::{Keypair, PublicKey, TofuResult};
     use serde_json::Value as JsonValue;
 
     fn all_progress_variants() -> Vec<InstallProgress> {
@@ -520,7 +520,10 @@ mod tests {
         );
         for v in &variants {
             let payload = map_preview_error(v);
-            assert_eq!(payload.kind, "HostLocal", "variant {v:?} should be HostLocal");
+            assert_eq!(
+                payload.kind, "HostLocal",
+                "variant {v:?} should be HostLocal"
+            );
             assert!(!payload.code.is_empty(), "variant {v:?} has empty code");
             assert!(
                 !payload.message.is_empty(),
@@ -533,7 +536,10 @@ mod tests {
     fn map_preview_error_pins_wire_codes() {
         // Pins the stable-string vocab the editor binds to. Any code rename
         // must land with a coordinated editor update.
-        assert_eq!(map_preview_error(&PreviewError::PreviewActive).code, "PREVIEW_ACTIVE");
+        assert_eq!(
+            map_preview_error(&PreviewError::PreviewActive).code,
+            "PREVIEW_ACTIVE"
+        );
         assert_eq!(
             map_preview_error(&PreviewError::NoActivePreview).code,
             "NO_ACTIVE_PREVIEW"

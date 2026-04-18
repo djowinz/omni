@@ -13,7 +13,7 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use omni_shared::{BitmapHeader, BITMAP_IPC_VERSION, BITMAP_SHM_NAME, PIXEL_DATA_OFFSET};
+use shared::{BitmapHeader, BITMAP_IPC_VERSION, BITMAP_SHM_NAME, PIXEL_DATA_OFFSET};
 use windows::core::{w, Interface, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;

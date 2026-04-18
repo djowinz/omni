@@ -53,7 +53,7 @@ pub struct EtwFrameMetrics {
     pub available: bool,
 }
 
-impl From<EtwFrameMetrics> for omni_shared::FrameData {
+impl From<EtwFrameMetrics> for shared::FrameData {
     fn from(m: EtwFrameMetrics) -> Self {
         Self {
             fps: m.fps,

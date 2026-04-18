@@ -4,20 +4,20 @@
 
 use std::collections::BTreeMap;
 
-use omni_bundle::{BundleLimits, FileEntry, Manifest, Tag};
+use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use std::sync::Arc;
 
+use identity::{pack_signed_bundle, Keypair};
 use omni_guard_trait::{Guard, StubGuard};
 use omni_host::share::client::ShareClient;
 use omni_host::share::install::{install, InstallError, InstallRequest};
 use omni_host::share::registry::{RegistryHandle, RegistryKind};
 use omni_host::share::tofu::TofuStore;
 use omni_host::workspace::atomic_dir::sweep_orphans;
-use omni_identity::{pack_signed_bundle, Keypair};
-use url::Url;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
+use url::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

@@ -1,4 +1,4 @@
-use omni_bundle::{unpack, BundleLimits};
+use bundle::{unpack, BundleLimits};
 use proptest::prelude::*;
 
 proptest! {

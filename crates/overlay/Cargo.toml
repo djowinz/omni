@@ -8,7 +8,7 @@ name = "omni-overlay"
 path = "src/main.rs"
 
 [dependencies]
-omni-shared = { path = "../shared" }
+shared = { path = "../shared" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 

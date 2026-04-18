@@ -1,7 +1,7 @@
 //! `omni-admin keygen` — generate a fresh admin Ed25519 keypair on disk.
 
 use clap::Args as ClapArgs;
-use omni_identity::Keypair;
+use identity::Keypair;
 use std::path::PathBuf;
 use std::process::ExitCode;
 

@@ -20,7 +20,10 @@ pub enum SanitizeError {
     RejectedExecutableMagic { prefix_hex: String, path: String },
 
     #[error("unknown resource kind '{kind}' (supported: {supported:?})")]
-    UnknownResourceKind { kind: String, supported: Vec<&'static str> },
+    UnknownResourceKind {
+        kind: String,
+        supported: Vec<&'static str>,
+    },
 
     #[error("handler error for {path} (kind={kind}): {detail}")]
     Handler {
@@ -32,7 +35,11 @@ pub enum SanitizeError {
     },
 
     #[error("size exceeded at {path}: {actual} > {limit}")]
-    SizeExceeded { path: String, actual: u64, limit: u64 },
+    SizeExceeded {
+        path: String,
+        actual: u64,
+        limit: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

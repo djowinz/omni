@@ -1,17 +1,17 @@
 [workspace]
+resolver = "2"
 members = [
-    "crates/shared",
     "crates/host",
-    "crates/overlay-exe",
-    "crates/ultralight-sys",
-    "crates/omni-sanitize",
-    "crates/omni-bundle",
+    "crates/overlay",
+    "crates/shared",
+    "crates/bundle",
+    "crates/sanitize",
+    "crates/identity",
     "crates/omni-guard-trait",
-    "crates/omni-identity",
-    "crates/omni-admin",
+    "crates/ultralight-sys",
+    "tools/admin",
     "tools/integrity-hash",
 ]
-resolver = "2"
 
 # Private-crate resolution — retro D-004-K. `omni-host` declares `omni-guard`
 # as an optional git-URL dep pointing at the private repo; this patch swaps

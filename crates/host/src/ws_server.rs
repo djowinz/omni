@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use omni_shared::SensorSnapshot;
 use serde_json::{json, Value};
+use shared::SensorSnapshot;
 use tracing::{debug, info, warn};
 use tungstenite::{accept, Message};
 
@@ -525,18 +525,27 @@ fn handle_message(
             use crate::share::registry::{RegistryHandle, RegistryKind};
             use crate::workspace::fork::{self, ForkRequest};
 
-            let slug = msg.get("bundle_slug").and_then(|v| v.as_str()).unwrap_or("");
-            let name = msg.get("new_overlay_name").and_then(|v| v.as_str()).unwrap_or("");
+            let slug = msg
+                .get("bundle_slug")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let name = msg
+                .get("new_overlay_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             let overlays_root = state.data_dir.join("overlays");
             let registry = match RegistryHandle::load(&state.data_dir, RegistryKind::Bundles) {
                 Ok(r) => r,
                 Err(e) => {
-                    return Some(json!({
-                        "type": "error",
-                        "code": "IO_ERROR",
-                        "message": format!("installed-bundles registry load failed: {e}"),
-                    }).to_string());
+                    return Some(
+                        json!({
+                            "type": "error",
+                            "code": "IO_ERROR",
+                            "message": format!("installed-bundles registry load failed: {e}"),
+                        })
+                        .to_string(),
+                    );
                 }
             };
             let lookup = RegistryBundleLookup(&registry);
@@ -546,19 +555,25 @@ fn handle_message(
                 new_overlay_name: name.to_string(),
             };
             match fork::fork_to_local(req, &overlays_root, &lookup) {
-                Ok(res) => Some(json!({
-                    "type": "explorer.forked",
-                    "path": res.path.strip_prefix(&state.data_dir)
-                        .unwrap_or(&res.path)
-                        .to_string_lossy(),
-                    "name": res.name,
-                    "forked_from": res.origin.forked_from,
-                }).to_string()),
-                Err(e) => Some(json!({
-                    "type": "error",
-                    "code": e.ws_error_code(),
-                    "message": e.to_string(),
-                }).to_string()),
+                Ok(res) => Some(
+                    json!({
+                        "type": "explorer.forked",
+                        "path": res.path.strip_prefix(&state.data_dir)
+                            .unwrap_or(&res.path)
+                            .to_string_lossy(),
+                        "name": res.name,
+                        "forked_from": res.origin.forked_from,
+                    })
+                    .to_string(),
+                ),
+                Err(e) => Some(
+                    json!({
+                        "type": "error",
+                        "code": e.ws_error_code(),
+                        "message": e.to_string(),
+                    })
+                    .to_string(),
+                ),
             }
         }
         "explorer.install"
@@ -692,7 +707,7 @@ fn format_f32(v: f32) -> Value {
 /// `FrameData` for host-internal viewport sizing but no Electron consumer
 /// reads them. Route all f32 fields through `format_f32` so NaN serializes
 /// as JSON `null` (the SensorReadout renderer treats null as "N/A").
-fn frame_json(frame: &omni_shared::FrameData) -> Value {
+fn frame_json(frame: &shared::FrameData) -> Value {
     json!({
         "available": frame.available,
         "fps": format_f32(frame.fps),
@@ -890,7 +905,7 @@ mod tests {
 
     #[test]
     fn frame_json_serializes_all_fields_and_nan_to_null() {
-        let mut snapshot = omni_shared::SensorSnapshot::default();
+        let mut snapshot = shared::SensorSnapshot::default();
         snapshot.frame.available = true;
         snapshot.frame.fps = 144.0;
         snapshot.frame.frame_time_ms = 6.9;

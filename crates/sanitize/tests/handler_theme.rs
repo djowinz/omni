@@ -3,7 +3,7 @@
 // file FAILS on running — expected per plan wave ordering. Task 3 has wired
 // the test file to compile.
 
-use omni_sanitize::{sanitize_theme, SanitizeError};
+use sanitize::{sanitize_theme, SanitizeError};
 
 #[test]
 fn rejects_import() {

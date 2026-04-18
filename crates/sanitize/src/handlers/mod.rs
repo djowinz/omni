@@ -23,12 +23,8 @@ pub(crate) trait Handler: Sync {
     fn sanitize(&self, path: &str, bytes: &[u8]) -> Result<Vec<u8>, SanitizeError>;
 }
 
-pub(crate) static HANDLERS: &[&(dyn Handler + Sync)] = &[
-    &ThemeHandler,
-    &FontHandler,
-    &ImageHandler,
-    &OverlayHandler,
-];
+pub(crate) static HANDLERS: &[&(dyn Handler + Sync)] =
+    &[&ThemeHandler, &FontHandler, &ImageHandler, &OverlayHandler];
 
 pub(crate) fn supported_kind_names() -> Vec<&'static str> {
     HANDLERS.iter().map(|h| h.kind()).collect()
@@ -36,7 +32,7 @@ pub(crate) fn supported_kind_names() -> Vec<&'static str> {
 
 pub(crate) fn dispatch_for_path(
     path: &str,
-    declared: Option<&std::collections::BTreeMap<String, omni_bundle::ResourceKind>>,
+    declared: Option<&std::collections::BTreeMap<String, bundle::ResourceKind>>,
 ) -> Result<(&'static dyn Handler, u64), SanitizeError> {
     if let Some(decls) = declared {
         for (kind_name, rk) in decls {
@@ -54,7 +50,11 @@ pub(crate) fn dispatch_for_path(
         }
     }
     for h in HANDLERS {
-        if matches_dir_ext(path, h.default_dir(), h.default_extensions().iter().copied()) {
+        if matches_dir_ext(
+            path,
+            h.default_dir(),
+            h.default_extensions().iter().copied(),
+        ) {
             return Ok((*h, h.default_max_size()));
         }
     }

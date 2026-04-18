@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 use super::history::SensorHistory;
 use super::sensor_map;
@@ -543,7 +543,7 @@ pub fn interpolate(input: &str, ctx: &EvalCtx) -> String {
 mod tests {
     use super::*;
     use crate::omni::history::SensorHistory;
-    use omni_shared::SensorSnapshot;
+    use shared::SensorSnapshot;
     use std::collections::HashMap;
 
     fn make_ctx<'a>(

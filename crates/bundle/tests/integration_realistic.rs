@@ -1,7 +1,7 @@
 mod fixtures;
 
+use bundle::{pack, unpack, BundleLimits, FileEntry, Manifest, Tag};
 use fixtures::{sha256, test_zip_opts};
-use omni_bundle::{pack, unpack, BundleLimits, FileEntry, Manifest, Tag};
 use std::collections::BTreeMap;
 
 #[test]
@@ -16,27 +16,33 @@ fn realistic_bundle_round_trips_under_budget() {
 
     // 6 CSS themes, ~8 KB each
     for i in 0..6 {
-        files.insert(
-            format!("themes/theme{i}.css"),
-            make_css(8_000, i as u8),
-        );
+        files.insert(format!("themes/theme{i}.css"), make_css(8_000, i as u8));
     }
 
     // 2 fonts, ~400 KB each (well under 1.5 MB font cap).
     // Use pseudo-random bytes so compression ratio stays well under 100x.
     for i in 0..2 {
-        files.insert(format!("fonts/font{i}.ttf"), pseudo_random_bytes(400_000, i as u64));
+        files.insert(
+            format!("fonts/font{i}.ttf"),
+            pseudo_random_bytes(400_000, i as u64),
+        );
     }
 
     // 4 PNG images, ~200 KB each (under 1 MB image cap).
     // Use pseudo-random bytes so compression ratio stays well under 100x.
     for i in 0..4 {
-        files.insert(format!("images/img{i}.png"), pseudo_random_bytes(200_000, 10 + i as u64));
+        files.insert(
+            format!("images/img{i}.png"),
+            pseudo_random_bytes(200_000, 10 + i as u64),
+        );
     }
 
     let mut entries: Vec<FileEntry> = files
         .iter()
-        .map(|(p, b)| FileEntry { path: p.clone(), sha256: sha256(b) })
+        .map(|(p, b)| FileEntry {
+            path: p.clone(),
+            sha256: sha256(b),
+        })
         .collect();
     entries.sort_by(|a, b| a.path.cmp(&b.path));
 

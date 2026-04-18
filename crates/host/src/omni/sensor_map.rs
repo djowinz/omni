@@ -1,6 +1,6 @@
 //! Maps sensor path strings to SensorSnapshot field values.
 
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 /// Returns `Some(())` if `path` is a known sensor path, `None` otherwise.
 pub fn parse_sensor_path(path: &str) -> Option<()> {

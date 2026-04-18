@@ -1,8 +1,8 @@
 //! Property-based no-panic / no-third-party-leakage invariants on sanitize_bundle.
 
-use omni_bundle::{FileEntry, Manifest};
-use omni_sanitize::sanitize_bundle;
+use bundle::{FileEntry, Manifest};
 use proptest::prelude::*;
+use sanitize::sanitize_bundle;
 use std::collections::BTreeMap;
 
 mod common;
@@ -20,7 +20,13 @@ fn manifest_with(files: &BTreeMap<String, Vec<u8>>) -> Manifest {
         entry_overlay: "overlay.omni".into(),
         default_theme: None,
         sensor_requirements: vec![],
-        files: files.iter().map(|(p, b)| FileEntry { path: p.clone(), sha256: sha256(b) }).collect(),
+        files: files
+            .iter()
+            .map(|(p, b)| FileEntry {
+                path: p.clone(),
+                sha256: sha256(b),
+            })
+            .collect(),
         resource_kinds: None,
     }
 }

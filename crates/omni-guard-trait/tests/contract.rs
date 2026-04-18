@@ -36,7 +36,9 @@ fn device_id_hex_display_is_64_lowercase_chars() {
     let id = DeviceId([0xab; 32]);
     let s = format!("{id}");
     assert_eq!(s.len(), 64);
-    assert!(s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    assert!(s
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     assert_eq!(s, "ab".repeat(32));
 }
 

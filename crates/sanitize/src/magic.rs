@@ -17,4 +17,3 @@ pub(crate) fn reject_executable_magic(data: &[u8]) -> Result<(), &'static [u8]> 
     }
     Ok(())
 }
-

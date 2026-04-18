@@ -4,9 +4,9 @@
 //! Never introduces a second renderer path (architectural invariant #8).
 //!
 //! Call order for bundles (invariants #6a + #19b):
-//!   1. `omni_bundle::unpack_manifest`  (zero file I/O)
+//!   1. `bundle::unpack_manifest`  (zero file I/O)
 //!   2. schema_version + resource_kinds pre-flight
-//!   3. `omni_identity::unpack_signed_bundle`
+//!   3. `identity::unpack_signed_bundle`
 //!   4. stream `files()` to a `tempfile::TempDir`
 //!   5. render via `render_omni_to_png`
 
@@ -16,17 +16,17 @@ pub mod theme;
 use std::collections::HashMap;
 use std::path::Path;
 
+use ::bundle::BundleError;
+use ::identity::IdentityError;
 use image::codecs::png::{CompressionType, FilterType as PngFilterType, PngEncoder};
 use image::{ColorType, ImageEncoder};
-use omni_bundle::BundleError;
-use omni_identity::IdentityError;
 
-use crate::omni::html_builder::build_initial_html;
 use crate::omni::history::SensorHistory;
+use crate::omni::html_builder::build_initial_html;
 use crate::omni::types::OmniFile;
 use crate::omni::view_trust::ViewTrust;
 use crate::ul_renderer::UlRenderer;
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 /// Public error enum for thumbnail generation.
 ///
@@ -151,19 +151,24 @@ pub(super) fn render_omni_to_png(
 
     let overlay_root = crate::workspace::structure::overlay_dir(data_dir, overlay_name);
     renderer
-        .mount(&overlay_root, &initial.full_document, ViewTrust::ThumbnailGen)
+        .mount(
+            &overlay_root,
+            &initial.full_document,
+            ViewTrust::ThumbnailGen,
+        )
         .map_err(|detail| ThumbnailError::RenderFailed { detail })?;
 
     // Inject sample values through the privileged bootstrap. `__omni_update`
     // is the same entry point the live pipeline uses (sub-spec #002). Only
     // the keys that correspond to `data-sensor` attributes in the reference
     // overlay take effect; extras are silently ignored by the bootstrap.
-    let payload = serde_json::to_string(&config.sample_values).map_err(|e| {
-        ThumbnailError::RenderFailed {
+    let payload =
+        serde_json::to_string(&config.sample_values).map_err(|e| ThumbnailError::RenderFailed {
             detail: format!("sample_values JSON encode: {e}"),
-        }
-    })?;
-    renderer.evaluate_script(&format!("if(window.__omni_update){{__omni_update({payload});}}"));
+        })?;
+    renderer.evaluate_script(&format!(
+        "if(window.__omni_update){{__omni_update({payload});}}"
+    ));
 
     // Three ticks: Ultralight's first `ulUpdate` kicks off async load; a
     // second tick lands the painted frame; a third gives one animation step

@@ -84,7 +84,10 @@ mod tests {
     fn rejects_parent_traversal() {
         assert!(matches!(
             validate_path("../etc/passwd"),
-            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                ..
+            })
         ));
     }
 
@@ -92,11 +95,17 @@ mod tests {
     fn rejects_absolute() {
         assert!(matches!(
             validate_path("/etc/passwd"),
-            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                ..
+            })
         ));
         assert!(matches!(
             validate_path("\\windows"),
-            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                ..
+            })
         ));
     }
 
@@ -104,11 +113,17 @@ mod tests {
     fn rejects_non_ascii_and_null() {
         assert!(matches!(
             validate_path("themes/café.css"),
-            Err(BundleError::Unsafe { kind: UnsafeKind::NonAscii, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::NonAscii,
+                ..
+            })
         ));
         assert!(matches!(
             validate_path("themes/a\0b.css"),
-            Err(BundleError::Unsafe { kind: UnsafeKind::Path, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                ..
+            })
         ));
     }
 
@@ -116,7 +131,10 @@ mod tests {
     fn rejects_too_deep() {
         assert!(matches!(
             validate_path("a/b/c.css"),
-            Err(BundleError::Unsafe { kind: UnsafeKind::PathTooDeep, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::PathTooDeep,
+                ..
+            })
         ));
     }
 
@@ -126,7 +144,10 @@ mod tests {
         assert!(long.len() > MAX_PATH_LENGTH);
         assert!(matches!(
             validate_path(&long),
-            Err(BundleError::Unsafe { kind: UnsafeKind::PathTooLong, .. })
+            Err(BundleError::Unsafe {
+                kind: UnsafeKind::PathTooLong,
+                ..
+            })
         ));
     }
 }

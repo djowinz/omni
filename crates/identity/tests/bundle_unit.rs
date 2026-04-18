@@ -3,8 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use omni_bundle::{BundleLimits, FileEntry, Manifest};
-use omni_identity::{pack_signed_bundle, unpack_signed_bundle, IdentityError, Keypair};
+use bundle::{BundleLimits, FileEntry, Manifest};
+use identity::{pack_signed_bundle, unpack_signed_bundle, IdentityError, Keypair};
 use sha2::{Digest, Sha256};
 
 fn sha256(b: &[u8]) -> [u8; 32] {
@@ -116,8 +116,8 @@ fn unpack_rejects_missing_signature() {
     let (m, f) = fixture();
     let limits = BundleLimits::DEFAULT;
 
-    // Pack without signature — use omni_bundle::pack directly (no JWS file).
-    let bytes = omni_bundle::pack(&m, &f, &limits).unwrap();
+    // Pack without signature — use bundle::pack directly (no JWS file).
+    let bytes = bundle::pack(&m, &f, &limits).unwrap();
 
     let err: IdentityError = unwrap_err_no_debug(
         unpack_signed_bundle(&bytes, None, &limits),

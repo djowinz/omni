@@ -81,7 +81,10 @@ pub fn pack(
     if total_uncompressed > limits.max_bundle_uncompressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
-            detail: format!("bundle-uncompressed={total_uncompressed} > {}", limits.max_bundle_uncompressed),
+            detail: format!(
+                "bundle-uncompressed={total_uncompressed} > {}",
+                limits.max_bundle_uncompressed
+            ),
         });
     }
 
@@ -93,11 +96,13 @@ pub fn pack(
         .last_modified_time(DateTime::default())
         .unix_permissions(0o644);
 
-    zw.start_file("manifest.json", options).map_err(BundleError::from)?;
+    zw.start_file("manifest.json", options)
+        .map_err(BundleError::from)?;
     zw.write_all(&manifest_bytes)?;
 
     for (path, bytes) in files.iter() {
-        zw.start_file(path.as_str(), options).map_err(BundleError::from)?;
+        zw.start_file(path.as_str(), options)
+            .map_err(BundleError::from)?;
         zw.write_all(bytes)?;
     }
 
@@ -107,7 +112,11 @@ pub fn pack(
     if (out.len() as u64) > limits.max_bundle_compressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
-            detail: format!("bundle-compressed={} > {}", out.len(), limits.max_bundle_compressed),
+            detail: format!(
+                "bundle-compressed={} > {}",
+                out.len(),
+                limits.max_bundle_compressed
+            ),
         });
     }
 

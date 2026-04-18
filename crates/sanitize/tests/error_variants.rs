@@ -1,7 +1,7 @@
 //! Reachability test per public SanitizeError variant.
 
-use omni_bundle::{FileEntry, Manifest, ResourceKind};
-use omni_sanitize::{sanitize_bundle, sanitize_theme, SanitizeError};
+use bundle::{FileEntry, Manifest, ResourceKind};
+use sanitize::{sanitize_bundle, sanitize_theme, SanitizeError};
 use std::collections::BTreeMap;
 
 mod common;
@@ -19,7 +19,13 @@ fn minimal_manifest(files: &BTreeMap<String, Vec<u8>>, schema: u32) -> Manifest 
         entry_overlay: "overlay.omni".into(),
         default_theme: None,
         sensor_requirements: vec![],
-        files: files.iter().map(|(p, b)| FileEntry { path: p.clone(), sha256: sha256(b) }).collect(),
+        files: files
+            .iter()
+            .map(|(p, b)| FileEntry {
+                path: p.clone(),
+                sha256: sha256(b),
+            })
+            .collect(),
         resource_kinds: None,
     }
 }
@@ -27,7 +33,10 @@ fn minimal_manifest(files: &BTreeMap<String, Vec<u8>>, schema: u32) -> Manifest 
 #[test]
 fn reaches_malformed_on_bad_schema_version() {
     let mut files = BTreeMap::new();
-    files.insert("overlay.omni".to_string(), br#"<overlay><template/></overlay>"#.to_vec());
+    files.insert(
+        "overlay.omni".to_string(),
+        br#"<overlay><template/></overlay>"#.to_vec(),
+    );
     let manifest = minimal_manifest(&files, 999);
     let err = sanitize_bundle(&manifest, files).unwrap_err();
     assert!(matches!(err, SanitizeError::Malformed { .. }));
@@ -44,14 +53,20 @@ fn reaches_rejected_executable_magic_via_theme() {
 #[test]
 fn reaches_unknown_resource_kind_via_declared_unknown() {
     let mut files = BTreeMap::new();
-    files.insert("overlay.omni".to_string(), br#"<overlay><template/></overlay>"#.to_vec());
+    files.insert(
+        "overlay.omni".to_string(),
+        br#"<overlay><template/></overlay>"#.to_vec(),
+    );
     files.insert("sounds/x.wav".to_string(), b"RIFF____WAVE".to_vec());
     let mut rk = BTreeMap::new();
-    rk.insert("sounds".to_string(), ResourceKind {
-        dir: "sounds".into(),
-        extensions: vec!["wav".into()],
-        max_size_bytes: 1024,
-    });
+    rk.insert(
+        "sounds".to_string(),
+        ResourceKind {
+            dir: "sounds".into(),
+            extensions: vec!["wav".into()],
+            max_size_bytes: 1024,
+        },
+    );
     let mut m = minimal_manifest(&files, 1);
     m.resource_kinds = Some(rk);
     let err = sanitize_bundle(&m, files).unwrap_err();
@@ -74,15 +89,21 @@ fn reaches_handler_error_via_bad_css() {
 fn reaches_size_exceeded() {
     let css = b"body{}".to_vec();
     let mut files = BTreeMap::new();
-    files.insert("overlay.omni".to_string(), br#"<overlay><template/></overlay>"#.to_vec());
+    files.insert(
+        "overlay.omni".to_string(),
+        br#"<overlay><template/></overlay>"#.to_vec(),
+    );
     files.insert("themes/x.css".to_string(), css.clone());
     let mut m = minimal_manifest(&files, 1);
     let mut rk = BTreeMap::new();
-    rk.insert("theme".to_string(), ResourceKind {
-        dir: "themes".into(),
-        extensions: vec!["css".into()],
-        max_size_bytes: 2,
-    });
+    rk.insert(
+        "theme".to_string(),
+        ResourceKind {
+            dir: "themes".into(),
+            extensions: vec!["css".into()],
+            max_size_bytes: 2,
+        },
+    );
     m.resource_kinds = Some(rk);
     let err = sanitize_bundle(&m, files).unwrap_err();
     assert!(matches!(err, SanitizeError::SizeExceeded { .. }));

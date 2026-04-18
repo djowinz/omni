@@ -3,22 +3,22 @@
 
 use std::collections::BTreeMap;
 
-use omni_bundle::{BundleLimits, FileEntry, ResourceKind};
-use omni_identity::{pack_signed_bundle, unpack_signed_bundle, IdentityError};
-use omni_sanitize::{sanitize_bundle, SanitizeError};
+use bundle::{BundleLimits, FileEntry, ResourceKind};
+use identity::{pack_signed_bundle, unpack_signed_bundle, IdentityError};
+use sanitize::{sanitize_bundle, SanitizeError};
 
 mod common;
 use common::sha256;
 
-/// Case A: omni_bundle::pack → unpack → sanitize_bundle — verify
+/// Case A: bundle::pack → unpack → sanitize_bundle — verify
 /// SanitizeReport.sanitized_sha256 matches each sanitized file's content.
 #[test]
 fn case_a_pack_sanitize_roundtrip() {
     let (manifest, files) = common::clean_bundle();
     let limits = BundleLimits::DEFAULT;
 
-    let bytes = omni_bundle::pack(&manifest, &files, &limits).unwrap();
-    let unpack = omni_bundle::unpack(&bytes, &limits).unwrap();
+    let bytes = bundle::pack(&manifest, &files, &limits).unwrap();
+    let unpack = bundle::unpack(&bytes, &limits).unwrap();
     let (m2, f2) = unpack.into_map().unwrap();
 
     let (sanitized, report) = sanitize_bundle(&m2, f2).unwrap();
@@ -32,7 +32,7 @@ fn case_a_pack_sanitize_roundtrip() {
 #[test]
 fn case_b_signed_pipeline_roundtrip() {
     let (m, f) = common::clean_bundle();
-    let kp = omni_identity::Keypair::generate();
+    let kp = identity::Keypair::generate();
     let limits = BundleLimits::DEFAULT;
 
     let bytes1 = pack_signed_bundle(&m, &f, &kp, &limits).unwrap();
@@ -45,7 +45,10 @@ fn case_b_signed_pipeline_roundtrip() {
     let mut m2 = m1.clone();
     m2.files = sanitized
         .iter()
-        .map(|(p, b)| FileEntry { path: p.clone(), sha256: sha256(b) })
+        .map(|(p, b)| FileEntry {
+            path: p.clone(),
+            sha256: sha256(b),
+        })
         .collect();
     m2.files.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -58,7 +61,7 @@ fn case_b_signed_pipeline_roundtrip() {
 #[test]
 fn case_c_post_sign_tamper() {
     let (m, f) = common::clean_bundle();
-    let kp = omni_identity::Keypair::generate();
+    let kp = identity::Keypair::generate();
     let limits = BundleLimits::DEFAULT;
 
     let mut bytes = pack_signed_bundle(&m, &f, &kp, &limits).unwrap();
@@ -97,11 +100,14 @@ fn case_e_unknown_resource_kind() {
     });
     m.files.sort_by(|a, b| a.path.cmp(&b.path));
     let mut rk = BTreeMap::new();
-    rk.insert("sounds".to_string(), ResourceKind {
-        dir: "sounds".into(),
-        extensions: vec!["wav".into()],
-        max_size_bytes: 1024,
-    });
+    rk.insert(
+        "sounds".to_string(),
+        ResourceKind {
+            dir: "sounds".into(),
+            extensions: vec!["wav".into()],
+            max_size_bytes: 1024,
+        },
+    );
     m.resource_kinds = Some(rk);
     let err = sanitize_bundle(&m, f).unwrap_err();
     match err {
@@ -132,7 +138,10 @@ fn case_g_schema_version_rejection() {
         SanitizeError::Malformed { source, .. } => {
             let s = source.expect("source chain");
             let msg = s.to_string();
-            assert!(msg.contains("SchemaVersionUnsupported"), "source message: {msg}");
+            assert!(
+                msg.contains("SchemaVersionUnsupported"),
+                "source message: {msg}"
+            );
         }
         other => panic!("expected Malformed, got {other:?}"),
     }

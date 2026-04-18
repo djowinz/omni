@@ -19,7 +19,7 @@ use omni_host::omni::js_bootstrap::render_script_tag;
 use omni_host::omni::parser::parse_omni_with_diagnostics;
 use omni_host::omni::view_trust::ViewTrust;
 use omni_host::ul_renderer::UlRenderer;
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -9,7 +9,7 @@
 use std::ffi::c_void;
 use std::mem;
 
-use omni_shared::GpuData;
+use shared::GpuData;
 use tracing::{info, warn};
 use windows::core::s;
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};

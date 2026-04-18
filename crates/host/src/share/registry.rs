@@ -23,7 +23,10 @@ pub enum RegistryError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegistryKind { Themes, Bundles }
+pub enum RegistryKind {
+    Themes,
+    Bundles,
+}
 
 impl RegistryKind {
     fn filename(self) -> &'static str {
@@ -42,7 +45,10 @@ pub struct InstalledRegistry {
 
 impl Default for InstalledRegistry {
     fn default() -> Self {
-        Self { version: 1, entries: BTreeMap::new() }
+        Self {
+            version: 1,
+            entries: BTreeMap::new(),
+        }
     }
 }
 
@@ -150,7 +156,9 @@ mod tests {
     fn legacy_entry_without_new_fields_loads_with_serde_default() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("installed-bundles.json");
-        std::fs::write(&path, br#"{
+        std::fs::write(
+            &path,
+            br#"{
             "version": 1,
             "entries": {
                 "deadbeef-legacy": {
@@ -164,7 +172,9 @@ mod tests {
                     "omni_min_version": "0.1.0"
                 }
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let r = RegistryHandle::load(dir.path(), RegistryKind::Bundles).unwrap();
         let e = r.lookup_bundle("deadbeef-legacy").unwrap();
         assert_eq!(e.installed_path, PathBuf::new());
@@ -189,7 +199,10 @@ mod tests {
         }
         let r = RegistryHandle::load(dir.path(), RegistryKind::Bundles).unwrap();
         assert_eq!(r.entries().len(), 1);
-        assert_eq!(r.entries().get("author-slug-name").unwrap().artifact_id, "abc");
+        assert_eq!(
+            r.entries().get("author-slug-name").unwrap().artifact_id,
+            "abc"
+        );
     }
 
     #[test]

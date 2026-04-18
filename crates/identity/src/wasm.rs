@@ -16,10 +16,10 @@
 use std::collections::BTreeMap;
 
 use base64::Engine;
-use ed25519_dalek::{Verifier, VerifyingKey};
-use omni_bundle::{
+use bundle::{
     canonical_hash, pack as bundle_pack, unpack as bundle_unpack, BundleLimits, FileEntry, Manifest,
 };
+use ed25519_dalek::{Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -88,8 +88,8 @@ fn files_from_js(v: &JsValue) -> Result<BTreeMap<String, Vec<u8>>, JsValue> {
             let key = key_js
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("object key must be string"))?;
-            let value = js_sys::Reflect::get(obj, &key_js)
-                .map_err(|_| JsValue::from_str("reflect get"))?;
+            let value =
+                js_sys::Reflect::get(obj, &key_js).map_err(|_| JsValue::from_str("reflect get"))?;
             let bytes: js_sys::Uint8Array = value
                 .dyn_into()
                 .map_err(|_| JsValue::from_str("object value must be Uint8Array"))?;
@@ -142,22 +142,16 @@ struct SignaturePayload {
     canonical_hash_hex: String,
 }
 
-fn sign_http_jws_compact(
-    claims: &WasmHttpJwsClaims,
-    seed: &[u8; 32],
-) -> Result<String, JsValue> {
+fn sign_http_jws_compact(claims: &WasmHttpJwsClaims, seed: &[u8; 32]) -> Result<String, JsValue> {
     // Delegates to the unconditionally-compiled pure-Rust core so the native
     // byte-parity regression test in `tests/jws_native_wasm_parity.rs` can
     // exercise the exact same signing bytes this WASM path produces. The
-    // native oracle is `omni_identity::http_jws::sign_http_jws` on the shipped
+    // native oracle is `identity::http_jws::sign_http_jws` on the shipped
     // `theme-sharing` branch.
     crate::wasm_jws_core::sign_http_jws_compact_core(claims, seed).map_err(to_js_err)
 }
 
-fn sign_bundle_jws_compact(
-    claims: &serde_json::Value,
-    seed: &[u8; 32],
-) -> Result<String, JsValue> {
+fn sign_bundle_jws_compact(claims: &serde_json::Value, seed: &[u8; 32]) -> Result<String, JsValue> {
     crate::wasm_jws_core::sign_bundle_jws_compact_core(claims, seed).map_err(to_js_err)
 }
 
@@ -241,8 +235,7 @@ pub fn verify_jws_wasm(token: &str, pubkey: &[u8]) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = "signJws")]
 pub fn sign_jws_wasm(claims_js: JsValue, priv_key: &[u8]) -> Result<String, JsValue> {
     let seed = seed_from_slice(priv_key)?;
-    let claims: WasmHttpJwsClaims =
-        serde_wasm_bindgen::from_value(claims_js).map_err(to_js_err)?;
+    let claims: WasmHttpJwsClaims = serde_wasm_bindgen::from_value(claims_js).map_err(to_js_err)?;
     sign_http_jws_compact(&claims, &seed)
 }
 

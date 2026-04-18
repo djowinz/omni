@@ -38,13 +38,12 @@ pub fn generate_for_theme(
     // Determine the theme filename the reference overlay expects. If the
     // overlay has no theme_src, there is nothing to override — return
     // RenderFailed rather than silently mis-render.
-    let theme_src =
-        omni_file
-            .theme_src
-            .as_deref()
-            .ok_or_else(|| ThumbnailError::RenderFailed {
-                detail: "reference overlay has no theme_src; cannot inject user theme CSS".into(),
-            })?;
+    let theme_src = omni_file
+        .theme_src
+        .as_deref()
+        .ok_or_else(|| ThumbnailError::RenderFailed {
+            detail: "reference overlay has no theme_src; cannot inject user theme CSS".into(),
+        })?;
 
     // Lay out tempdir as workspace::structure::resolve_theme_path expects:
     //   <tempdir>/overlays/<overlay_name>/<theme_src>

@@ -31,7 +31,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use omni_bundle::{BundleLimits, FileEntry, Manifest, Tag};
+use bundle::{BundleLimits, FileEntry, Manifest, Tag};
+use identity::{pack_signed_bundle, Keypair};
 use omni_guard_trait::{Guard, StubGuard};
 use omni_host::share::client::ShareClient;
 use omni_host::share::handlers::install_context_unavailable;
@@ -39,7 +40,6 @@ use omni_host::share::preview::{PreviewSlot, ThemeSwap};
 use omni_host::share::registry::{RegistryHandle, RegistryKind};
 use omni_host::share::tofu::TofuStore;
 use omni_host::share::ws_messages::{dispatch, ShareContext};
-use omni_identity::{pack_signed_bundle, Keypair};
 use semver::Version;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -134,14 +134,15 @@ impl ThemeSwap for CountingThemeSwap {
 /// `TempDir` owns the tofu + registry backing files and must outlive the
 /// context. `theme_swap` is the swap implementation used for preview tests;
 /// install-only tests pass an inert swap and ignore it.
-fn build_share_context(
-    worker_url: Url,
-    theme_swap: Arc<dyn ThemeSwap>,
-) -> (ShareContext, TempDir) {
+fn build_share_context(worker_url: Url, theme_swap: Arc<dyn ThemeSwap>) -> (ShareContext, TempDir) {
     let tmp = TempDir::new().expect("tempdir");
     let identity = Arc::new(Keypair::generate());
     let guard: Arc<dyn Guard> = Arc::new(StubGuard);
-    let client = Arc::new(ShareClient::new(worker_url, identity.clone(), guard.clone()));
+    let client = Arc::new(ShareClient::new(
+        worker_url,
+        identity.clone(),
+        guard.clone(),
+    ));
     let tofu = Arc::new(Mutex::new(TofuStore::open(tmp.path()).expect("tofu open")));
     let bundles_registry = Arc::new(Mutex::new(
         RegistryHandle::load(tmp.path(), RegistryKind::Bundles).expect("bundles registry"),
@@ -222,10 +223,7 @@ async fn explorer_install_round_trip_delivers_result_frame() {
         .await;
 
     let swap: Arc<dyn ThemeSwap> = Arc::new(CountingThemeSwap::new());
-    let (ctx, _tmp) = build_share_context(
-        Url::parse(&format!("{}/", server.uri())).unwrap(),
-        swap,
-    );
+    let (ctx, _tmp) = build_share_context(Url::parse(&format!("{}/", server.uri())).unwrap(), swap);
 
     let workspace = TempDir::new().unwrap();
     let target = workspace.path().join("bundles/art-install");
@@ -286,10 +284,7 @@ async fn explorer_install_round_trip_delivers_result_frame() {
     }
 
     // Registry must hold exactly one entry for the freshly-installed bundle.
-    let registry = ctx
-        .bundles_registry
-        .lock()
-        .expect("bundles registry mutex");
+    let registry = ctx.bundles_registry.lock().expect("bundles registry mutex");
     let entries: Vec<_> = registry.entries().iter().collect();
     assert_eq!(
         entries.len(),
@@ -334,10 +329,7 @@ async fn ws_disconnect_cancels_in_flight_install() {
         .await;
 
     let swap: Arc<dyn ThemeSwap> = Arc::new(CountingThemeSwap::new());
-    let (ctx, _tmp) = build_share_context(
-        Url::parse(&format!("{}/", server.uri())).unwrap(),
-        swap,
-    );
+    let (ctx, _tmp) = build_share_context(Url::parse(&format!("{}/", server.uri())).unwrap(), swap);
     let ctx = Arc::new(ctx);
 
     let workspace = TempDir::new().unwrap();
@@ -355,9 +347,7 @@ async fn ws_disconnect_cancels_in_flight_install() {
     });
 
     let ctx_for_task = ctx.clone();
-    let handle = tokio::spawn(async move {
-        dispatch(&ctx_for_task, &msg, send_fn).await
-    });
+    let handle = tokio::spawn(async move { dispatch(&ctx_for_task, &msg, send_fn).await });
 
     // Poll the cancel registry until the handler registers its token; the
     // dispatch runs on a worker thread and the insertion happens before the
@@ -397,7 +387,10 @@ async fn ws_disconnect_cancels_in_flight_install() {
     let terminal: Value =
         serde_json::from_str(&reply.expect("handler must return a frame")).expect("valid json");
 
-    assert_eq!(terminal["type"], "error", "expected error frame, got {terminal}");
+    assert_eq!(
+        terminal["type"], "error",
+        "expected error frame, got {terminal}"
+    );
     assert_eq!(terminal["error"]["code"], "cancelled", "cancelled code");
     assert_eq!(
         terminal["error"]["kind"], "HostLocal",
@@ -441,16 +434,12 @@ async fn explorer_preview_cancel_round_trip_restores_and_clears_slot() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v1/download/theme-preview"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_bytes(b"body { color: red; }".to_vec()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"body { color: red; }".to_vec()))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/v1/download/theme-preview-2"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_bytes(b"body { color: blue; }".to_vec()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"body { color: blue; }".to_vec()))
         .mount(&server)
         .await;
 
@@ -614,10 +603,7 @@ async fn explorer_get_round_trip_delivers_artifact_frame() {
         .await;
 
     let swap: Arc<dyn ThemeSwap> = Arc::new(CountingThemeSwap::new());
-    let (ctx, _tmp) = build_share_context(
-        Url::parse(&format!("{}/", server.uri())).unwrap(),
-        swap,
-    );
+    let (ctx, _tmp) = build_share_context(Url::parse(&format!("{}/", server.uri())).unwrap(), swap);
 
     let (send_fn, _rx) = make_sink();
     let msg = json!({
@@ -655,10 +641,7 @@ async fn explorer_get_not_found_surfaces_server_reject_envelope() {
         .await;
 
     let swap: Arc<dyn ThemeSwap> = Arc::new(CountingThemeSwap::new());
-    let (ctx, _tmp) = build_share_context(
-        Url::parse(&format!("{}/", server.uri())).unwrap(),
-        swap,
-    );
+    let (ctx, _tmp) = build_share_context(Url::parse(&format!("{}/", server.uri())).unwrap(), swap);
 
     let (send_fn, _rx) = make_sink();
     let msg = json!({

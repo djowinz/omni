@@ -66,7 +66,7 @@ mod tests {
         use crate::omni::history::SensorHistory;
         use crate::omni::html_builder;
         use crate::omni::view_trust::ViewTrust;
-        use omni_shared::SensorSnapshot;
+        use shared::SensorSnapshot;
         use std::collections::HashMap;
 
         let file = parser::parse_omni(DEFAULT_OMNI).unwrap();

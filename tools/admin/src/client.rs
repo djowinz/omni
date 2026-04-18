@@ -8,7 +8,7 @@
 //! special-case method.
 
 use crate::auth::{self, HttpClaims};
-use omni_identity::Keypair;
+use identity::Keypair;
 use serde::de::DeserializeOwned;
 
 pub struct AdminClient {
@@ -123,7 +123,7 @@ impl AdminClient {
                 anyhow::anyhow!("no --key-file specified and no default admin key path available")
             })?;
         crate::key_file::check_permissions(&key_path)?;
-        let kp = omni_identity::Keypair::load_or_create(&key_path)?;
+        let kp = identity::Keypair::load_or_create(&key_path)?;
         Ok(Self::new(cli.worker_url.clone(), kp, cli.json))
     }
 }

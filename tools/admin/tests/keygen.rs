@@ -14,7 +14,7 @@ fn keygen_produces_loadable_file() {
         .stdout(predicate::str::contains("Admin pubkey"));
     assert!(out.exists());
     // loads cleanly
-    let kp = omni_identity::Keypair::load_or_create(&out).expect("load round-trip");
+    let kp = identity::Keypair::load_or_create(&out).expect("load round-trip");
     let _ = kp.public_key();
 }
 

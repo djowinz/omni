@@ -1,7 +1,7 @@
 mod fixtures;
 
+use bundle::{canonical_hash, pack, unpack, BundleLimits};
 use fixtures::sample_bundle;
-use omni_bundle::{canonical_hash, pack, unpack, BundleLimits};
 
 #[test]
 fn pack_then_unpack_yields_same_manifest_and_files() {

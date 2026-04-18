@@ -1,4 +1,4 @@
-use omni_sanitize::{sanitize_bundle, SanitizeError};
+use sanitize::{sanitize_bundle, SanitizeError};
 
 mod common;
 
@@ -8,30 +8,44 @@ fn rejects_dtd() {
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     assert!(matches!(
         sanitize_bundle(&m, f).unwrap_err(),
-        SanitizeError::Handler { kind: "overlay", .. }
+        SanitizeError::Handler {
+            kind: "overlay",
+            ..
+        }
     ));
 }
 
 #[test]
 fn rejects_cdata() {
-    let xml = br#"<overlay><template><![CDATA[<template>x</template>]]></template></overlay>"#.to_vec();
+    let xml =
+        br#"<overlay><template><![CDATA[<template>x</template>]]></template></overlay>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     assert!(matches!(
         sanitize_bundle(&m, f).unwrap_err(),
-        SanitizeError::Handler { kind: "overlay", .. }
+        SanitizeError::Handler {
+            kind: "overlay",
+            ..
+        }
     ));
 }
 
 #[test]
 fn rejects_deep_nesting() {
     let mut s = String::new();
-    for _ in 0..20 { s.push_str("<div>"); }
-    for _ in 0..20 { s.push_str("</div>"); }
+    for _ in 0..20 {
+        s.push_str("<div>");
+    }
+    for _ in 0..20 {
+        s.push_str("</div>");
+    }
     let xml = format!("<overlay><template>{s}</template></overlay>").into_bytes();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     assert!(matches!(
         sanitize_bundle(&m, f).unwrap_err(),
-        SanitizeError::Handler { kind: "overlay", .. }
+        SanitizeError::Handler {
+            kind: "overlay",
+            ..
+        }
     ));
 }
 

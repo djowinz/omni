@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 
-use omni_shared::SensorSnapshot;
+use shared::SensorSnapshot;
 
 static WARNED_EXPRS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -439,7 +439,7 @@ fn eval_inner(expr: &str, snapshot: &SensorSnapshot) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omni_shared::SensorSnapshot;
+    use shared::SensorSnapshot;
 
     fn make_snapshot(
         gpu_temp: f32,

@@ -1,4 +1,4 @@
-//! Integration tests for `omni_admin::key_file::check_permissions`.
+//! Integration tests for `admin::key_file::check_permissions`.
 //!
 //! Task 12 of the theme-sharing #012 plan.
 
@@ -8,7 +8,7 @@ fn rejects_world_readable_key() {
     use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
-    let err = omni_admin::key_file::check_permissions(tmp.path()).unwrap_err();
+    let err = admin::key_file::check_permissions(tmp.path()).unwrap_err();
     assert!(err.to_string().contains("0644") || err.to_string().contains("mode"));
     assert!(err.to_string().contains("chmod 600"));
 }
@@ -19,7 +19,7 @@ fn accepts_owner_only_key() {
     use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600)).unwrap();
-    omni_admin::key_file::check_permissions(tmp.path()).unwrap();
+    admin::key_file::check_permissions(tmp.path()).unwrap();
 }
 
 #[cfg(windows)]
@@ -31,14 +31,14 @@ fn accepts_default_user_profile_key() {
     // requires building a DACL which is non-trivial without pulling more Win32 surface; leave
     // that to an integration test later if needed.
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    let _ = omni_admin::key_file::check_permissions(tmp.path());
+    let _ = admin::key_file::check_permissions(tmp.path());
     // Don't assert — we want the smoke of "function runs without panic on a real file".
 }
 
 #[cfg(windows)]
 #[test]
 fn rejects_missing_file() {
-    let err = omni_admin::key_file::check_permissions(std::path::Path::new(
+    let err = admin::key_file::check_permissions(std::path::Path::new(
         "C:\\nonexistent-omni-admin-keyfile-x7gq.key",
     ))
     .unwrap_err();

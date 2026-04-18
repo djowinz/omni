@@ -332,10 +332,7 @@ mod tests {
         let guard = slot.lock().unwrap();
         let pending = guard.as_ref().expect("revert repopulates slot");
         assert_eq!(pending.vars.get("a").map(String::as_str), Some("99"));
-        assert_eq!(
-            pending.vars.get("b").map(String::as_str),
-            Some("baseline")
-        );
+        assert_eq!(pending.vars.get("b").map(String::as_str), Some("baseline"));
     }
 
     #[test]

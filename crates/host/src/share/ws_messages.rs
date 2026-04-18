@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use omni_bundle::{BundleLimits, Tag};
+use bundle::{BundleLimits, Tag};
+use identity::{Keypair, PublicKey};
 use omni_guard_trait::Guard;
-use omni_identity::{Keypair, PublicKey};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -219,7 +219,7 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
                 error = %e,
                 "config_limits network failure; falling back to BundleLimits::DEFAULT"
             );
-            omni_bundle::BundleLimits::DEFAULT
+            bundle::BundleLimits::DEFAULT
         }
         Err(e) => return Some(error_envelope(id, &e).to_string()),
     };
@@ -567,7 +567,12 @@ impl ThemeSwap for DynThemeSwap {
 /// the `ws-explorer.md` §explorer.install contract (umbrella §4.7 retro
 /// override). Original origin: #021 shipped the handler; #014 Wave 3a
 /// surfaced the drift and fixed it inline.
-async fn handle_install<F>(id: &str, params: Value, ctx: &ShareContext, send_fn: F) -> Option<String>
+async fn handle_install<F>(
+    id: &str,
+    params: Value,
+    ctx: &ShareContext,
+    send_fn: F,
+) -> Option<String>
 where
     F: Fn(String) + Send + Sync + Clone + 'static,
 {
@@ -961,9 +966,7 @@ mod tests {
             kp.clone(),
             guard.clone(),
         ));
-        let tofu = Arc::new(Mutex::new(
-            TofuStore::open(tmp.path()).expect("tofu open"),
-        ));
+        let tofu = Arc::new(Mutex::new(TofuStore::open(tmp.path()).expect("tofu open")));
         let bundles_registry = Arc::new(Mutex::new(
             RegistryHandle::load(tmp.path(), RegistryKind::Bundles).expect("bundles registry"),
         ));
@@ -1070,7 +1073,10 @@ mod tests {
         let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
         // The reply must be an error envelope (download fails fast).
         let parsed: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(parsed["type"], "error", "expected error frame, got {parsed:?}");
+        assert_eq!(
+            parsed["type"], "error",
+            "expected error frame, got {parsed:?}"
+        );
         // Post-condition: cancel registry has been drained even though
         // install returned Err — the scope guard fires on every exit path.
         assert!(
@@ -1194,7 +1200,9 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/download/theme-1"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"body { color: red; }".to_vec()))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(b"body { color: red; }".to_vec()),
+            )
             .mount(&server)
             .await;
 
@@ -1402,9 +1410,7 @@ mod tests {
             kp.clone(),
             guard.clone(),
         ));
-        let tofu = Arc::new(Mutex::new(
-            TofuStore::open(tmp.path()).expect("tofu open"),
-        ));
+        let tofu = Arc::new(Mutex::new(TofuStore::open(tmp.path()).expect("tofu open")));
         let bundles_registry = Arc::new(Mutex::new(
             RegistryHandle::load(tmp.path(), RegistryKind::Bundles).expect("bundles registry"),
         ));
@@ -1460,8 +1466,14 @@ mod tests {
         // Pre-condition: mutex holds the compile-time default.
         {
             let slot = ctx.limits.lock().expect("limits mutex");
-            assert_eq!(slot.max_bundle_compressed, BundleLimits::DEFAULT.max_bundle_compressed);
-            assert_eq!(slot.max_bundle_uncompressed, BundleLimits::DEFAULT.max_bundle_uncompressed);
+            assert_eq!(
+                slot.max_bundle_compressed,
+                BundleLimits::DEFAULT.max_bundle_compressed
+            );
+            assert_eq!(
+                slot.max_bundle_uncompressed,
+                BundleLimits::DEFAULT.max_bundle_uncompressed
+            );
             assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
         }
 
@@ -1501,8 +1513,14 @@ mod tests {
         // Pre-condition: DEFAULT.
         {
             let slot = ctx.limits.lock().expect("limits mutex");
-            assert_eq!(slot.max_bundle_compressed, BundleLimits::DEFAULT.max_bundle_compressed);
-            assert_eq!(slot.max_bundle_uncompressed, BundleLimits::DEFAULT.max_bundle_uncompressed);
+            assert_eq!(
+                slot.max_bundle_compressed,
+                BundleLimits::DEFAULT.max_bundle_compressed
+            );
+            assert_eq!(
+                slot.max_bundle_uncompressed,
+                BundleLimits::DEFAULT.max_bundle_uncompressed
+            );
             assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
         }
 
@@ -1510,8 +1528,14 @@ mod tests {
 
         // Post-condition: unchanged (cached value preserved on failure).
         let slot = ctx.limits.lock().expect("limits mutex");
-        assert_eq!(slot.max_bundle_compressed, BundleLimits::DEFAULT.max_bundle_compressed);
-        assert_eq!(slot.max_bundle_uncompressed, BundleLimits::DEFAULT.max_bundle_uncompressed);
+        assert_eq!(
+            slot.max_bundle_compressed,
+            BundleLimits::DEFAULT.max_bundle_compressed
+        );
+        assert_eq!(
+            slot.max_bundle_uncompressed,
+            BundleLimits::DEFAULT.max_bundle_uncompressed
+        );
         assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
     }
 }

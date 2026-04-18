@@ -1,8 +1,8 @@
 //! Shared fixture builders for sanitize tests.
 #![allow(dead_code)]
 
-use omni_bundle::{FileEntry, Manifest};
-use omni_identity::Keypair;
+use bundle::{FileEntry, Manifest};
+use identity::Keypair;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -12,10 +12,7 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
     h.finalize().into()
 }
 
-fn bundle_with_asset(
-    path: &str,
-    bytes: Vec<u8>,
-) -> (Manifest, BTreeMap<String, Vec<u8>>) {
+fn bundle_with_asset(path: &str, bytes: Vec<u8>) -> (Manifest, BTreeMap<String, Vec<u8>>) {
     let overlay = br#"<overlay><template><div/></template></overlay>"#.to_vec();
     let mut files = BTreeMap::new();
     files.insert("overlay.omni".to_string(), overlay.clone());
@@ -32,31 +29,29 @@ fn bundle_with_asset(
         default_theme: None,
         sensor_requirements: vec![],
         files: vec![
-            FileEntry { path: "overlay.omni".into(), sha256: sha256(&overlay) },
-            FileEntry { path: path.into(), sha256: sha256(&bytes) },
+            FileEntry {
+                path: "overlay.omni".into(),
+                sha256: sha256(&overlay),
+            },
+            FileEntry {
+                path: path.into(),
+                sha256: sha256(&bytes),
+            },
         ],
         resource_kinds: None,
     };
     (manifest, files)
 }
 
-pub fn bundle_with_font(
-    path: &str,
-    bytes: Vec<u8>,
-) -> (Manifest, BTreeMap<String, Vec<u8>>) {
+pub fn bundle_with_font(path: &str, bytes: Vec<u8>) -> (Manifest, BTreeMap<String, Vec<u8>>) {
     bundle_with_asset(path, bytes)
 }
 
-pub fn bundle_with_image(
-    path: &str,
-    bytes: Vec<u8>,
-) -> (Manifest, BTreeMap<String, Vec<u8>>) {
+pub fn bundle_with_image(path: &str, bytes: Vec<u8>) -> (Manifest, BTreeMap<String, Vec<u8>>) {
     bundle_with_asset(path, bytes)
 }
 
-pub fn bundle_with_overlay_bytes(
-    bytes: Vec<u8>,
-) -> (Manifest, BTreeMap<String, Vec<u8>>) {
+pub fn bundle_with_overlay_bytes(bytes: Vec<u8>) -> (Manifest, BTreeMap<String, Vec<u8>>) {
     let mut files = BTreeMap::new();
     files.insert("overlay.omni".to_string(), bytes.clone());
     let manifest = Manifest {
@@ -70,9 +65,10 @@ pub fn bundle_with_overlay_bytes(
         entry_overlay: "overlay.omni".into(),
         default_theme: None,
         sensor_requirements: vec![],
-        files: vec![
-            FileEntry { path: "overlay.omni".into(), sha256: sha256(&bytes) },
-        ],
+        files: vec![FileEntry {
+            path: "overlay.omni".into(),
+            sha256: sha256(&bytes),
+        }],
         resource_kinds: None,
     };
     (manifest, files)
@@ -80,7 +76,9 @@ pub fn bundle_with_overlay_bytes(
 
 /// Valid bundle with one overlay + one theme. For integration roundtrip tests.
 pub fn clean_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
-    let overlay = br#"<overlay><template><div class="x"/></template><style>body{}</style></overlay>"#.to_vec();
+    let overlay =
+        br#"<overlay><template><div class="x"/></template><style>body{}</style></overlay>"#
+            .to_vec();
     let css = b"body{color:red}".to_vec();
     let mut files = BTreeMap::new();
     files.insert("overlay.omni".to_string(), overlay.clone());
@@ -97,8 +95,14 @@ pub fn clean_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
         default_theme: Some("themes/default.css".into()),
         sensor_requirements: vec![],
         files: vec![
-            FileEntry { path: "overlay.omni".into(), sha256: sha256(&overlay) },
-            FileEntry { path: "themes/default.css".into(), sha256: sha256(&css) },
+            FileEntry {
+                path: "overlay.omni".into(),
+                sha256: sha256(&overlay),
+            },
+            FileEntry {
+                path: "themes/default.css".into(),
+                sha256: sha256(&css),
+            },
         ],
         resource_kinds: None,
     };

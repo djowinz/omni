@@ -10,7 +10,7 @@
 //! Two signing paths live here:
 //!
 //! 1. `sign_http_jws_compact_core` — the HTTP-auth path. Matches
-//!    `omni_identity::http_jws::sign_http_jws` on the shipped `theme-sharing`
+//!    `identity::http_jws::sign_http_jws` on the shipped `theme-sharing`
 //!    branch (host #010 consumer). Header: `{"typ":"Omni-HTTP-JWS","alg":"EdDSA"}`.
 //!    Claims: the fixed-field `HttpJwsClaims` shape (alg/crv/typ/kid/df/ts/...).
 //!    No embedded JWK — `kid` carries the base64-encoded pubkey instead.
@@ -57,7 +57,7 @@ pub(crate) struct JwsHeader {
     pub jwk: Option<OkpJwk>,
 }
 
-/// WASM-side mirror of `omni_identity::http_jws::HttpJwsClaims` (shipped on
+/// WASM-side mirror of `identity::http_jws::HttpJwsClaims` (shipped on
 /// the `theme-sharing` branch). Field declaration order is load-bearing:
 /// `serde_json` serializes struct fields in declaration order, and the native
 /// oracle (`jsonwebtoken::encode(header, &HttpJwsClaims, ..)`) does the same.
@@ -85,7 +85,7 @@ pub struct WasmHttpJwsClaims {
 /// Sign an `HttpJwsClaims`-shaped payload as a compact EdDSA JWS using `seed`
 /// as the Ed25519 private-key seed. Emits header
 /// `{"typ":"Omni-HTTP-JWS","alg":"EdDSA"}` — matches the native oracle
-/// `omni_identity::http_jws::sign_http_jws` byte-for-byte.
+/// `identity::http_jws::sign_http_jws` byte-for-byte.
 pub(crate) fn sign_http_jws_compact_core(
     claims: &WasmHttpJwsClaims,
     seed: &[u8; 32],

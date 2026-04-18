@@ -1,4 +1,4 @@
-//! Adapter over `omni_identity::TofuRegistry` for the install pipeline.
+//! Adapter over `identity::TofuRegistry` for the install pipeline.
 //!
 //! Responsibilities: load/save the registry at the canonical path, expose
 //! `check_or_record` + `record_install` wrappers, format pubkey/fingerprint
@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omni_identity::{IdentityError, PublicKey, TofuRegistry, TofuResult};
+use identity::{IdentityError, PublicKey, TofuRegistry, TofuResult};
 
 pub struct TofuStore {
     inner: TofuRegistry,

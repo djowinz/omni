@@ -1,11 +1,11 @@
 //! Upload orchestration — pack → sanitize → sign → POST → cache.
 //!
-//! Per architectural invariant #1: `omni_identity::pack_signed_bundle` is the single
+//! Per architectural invariant #1: `identity::pack_signed_bundle` is the single
 //! authority for signing; this module never imports `ed25519-dalek` or composes a
 //! signature itself.
 //!
 //! Per invariant #7: every ingest path funnels through sanitize + verify — even
-//! host-generated content. `pack_only` sanitizes (`omni_sanitize::sanitize_bundle`
+//! host-generated content. `pack_only` sanitizes (`sanitize::sanitize_bundle`
 //! / `sanitize_theme`) BEFORE signing so the bytes that the JWS covers are the
 //! exact bytes the Worker will re-sanitize and serve.
 
@@ -13,9 +13,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use omni_bundle::{BundleLimits, FileEntry, Manifest, Tag};
+use bundle::{BundleLimits, FileEntry, Manifest, Tag};
+use identity::Keypair;
 use omni_guard_trait::Guard;
-use omni_identity::Keypair;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -132,7 +132,7 @@ pub async fn pack_only(
                     source: None,
                 })?;
             let (out, report) =
-                omni_sanitize::sanitize_theme(css_bytes).map_err(|e| UploadError::BadInput {
+                sanitize::sanitize_theme(css_bytes).map_err(|e| UploadError::BadInput {
                     msg: "sanitize_theme failed".into(),
                     source: Some(Box::new(e)),
                 })?;
@@ -141,21 +141,23 @@ pub async fn pack_only(
             (map, serde_json::to_value(report).unwrap_or_default())
         }
         ArtifactKind::Bundle => {
-            let (out, report) = omni_sanitize::sanitize_bundle(&manifest, files_raw.clone())
-                .map_err(|e| UploadError::BadInput {
-                    msg: "sanitize_bundle failed".into(),
-                    source: Some(Box::new(e)),
+            let (out, report) =
+                sanitize::sanitize_bundle(&manifest, files_raw.clone()).map_err(|e| {
+                    UploadError::BadInput {
+                        msg: "sanitize_bundle failed".into(),
+                        source: Some(Box::new(e)),
+                    }
                 })?;
             (out, serde_json::to_value(report).unwrap_or_default())
         }
     };
 
     let sanitized_manifest = rebuild_manifest_with(&manifest, &sanitized_files);
-    let content_hash_bytes = omni_bundle::canonical_hash(&sanitized_manifest, &sanitized_files);
+    let content_hash_bytes = bundle::canonical_hash(&sanitized_manifest, &sanitized_files);
     let content_hash = hex::encode(content_hash_bytes);
 
     let sanitized_bytes =
-        omni_identity::pack_signed_bundle(&sanitized_manifest, &sanitized_files, identity, limits)
+        identity::pack_signed_bundle(&sanitized_manifest, &sanitized_files, identity, limits)
             .map_err(|e| UploadError::BadInput {
                 msg: "pack_signed_bundle failed".into(),
                 source: Some(Box::new(e)),
@@ -307,13 +309,14 @@ async fn render_thumbnail_inner(
 ) -> Result<(Vec<u8>, Vec<u8>), UploadError> {
     match kind {
         ArtifactKind::Theme => {
-            let css = sanitized_files
-                .get("theme.css")
-                .cloned()
-                .ok_or_else(|| UploadError::BadInput {
-                    msg: "sanitized theme missing theme.css".into(),
-                    source: None,
-                })?;
+            let css =
+                sanitized_files
+                    .get("theme.css")
+                    .cloned()
+                    .ok_or_else(|| UploadError::BadInput {
+                        msg: "sanitized theme missing theme.css".into(),
+                        source: None,
+                    })?;
             let png = tokio::task::spawn_blocking(move || {
                 crate::share::thumbnail::theme::generate_for_theme(
                     &css,

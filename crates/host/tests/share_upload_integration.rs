@@ -13,13 +13,13 @@
 
 use std::sync::Arc;
 
+use identity::Keypair;
 use omni_guard_trait::{Guard, StubGuard};
 use omni_host::share::{
     client::{ListParams, ShareClient, SANITIZE_VERSION},
     progress::UploadProgress,
     upload::{upload, ArtifactKind, UploadRequest},
 };
-use omni_identity::Keypair;
 use serde_json::json;
 use tokio::sync::mpsc;
 use url::Url;

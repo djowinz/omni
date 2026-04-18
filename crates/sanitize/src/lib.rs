@@ -1,11 +1,11 @@
 //! Omni theme / bundle sanitization pipeline.
 //!
-//! Consumes (Manifest, files) produced by omni_identity::unpack_signed_bundle,
+//! Consumes (Manifest, files) produced by identity::unpack_signed_bundle,
 //! dispatches each file to a per-kind handler via manifest.resource_kinds
 //! (retro-005 D5 / invariant #5), runs the executable-magic deny-list
 //! (retro-005 D11 / invariant #19c), and returns sanitized file contents
 //! plus a SanitizeReport. Re-packing and signing are done upstream by
-//! omni_identity::pack_signed_bundle.
+//! identity::pack_signed_bundle.
 //!
 //! WASM-clean: no std::fs, no threading, no IO.
 
@@ -22,7 +22,7 @@ pub use error::{
 
 use std::collections::BTreeMap;
 
-use omni_bundle::Manifest;
+use bundle::Manifest;
 use sha2::{Digest, Sha256};
 
 use crate::handlers::{dispatch_for_path, supported_kind_names, Handler, ThemeHandler, HANDLERS};
@@ -62,8 +62,8 @@ pub fn sanitize_bundle(
     if manifest.schema_version != 1 {
         return Err(SanitizeError::Malformed {
             message: format!("unsupported schema_version {}", manifest.schema_version),
-            source: Some(Box::new(omni_bundle::BundleError::Integrity {
-                kind: omni_bundle::IntegrityKind::SchemaVersionUnsupported,
+            source: Some(Box::new(bundle::BundleError::Integrity {
+                kind: bundle::IntegrityKind::SchemaVersionUnsupported,
                 detail: format!("schema_version={}", manifest.schema_version),
             })),
         });

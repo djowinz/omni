@@ -1,5 +1,5 @@
 //! Thin wrapper around `reqwest::Client` — the single seam where
-//! `omni_identity::sign_http_jws` attaches `Authorization: Omni-JWS <compact>`.
+//! `identity::sign_http_jws` attaches `Authorization: Omni-JWS <compact>`.
 //!
 //! Do not strip this wrapper "for simplicity" in a later pass; scattering signing
 //! across call-sites is the anti-pattern this file exists to prevent.
@@ -14,8 +14,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use backon::ExponentialBuilder;
 use base64::Engine;
+use identity::{sign_http_jws, HttpJwsClaims, Keypair};
 use omni_guard_trait::Guard;
-use omni_identity::{sign_http_jws, HttpJwsClaims, Keypair};
 use reqwest::{Method, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -49,7 +49,7 @@ pub struct ShareClient {
     pubkey_hex: String,
     cache: ArtifactCache,
     retry_policy: ExponentialBuilder,
-    limits_cache: AsyncMutex<Option<(Instant, omni_bundle::BundleLimits)>>,
+    limits_cache: AsyncMutex<Option<(Instant, bundle::BundleLimits)>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -531,7 +531,7 @@ impl ShareClient {
             .await
     }
 
-    pub async fn config_limits(&self) -> Result<omni_bundle::BundleLimits, UploadError> {
+    pub async fn config_limits(&self) -> Result<bundle::BundleLimits, UploadError> {
         // Small TTL cache — server limits change rarely.
         {
             let guard = self.limits_cache.lock().await;
@@ -551,7 +551,7 @@ impl ShareClient {
         let b: LimitsBody = self
             .send_signed(Method::GET, path, "", self.http.get(self.url(path)))
             .await?;
-        let limits = omni_bundle::BundleLimits {
+        let limits = bundle::BundleLimits {
             max_bundle_compressed: b.max_bundle_compressed,
             max_bundle_uncompressed: b.max_bundle_uncompressed,
             max_entries: b.max_entries,

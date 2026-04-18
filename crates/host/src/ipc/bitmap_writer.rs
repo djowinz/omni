@@ -3,7 +3,7 @@
 use std::ptr;
 use std::sync::atomic::{AtomicU64, AtomicU8};
 
-use omni_shared::{
+use shared::{
     BitmapHeader, BITMAP_IPC_VERSION, BITMAP_SHM_NAME, PIXEL_DATA_OFFSET, TOTAL_SHM_SIZE,
 };
 use tracing::info;

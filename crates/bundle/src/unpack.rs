@@ -13,10 +13,7 @@ use crate::MAX_COMPRESSION_RATIO;
 /// Fast path: parse and validate the manifest only. Does NOT decompress
 /// file contents. Use this for callers that only need metadata (duplicate-
 /// upload checks, TOFU lookup, explorer-preview metadata).
-pub fn unpack_manifest(
-    zip_bytes: &[u8],
-    limits: &BundleLimits,
-) -> Result<Manifest, BundleError> {
+pub fn unpack_manifest(zip_bytes: &[u8], limits: &BundleLimits) -> Result<Manifest, BundleError> {
     if (zip_bytes.len() as u64) > limits.max_bundle_compressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
@@ -37,15 +34,13 @@ pub fn unpack_manifest(
     }
 
     let manifest_bytes = {
-        let mut m = zip
-            .by_name("manifest.json")
-            .map_err(|e| match e {
-                zip::result::ZipError::FileNotFound => BundleError::Integrity {
-                    kind: IntegrityKind::ManifestMissing,
-                    detail: String::new(),
-                },
-                other => BundleError::from(other),
-            })?;
+        let mut m = zip.by_name("manifest.json").map_err(|e| match e {
+            zip::result::ZipError::FileNotFound => BundleError::Integrity {
+                kind: IntegrityKind::ManifestMissing,
+                detail: String::new(),
+            },
+            other => BundleError::from(other),
+        })?;
         let mut buf = Vec::with_capacity(m.size() as usize);
         m.read_to_end(&mut buf)?;
         buf
@@ -58,10 +53,7 @@ pub fn unpack_manifest(
 /// Full unpack: returns an `Unpack` handle that holds the parsed archive
 /// and manifest. Files are streamed via `files()` — peak memory is one
 /// file at a time, not the full bundle.
-pub fn unpack<'a>(
-    zip_bytes: &'a [u8],
-    limits: &BundleLimits,
-) -> Result<Unpack<'a>, BundleError> {
+pub fn unpack<'a>(zip_bytes: &'a [u8], limits: &BundleLimits) -> Result<Unpack<'a>, BundleError> {
     if (zip_bytes.len() as u64) > limits.max_bundle_compressed {
         return Err(BundleError::Unsafe {
             kind: UnsafeKind::SizeExceeded,
@@ -126,15 +118,13 @@ pub fn unpack<'a>(
 
     // Manifest first.
     let manifest_bytes = {
-        let mut m = zip
-            .by_name("manifest.json")
-            .map_err(|e| match e {
-                zip::result::ZipError::FileNotFound => BundleError::Integrity {
-                    kind: IntegrityKind::ManifestMissing,
-                    detail: String::new(),
-                },
-                other => BundleError::from(other),
-            })?;
+        let mut m = zip.by_name("manifest.json").map_err(|e| match e {
+            zip::result::ZipError::FileNotFound => BundleError::Integrity {
+                kind: IntegrityKind::ManifestMissing,
+                detail: String::new(),
+            },
+            other => BundleError::from(other),
+        })?;
         let mut buf = Vec::with_capacity(m.size() as usize);
         m.read_to_end(&mut buf)?;
         buf

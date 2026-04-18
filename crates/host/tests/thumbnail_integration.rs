@@ -10,7 +10,7 @@
 //!   Ultralight resources next to the test executable.
 //!
 //! Structural findings (documented inline where they bite):
-//! - `omni_bundle::unpack_manifest` already rejects `schema_version != 1`
+//! - `bundle::unpack_manifest` already rejects `schema_version != 1`
 //!   before our thumbnail layer gets a chance. The spec's
 //!   `ThumbnailError::UnsupportedSchemaVersion` pre-flight is thus defense in
 //!   depth — in practice the error surfaces as `ThumbnailError::Bundle(...)`
@@ -23,7 +23,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-use omni_bundle::{BundleError, BundleLimits, FileEntry, IntegrityKind, Manifest, ResourceKind};
+use bundle::{BundleError, BundleLimits, FileEntry, IntegrityKind, Manifest, ResourceKind};
+use identity::{pack_signed_bundle, unpack_signed_bundle, Keypair};
 use omni_host::omni::assets::REFERENCE_OVERLAY_OMNI;
 use omni_host::omni::default::DEFAULT_THEME_CSS;
 use omni_host::omni::overlay_fs::{OverlayFilesystem, ResolveError};
@@ -34,7 +35,6 @@ use omni_host::share::thumbnail::{
     default_sample_values, ThumbnailConfig, ThumbnailError, DEFAULT_HEIGHT, DEFAULT_WIDTH,
     MAX_THUMBNAIL_BYTES,
 };
-use omni_identity::{pack_signed_bundle, unpack_signed_bundle, Keypair};
 use regex_lite::Regex;
 use sha2::{Digest, Sha256};
 
@@ -78,7 +78,7 @@ fn minimal_bundle_fixture() -> (Manifest, BTreeMap<String, Vec<u8>>) {
         schema_version: 1,
         name: "fixture".into(),
         // Type inference binds `.parse()` to `semver::Version` via
-        // `omni_bundle::Manifest`'s public field type; this lets us avoid
+        // `bundle::Manifest`'s public field type; this lets us avoid
         // a redundant `semver` dev-dep.
         version: "0.1.0".parse().expect("valid semver"),
         omni_min_version: "0.1.0".parse().expect("valid semver"),
@@ -124,7 +124,9 @@ fn assert_png_dimensions(png: &[u8], expected_w: u32, expected_h: u32) {
 fn new_tempdir_entries_since(baseline: SystemTime) -> BTreeSet<std::ffi::OsString> {
     // Give filesystems with 1-2s mtime resolution a margin, but stay small
     // so we don't pick up unrelated stale entries from earlier runs.
-    let floor = baseline.checked_sub(Duration::from_secs(1)).unwrap_or(baseline);
+    let floor = baseline
+        .checked_sub(Duration::from_secs(1))
+        .unwrap_or(baseline);
     let mut out = BTreeSet::new();
     let rd = match std::fs::read_dir(std::env::temp_dir()) {
         Ok(r) => r,
@@ -132,7 +134,9 @@ fn new_tempdir_entries_since(baseline: SystemTime) -> BTreeSet<std::ffi::OsStrin
     };
     for entry in rd.flatten() {
         let name = entry.file_name();
-        let Some(name_s) = name.to_str() else { continue };
+        let Some(name_s) = name.to_str() else {
+            continue;
+        };
         if !name_s.starts_with(".tmp") {
             continue;
         }
@@ -228,7 +232,7 @@ fn signed_bundle_roundtrip_fixture_works() {
 
 #[test]
 fn bundle_unsupported_schema_version_fails_before_tempdir() {
-    // Structural finding: omni_bundle::unpack_manifest rejects schema_version
+    // Structural finding: bundle::unpack_manifest rejects schema_version
     // != 1 internally BEFORE our `is_supported_schema_version` check gets to
     // run. The thumbnail layer's pre-flight is defense in depth; in practice
     // we see `ThumbnailError::Bundle(BundleError::Integrity{SchemaVersionUnsupported})`

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use omni_bundle::{FileEntry, Manifest, Tag};
+use bundle::{FileEntry, Manifest, Tag};
 use sha2::{Digest, Sha256};
 
 #[allow(dead_code)]
@@ -33,14 +33,23 @@ pub fn sample_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
         version: "1.0.0".parse().unwrap(),
         omni_min_version: "0.1.0".parse().unwrap(),
         description: "d".into(),
-        tags: vec![Tag::new("dark").unwrap(), Tag::new("high-contrast").unwrap()],
+        tags: vec![
+            Tag::new("dark").unwrap(),
+            Tag::new("high-contrast").unwrap(),
+        ],
         license: "MIT".into(),
         entry_overlay: "overlay.omni".into(),
         default_theme: Some("themes/default.css".into()),
         sensor_requirements: vec!["cpu.usage".into()],
         files: vec![
-            FileEntry { path: "overlay.omni".into(), sha256: sha256(&overlay) },
-            FileEntry { path: "themes/default.css".into(), sha256: sha256(&css) },
+            FileEntry {
+                path: "overlay.omni".into(),
+                sha256: sha256(&overlay),
+            },
+            FileEntry {
+                path: "themes/default.css".into(),
+                sha256: sha256(&css),
+            },
         ],
         resource_kinds: None,
     };

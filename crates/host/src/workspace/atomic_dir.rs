@@ -135,7 +135,13 @@ mod tests {
         let final_path = root.path().join("target");
         let staging = AtomicDir::stage(&final_path).unwrap();
         assert!(staging.path().exists());
-        assert!(staging.path().file_name().unwrap().to_str().unwrap().starts_with(".omni-staging-"));
+        assert!(staging
+            .path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with(".omni-staging-"));
         assert_eq!(staging.path().parent(), Some(root.path()));
     }
 

@@ -2,8 +2,8 @@ mod fixtures;
 
 use std::collections::BTreeMap;
 
+use bundle::{pack, unpack, BundleLimits, FileEntry, Manifest, Tag};
 use fixtures::sha256;
-use omni_bundle::{pack, unpack, BundleLimits, FileEntry, Manifest, Tag};
 use proptest::prelude::*;
 
 fn arb_css_bytes() -> impl Strategy<Value = Vec<u8>> {

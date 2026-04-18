@@ -10,7 +10,7 @@
 //! against `OMNI_ADMIN_PUBKEYS`; that conversion is not our concern here.
 
 use base64::Engine;
-use omni_identity::Keypair;
+use identity::Keypair;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

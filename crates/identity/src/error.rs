@@ -27,7 +27,7 @@ pub enum IdentityError {
     #[error("missing signature")]
     MissingSignature,
     #[error("bundle: {0}")]
-    Bundle(omni_bundle::BundleError),
+    Bundle(bundle::BundleError),
 }
 
 impl From<io::Error> for IdentityError {
@@ -36,12 +36,12 @@ impl From<io::Error> for IdentityError {
     }
 }
 
-/// Map `omni_bundle::BundleError` categories (retro-005 D9 shape) into
+/// Map `bundle::BundleError` categories (retro-005 D9 shape) into
 /// identity-level semantics. Hand-written per retro D9: no `#[from]`. The
 /// public surface of `IdentityError` stays stable even if `BundleError`
 /// sub-kinds evolve.
-impl From<omni_bundle::BundleError> for IdentityError {
-    fn from(e: omni_bundle::BundleError) -> Self {
+impl From<bundle::BundleError> for IdentityError {
+    fn from(e: bundle::BundleError) -> Self {
         IdentityError::Bundle(e)
     }
 }
@@ -82,14 +82,14 @@ mod tests {
 
     #[test]
     fn bundle_error_from_preserves_category() {
-        let be = omni_bundle::BundleError::Unsafe {
-            kind: omni_bundle::UnsafeKind::Path,
+        let be = bundle::BundleError::Unsafe {
+            kind: bundle::UnsafeKind::Path,
             detail: "../evil".into(),
         };
         let ie: IdentityError = be.into();
         match ie {
-            IdentityError::Bundle(omni_bundle::BundleError::Unsafe { kind, detail }) => {
-                assert_eq!(kind, omni_bundle::UnsafeKind::Path);
+            IdentityError::Bundle(bundle::BundleError::Unsafe { kind, detail }) => {
+                assert_eq!(kind, bundle::UnsafeKind::Path);
                 assert_eq!(detail, "../evil");
             }
             other => panic!("expected Bundle(Unsafe), got {other}"),

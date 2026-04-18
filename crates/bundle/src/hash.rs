@@ -46,8 +46,14 @@ mod tests {
             default_theme: Some("themes/default.css".into()),
             sensor_requirements: vec![],
             files: vec![
-                FileEntry { path: "overlay.omni".into(), sha256: [0u8; 32] },
-                FileEntry { path: "themes/default.css".into(), sha256: [0u8; 32] },
+                FileEntry {
+                    path: "overlay.omni".into(),
+                    sha256: [0u8; 32],
+                },
+                FileEntry {
+                    path: "themes/default.css".into(),
+                    sha256: [0u8; 32],
+                },
             ],
             resource_kinds: None,
         };
@@ -78,7 +84,10 @@ mod tests {
         let before = canonical_hash(&m, &f);
         f.insert("overlay.omni".into(), b"<modified/>".to_vec());
         let after = canonical_hash(&m, &f);
-        assert_eq!(before, after, "hash depends on manifest only, not files map");
+        assert_eq!(
+            before, after,
+            "hash depends on manifest only, not files map"
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use omni_bundle::Manifest;
+use bundle::Manifest;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -53,8 +53,8 @@ fn files_from_js(v: &JsValue) -> Result<BTreeMap<String, Vec<u8>>, JsValue> {
             let key = key_js
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("object key must be string"))?;
-            let value = js_sys::Reflect::get(obj, &key_js)
-                .map_err(|_| JsValue::from_str("reflect get"))?;
+            let value =
+                js_sys::Reflect::get(obj, &key_js).map_err(|_| JsValue::from_str("reflect get"))?;
             let bytes: js_sys::Uint8Array = value
                 .dyn_into()
                 .map_err(|_| JsValue::from_str("object value must be Uint8Array"))?;

@@ -1,7 +1,9 @@
 mod fixtures;
 
+use bundle::{
+    pack, unpack, BundleError, BundleLimits, FileEntry, IntegrityKind, Manifest, Tag, UnsafeKind,
+};
 use fixtures::{sample_bundle, sha256};
-use omni_bundle::{pack, unpack, BundleError, BundleLimits, FileEntry, IntegrityKind, Manifest, Tag, UnsafeKind};
 
 #[test]
 fn manifest_missing_is_reported() {
@@ -13,7 +15,13 @@ fn manifest_missing_is_reported() {
     let bytes = zw.finish().unwrap().into_inner();
     let err = unpack(&bytes, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
-        matches!(err, BundleError::Integrity { kind: IntegrityKind::ManifestMissing, .. }),
+        matches!(
+            err,
+            BundleError::Integrity {
+                kind: IntegrityKind::ManifestMissing,
+                ..
+            }
+        ),
         "{err:?}"
     );
 }
@@ -21,7 +29,10 @@ fn manifest_missing_is_reported() {
 #[test]
 fn file_missing_and_orphan_detected_on_pack() {
     let (mut m, mut f) = sample_bundle();
-    m.files.push(FileEntry { path: "themes/ghost.css".into(), sha256: [0u8; 32] });
+    m.files.push(FileEntry {
+        path: "themes/ghost.css".into(),
+        sha256: [0u8; 32],
+    });
     let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
         matches!(
@@ -51,7 +62,13 @@ fn hash_mismatch_rejected_on_pack() {
     m.files[0].sha256 = [0xff; 32];
     let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
-        matches!(err, BundleError::Integrity { kind: IntegrityKind::HashMismatch, .. }),
+        matches!(
+            err,
+            BundleError::Integrity {
+                kind: IntegrityKind::HashMismatch,
+                ..
+            }
+        ),
         "{err:?}"
     );
 }
@@ -68,9 +85,21 @@ fn size_exceeded_rejected() {
         *byte = (x >> 24) as u8;
     }
     f.insert("themes/big.css".into(), big.clone());
-    m.files.push(FileEntry { path: "themes/big.css".into(), sha256: sha256(&big) });
+    m.files.push(FileEntry {
+        path: "themes/big.css".into(),
+        sha256: sha256(&big),
+    });
     let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
-    assert!(matches!(err, BundleError::Unsafe { kind: UnsafeKind::SizeExceeded, .. }), "{err:?}");
+    assert!(
+        matches!(
+            err,
+            BundleError::Unsafe {
+                kind: UnsafeKind::SizeExceeded,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -78,10 +107,19 @@ fn unsafe_path_rejected() {
     let (mut m, mut f) = sample_bundle();
     let v = b"x".to_vec();
     f.insert("../evil.css".into(), v.clone());
-    m.files.push(FileEntry { path: "../evil.css".into(), sha256: sha256(&v) });
+    m.files.push(FileEntry {
+        path: "../evil.css".into(),
+        sha256: sha256(&v),
+    });
     let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
-        matches!(err, BundleError::Unsafe { kind: UnsafeKind::Path, .. }),
+        matches!(
+            err,
+            BundleError::Unsafe {
+                kind: UnsafeKind::Path,
+                ..
+            }
+        ),
         "{err:?}"
     );
 }
@@ -92,12 +130,21 @@ fn too_many_entries_rejected() {
     for i in 0..BundleLimits::DEFAULT.max_entries {
         let name = format!("themes/t{i}.css");
         let content = format!("/*{i}*/").into_bytes();
-        m.files.push(FileEntry { path: name.clone(), sha256: sha256(&content) });
+        m.files.push(FileEntry {
+            path: name.clone(),
+            sha256: sha256(&content),
+        });
         f.insert(name, content);
     }
     let err = pack(&m, &f, &BundleLimits::DEFAULT).unwrap_err();
     assert!(
-        matches!(err, BundleError::Unsafe { kind: UnsafeKind::TooManyEntries, .. }),
+        matches!(
+            err,
+            BundleError::Unsafe {
+                kind: UnsafeKind::TooManyEntries,
+                ..
+            }
+        ),
         "{err:?}"
     );
 }
@@ -122,7 +169,8 @@ fn invalid_tag_rejected_on_unpack() {
     let opts = fixtures::test_zip_opts();
     use std::io::Write;
     zw.start_file("manifest.json", opts).unwrap();
-    zw.write_all(serde_json::to_vec(&manifest_json).unwrap().as_slice()).unwrap();
+    zw.write_all(serde_json::to_vec(&manifest_json).unwrap().as_slice())
+        .unwrap();
     zw.start_file("overlay.omni", opts).unwrap();
     zw.write_all(b"<x/>").unwrap();
     let bytes = zw.finish().unwrap().into_inner();
@@ -145,7 +193,10 @@ fn zip_bomb_or_json_rejected_on_unpack() {
     assert!(
         matches!(
             err,
-            BundleError::Unsafe { kind: UnsafeKind::ZipBomb, .. } | BundleError::Malformed { .. }
+            BundleError::Unsafe {
+                kind: UnsafeKind::ZipBomb,
+                ..
+            } | BundleError::Malformed { .. }
         ),
         "{err:?}"
     );
@@ -174,7 +225,13 @@ fn orphan_entry_rejected_on_unpack() {
     let u = unpack(&bytes, &BundleLimits::DEFAULT).expect("initial unpack ok");
     let err = u.into_map().expect_err("expected orphan error");
     assert!(
-        matches!(err, BundleError::Integrity { kind: IntegrityKind::FileOrphan, .. }),
+        matches!(
+            err,
+            BundleError::Integrity {
+                kind: IntegrityKind::FileOrphan,
+                ..
+            }
+        ),
         "{err:?}"
     );
 }
@@ -194,7 +251,10 @@ fn hash_mismatch_detected_on_unpack() {
         entry_overlay: "overlay.omni".into(),
         default_theme: None,
         sensor_requirements: vec![],
-        files: vec![FileEntry { path: "overlay.omni".into(), sha256: bad_sha }],
+        files: vec![FileEntry {
+            path: "overlay.omni".into(),
+            sha256: bad_sha,
+        }],
         resource_kinds: None,
     };
     let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
@@ -209,7 +269,13 @@ fn hash_mismatch_detected_on_unpack() {
     let u = unpack(&bytes, &BundleLimits::DEFAULT).expect("initial unpack ok");
     let err = u.into_map().expect_err("expected hash mismatch");
     assert!(
-        matches!(err, BundleError::Integrity { kind: IntegrityKind::HashMismatch, .. }),
+        matches!(
+            err,
+            BundleError::Integrity {
+                kind: IntegrityKind::HashMismatch,
+                ..
+            }
+        ),
         "{err:?}"
     );
 }

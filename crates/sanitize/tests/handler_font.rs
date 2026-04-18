@@ -1,4 +1,4 @@
-use omni_sanitize::{sanitize_bundle, SanitizeError};
+use sanitize::{sanitize_bundle, SanitizeError};
 
 mod common;
 
@@ -26,5 +26,9 @@ fn accepts_real_ttf() {
     let bytes = include_bytes!("fixtures/font/ok.ttf").to_vec();
     let (manifest, files) = common::bundle_with_font("fonts/ok.ttf", bytes.clone());
     let (out, _r) = sanitize_bundle(&manifest, files).unwrap();
-    assert_eq!(out["fonts/ok.ttf"].len(), bytes.len(), "pass-through preserves size");
+    assert_eq!(
+        out["fonts/ok.ttf"].len(),
+        bytes.len(),
+        "pass-through preserves size"
+    );
 }

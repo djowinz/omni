@@ -7,26 +7,26 @@
 //!
 //! ## Observed-API notes (recorded for Task 6 integration work)
 //!
-//! - `omni_identity::unpack_signed_bundle(bytes, Option<&PublicKey>, &BundleLimits)`
+//! - `identity::unpack_signed_bundle(bytes, Option<&PublicKey>, &BundleLimits)`
 //!   takes `BundleLimits` (not a separate `IdentityLimits` — that type doesn't
 //!   exist in the shipped crate). Passing `None` for `expected_pubkey` at the
 //!   thumbnail boundary because thumbnail generation runs pre-TOFU (spec §4).
-//! - `omni_bundle::Manifest.resource_kinds` is
+//! - `bundle::Manifest.resource_kinds` is
 //!   `Option<BTreeMap<String, ResourceKind>>` — the "kind" is the map key
 //!   (a `String`) and the sanitizer's handler registry (`theme` / `font` /
 //!   `image` / `overlay`) is the closed vocabulary. `ResourceKind` itself is
 //!   a struct (`dir`, `extensions`, `max_size_bytes`), not an enum.
 //! - `SignedBundle::files()` iterates an in-memory `BTreeMap`; the true
-//!   streaming iterator lives one layer lower in `omni_bundle::unpack`. We
+//!   streaming iterator lives one layer lower in `bundle::unpack`. We
 //!   still write files one-at-a-time to the `TempDir` so peak filesystem
 //!   pressure is bounded by the largest single file.
 //! - `unpack_manifest` internally rejects `schema_version != 1` today, but we
-//!   keep the explicit pre-flight here: if a future `omni_bundle` release
+//!   keep the explicit pre-flight here: if a future `bundle` release
 //!   accepts v2 structurally, this entry point still fails closed until the
 //!   renderer is audited for the new schema (invariant #6b).
 
-use omni_bundle::{unpack_manifest, BundleLimits, Manifest};
-use omni_identity::unpack_signed_bundle;
+use bundle::{unpack_manifest, BundleLimits, Manifest};
+use identity::unpack_signed_bundle;
 use tempfile::TempDir;
 
 use super::{render_omni_to_png, ThumbnailConfig, ThumbnailError};
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn is_supported_resource_kind_covers_shipped_handlers() {
-        // These four match `omni_sanitize::handlers::HANDLERS` at the time of
+        // These four match `sanitize::handlers::HANDLERS` at the time of
         // writing. If omni-sanitize grows a new handler, this literal match
         // is the gate — the thumbnail path will reject the new kind until
         // `is_supported_resource_kind` is updated as part of the same audit.
@@ -260,7 +260,7 @@ mod tests {
             entry_overlay: "overlay.omni".into(),
             default_theme: None,
             sensor_requirements: Vec::new(),
-            files: vec![omni_bundle::FileEntry {
+            files: vec![bundle::FileEntry {
                 path: "overlay.omni".into(),
                 sha256: [0u8; 32],
             }],

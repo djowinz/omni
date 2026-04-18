@@ -1,6 +1,6 @@
 //! RAM sensor via sysinfo.
 
-use omni_shared::RamData;
+use shared::RamData;
 use sysinfo::System;
 
 pub struct RamPoller;

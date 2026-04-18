@@ -1,4 +1,4 @@
-use omni_shared::CpuData;
+use shared::CpuData;
 use sysinfo::System;
 use tracing::info;
 

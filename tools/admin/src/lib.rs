@@ -3,7 +3,7 @@
 //! This crate is scaffolded by Task 10 of the theme-sharing #012 plan. The
 //! top-level `Cli` / `Cmd` types live here (not in `main.rs`) so integration
 //! tests and future subagent task work can import them as
-//! `omni_admin::{Cli, Cmd}` without poking into the binary crate.
+//! `admin::{Cli, Cmd}` without poking into the binary crate.
 
 use clap::{Parser, Subcommand};
 
@@ -15,11 +15,7 @@ pub mod key_file;
 
 /// Top-level CLI entry. Global flags apply to every subcommand.
 #[derive(Parser, Debug, Clone)]
-#[command(
-    name = "admin",
-    version,
-    about = "Omni themes-worker operator CLI"
-)]
+#[command(name = "admin", version, about = "Omni themes-worker operator CLI")]
 pub struct Cli {
     /// Path to the operator key file (Ed25519 signing key, ChaCha20-Poly1305 wrapped).
     #[arg(long, global = true)]

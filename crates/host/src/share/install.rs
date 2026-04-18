@@ -23,11 +23,11 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omni_bundle::{BundleLimits, FileEntry};
-use omni_identity::{
+use bundle::{BundleLimits, FileEntry};
+use identity::{
     unpack_signed_bundle, Fingerprint, IdentityError, PublicKey, SignedBundle, TofuResult,
 };
-use omni_sanitize::{sanitize_bundle, SanitizeError};
+use sanitize::{sanitize_bundle, SanitizeError};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -75,15 +75,26 @@ pub enum BadBundleKind {
 
 #[derive(Debug, Clone)]
 pub enum InstallWarning {
-    ExceedsCurrentPolicy { kind: String, actual: u64, limit: u64 },
+    ExceedsCurrentPolicy {
+        kind: String,
+        actual: u64,
+        limit: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum InstallProgress {
-    Downloading { received: u64, total: u64 },
+    Downloading {
+        received: u64,
+        total: u64,
+    },
     Verifying,
     Sanitizing,
-    Writing { file: String, index: usize, total: usize },
+    Writing {
+        file: String,
+        index: usize,
+        total: usize,
+    },
     Committing,
 }
 
@@ -126,9 +137,8 @@ pub async fn install(
     };
 
     progress(InstallProgress::Verifying);
-    let signed: SignedBundle =
-        unpack_signed_bundle(&bytes, req.expected_pubkey.as_ref(), limits)
-            .map_err(identity_to_install_error)?;
+    let signed: SignedBundle = unpack_signed_bundle(&bytes, req.expected_pubkey.as_ref(), limits)
+        .map_err(identity_to_install_error)?;
 
     let required = signed.manifest().omni_min_version.clone();
     if *current_version < required {
@@ -157,8 +167,14 @@ pub async fn install(
         });
     }
 
-    sanitize_stage_and_commit(&signed, &req.target_path, req.overwrite, &cancel, &mut progress)
-        .await?;
+    sanitize_stage_and_commit(
+        &signed,
+        &req.target_path,
+        req.overwrite,
+        &cancel,
+        &mut progress,
+    )
+    .await?;
 
     let content_hash = sha256_of(&bytes);
     let entry = InstalledEntry {
@@ -278,7 +294,7 @@ fn client_to_install_error(e: DownloadError) -> InstallError {
 }
 
 fn identity_to_install_error(e: IdentityError) -> InstallError {
-    use omni_bundle::{BundleError, IntegrityKind};
+    use bundle::{BundleError, IntegrityKind};
     match e {
         IdentityError::MissingSignature => {
             InstallError::SignatureFailed("missing signature.jws".into())
@@ -377,8 +393,7 @@ async fn install_inline_for_tests(
     // pipeline proper (sanitize → stage → stream → commit) runs through the
     // shared `sanitize_stage_and_commit` helper.
     let limits = BundleLimits::DEFAULT;
-    let signed =
-        unpack_signed_bundle(bytes, None, &limits).map_err(identity_to_install_error)?;
+    let signed = unpack_signed_bundle(bytes, None, &limits).map_err(identity_to_install_error)?;
     let required = signed.manifest().omni_min_version.clone();
     if current_version < required {
         return Err(InstallError::VersionMismatch {
@@ -403,8 +418,8 @@ async fn install_inline_for_tests(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omni_bundle::{BundleLimits, FileEntry, Manifest, Tag};
-    use omni_identity::{pack_signed_bundle, Keypair};
+    use bundle::{BundleLimits, FileEntry, Manifest, Tag};
+    use identity::{pack_signed_bundle, Keypair};
     use std::collections::BTreeMap;
     use tempfile::TempDir;
 
@@ -476,9 +491,13 @@ mod tests {
         assert!(
             matches!(
                 err,
-                InstallError::BadBundle { kind: BadBundleKind::Integrity, .. }
-                    | InstallError::BadBundle { kind: BadBundleKind::Malformed, .. }
-                    | InstallError::SignatureFailed(_)
+                InstallError::BadBundle {
+                    kind: BadBundleKind::Integrity,
+                    ..
+                } | InstallError::BadBundle {
+                    kind: BadBundleKind::Malformed,
+                    ..
+                } | InstallError::SignatureFailed(_)
             ),
             "unexpected error: {err:?}"
         );
@@ -516,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_signature_surfaces_as_signature_failed() {
-        // Pack via the plain `omni_bundle::pack` — this produces a structurally
+        // Pack via the plain `bundle::pack` — this produces a structurally
         // valid bundle WITHOUT a `signature.jws` entry. `unpack_signed_bundle`
         // must surface that absence as `IdentityError::MissingSignature`,
         // which the install pipeline maps to `InstallError::SignatureFailed`.
@@ -558,7 +577,7 @@ mod tests {
         let mut files = BTreeMap::new();
         files.insert("overlay.omni".to_string(), overlay_bytes);
         files.insert("themes/theme.css".to_string(), theme_bytes);
-        let bytes = omni_bundle::pack(&manifest, &files, &BundleLimits::DEFAULT).unwrap();
+        let bytes = bundle::pack(&manifest, &files, &BundleLimits::DEFAULT).unwrap();
 
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("themes").join("unsigned-theme");

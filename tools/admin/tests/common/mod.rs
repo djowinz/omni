@@ -1,4 +1,4 @@
-//! Shared helpers for `crates/omni-admin/tests/*.rs` integration binaries.
+//! Shared helpers for `tools/admin/tests/*.rs` integration binaries.
 //!
 //! Each integration test binary in Rust is its own translation unit, so
 //! historically each file re-declared the same `mint_key` helper. That
