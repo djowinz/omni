@@ -5,7 +5,7 @@ use ts_rs::TS;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct SensorSnapshot {
     pub timestamp_ms: u64,
     pub cpu: CpuData,
@@ -18,7 +18,7 @@ pub struct SensorSnapshot {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct CpuData {
     /// Overall CPU usage as a percentage (0.0–100.0).
     pub total_usage_percent: f32,
@@ -35,7 +35,7 @@ pub struct CpuData {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct GpuData {
     pub usage_percent: f32,
     pub temp_c: f32,
@@ -49,7 +49,7 @@ pub struct GpuData {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct RamData {
     pub usage_percent: f32,
     pub used_mb: u64,
@@ -62,7 +62,7 @@ pub struct RamData {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct FrameData {
     pub fps: f32,
     pub frame_time_ms: f32,
