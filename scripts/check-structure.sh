@@ -22,7 +22,7 @@ while IFS= read -r -d '' found; do
     [[ "$found" == "$e" ]] && match=1 && break
   done
   [[ $match -eq 0 ]] && fail "unexpected package.json at $found (not a declared workspace member)"
-done < <(find . -name package.json -not -path "./node_modules/*" -not -path "./**/node_modules/*" -not -path "./target/*" -not -path "./crates/*/pkg/*" -print0)
+done < <(find . -name package.json -not -path "./node_modules/*" -not -path "./**/node_modules/*" -not -path "./target/*" -not -path "./crates/*/pkg/*" -not -path "./**/.next/*" -not -path "./**/dist/*" -print0)
 
 # 2. default/ must not exist.
 [[ -d "./default" ]] && fail "default/ directory reappeared; it must stay deleted"

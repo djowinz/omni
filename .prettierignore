@@ -15,6 +15,10 @@ apps/worker/.wrangler/
 # Generated files
 packages/shared-types/src/generated/
 apps/desktop/renderer/generated/
+# Next.js auto-generates/overwrites these on build; formatting drift
+# would re-diff every dev run.
+apps/desktop/renderer/next-env.d.ts
+apps/desktop/renderer/.next/
 
 # Byte-stable cryptographic fixtures — formatting would invalidate hashes
 crates/*/tests/fixtures/
