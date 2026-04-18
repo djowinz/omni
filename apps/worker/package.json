@@ -1,10 +1,11 @@
 {
-  "name": "omni-themes-worker",
+  "name": "@omni/worker",
   "version": "0.1.0",
   "private": true,
   "description": "Cloudflare Worker backend for Omni theme & bundle sharing (skeleton).",
   "type": "module",
   "scripts": {
+    "lint": "eslint . --max-warnings=0",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
