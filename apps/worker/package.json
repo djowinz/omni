@@ -15,9 +15,9 @@
     "migrate:remote": "wrangler d1 migrations apply META --remote",
     "bootstrap": "node scripts/bootstrap-kv.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
-    "predev": "pnpm build:wasm",
-    "prebuild": "pnpm build:wasm",
-    "pretest": "pnpm build:wasm && node test/fixtures/generate.mjs"
+    "predev": "node scripts/build-wasm.mjs",
+    "prebuild": "node scripts/build-wasm.mjs",
+    "pretest": "node scripts/build-wasm.mjs && node test/fixtures/generate.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"
