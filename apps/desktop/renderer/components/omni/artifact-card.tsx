@@ -32,6 +32,8 @@ export interface ArtifactCardProps {
   /** Click handler for the whole card (grid variant). */
   onClick?: () => void;
   className?: string;
+  /** Selection marker forwarded onto the grid-variant root element. */
+  'data-selected'?: 'true' | 'false';
 }
 
 /** Safely read a string field out of a manifest record. */
@@ -69,7 +71,8 @@ function authorDisplay(artifact: CachedArtifactDetail | ArtifactDetail): string 
   return artifact.author_pubkey.slice(0, 8) + '…';
 }
 
-function GridCard({ artifact, installed, onClick, className }: ArtifactCardProps) {
+function GridCard(props: ArtifactCardProps) {
+  const { artifact, installed, onClick, className } = props;
   const name = artifactName(artifact);
   const author = authorDisplay(artifact);
   const detail = artifact as ArtifactDetail;
@@ -83,6 +86,7 @@ function GridCard({ artifact, installed, onClick, className }: ArtifactCardProps
   return (
     <div
       data-testid="artifact-card-grid"
+      data-selected={props['data-selected']}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
