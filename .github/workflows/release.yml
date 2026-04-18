@@ -51,7 +51,7 @@ jobs:
         shell: bash
         env:
           CARGO_GUARD_PATCH: 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard={ git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main" }'
-        run: cargo build --release --package omni-host --features guard --config "$CARGO_GUARD_PATCH"
+        run: cargo build --release --package host --features guard --config "$CARGO_GUARD_PATCH"
 
       - name: Extract .text SHA-256 from Stage 1 binary
         id: integrity
@@ -66,7 +66,7 @@ jobs:
         env:
           CARGO_GUARD_PATCH: 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard={ git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main", features = ["strict-integrity"] }'
           OMNI_GUARD_TEXT_SHA256: ${{ steps.integrity.outputs.hash }}
-        run: cargo build --release --package omni-host --features guard --config "$CARGO_GUARD_PATCH"
+        run: cargo build --release --package host --features guard --config "$CARGO_GUARD_PATCH"
 
       - name: Verify Stage 1 and Stage 2 .text bytes match
         shell: bash
