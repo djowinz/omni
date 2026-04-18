@@ -156,16 +156,43 @@ ipcMain.handle('set-login-item-settings', (_event, openAtLogin: boolean) => {
   return { success: true };
 });
 
-// Unsolicited share-hub frames forwarded to the renderer via the 'share:event' ipc channel.
-// Added by #014 Wave 3a for useShareWs.subscribe() support. Future subscription types
-// (added by #016 etc.) extend this list inline per invariant #23.
+// Unsolicited share-hub streaming frames forwarded to the renderer via the
+// 'share:event' ipc channel for useShareWs.subscribe() consumers. Keep this
+// list to REAL streaming types only — response frames (e.g. previewResult) are
+// delivered via the 'share:ws-message' request path, and fork-progress isn't
+// emitted by the host yet (#016 adds it alongside fork-from-Discover).
 const SHARE_EVENT_TYPES = new Set<string>([
   'explorer.installProgress',
-  'explorer.previewResult',
-  'explorer.forkProgress',
   'upload.publishProgress',
   'upload.packProgress',
 ]);
+
+// Share-hub request-response IPC. Separate from the generic 'ws-message'
+// channel because share messages:
+//   - use id-based correlation (concurrent requests; no queue serialization)
+//   - need their D-004-J error envelope preserved verbatim (useShareWs.send()
+//     Zod-parses the raw frame, so the renderer sees `{ code, kind, detail,
+//     message }` instead of a flattened Error).
+// Renderer hook: apps/desktop/renderer/hooks/use-share-ws.ts.
+ipcMain.handle('share:ws-message', async (_event, msg: any) => {
+  if (!msg || typeof msg !== 'object' || typeof msg.id !== 'string') {
+    throw new Error('share:ws-message requires { id: string, type: string, ... }');
+  }
+  if (!hostManager.isConnected()) {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        hostManager.removeListener('connected', onConnect);
+        reject(new Error('Timed out waiting for host connection'));
+      }, 10000);
+      const onConnect = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      hostManager.once('connected', onConnect);
+    });
+  }
+  return hostManager.sendAndWaitById(msg);
+});
 
 // IPC: request/response messages to host via WebSocket.
 // Waits up to 10s for the host connection before rejecting.

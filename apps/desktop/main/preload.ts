@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('omni', {
   // Backend communication
   sendMessage: (msg: object) => ipcRenderer.invoke('ws-message', msg),
 
+  // Share-hub request-response bridge. Returns the raw host frame (success OR
+  // D-004-J error envelope). Renderer's useShareWs.send() Zod-parses both.
+  // Callers MUST include `id: string` for id-based correlation.
+  sendShareMessage: (msg: { id: string; [k: string]: unknown }) =>
+    ipcRenderer.invoke('share:ws-message', msg),
+
   // Sensor data stream
   onSensorData: (callback: (snapshot: any) => void) => {
     const handler = (_event: any, snapshot: any) => callback(snapshot);

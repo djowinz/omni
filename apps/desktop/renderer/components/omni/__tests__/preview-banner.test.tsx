@@ -27,9 +27,11 @@ const FIXTURE_ARTIFACT: CachedArtifactDetail = {
 
 function stubOmni() {
   vi.stubGlobal('omni', {
-    sendMessage: vi
-      .fn()
-      .mockResolvedValue({ id: 'x', type: 'explorer.cancelPreviewResult', restored: true }),
+    sendShareMessage: vi.fn().mockImplementation(async (msg: { id: string }) => ({
+      id: msg.id,
+      type: 'explorer.cancelPreviewResult',
+      restored: true,
+    })),
     onShareEvent: vi.fn(() => () => {}),
   });
 }
@@ -102,7 +104,7 @@ describe('PreviewBanner', () => {
     expect(screen.getByText(/Neon Dusk/)).toBeInTheDocument();
   });
 
-  it('Revert button calls sendMessage("explorer.cancelPreview") and clears preview', async () => {
+  it('Revert button calls sendShareMessage("explorer.cancelPreview") and clears preview', async () => {
     const user = userEvent.setup();
 
     render(
@@ -118,10 +120,13 @@ describe('PreviewBanner', () => {
     await user.click(screen.getByTestId('preview-banner-revert'));
 
     await waitFor(() => {
-      expect(window.omni!.sendMessage).toHaveBeenCalledWith({
-        type: 'explorer.cancelPreview',
-        preview_token: FIXTURE_TOKEN,
-      });
+      expect(window.omni!.sendShareMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'explorer.cancelPreview',
+          preview_token: FIXTURE_TOKEN,
+          id: expect.any(String),
+        }),
+      );
     });
 
     // Banner should null-render after clearPreview()

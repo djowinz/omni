@@ -293,6 +293,21 @@ export const UploadPackResultSchema = z.object({
 });
 export type UploadPackResult = z.infer<typeof UploadPackResultSchema>;
 
+// Oracle: contracts/ws-explorer.md §upload.pack progress (forwarded by main.ts SHARE_EVENT_TYPES)
+// Shipped: crates/host/src/share/progress.rs pump_to_ws() — same shape as publishProgress.
+//          Pack currently runs synchronously without emitting progress; the schema is pre-wired
+//          so Wave-3b #015 can subscribe without a follow-up fixup if/when host emits.
+export const UploadPackProgressSchema = z.object({
+  id: z.string(),
+  type: z.literal('upload.packProgress'),
+  params: z.object({
+    phase: z.enum(['pack', 'sanitize']),
+    done: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+export type UploadPackProgress = z.infer<typeof UploadPackProgressSchema>;
+
 // ── upload.publish ──────────────────────────────────────────────────────────
 
 // Oracle: contracts/ws-explorer.md §upload.publish params
@@ -409,6 +424,9 @@ export type IdentityShowParams = z.infer<typeof IdentityShowParamsSchema>;
 // fingerprint_emoji and fingerprint_words allow empty arrays — the shipped
 // handler returns Vec::new() for both until sub-spec #006 follow-up lands.
 // created_at is 0 until #006 (shipped handler hard-codes 0).
+// backed_up drives the #015 first-publish gate. Always `false` until #006 wires
+// real persistence of a successful identity.backup; UX treats false as "needs
+// backup" and gates first publish accordingly (umbrella risk #10 accepted).
 export const IdentityShowResponseSchema = z.object({
   id: z.string(),
   type: z.literal('identity.showResult'),
@@ -418,6 +436,7 @@ export const IdentityShowResponseSchema = z.object({
     fingerprint_emoji: z.array(z.string()), // allows [] — #006 follow-up
     fingerprint_words: z.array(z.string()), // allows [] — #006 follow-up
     created_at: z.number().int(), // 0 until #006 follow-up
+    backed_up: z.boolean(), // false until #006 persists backup events
   }),
 });
 export type IdentityShowResponse = z.infer<typeof IdentityShowResponseSchema>;
@@ -666,6 +685,7 @@ export interface ShareRequestMap {
 export interface ShareSubscriptionMap {
   'explorer.installProgress': ExplorerInstallProgress;
   'upload.publishProgress': UploadPublishProgress;
+  'upload.packProgress': UploadPackProgress;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -710,6 +730,7 @@ export type ShareResponseType = keyof typeof ShareResponseSchemas;
 export const ShareSubscriptionSchemas = {
   'explorer.installProgress': ExplorerInstallProgressSchema,
   'upload.publishProgress': UploadPublishProgressSchema,
+  'upload.packProgress': UploadPackProgressSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 /** Exhaustive union of every subscription (streaming) type string. Used by `useShareWs.subscribe<T>()` inference. */

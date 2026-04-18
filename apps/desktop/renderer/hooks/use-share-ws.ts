@@ -2,30 +2,36 @@
  * useShareWs — typed WebSocket client for the Omni Share Hub message surface.
  *
  * ## send(type, params): Promise<result>
- * Request-response path. Routes through `window.omni.sendMessage({ type, ...params })`
- * (an `ipcRenderer.invoke` under the hood). Response is Zod-validated via
- * `ShareResponseSchemas[type]`. On parse failure, rejects with `ShareWsError`
- * `{ code: "PARSE_FAILED", ... }`. On host error envelope, rejects with the
- * D-004-J `{ code, kind, detail, message }` shape (Zod-validated against
- * `ShareErrorFrameSchema`).
+ * Request-response path. Generates a fresh request id (crypto.randomUUID),
+ * routes through `window.omni.sendShareMessage({ id, type, ...params })`
+ * (an `ipcRenderer.invoke` under the hood → main.ts `share:ws-message`
+ * handler → hostManager.sendAndWaitById). The raw host frame is returned
+ * (either a success frame or a D-004-J error envelope). This hook then
+ * Zod-parses it: error envelope → throws `ShareWsError`; shape mismatch →
+ * throws `ShareWsError { code: 'PARSE_FAILED' }`; success → returns validated
+ * result.
  *
  * ## subscribe(type, handler): () => void
- * Subscribes to unsolicited *Progress* / preview-result streaming frames. Uses
- * the `window.omni.onShareEvent` IPC channel (see `apps/desktop/main/preload.ts`
- * + the SHARE_EVENT_TYPES forwarding in `main.ts`). A single module-level
- * subscription to `onShareEvent` is shared across all hook consumers; incoming
- * frames are dispatched to handlers keyed by `frame.type`. Returns an unsubscribe
- * that removes the handler (and the underlying onShareEvent listener when no
- * handlers remain).
+ * Subscribes to unsolicited streaming frames (install/publish/pack progress).
+ * Uses the `window.omni.onShareEvent` IPC channel (see
+ * `apps/desktop/main/preload.ts` + the SHARE_EVENT_TYPES forwarding in
+ * `main.ts`). A single module-level subscription to `onShareEvent` is shared
+ * across all hook consumers; incoming frames are dispatched to handlers keyed
+ * by `frame.type`. Returns an unsubscribe that removes the handler (and the
+ * underlying onShareEvent listener when no handlers remain).
  *
- * ## Design decision: IPC routing
- * Request-response could have gone through an extension of the responseTypes
- * map in `main.ts:162-177`, but that would require pairing every share message
- * request with its response type and synthesizing invoke() semantics for
- * streaming frames. The simpler design uses the existing `ws-message` invoke
- * path (unchanged, works today) for request-response and a new `share:event`
- * channel for unsolicited frames only. Documented here so Wave-3b implementers
- * know not to add share-specific responseTypes entries.
+ * ## Design decision: dedicated IPC channel
+ * Share request-response uses a dedicated `share:ws-message` channel rather
+ * than the generic `ws-message` channel because:
+ *   - Share messages correlate by `id` (concurrent requests — install, preview,
+ *     cancel can all be in flight at once). The `ws-message` path serializes
+ *     with a type-based response map that doesn't know about share types.
+ *   - The D-004-J error envelope must reach the renderer verbatim so this
+ *     hook can Zod-parse `{ code, kind, detail, message }`. The generic
+ *     `ws-message` path flattens errors into plain Error objects, losing
+ *     structured information.
+ * Documented here so Wave-3b implementers don't add share types back into
+ * `ws-message`'s responseTypes map.
  */
 
 import { useMemo } from 'react';
@@ -115,7 +121,8 @@ export function useShareWs(): UseShareWs {
   return useMemo<UseShareWs>(
     () => ({
       async send(type, params) {
-        const response = await window.omni!.sendMessage({ type, ...params });
+        const id = crypto.randomUUID();
+        const response = await window.omni!.sendShareMessage({ id, type, ...params });
 
         // First check for error envelope.
         const errParse = ShareErrorFrameSchema.safeParse(response);

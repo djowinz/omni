@@ -32,7 +32,7 @@ describe('useShareWs — send() happy path', () => {
     };
 
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn().mockResolvedValue(validFrame),
+      sendShareMessage: vi.fn().mockResolvedValue(validFrame),
       onShareEvent: vi.fn().mockReturnValue(() => {}),
     });
 
@@ -45,6 +45,44 @@ describe('useShareWs — send() happy path', () => {
   });
 });
 
+describe('useShareWs — send() injects request id', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('generates a fresh id on every call and forwards it to sendShareMessage', async () => {
+    const validFrame = {
+      id: 'ignored-host-echoes-back',
+      type: 'explorer.cancelPreviewResult',
+      restored: true,
+    };
+
+    const sendShareMessage = vi.fn().mockResolvedValue(validFrame);
+    vi.stubGlobal('omni', {
+      sendShareMessage,
+      onShareEvent: vi.fn().mockReturnValue(() => {}),
+    });
+
+    const { useShareWs } = await import('../use-share-ws');
+    const { result } = renderHook(() => useShareWs());
+
+    await result.current.send('explorer.cancelPreview', {
+      preview_token: '11111111-1111-1111-1111-111111111111',
+    });
+    await result.current.send('explorer.cancelPreview', {
+      preview_token: '22222222-2222-2222-2222-222222222222',
+    });
+
+    expect(sendShareMessage).toHaveBeenCalledTimes(2);
+    const firstCall = sendShareMessage.mock.calls[0][0];
+    const secondCall = sendShareMessage.mock.calls[1][0];
+    expect(typeof firstCall.id).toBe('string');
+    expect(firstCall.id.length).toBeGreaterThan(0);
+    expect(firstCall.id).not.toBe(secondCall.id);
+    expect(firstCall.type).toBe('explorer.cancelPreview');
+  });
+});
+
 describe('useShareWs — send() parse failure', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -54,7 +92,7 @@ describe('useShareWs — send() parse failure', () => {
     const badFrame = { id: 'req-2', type: 'explorer.listResult', items: 'not-an-array' };
 
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn().mockResolvedValue(badFrame),
+      sendShareMessage: vi.fn().mockResolvedValue(badFrame),
       onShareEvent: vi.fn().mockReturnValue(() => {}),
     });
 
@@ -86,7 +124,7 @@ describe('useShareWs — send() error envelope', () => {
     };
 
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn().mockResolvedValue(errorFrame),
+      sendShareMessage: vi.fn().mockResolvedValue(errorFrame),
       onShareEvent: vi.fn().mockReturnValue(() => {}),
     });
 
@@ -111,7 +149,7 @@ describe('useShareWs — subscribe() receives frame', () => {
     const unsubSpy = vi.fn();
 
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn(),
+      sendShareMessage: vi.fn(),
       onShareEvent: vi.fn().mockImplementation((cb: (frame: unknown) => void) => {
         capturedCallback = cb;
         return unsubSpy;
@@ -150,7 +188,7 @@ describe('useShareWs — subscribe() unsubscribe stops delivery', () => {
     let capturedCallback: ((frame: unknown) => void) | null = null;
 
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn(),
+      sendShareMessage: vi.fn(),
       onShareEvent: vi.fn().mockImplementation((cb: (frame: unknown) => void) => {
         capturedCallback = cb;
         return vi.fn();
@@ -191,7 +229,7 @@ describe('useShareWs — subscribe() invalid frame', () => {
     let capturedCallback: ((frame: unknown) => void) | null = null;
 
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn(),
+      sendShareMessage: vi.fn(),
       onShareEvent: vi.fn().mockImplementation((cb: (frame: unknown) => void) => {
         capturedCallback = cb;
         return vi.fn();

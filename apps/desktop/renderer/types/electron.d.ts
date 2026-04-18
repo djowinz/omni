@@ -6,6 +6,7 @@ interface OmniIpcBridge {
   closeWindow: () => void;
   onHostStatus: (callback: (status: any) => void) => () => void;
   sendMessage: (msg: object) => Promise<any>;
+  sendShareMessage: (msg: { id: string; [k: string]: unknown }) => Promise<any>;
   onSensorData: (callback: (snapshot: any) => void) => () => void;
   onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => () => void;
   onPreviewUpdate: (

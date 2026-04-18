@@ -394,6 +394,13 @@ async fn handle_identity_show(id: &str, ctx: &ShareContext) -> Option<String> {
     // Full fingerprint rendering (hex/words/emoji) is owned by sub-spec #006's
     // surface. Until that API surfaces here, return the pubkey + empty-field
     // envelope so the editor can render "not yet implemented" without crashing.
+    //
+    // `backed_up` drives the share-hub first-publish gate: the editor blocks a
+    // user's first upload until they save an encrypted backup of their signing
+    // key. True persistence of that flag is a #006 follow-up (requires tracking
+    // successful identity.backup invocations); until then we report `false`,
+    // which is the safe default — UX treats false as "needs backup" and gates
+    // the first publish accordingly (umbrella risk #10 accepted).
     Some(
         json!({
             "id": id, "type": "identity.showResult",
@@ -402,7 +409,8 @@ async fn handle_identity_show(id: &str, ctx: &ShareContext) -> Option<String> {
                 "fingerprint_hex": "",
                 "fingerprint_words": Vec::<String>::new(),
                 "fingerprint_emoji": Vec::<String>::new(),
-                "created_at": 0
+                "created_at": 0,
+                "backed_up": false
             }
         })
         .to_string(),
@@ -1023,6 +1031,20 @@ mod tests {
         assert_eq!(parsed["type"], "identity.showResult");
         assert_eq!(parsed["id"], "r2");
         assert_eq!(parsed["params"]["pubkey_hex"], expected_pk);
+    }
+
+    #[tokio::test]
+    async fn identity_show_reports_backed_up_false_until_006() {
+        // backed_up drives the #015 first-publish gate. Wired as false until a
+        // #006 follow-up persists real identity.backup events. If this ever
+        // flips to a non-boolean or goes missing, the editor's Zod schema for
+        // identity.show will reject the response — this test guards the
+        // contract shape.
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({ "id": "r-backup-gate", "type": "identity.show" });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["params"]["backed_up"], serde_json::Value::Bool(false));
     }
 
     #[tokio::test]

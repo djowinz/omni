@@ -180,6 +180,43 @@ export class HostManager extends EventEmitter {
     this.ws.send(JSON.stringify(msg));
   }
 
+  /**
+   * Send a share-hub message and wait for the response correlated by `id`.
+   * Resolves with the raw response frame on either success OR D-004-J error
+   * envelope — callers (see main.ts share:ws-message handler) forward the raw
+   * frame to the renderer's `useShareWs.send()`, which does Zod validation and
+   * throws a structured `ShareWsError` on error frames.
+   *
+   * Unlike sendAndWait, this does NOT serialize — concurrent share requests
+   * correlate by id, so install + preview + cancel can all be in flight at once.
+   * Listens on the manager's EventEmitter to survive reconnects.
+   */
+  sendAndWaitById(msg: { id: string; [k: string]: unknown }, timeoutMs = 300000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+      const requestId = msg.id;
+      const handler = (response: any) => {
+        if (response && response.id === requestId) {
+          cleanup();
+          resolve(response);
+        }
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timeout waiting for share response id=${requestId}`));
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.removeListener('message', handler);
+      };
+      this.on('message', handler);
+      this.ws.send(JSON.stringify(msg));
+    });
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     this.reconnectTimer = setInterval(async () => {
