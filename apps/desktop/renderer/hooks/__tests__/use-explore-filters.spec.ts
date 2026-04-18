@@ -8,7 +8,7 @@ import { useExploreFilters } from '../use-explore-filters';
 
 function makeWrapper(searchParams: string = '') {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(NuqsTestingAdapter, { searchParams }, children);
+    return createElement(NuqsTestingAdapter, { searchParams, children });
   };
 }
 
