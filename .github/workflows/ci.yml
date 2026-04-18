@@ -5,19 +5,58 @@ on:
     branches: [main]
 
 jobs:
-  lint-rust:
+  rust:
+    name: Rust build + test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-dev
-      - run: make lint-rust
+      - name: cargo fmt
+        run: cargo fmt --check
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
 
-  test-rust:
+  node-checks:
+    name: Node typecheck + lint + format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+
+  node-test:
+    name: Node tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  types-drift:
+    name: ts-rs drift check
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,40 +64,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-dev
-      - run: make test-rust
-      - name: Verify default build without guard feature
-        shell: bash
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Regenerate shared types and check for drift
         run: |
-          cargo build --package omni-host
-          cargo test --package omni-host
-          cargo test --package omni-guard-trait
-          cargo test --package omni-guard-trait --features serde
-
-  lint-desktop:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - run: make install
-      - run: make lint-desktop
-
-  test-desktop:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - run: make install
-      - run: make test-desktop
+          cargo test -p shared
+          git diff --exit-code packages/shared-types/src/generated
 
   worker-zip-compat:
     # Umbrella §8.2 gate: .omnipkg bundles must open in stock GNU unzip +
@@ -67,12 +84,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
       - uses: pnpm/action-setup@v4
         with:
           version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -84,11 +102,19 @@ jobs:
       - name: Install archive tools
         run: sudo apt-get update && sudo apt-get install -y unzip p7zip-full
       - name: Install JS deps
-        working-directory: services/omni-themes-worker
+        working-directory: apps/worker
         run: pnpm install --frozen-lockfile
       - name: Build WASM + fixtures
-        working-directory: services/omni-themes-worker
+        working-directory: apps/worker
         run: pnpm build:wasm && node test/fixtures/generate.mjs
       - name: Run zip-compat suite
-        working-directory: services/omni-themes-worker
+        working-directory: apps/worker
         run: pnpm vitest run --config vitest.node.config.ts
+
+  structure:
+    name: Structural invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check structure
+        run: ./scripts/check-structure.sh
