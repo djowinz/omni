@@ -50,7 +50,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 const SEED = hexToBytes(SEED_HEX);
 
 // Minimal valid overlay: the sanitize handler requires a <overlay>-rooted
-// XML document (see crates/omni-sanitize/src/handlers/overlay.rs). The W1T3
+// XML document (see crates/sanitize/src/handlers/overlay.rs). The W1T3
 // on-disk fixture uses an HTML-doctype variant that is NEVER put through the
 // full sanitize pipeline in existing tests — we need a real overlay payload
 // here so the theme-only happy-path actually reaches a 200 response.
@@ -106,7 +106,7 @@ async function buildSignedBundle(opts: BundleOpts = {}): Promise<Uint8Array> {
     ),
     resource_kinds: {
       // `dir` is matched exactly against the path segment (see
-      // crates/omni-sanitize/src/handlers/mod.rs::matches_dir_ext) — must NOT
+      // crates/sanitize/src/handlers/mod.rs::matches_dir_ext) — must NOT
       // include a trailing slash, else it falls through to the default
       // handler whose default_max_size silently shadows the declared cap.
       theme: {
@@ -195,7 +195,7 @@ describe("BundleProcessor DO — sanitize pipeline", () => {
     // the size-exceeded check fires regardless of whether the dispatch uses
     // the declared resource_kinds or falls through to the built-in default.
     // The size check runs before any per-kind handler sanitize (see
-    // crates/omni-sanitize/src/lib.rs main loop).
+    // crates/sanitize/src/lib.rs main loop).
     // Use pseudo-random bytes so DEFLATE can't compress them — the unpack
     // ZipBomb guard (compressed_ratio > N) fires on highly-compressible
     // payloads before the per-file size check runs, so repeated-padding

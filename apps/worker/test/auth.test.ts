@@ -8,7 +8,7 @@ import { verifyJws, AuthError } from "../src/lib/auth";
  * Tier B — Miniflare-backed tests for the attached-payload JWS verifier
  * (`src/lib/auth.ts`). Every JWS fed to `verifyJws` is minted with
  * `@noble/ed25519` using the shipped `HttpJwsClaims` wire shape from
- * `crates/omni-identity/src/http_jws.rs`:
+ * `crates/identity/src/http_jws.rs`:
  *
  *   signing_input = base64url(header_json) + '.' + base64url(claims_json)
  *   header_json   = {"typ":"Omni-HTTP-JWS","alg":"EdDSA"}
@@ -107,7 +107,7 @@ interface SignOptions {
 
 /**
  * Mint a compact JWS byte-for-byte equivalent to the shipped `sign_http_jws`
- * oracle in `crates/omni-identity/src/http_jws.rs`. Header is
+ * oracle in `crates/identity/src/http_jws.rs`. Header is
  * `{"typ":"Omni-HTTP-JWS","alg":"EdDSA"}` (jsonwebtoken::Header default field
  * order). Claims are the 11 `HttpJwsClaims` fields in struct-declaration
  * order; `kid` / `df` are standard base64.

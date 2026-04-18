@@ -7,7 +7,7 @@ import { signJws as signJwsShared } from "./helpers/signer";
 /**
  * Tier B — Miniflare-backed tests for POST /v1/report (plan #008 W3T13,
  * contract §4.7). The test mints compact JWS envelopes byte-for-byte
- * equivalent to the native oracle (see `crates/omni-identity/src/
+ * equivalent to the native oracle (see `crates/identity/src/
  * wasm_jws_core.rs`), hits the real route through `app.request`, and
  * inspects KV (`reports:<uuid>`) + D1 (`artifacts.report_count`) for
  * durable side-effects.

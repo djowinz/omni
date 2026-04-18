@@ -8,7 +8,7 @@
  * verify the compact JWS directly with `crypto.subtle.verify('Ed25519', …)`).
  *
  * **Signing-input shape.** Byte-parity oracle is
- * `crates/omni-identity/src/http_jws.rs::sign_http_jws` (delegates to
+ * `crates/identity/src/http_jws.rs::sign_http_jws` (delegates to
  * `Keypair::sign_jws`). The oracle signs a standard attached-payload compact
  * JWS:
  *
@@ -146,7 +146,7 @@ function asClaims(v: unknown): HttpJwsClaims {
  * required) to bytes via the Web Crypto runtime's `atob`. Separate from the
  * url-safe helpers in `src/lib/base64url.ts` because the shipped host encodes
  * `kid` / `df` with the standard alphabet + padding (see
- * `crates/omni-identity/src/http_jws.rs`). Throws on any non-base64 input.
+ * `crates/identity/src/http_jws.rs`). Throws on any non-base64 input.
  */
 function b64StdDecode(s: string): Uint8Array {
   // `atob` throws on invalid input; caller wraps in try/catch.

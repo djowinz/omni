@@ -1,7 +1,7 @@
 # Canonical hash algorithm
 
 **Status:** Authoritative (Phase 0, `schema_version = 1`). Changes require umbrella update + new `schema_version`.
-**Applies to:** any implementation that computes a content-addressed hash for an Omni bundle or theme artifact — native Rust (`crates/omni-bundle`), Worker WASM (`services/omni-themes-worker`), and any future reimplementation.
+**Applies to:** any implementation that computes a content-addressed hash for an Omni bundle or theme artifact — native Rust (`crates/bundle`), Worker WASM (`apps/worker`), and any future reimplementation.
 
 **Why this file exists:** dedup across host and Worker depends on byte-identical hash output. This algorithm is the cross-language interop contract. Drift between implementations breaks dedup and signature verification silently.
 
@@ -40,7 +40,7 @@ There is one axis: `Manifest.schema_version: u32` (currently `1`). Any change to
 
 Canonical fixture (match across implementations):
 
-- **Golden manifest:** `crates/omni-bundle/tests/fixtures/golden-manifest.json` (RFC 8785 JCS output of a known `sample()` manifest with zero-filled per-file hashes)
-- **Golden hash:** `crates/omni-bundle/tests/fixtures/golden-hash.hex` — `a31d0150e9817450f012a2a8941e3232a0b1527dab386d6a34312f265ee4c548`
+- **Golden manifest:** `crates/bundle/tests/fixtures/golden-manifest.json` (RFC 8785 JCS output of a known `sample()` manifest with zero-filled per-file hashes)
+- **Golden hash:** `crates/bundle/tests/fixtures/golden-hash.hex` — `a31d0150e9817450f012a2a8941e3232a0b1527dab386d6a34312f265ee4c548`
 
-Every implementation (Rust native, Rust wasm, future TypeScript edge) MUST reproduce this hex given the JSON file bytes. CI gate: `crates/omni-bundle/tests/golden_fixture.rs` — fails loudly if drift appears; regenerate fixtures via `WRITE_GOLDEN=1 cargo test -p omni-bundle --test golden_fixture` when the sample or algorithm legitimately changes.
+Every implementation (Rust native, Rust wasm, future TypeScript edge) MUST reproduce this hex given the JSON file bytes. CI gate: `crates/bundle/tests/golden_fixture.rs` — fails loudly if drift appears; regenerate fixtures via `WRITE_GOLDEN=1 cargo test -p omni-bundle --test golden_fixture` when the sample or algorithm legitimately changes.

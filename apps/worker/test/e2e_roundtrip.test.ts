@@ -14,7 +14,7 @@
  *      rather than reading the committed `.omnipkg` from disk.
  *   3. POST `/v1/upload` with a detached JWS signed by `@noble/ed25519`, the
  *      same wire shape as upload.test.ts / auth.test.ts: header `{typ:"JWT",
- *      alg:"EdDSA"}`, claims body per `crates/omni-identity/src/wasm_jws_core`.
+ *      alg:"EdDSA"}`, claims body per `crates/identity/src/wasm_jws_core`.
  *   4. GET `/v1/list?kind=theme&sort=new`; expect the new artifact row.
  *   5. GET `/v1/download/:artifact_id`; expect 200 + contract headers
  *      `X-Omni-Content-Hash`, `X-Omni-Author-Pubkey`, `X-Omni-Signature`,

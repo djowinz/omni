@@ -102,7 +102,7 @@ app.get("/:id", async (c) => {
   // signature available at all (JWS was stripped during sanitize). Future: if
   // we need to expose the signature for the signed path, add a
   // `signatureBytes()` accessor to `WasmSignedBundleHandle` in
-  // `crates/omni-identity/src/wasm.rs` and conditionally emit the header here.
+  // `crates/identity/src/wasm.rs` and conditionally emit the header here.
   let manifestB64 = "";
   try {
     const { bundle } = await loadWasm();

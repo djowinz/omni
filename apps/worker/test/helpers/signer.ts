@@ -2,7 +2,7 @@
  * Shared JWS signer for Tier-B Miniflare integration tests.
  *
  * Mints a compact JWS byte-for-byte equivalent to the shipped `sign_http_jws`
- * oracle in `crates/omni-identity/src/http_jws.rs` — the single source of
+ * oracle in `crates/identity/src/http_jws.rs` — the single source of
  * truth for the HttpJwsClaims wire shape consumed by `src/lib/auth.ts`.
  *
  *   signing_input = base64url(header_json) + '.' + base64url(claims_json)
@@ -80,7 +80,7 @@ export async function signJws(p: SignJwsParams): Promise<string> {
   const sanitize_version = p.sanitizeVersion ?? 1;
 
   // Field order matches `HttpJwsClaims` struct declaration in
-  // crates/omni-identity/src/http_jws.rs: alg, crv, typ, kid, df, ts,
+  // crates/identity/src/http_jws.rs: alg, crv, typ, kid, df, ts,
   // method, path, query_sha256, body_sha256, sanitize_version.
   const claims = {
     alg: "EdDSA",

@@ -42,7 +42,7 @@ A Rust service (`omni-host.exe`) that runs with administrator privileges. Respon
 - **Overlay injection** — Writes rendered bitmap to shared memory for the overlay process
 - **WebSocket API** — Serves the desktop editor on `ws://127.0.0.1:9473`
 
-### Overlay Process (`crates/overlay-exe/`)
+### Overlay Process (`crates/overlay/`)
 
 A lightweight process (`omni-overlay.exe`) that renders the overlay on top of games:
 

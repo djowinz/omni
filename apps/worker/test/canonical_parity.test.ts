@@ -2,11 +2,11 @@
  * Canonical-hash WASM↔native parity (umbrella §8.2, plan #008 W4T15).
  *
  * Invariant #6: canonical hash = SHA-256(RFC 8785 JCS manifest bytes). The
- * Rust-side test `crates/omni-bundle/tests/hash.rs::canonical_hash_matches_golden`
+ * Rust-side test `crates/bundle/tests/hash.rs::canonical_hash_matches_golden`
  * asserts native parity against the same committed golden fixtures:
- *   - `crates/omni-bundle/tests/fixtures/golden-manifest.json` — the JCS
+ *   - `crates/bundle/tests/fixtures/golden-manifest.json` — the JCS
  *     canonical bytes of a known manifest (byte-stable, includable as-is).
- *   - `crates/omni-bundle/tests/fixtures/golden-hash.hex` — the expected
+ *   - `crates/bundle/tests/fixtures/golden-hash.hex` — the expected
  *     SHA-256 hex of those bytes.
  *
  * This file proves WASM agrees by performing a three-way assertion:
@@ -43,9 +43,9 @@ import { loadWasm } from "../src/lib/wasm";
 // to these two lines — if a future config makes `?raw` resolvable in the
 // type system, tsc will flag the directives as unused and prompt removal.
 // @ts-expect-error — `?raw` is a Vite import suffix handled at transform time.
-import manifestRaw from "../../../crates/omni-bundle/tests/fixtures/golden-manifest.json?raw";
+import manifestRaw from "../../../crates/bundle/tests/fixtures/golden-manifest.json?raw";
 // @ts-expect-error — `?raw` is a Vite import suffix handled at transform time.
-import hashRaw from "../../../crates/omni-bundle/tests/fixtures/golden-hash.hex?raw";
+import hashRaw from "../../../crates/bundle/tests/fixtures/golden-hash.hex?raw";
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)

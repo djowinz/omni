@@ -4,7 +4,7 @@
  * `src/wasm/`, so we declare the exports we actually use. Exhaustive-enough
  * for the loader + consumers; extend as new wasm entrypoints get wired.
  *
- * The `#[wasm_bindgen]` source of truth lives in `crates/omni-{bundle,
+ * The `#[wasm_bindgen]` source of truth lives in `crates/{bundle,
  * identity,sanitize}/src/wasm.rs`. Keep these signatures in lockstep.
  */
 
