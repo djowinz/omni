@@ -14,8 +14,7 @@
  * My Uploads depends on #015's upload.list flow.
  */
 
-import { Plus, Upload as UploadIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Compass, Upload as UploadIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useExploreFilters, type ExploreTab } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
@@ -47,29 +46,42 @@ export function ExplorePanel() {
 
   return (
     <div className="flex h-full flex-col bg-[#0D0D0F]">
-      <header className="flex items-center justify-between border-b border-[#27272A] px-4 py-2">
-        <nav className="flex items-center gap-1">
+      {/* Header mirrors the Components / Editor / Preview panel pattern:
+          h-10 height, #18181B surface, zinc bottom border, colored section
+          icon + label on the left, editor-style tabs with bottom-border active
+          marker, and low-contrast secondary actions on the right. */}
+      <header className="flex h-10 items-center border-b border-[#27272A] bg-[#18181B] overflow-x-auto">
+        <div className="flex items-center gap-2 px-3 h-full">
+          <Compass className="h-4 w-4 text-[#00D9FF]" />
+          <h2 className="text-sm font-medium text-[#FAFAFA]">Explore</h2>
+        </div>
+        <nav className="flex h-full items-stretch">
           {SUBTABS.map((t) => (
             <button
               key={t.id}
               data-testid={`explore-subtab-${t.id}`}
               onClick={() => filters.setTab(t.id)}
               className={cn(
-                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                'flex items-center gap-2 px-4 h-full text-xs border-l border-[#27272A] transition-colors whitespace-nowrap',
                 filters.tab === t.id
-                  ? 'bg-[#27272A] text-[#FAFAFA]'
-                  : 'text-zinc-400 hover:bg-[#27272A]/50 hover:text-zinc-200',
+                  ? 'bg-[#0D0D0F] text-[#FAFAFA] border-b-2 border-b-[#00D9FF]'
+                  : 'text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#27272A]/50',
               )}
             >
               {t.label}
             </button>
           ))}
         </nav>
-        <Button data-testid="explore-upload-cta" size="sm" onClick={handleUpload} className="gap-1">
-          <Plus className="h-4 w-4" aria-hidden />
-          <UploadIcon className="h-4 w-4" aria-hidden />
+        <div className="flex-1" />
+        <button
+          data-testid="explore-upload-cta"
+          onClick={handleUpload}
+          className="flex items-center gap-1.5 px-3 h-full text-[10px] uppercase tracking-wider text-[#71717A] hover:text-[#FAFAFA] transition-colors"
+          title="Publish a theme or bundle"
+        >
+          <UploadIcon className="h-3.5 w-3.5" aria-hidden />
           Upload
-        </Button>
+        </button>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
