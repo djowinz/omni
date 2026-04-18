@@ -1,94 +1,82 @@
-.PHONY: build test lint format clean rust desktop installer release release-notes
+# Omni — top-level build/test/release orchestration.
+# See STRUCTURE.md for the monorepo layout.
 
-# Build everything
-build: rust desktop
+.PHONY: build test lint format clean \
+        rust test-rust lint-rust format-rust clean-rust \
+        node test-node lint-node format-node clean-node \
+        installer release release-notes \
+        dev-desktop dev-worker deploy-worker \
+        types-gen types-check structure-check
 
-# Run all tests
-test: test-rust test-desktop
+# --- Top-level ---
+build:    rust node
+test:     test-rust test-node
+lint:     lint-rust lint-node
+format:   format-rust format-node
+clean:    clean-rust clean-node
 
-# Lint everything
-lint: lint-rust lint-desktop
-
-# ── Rust ─────────────────────────────────────────────────────────────────
-
-# Build Rust binaries (release) + test
+# --- Rust ---
 rust:
-	./scripts/build-rust.sh
+	cargo build --release --workspace
 
-# Build Rust without tests
-rust-fast:
-	./scripts/build-rust.sh --skip-tests
-
-# Run Rust tests only
 test-rust:
 	cargo test --workspace
 
-# Run clippy
 lint-rust:
+	cargo fmt --check
 	cargo clippy --workspace -- -D warnings
 
-# ── Desktop ──────────────────────────────────────────────────────────────
-
-# Build desktop app + test
-desktop:
-	./scripts/build-desktop.sh
-
-# Build desktop without tests
-desktop-fast:
-	./scripts/build-desktop.sh --skip-tests
-
-# Run desktop tests only
-test-desktop:
-	cd apps/desktop && pnpm test
-
-# Check TypeScript formatting
-lint-desktop:
-	cd apps/desktop && pnpm format:check
-
-# ── Formatting ────────────────────────────────────────────────────────────
-
-# Format everything
-format: format-rust format-desktop
-
-# Format Rust
 format-rust:
-	cargo fmt --all
+	cargo fmt
 
-# Format TypeScript
-format-desktop:
-	cd apps/desktop && pnpm format
+clean-rust:
+	cargo clean
 
-# ── Packaging ────────────────────────────────────────────────────────────
+# --- Node (pnpm workspace) ---
+node:
+	pnpm -r build
 
-# Build the NSIS installer (builds rust + desktop first)
-installer: rust desktop
+test-node:
+	pnpm -r test
+
+lint-node:
+	pnpm -r lint
+
+format-node:
+	pnpm format
+
+clean-node:
+	pnpm -r clean || true
+	rm -rf node_modules
+
+# --- Desktop installer pipeline (wraps existing scripts) ---
+installer:
 	./scripts/build-installer.sh
 
-# Full release pipeline
 release:
-	./scripts/release.sh $(INCREMENT)
+	./scripts/release.sh
 
-# Generate release notes
 release-notes:
-	@if [ -z "$(VERSION)" ]; then echo "Usage: make release-notes VERSION=1.2.3"; exit 1; fi
-	./scripts/gen-release-notes.sh $(VERSION)
+	./scripts/gen-release-notes.sh
 
-# ── Development ──────────────────────────────────────────────────────────
+# --- Dev shortcuts ---
+dev-desktop:
+	pnpm dev:desktop
 
-# Start desktop dev server
-dev:
-	cd apps/desktop && pnpm dev
+dev-worker:
+	pnpm dev:worker
 
-# Install desktop dependencies
-install:
-	cd apps/desktop && pnpm install
+deploy-worker:
+	./scripts/deploy-worker.sh
 
-# Clean all build artifacts
-clean:
-	cargo clean
-	rm -rf apps/desktop/dist/win-unpacked
-	rm -rf apps/desktop/dist/OmniSetup*
-	rm -rf apps/desktop/dist/latest.yml
-	rm -rf apps/desktop/app
-	rm -rf apps/desktop/renderer/.next
-	rm -rf apps/desktop/renderer/generated
+# --- Shared types ---
+types-gen:
+	cargo test -p shared
+
+types-check:
+	cargo test -p shared
+	git diff --exit-code packages/shared-types/src/generated
+
+# --- Structure invariants ---
+structure-check:
+	./scripts/check-structure.sh
