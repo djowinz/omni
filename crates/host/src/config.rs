@@ -17,7 +17,7 @@ pub fn data_dir() -> PathBuf {
 
 /// Top-level application configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 #[serde(default)]
 pub struct Config {
     /// Name of the active overlay folder (under overlays/).
@@ -38,7 +38,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 #[serde(default)]
 pub struct KeybindConfig {
     /// Key to toggle overlay visibility.

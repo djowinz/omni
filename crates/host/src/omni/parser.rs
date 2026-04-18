@@ -17,7 +17,7 @@ use super::validation;
 
 /// Severity level for parse diagnostics.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub enum Severity {
     Error,
     Warning,
@@ -25,7 +25,7 @@ pub enum Severity {
 
 /// A parse error/warning with position and optional suggestion.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct ParseError {
     pub message: String,
     pub severity: Severity,

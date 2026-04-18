@@ -8,7 +8,7 @@ use ts_rs::TS;
 
 /// A parsed .omni file containing a theme reference and widget definitions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct OmniFile {
     /// Optional path to a theme CSS file.
     pub theme_src: Option<String>,
@@ -20,7 +20,7 @@ pub struct OmniFile {
 
 /// A single widget definition with its template and scoped styles.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct Widget {
     /// Unique identifier (required).
     pub id: String,
@@ -36,7 +36,7 @@ pub struct Widget {
 
 /// A conditional class binding parsed from `class:name="expression"` attributes.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct ConditionalClass {
     pub class_name: String,
     pub expression: String,
@@ -44,7 +44,7 @@ pub struct ConditionalClass {
 
 /// A node in the HTML template tree.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../../apps/desktop/renderer/generated/")]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 #[serde(tag = "type")]
 pub enum HtmlNode {
     Element {
