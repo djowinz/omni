@@ -74,6 +74,9 @@ pub fn build_initial_html(
     };
 
     let feather_css = load_feather_css(data_dir);
+    // Overlay-owned fonts in overlays/<name>/fonts/ — emitted as @font-face
+    // with base64 data URIs so theme CSS can reference them by filename stem.
+    let overlay_fonts_css = load_overlay_fonts_css(data_dir, overlay_name);
 
     for widget in &omni_file.widgets {
         if !widget.enabled {
@@ -95,11 +98,13 @@ pub fn build_initial_html(
 
     // Combine all CSS for the structured output.
     // Include the same base reset as full_document so the preview renders identically.
-    // Order: reset → feather → chart defaults → theme → widget. Widgets and themes
-    // override chart defaults; chart defaults override feather icons.
+    // Order: reset → feather → overlay fonts → chart defaults → theme → widget.
+    // Overlay fonts ship right after feather so theme CSS can reference them
+    // alongside built-in icons; widgets and themes override chart defaults.
     let css = format!(
-        "*{{margin:0;padding:0;box-sizing:border-box}}\n{feather_css}\n{chart_css}\n{theme_css}\n{widget_css}",
+        "*{{margin:0;padding:0;box-sizing:border-box}}\n{feather_css}\n{overlay_fonts_css}\n{chart_css}\n{theme_css}\n{widget_css}",
         feather_css = feather_css,
+        overlay_fonts_css = overlay_fonts_css,
         chart_css = DEFAULT_CHART_CSS,
         theme_css = theme_css,
         widget_css = widget_css,
@@ -115,6 +120,7 @@ pub fn build_initial_html(
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:{vw}px;height:{vh}px;background:transparent;overflow:hidden}}
 {feather_css}
+{overlay_fonts_css}
 {chart_css}
 {theme_css}
 {widget_css}
@@ -768,73 +774,94 @@ fn load_theme_css(data_dir: &Path, overlay_name: &str, theme_src: &str) -> Strin
     }
 }
 
+// Feather icon font + class-definition CSS are compiled into the binary so
+// the preview renders identically in dev, production, and thumbnail jobs —
+// no runtime path lookup, no CWD dependency (prior fallback was
+// `crates/host/resources/feather.ttf` relative to process CWD, which
+// failed when the host was spawned from apps/desktop/ in dev).
+const FEATHER_TTF: &[u8] = include_bytes!("../../resources/feather.ttf");
+const FEATHER_CSS: &str = include_str!("../../resources/feather.css");
+
 fn load_feather_css(_data_dir: &Path) -> String {
     let mut css = String::new();
 
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let b64 = simple_base64_encode(FEATHER_TTF);
+    css.push_str(&format!(
+        r#"@font-face{{font-family:"feather";src:url("data:font/truetype;base64,{}") format("truetype");}}"#,
+        b64
+    ));
+    css.push('\n');
 
-    let font_path = exe_dir
-        .as_ref()
-        .map(|d| d.join("feather.ttf"))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            let dev_path = std::path::Path::new("crates/host/resources/feather.ttf");
-            if dev_path.exists() {
-                Some(dev_path.to_path_buf())
-            } else {
-                None
+    // FEATHER_CSS ships with its own @font-face block referencing a relative
+    // url() that won't resolve inside the preview iframe; strip it and keep
+    // only the `.icon-*:before { content: '\\e9xx' }` class definitions.
+    let class_defs = if let Some(face_start) = FEATHER_CSS.find("@font-face") {
+        let mut brace_depth = 0;
+        let mut end_pos = face_start;
+        for (i, ch) in FEATHER_CSS[face_start..].char_indices() {
+            if ch == '{' {
+                brace_depth += 1;
             }
-        });
-
-    if let Some(ref font) = font_path {
-        if let Ok(font_bytes) = std::fs::read(font) {
-            let b64 = simple_base64_encode(&font_bytes);
-            css.push_str(&format!(
-                r#"@font-face{{font-family:"feather";src:url("data:font/truetype;base64,{}") format("truetype");}}"#,
-                b64
-            ));
-            css.push('\n');
+            if ch == '}' {
+                brace_depth -= 1;
+                if brace_depth == 0 {
+                    end_pos = face_start + i + 1;
+                    break;
+                }
+            }
         }
+        &FEATHER_CSS[end_pos..]
+    } else {
+        FEATHER_CSS
+    };
+    css.push_str(class_defs.trim_start_matches(['\n', '\r', ' ']));
+
+    css
+}
+
+/// Enumerate `<data_dir>/overlays/<overlay_name>/fonts/*.{ttf,otf,woff,woff2}`
+/// and emit `@font-face` rules with each file embedded as a base64 data URI.
+/// The font-family name is the filename without extension (convention), so
+/// theme CSS writes `font-family: 'MyFont'` to match `fonts/MyFont.woff2`.
+///
+/// Embedding at the host layer (rather than serving over a URL) guarantees
+/// the preview iframe renders correctly regardless of the iframe's origin —
+/// the outer `omni://` scheme doesn't bleed into the iframe, and base64
+/// data URIs sidestep origin checks entirely.
+fn load_overlay_fonts_css(data_dir: &Path, overlay_name: &str) -> String {
+    use crate::workspace::structure::list_overlay_fonts;
+
+    let mut css = String::new();
+    let files = list_overlay_fonts(data_dir, overlay_name);
+    if files.is_empty() {
+        return css;
     }
 
-    let css_path = exe_dir
-        .as_ref()
-        .map(|d| d.join("feather.css"))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            let dev_path = std::path::Path::new("crates/host/resources/feather.css");
-            if dev_path.exists() {
-                Some(dev_path.to_path_buf())
-            } else {
-                None
-            }
-        });
-
-    if let Some(ref css_file) = css_path {
-        if let Ok(full_css) = std::fs::read_to_string(css_file) {
-            let class_defs = if let Some(face_start) = full_css.find("@font-face") {
-                let mut brace_depth = 0;
-                let mut end_pos = face_start;
-                for (i, ch) in full_css[face_start..].char_indices() {
-                    if ch == '{' {
-                        brace_depth += 1;
-                    }
-                    if ch == '}' {
-                        brace_depth -= 1;
-                        if brace_depth == 0 {
-                            end_pos = face_start + i + 1;
-                            break;
-                        }
-                    }
-                }
-                &full_css[end_pos..]
-            } else {
-                &full_css
-            };
-            css.push_str(class_defs.trim_start_matches(['\n', '\r', ' ']));
-        }
+    let overlay_fonts_dir = data_dir.join("overlays").join(overlay_name).join("fonts");
+    for file in files {
+        let path = overlay_fonts_dir.join(&file);
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let (mime, format) = match path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("ttf") => ("font/truetype", "truetype"),
+            Some("otf") => ("font/opentype", "opentype"),
+            Some("woff") => ("font/woff", "woff"),
+            Some("woff2") => ("font/woff2", "woff2"),
+            _ => continue,
+        };
+        let b64 = simple_base64_encode(&bytes);
+        css.push_str(&format!(
+            "@font-face{{font-family:\"{stem}\";src:url(\"data:{mime};base64,{b64}\") format(\"{format}\");}}\n",
+        ));
     }
 
     css
@@ -1248,5 +1275,179 @@ mod render_tests {
         let values = collect_sensor_values(&omni, &snap, &hv);
         assert_eq!(values.get("cpu.usage"), Some(&42.0));
         assert_eq!(values.get("gpu.temp"), Some(&60.0));
+    }
+
+    // ========================================================================
+    // Font embedding regression tests
+    // ========================================================================
+    //
+    // Per feedback_preview_font_tests memory: preview font rendering has broken
+    // 5-6 times silently. These tests inspect the final emitted CSS string for
+    // the specific @font-face blocks + src schemes that the iframe needs to
+    // render icons. DO NOT just assert CSS is non-empty — assert the concrete
+    // substrings that would be missing if the emission path breaks.
+
+    #[test]
+    fn feather_font_emitted_as_base64_data_uri_in_full_document() {
+        // Guards the load_feather_css include_bytes!() path — if someone
+        // reverts to a CWD-relative path lookup, this test fails in CI
+        // regardless of where the runner's CWD is.
+        use crate::omni::view_trust::ViewTrust;
+        let omni_file = minimal_omni_file();
+        let snap = SensorSnapshot::default();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let history = SensorHistory::new();
+        let data_dir = std::path::Path::new(".");
+        let result = build_initial_html(
+            &omni_file,
+            &snap,
+            800,
+            600,
+            data_dir,
+            "test-overlay",
+            &hv,
+            &hu,
+            &history,
+            ViewTrust::LocalAuthored,
+        );
+        assert!(
+            result.full_document.contains(r#"font-family:"feather""#),
+            "full_document must include feather @font-face family — preview icons will be missing-glyph boxes without it"
+        );
+        assert!(
+            result
+                .full_document
+                .contains("data:font/truetype;base64,"),
+            "feather @font-face src must be embedded as a base64 data URI — external url() would fail inside the iframe's about:blank origin"
+        );
+        assert!(
+            result.css.contains(r#"font-family:"feather""#),
+            "structured css field must also carry feather @font-face (used by host-driven preview.html wire message)"
+        );
+    }
+
+    #[test]
+    fn feather_icon_class_defs_emitted_in_full_document() {
+        // Guards the @font-face stripping logic in load_feather_css — if the
+        // brace-counter miscalculates and drops too much, the .icon-*:before
+        // rules get truncated and classes silently stop working.
+        use crate::omni::view_trust::ViewTrust;
+        let omni_file = minimal_omni_file();
+        let snap = SensorSnapshot::default();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let history = SensorHistory::new();
+        let data_dir = std::path::Path::new(".");
+        let result = build_initial_html(
+            &omni_file,
+            &snap,
+            800,
+            600,
+            data_dir,
+            "test-overlay",
+            &hv,
+            &hu,
+            &history,
+            ViewTrust::LocalAuthored,
+        );
+        // Sample a handful of well-known icons — if any are missing the class
+        // def table got truncated.
+        assert!(result.full_document.contains(".icon-cpu:before"));
+        assert!(result.full_document.contains(".icon-thermometer:before"));
+        assert!(result.full_document.contains(".icon-compass:before"));
+    }
+
+    #[test]
+    fn overlay_custom_fonts_emit_font_face_per_file() {
+        // Guards the load_overlay_fonts_css wiring — the feature used to be
+        // half-built (list_overlay_fonts existed but was never consumed).
+        // This test fails if someone accidentally drops the call from
+        // build_initial_html or if the font-family stem extraction breaks.
+        use crate::omni::view_trust::ViewTrust;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().expect("tempdir");
+        let overlay_name = "FontTest";
+        let fonts_dir = tmp.path().join("overlays").join(overlay_name).join("fonts");
+        std::fs::create_dir_all(&fonts_dir).unwrap();
+
+        // Fake but valid-as-bytes font files; the loader doesn't validate font
+        // structure, only reads + base64-encodes.
+        std::fs::write(fonts_dir.join("CustomTTF.ttf"), b"fake-ttf-bytes").unwrap();
+        std::fs::write(fonts_dir.join("CustomWoff2.woff2"), b"fake-woff2-bytes").unwrap();
+
+        let omni_file = minimal_omni_file();
+        let snap = SensorSnapshot::default();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let history = SensorHistory::new();
+
+        let result = build_initial_html(
+            &omni_file,
+            &snap,
+            800,
+            600,
+            tmp.path(),
+            overlay_name,
+            &hv,
+            &hu,
+            &history,
+            ViewTrust::LocalAuthored,
+        );
+
+        assert!(
+            result.full_document.contains(r#"font-family:"CustomTTF""#),
+            "overlay font CustomTTF.ttf must produce a @font-face rule in the preview document"
+        );
+        assert!(
+            result
+                .full_document
+                .contains(r#"font-family:"CustomWoff2""#),
+            "overlay font CustomWoff2.woff2 must produce a @font-face rule in the preview document"
+        );
+        // Distinct mime types per extension — if someone collapses the mime
+        // table to a single value, non-TTF fonts break silently.
+        assert!(result.full_document.contains("data:font/truetype;base64,"));
+        assert!(result.full_document.contains("data:font/woff2;base64,"));
+        // Structured css field must also carry them (used by host-driven preview.html wire message).
+        assert!(result.css.contains(r#"font-family:"CustomTTF""#));
+        assert!(result.css.contains(r#"font-family:"CustomWoff2""#));
+    }
+
+    #[test]
+    fn overlay_with_no_fonts_dir_skips_font_face_injection_cleanly() {
+        // Guards the empty-path — list_overlay_fonts returning [] must not
+        // produce stray/invalid CSS fragments.
+        use crate::omni::view_trust::ViewTrust;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().expect("tempdir");
+        let omni_file = minimal_omni_file();
+        let snap = SensorSnapshot::default();
+        let hv = HashMap::new();
+        let hu = HashMap::new();
+        let history = SensorHistory::new();
+
+        let result = build_initial_html(
+            &omni_file,
+            &snap,
+            800,
+            600,
+            tmp.path(),
+            "NoFonts",
+            &hv,
+            &hu,
+            &history,
+            ViewTrust::LocalAuthored,
+        );
+
+        // No custom fonts declared, so no non-feather @font-face should appear.
+        // Feather is always present; anything beyond it would be stray.
+        let face_count = result.full_document.matches("@font-face").count();
+        assert_eq!(
+            face_count, 1,
+            "expected exactly one @font-face (feather only) when overlay has no fonts/ dir, got {face_count}"
+        );
     }
 }
