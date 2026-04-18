@@ -53,6 +53,9 @@ apps/worker/src/wasm/*.d.ts
 apps/worker/test/fixtures/*.omnipkg
 apps/worker/test/fixtures/fixtures.json
 
+# Dev loop fixtures — per-machine synthetic author keypairs (see docs/superpowers/specs/2026-04-18-local-dev-worker-design.md)
+apps/worker/seed/dev-fixtures/
+
 # Old (deleted) paths — prevent accidental resurrection
 /default/
 /services/
