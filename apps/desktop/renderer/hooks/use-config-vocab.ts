@@ -29,15 +29,19 @@ export interface ConfigVocabState {
   version: number | null;
   loading: boolean;
   error: ShareWsError | null;
+  /** Re-kick the fetch after an error. No-op while a request is already in flight or cache is warm. */
+  retry: () => void;
 }
 
 export function useConfigVocab(): ConfigVocabState {
   const { send } = useShareWs();
-  const [state, setState] = useState<ConfigVocabState>(() =>
+  const [state, setState] = useState<Omit<ConfigVocabState, 'retry'>>(() =>
     cached
       ? { tags: cached.tags, version: cached.version, loading: false, error: null }
       : { tags: [], version: null, loading: true, error: null },
   );
+  // Tick bumps on retry() to force the fetch effect to re-run.
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (cached) return;
@@ -50,6 +54,7 @@ export function useConfigVocab(): ConfigVocabState {
       })();
     }
     let alive = true;
+    setState((prev) => ({ ...prev, loading: true, error: null }));
     inFlight
       .then((next) => {
         if (!alive) return;
@@ -63,7 +68,12 @@ export function useConfigVocab(): ConfigVocabState {
     return () => {
       alive = false;
     };
-  }, [send]);
+  }, [send, tick]);
 
-  return state;
+  const retry = () => {
+    if (cached || inFlight) return;
+    setTick((n) => n + 1);
+  };
+
+  return { ...state, retry };
 }

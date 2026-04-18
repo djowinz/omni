@@ -10,7 +10,7 @@
  * IntersectionObserver lifecycle.
  */
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useInView } from 'react-intersection-observer';
 import type { CachedArtifactDetail } from '../../lib/share-types';
@@ -48,12 +48,15 @@ export function ExploreGrid({
     threshold: 0.1,
   });
 
-  if (inView && hasMore && !loading) {
-    // Fire in-render is usually bad, but useInView keeps a stable ref so we
-    // only call once per transition into view; onLoadMore itself is guarded
-    // by an in-flight flag in the hook.
-    onLoadMore();
-  }
+  // Fire the load-more request from an effect so we don't trigger an update
+  // during another component's render. `onLoadMore` is also guarded by an
+  // in-flight flag in the hook, but keeping this out of the render body
+  // avoids React's "setState during render" warning.
+  useEffect(() => {
+    if (inView && hasMore && !loading) {
+      onLoadMore();
+    }
+  }, [inView, hasMore, loading, onLoadMore]);
 
   if (!loading && items.length === 0) {
     return <ExploreEmptyState label={emptyLabel} hint={emptyHint} />;
