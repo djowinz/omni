@@ -1,0 +1,4 @@
+# ts-rs generated files are committed — do not ignore them here.
+# Build outputs only.
+dist/
+*.tsbuildinfo
