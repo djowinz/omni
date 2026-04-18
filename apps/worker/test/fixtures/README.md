@@ -1,12 +1,12 @@
 # Worker test fixtures
 
 Deterministic signed `.omnipkg` bundles used across every route test in
-`services/omni-themes-worker/test/`. Generated on demand (`pnpm pretest`)
+`apps/worker/test/`. Generated on demand (`pnpm pretest`)
 from a hardcoded seed — **never committed to git**.
 
 ## Regenerating
 
-From `services/omni-themes-worker/`:
+From `apps/worker/`:
 
 ```bash
 pnpm pretest          # build:wasm + generate

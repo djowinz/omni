@@ -3,7 +3,7 @@
  *
  * Implements the JWS envelope verification procedure from
  * `docs/contracts/worker-api.md` §2 using the Web Crypto
- * fallback path (see `services/omni-themes-worker/docs/jws-library-decision.md`
+ * fallback path (see `apps/worker/docs/jws-library-decision.md`
  * — the `@tsndr/cloudflare-worker-jwt` library does not support EdDSA so we
  * verify the compact JWS directly with `crypto.subtle.verify('Ed25519', …)`).
  *

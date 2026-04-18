@@ -44,7 +44,7 @@ test/
 Requires Node ≥ 20.
 
 ```bash
-cd services/omni-themes-worker
+cd apps/worker
 npm install
 npm test                   # 15 tests across tier C + tier B
 npx wrangler dev --local   # interactive local dev at http://127.0.0.1:8787
