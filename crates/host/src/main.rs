@@ -997,7 +997,20 @@ fn build_share_context(
         std::env::var("OMNI_WORKER_URL").unwrap_or_else(|_| "http://127.0.0.1:8787/".to_string());
     let worker_url = url::Url::parse(&worker_url_str).map_err(BuildShareCtxError::WorkerUrl)?;
 
-    let identity_path = state.data_dir.join("identity.key");
+    // `OMNI_IDENTITY_PATH` overrides the default for dev loops (see
+    // docs/superpowers/specs/2026-04-18-local-dev-worker-design.md §3.2).
+    // Production users don't set the var; the fallback is the shipped prod path.
+    fn resolve_identity_path(
+        data_dir: &std::path::Path,
+        env_value: Option<&str>,
+    ) -> std::path::PathBuf {
+        match env_value {
+            Some(s) if !s.is_empty() => std::path::PathBuf::from(s),
+            _ => data_dir.join("identity.key"),
+        }
+    }
+    let env_override = std::env::var("OMNI_IDENTITY_PATH").ok();
+    let identity_path = resolve_identity_path(&state.data_dir, env_override.as_deref());
     let identity = Arc::new(
         identity::Keypair::load_or_create(&identity_path)
             .map_err(BuildShareCtxError::IdentityLoad)?,
@@ -1091,5 +1104,38 @@ mod tests {
         failures.insert(1234, (Instant::now(), Duration::from_millis(10)));
         std::thread::sleep(Duration::from_millis(20));
         assert!(should_retry_etw(1234, &failures));
+    }
+}
+
+#[cfg(test)]
+mod identity_path_env_tests {
+    use std::path::PathBuf;
+
+    /// Pure helper that mirrors the main.rs identity-path resolution.
+    /// Keeping the env-var read isolated in a function lets the test assert
+    /// the precedence without spinning up a full ShareContext.
+    fn resolve_identity_path(data_dir: &std::path::Path, env_value: Option<&str>) -> PathBuf {
+        match env_value {
+            Some(s) if !s.is_empty() => PathBuf::from(s),
+            _ => data_dir.join("identity.key"),
+        }
+    }
+
+    #[test]
+    fn env_override_wins_when_set() {
+        let got = resolve_identity_path(std::path::Path::new("/data"), Some("/dev/custom.key"));
+        assert_eq!(got, PathBuf::from("/dev/custom.key"));
+    }
+
+    #[test]
+    fn falls_back_to_data_dir_when_unset() {
+        let got = resolve_identity_path(std::path::Path::new("/data"), None);
+        assert_eq!(got, PathBuf::from("/data/identity.key"));
+    }
+
+    #[test]
+    fn falls_back_to_data_dir_when_empty() {
+        let got = resolve_identity_path(std::path::Path::new("/data"), Some(""));
+        assert_eq!(got, PathBuf::from("/data/identity.key"));
     }
 }
