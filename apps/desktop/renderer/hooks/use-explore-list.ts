@@ -21,6 +21,8 @@ export interface ExploreListFilters {
   sort: 'new' | 'installs' | 'name';
   tags: string[];
   q: string;
+  /** Optional 64-hex pubkey filter — used by My Uploads to scope the list. */
+  authorPubkey?: string;
 }
 
 export interface ExploreListState {
@@ -41,6 +43,7 @@ function toListParams(filters: ExploreListFilters, cursor: string | null): Explo
     tags: filters.tags,
     cursor,
     limit: PAGE_SIZE,
+    author_pubkey: filters.authorPubkey,
   };
 }
 
@@ -60,6 +63,7 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
     effectiveFilters.sort,
     effectiveFilters.tags,
     effectiveFilters.q,
+    effectiveFilters.authorPubkey,
   ]);
 
   const doFetch = useCallback(
@@ -69,9 +73,15 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
       setLoading(true);
       setError(null);
       try {
-        if (effectiveFilters.tab !== 'discover') {
-          // Installed + my-uploads deferred to sibling sub-specs — return empty.
-          // Use functional setter so we don't need `items` in the dep array.
+        if (effectiveFilters.tab === 'installed') {
+          // Installed tab deferred to #016 — return empty.
+          setItems((prev) => (append ? prev : []));
+          setNextCursor(null);
+          return;
+        }
+        if (effectiveFilters.tab === 'my-uploads' && !effectiveFilters.authorPubkey) {
+          // My Uploads without a pubkey can't produce results — return empty,
+          // let the caller set authorPubkey after identity.show resolves.
           setItems((prev) => (append ? prev : []));
           setNextCursor(null);
           return;

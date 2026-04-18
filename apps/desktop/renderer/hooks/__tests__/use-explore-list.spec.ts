@@ -124,7 +124,7 @@ describe('useExploreList', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('my-uploads tab returns empty without calling send (Wave 3b placeholder)', async () => {
+  it('my-uploads tab without authorPubkey returns empty without calling send', async () => {
     const send = stubSend(() => ({ items: [], next_cursor: null }));
     vi.doMock('../use-share-ws', () => ({ useShareWs: () => ({ send, subscribe: vi.fn() }) }));
     const { useExploreList } = await import('../use-explore-list');
@@ -136,5 +136,34 @@ describe('useExploreList', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items).toEqual([]);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('my-uploads tab with authorPubkey sends filter to explorer.list', async () => {
+    const send = stubSend((_, params) => {
+      expect((params as { author_pubkey?: string }).author_pubkey).toBe('ab'.repeat(32));
+      return {
+        id: 'r1',
+        type: 'explorer.listResult',
+        items: [FIXTURE_ITEM],
+        next_cursor: null,
+      };
+    });
+    vi.doMock('../use-share-ws', () => ({ useShareWs: () => ({ send, subscribe: vi.fn() }) }));
+    const { useExploreList } = await import('../use-explore-list');
+
+    const { result } = renderHook(() =>
+      useExploreList({
+        tab: 'my-uploads',
+        kind: 'all',
+        sort: 'new',
+        tags: [],
+        q: '',
+        authorPubkey: 'ab'.repeat(32),
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.items).toEqual([FIXTURE_ITEM]);
+    expect(send).toHaveBeenCalled();
   });
 });

@@ -117,6 +117,13 @@ export const ExplorerListParamsSchema = z.object({
   tags: z.array(z.string()).optional(),
   cursor: z.string().nullable().optional(),
   limit: z.number().int().positive().optional(),
+  // Optional 64-hex author pubkey filter. When set, the worker returns
+  // only that author's artifacts. Consumed by My Uploads (#015) which
+  // passes the editor's own pubkey to show the current user's uploads.
+  author_pubkey: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
+    .optional(),
 });
 export type ExplorerListParams = z.infer<typeof ExplorerListParamsSchema>;
 
