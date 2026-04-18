@@ -37,10 +37,10 @@ services/**/.dev.vars
 .wrangler
 
 # Worker WASM build outputs
-services/omni-themes-worker/src/wasm/*.wasm
-services/omni-themes-worker/src/wasm/*.js
-services/omni-themes-worker/src/wasm/*.d.ts
+apps/worker/src/wasm/*.wasm
+apps/worker/src/wasm/*.js
+apps/worker/src/wasm/*.d.ts
 
 # Worker test fixtures (regenerated from seed; never commit binaries)
-services/omni-themes-worker/test/fixtures/*.omnipkg
-services/omni-themes-worker/test/fixtures/fixtures.json
+apps/worker/test/fixtures/*.omnipkg
+apps/worker/test/fixtures/fixtures.json
