@@ -18,12 +18,7 @@
  * three underlying enum values (per oracle-first discipline).
  */
 
-import {
-  useQueryState,
-  parseAsString,
-  parseAsStringEnum,
-  parseAsArrayOf,
-} from 'nuqs';
+import { useQueryState, parseAsString, parseAsStringEnum, parseAsArrayOf } from 'nuqs';
 
 export type ExploreTab = 'discover' | 'installed' | 'my-uploads';
 export type ExploreKind = 'theme' | 'bundle' | 'all';
@@ -57,10 +52,7 @@ export function useExploreFilters(): ExploreFilters {
     'sort',
     parseAsStringEnum<ExploreSort>(['new', 'installs', 'name']).withDefault('new'),
   );
-  const [tags, setTags] = useQueryState(
-    'tags',
-    parseAsArrayOf(parseAsString, ',').withDefault([]),
-  );
+  const [tags, setTags] = useQueryState('tags', parseAsArrayOf(parseAsString, ',').withDefault([]));
   const [q, setQ] = useQueryState('q', parseAsString.withDefault(''));
   const [selectedId, setSelectedId] = useQueryState('a', parseAsString);
 

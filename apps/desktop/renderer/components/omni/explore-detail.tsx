@@ -74,7 +74,9 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         content_hash: artifact.content_hash,
         author_pubkey: artifact.author_pubkey,
         name:
-          typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id,
+          typeof artifact.manifest.name === 'string'
+            ? artifact.manifest.name
+            : artifact.artifact_id,
         kind: artifact.kind === 'bundle' ? 'bundle' : 'theme',
         r2_url: artifact.r2_url,
         thumbnail_url: artifact.thumbnail_url,

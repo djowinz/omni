@@ -17,9 +17,7 @@ const FIXTURE_ITEM: CachedArtifactDetail = {
 
 const SECOND_PAGE: CachedArtifactDetail = { ...FIXTURE_ITEM, artifact_id: 'art-2', name: 'Demo 2' };
 
-function stubSend(
-  mockImpl: (type: string, params: unknown) => unknown,
-): ReturnType<typeof vi.fn> {
+function stubSend(mockImpl: (type: string, params: unknown) => unknown): ReturnType<typeof vi.fn> {
   const fn = vi.fn(async (type: string, params: unknown) => mockImpl(type, params));
   return fn;
 }

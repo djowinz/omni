@@ -53,9 +53,7 @@ export function ExploreSidebar() {
       className="flex w-60 flex-shrink-0 flex-col gap-6 overflow-y-auto border-r border-[#27272A] bg-[#141416] p-4"
     >
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          Kind
-        </h3>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Kind</h3>
         <div className="flex flex-col gap-2">
           {KINDS.map((k) => (
             <div key={k.value} className="flex items-center gap-2">
@@ -65,10 +63,7 @@ export function ExploreSidebar() {
                 checked={kind === k.value}
                 onCheckedChange={() => setKind(k.value)}
               />
-              <Label
-                htmlFor={`kind-${k.value}`}
-                className="cursor-pointer text-sm text-zinc-200"
-              >
+              <Label htmlFor={`kind-${k.value}`} className="cursor-pointer text-sm text-zinc-200">
                 {k.label}
               </Label>
             </div>
@@ -77,9 +72,7 @@ export function ExploreSidebar() {
       </section>
 
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          Sort
-        </h3>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Sort</h3>
         <RadioGroup
           value={sort}
           onValueChange={(v) => setSort(v as ExploreSort)}
@@ -92,10 +85,7 @@ export function ExploreSidebar() {
                 id={`sort-${s.value}`}
                 data-testid={`explore-sidebar-sort-${s.value}`}
               />
-              <Label
-                htmlFor={`sort-${s.value}`}
-                className="cursor-pointer text-sm text-zinc-200"
-              >
+              <Label htmlFor={`sort-${s.value}`} className="cursor-pointer text-sm text-zinc-200">
                 {s.label}
               </Label>
             </div>
@@ -104,9 +94,7 @@ export function ExploreSidebar() {
       </section>
 
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          Tags
-        </h3>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Tags</h3>
         {vocab.loading ? (
           <div className="text-xs text-zinc-500">Loading tags...</div>
         ) : vocab.tags.length === 0 ? (
@@ -121,10 +109,7 @@ export function ExploreSidebar() {
                   checked={tags.includes(tag)}
                   onCheckedChange={() => toggleTag(tag)}
                 />
-                <Label
-                  htmlFor={`tag-${tag}`}
-                  className="cursor-pointer text-sm text-zinc-200"
-                >
+                <Label htmlFor={`tag-${tag}`} className="cursor-pointer text-sm text-zinc-200">
                   {tag}
                 </Label>
               </div>

@@ -76,11 +76,7 @@ export function ExploreGrid({
   // Below threshold: plain flex wrap — no virtualization overhead.
   if (items.length < VIRTUALIZE_THRESHOLD) {
     return (
-      <div
-        ref={scrollRef}
-        data-testid="explore-grid"
-        className="h-full overflow-y-auto p-4"
-      >
+      <div ref={scrollRef} data-testid="explore-grid" className="h-full overflow-y-auto p-4">
         <div className="grid grid-cols-3 gap-3 content-start">
           {items.map((item) => (
             <ArtifactCard
@@ -134,14 +130,8 @@ function VirtualGrid({ rows, selectedId, onSelect, hasMore, sentinelRef }: Virtu
   });
 
   return (
-    <div
-      ref={parentRef}
-      data-testid="explore-grid"
-      className="h-full overflow-y-auto p-4"
-    >
-      <div
-        style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}
-      >
+    <div ref={parentRef} data-testid="explore-grid" className="h-full overflow-y-auto p-4">
+      <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const row = rows[virtualRow.index]!;
           return (

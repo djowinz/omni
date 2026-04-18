@@ -9,6 +9,9 @@ import { ArtifactCard } from '@/components/omni/artifact-card';
 import { InstallProgress } from '@/components/omni/install-progress';
 import PolicyDisclosure from '@/components/omni/policy-disclosure';
 import { PreviewBanner } from '@/components/omni/preview-banner';
+import { ExploreSidebar } from '@/components/omni/explore-sidebar';
+import { ExploreEmptyState } from '@/components/omni/explore-empty-state';
+import { ExploreDetail } from '@/components/omni/explore-detail';
 import { PreviewContextProvider, usePreview } from '@/lib/preview-context';
 import { useShareWs } from '@/hooks/use-share-ws';
 import { POLICY_ALLOWED, POLICY_NOT_ALLOWED } from '@/lib/policy';
@@ -143,6 +146,25 @@ export default function PrimitivesSmokeShare() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">useShareWs</h2>
           <UseShareWsSmoke />
+        </section>
+
+        <section className="space-y-3 border-t border-zinc-800 pt-6">
+          <h2 className="text-lg font-semibold">Wave 3b — Explore primitives</h2>
+          <p className="text-sm text-muted-foreground">
+            Sidebar, empty-state, and detail pane rendered standalone. Grid + full ExplorePanel need
+            live <code>useShareWs</code> data, exercised via the Explore tab in dev-mode smoke.
+          </p>
+          <div
+            className="grid grid-cols-3 gap-4 rounded-md border border-zinc-800 bg-[#0D0D0F]"
+            style={{ height: 360 }}
+          >
+            <ExploreSidebar />
+            <ExploreEmptyState
+              label="Sample empty state"
+              hint="This renders when a sub-tab has no content yet."
+            />
+            <ExploreDetail selectedId={null} tab="discover" />
+          </div>
         </section>
       </div>
     </PreviewContextProvider>

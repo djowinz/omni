@@ -65,12 +65,7 @@ export function ExplorePanel() {
             </button>
           ))}
         </nav>
-        <Button
-          data-testid="explore-upload-cta"
-          size="sm"
-          onClick={handleUpload}
-          className="gap-1"
-        >
+        <Button data-testid="explore-upload-cta" size="sm" onClick={handleUpload} className="gap-1">
           <Plus className="h-4 w-4" aria-hidden />
           <UploadIcon className="h-4 w-4" aria-hidden />
           Upload

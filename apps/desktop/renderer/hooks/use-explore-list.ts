@@ -13,11 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDebounce } from 'use-debounce';
 import { useShareWs } from './use-share-ws';
-import type {
-  CachedArtifactDetail,
-  ExplorerListParams,
-  ShareWsError,
-} from '../lib/share-types';
+import type { CachedArtifactDetail, ExplorerListParams, ShareWsError } from '../lib/share-types';
 
 export interface ExploreListFilters {
   tab: 'discover' | 'installed' | 'my-uploads';
