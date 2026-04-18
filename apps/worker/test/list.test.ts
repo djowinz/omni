@@ -293,3 +293,47 @@ describe('GET /v1/list — malformed cursor', () => {
     expect(j.error.code).toBe('BAD_REQUEST');
   });
 });
+
+describe('GET /v1/list — author_pubkey filter (#015 T1)', () => {
+  // 64-hex encodings of the AUTHOR_A (0xaa * 32) and AUTHOR_B (0xbb * 32)
+  // Uint8Arrays used in the shared DATASET above. Reusing the pre-seeded
+  // authors keeps the test aligned with the existing fixture; no custom
+  // seedArtifact helper is needed.
+  const PK_A = 'aa'.repeat(32);
+  const PK_B = 'bb'.repeat(32);
+
+  it('filters by author_pubkey when provided as a 64-hex query param', async () => {
+    // DATASET: AUTHOR_A owns a1/a2/a5, AUTHOR_B owns a3/a4.
+    const res = await SELF.fetch(`https://worker.test/v1/list?author_pubkey=${PK_A}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ artifact_id: string; author_pubkey: string }>;
+    };
+    expect(body.items.map((x) => x.artifact_id).sort()).toEqual(['a1', 'a2', 'a5']);
+    expect(body.items.every((x) => x.author_pubkey === PK_A)).toBe(true);
+  });
+
+  it('filters by author_pubkey accepts uppercase hex (normalized to lowercase)', async () => {
+    const res = await SELF.fetch(
+      `https://worker.test/v1/list?author_pubkey=${PK_B.toUpperCase()}`,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Array<{ artifact_id: string }> };
+    expect(body.items.map((x) => x.artifact_id).sort()).toEqual(['a3', 'a4']);
+  });
+
+  it('rejects author_pubkey values that are not 64 hex chars with 400 Malformed', async () => {
+    const res = await SELF.fetch('https://worker.test/v1/list?author_pubkey=notHex');
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string }; kind?: string };
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.kind).toBe('Malformed');
+  });
+
+  it('treats missing author_pubkey as "no filter" (back-compat with existing callers)', async () => {
+    const res = await SELF.fetch('https://worker.test/v1/list');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Array<{ artifact_id: string }> };
+    expect(body.items.length).toBe(DATASET.length);
+  });
+});

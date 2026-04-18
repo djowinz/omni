@@ -169,6 +169,17 @@ app.get('/', async (c) => {
     binds.push(`%"${t}"%`);
   }
 
+  const authorPubkeyRaw = url.searchParams.get('author_pubkey') ?? undefined;
+  if (authorPubkeyRaw !== undefined) {
+    if (!/^[0-9a-fA-F]{64}$/.test(authorPubkeyRaw)) {
+      return errorFromKind('Malformed', 'BadRequest', 'author_pubkey must be 64-hex');
+    }
+    // SQL BLOB literal: X'<hex>' matches the ArrayBuffer column bytewise.
+    conditions.push(`author_pubkey = X'${authorPubkeyRaw.toLowerCase()}'`);
+    // No bind push — hex is validated by the regex above and inlined into the SQL
+    // as a BLOB literal, which SQLite parses safely.
+  }
+
   let cursorSql = '';
   if (cursorRaw) {
     let cur: Cursor;

@@ -119,6 +119,7 @@ Query:
 - `tag` — any value from the tag vocabulary; repeatable
 - `cursor` — opaque pagination cursor (see §5)
 - `limit` — 1…100 (default 25)
+- `author_pubkey` — 64-hex string; optional. When provided, filters results to a single author's artifacts. Invalid hex returns `400 BAD_REQUEST` with `kind: "Malformed"`.
 
 Response:
 
