@@ -157,9 +157,7 @@ deploy-worker:
 # deletes each one; leaves `config:*`, D1, R2, and identity keys intact.
 
 dev-reset-ratelimit:
-	@cd apps/worker && pnpm exec wrangler kv key list --binding=STATE --local --prefix=quota: > .ratelimit-keys.json
-	@cd apps/worker && node -e "const fs=require('fs');const {execSync}=require('child_process');const keys=JSON.parse(fs.readFileSync('.ratelimit-keys.json','utf8'));if(!keys.length){console.log('no quota:* keys to delete');}else{console.log('deleting '+keys.length+' quota keys:');for(const k of keys){console.log('  '+k.name);execSync('pnpm exec wrangler kv key delete --binding=STATE --local '+JSON.stringify(k.name),{stdio:'inherit'});}}"
-	@rm -f apps/worker/.ratelimit-keys.json
+	@cd apps/worker && node -e "const {execSync}=require('child_process');const prefixes=['quota:','denylist:','df_pubkey_velocity:','flags:vm:'];let total=0;for(const p of prefixes){const raw=execSync('pnpm exec wrangler kv key list --binding=STATE --local --prefix='+p,{encoding:'utf8'});const keys=JSON.parse(raw);if(!keys.length){console.log('['+p+'] no keys');continue;}console.log('['+p+'] deleting '+keys.length+' keys:');for(const k of keys){console.log('  '+k.name);execSync('pnpm exec wrangler kv key delete --binding=STATE --local '+JSON.stringify(k.name),{stdio:'inherit'});total++;}}console.log('total deleted: '+total);"
 
 # Print the current value of `config:limits` in the local STATE KV.
 # Empty/missing = the cause of upload /v1/upload 500 errors per
