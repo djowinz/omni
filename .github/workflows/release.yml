@@ -45,13 +45,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       # Release-mode builds override the workspace [patch] that resolves
-      # `omni-guard` to the public stub (retro D-004-K). The CARGO_GUARD_PATCH
-      # env points cargo at the real private crate via --config.
+      # `omni-guard` to the public stub (retro D-004-K). Cargo's `--config`
+      # CLI flag rejects inline tables, so the patch must be expressed as
+      # multiple scalar dotted-key overrides (see cargo#9227 for context).
       - name: Build Stage 1 (reference binary; no strict-integrity)
         shell: bash
-        env:
-          CARGO_GUARD_PATCH: 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard={ git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main" }'
-        run: cargo build --release --package host --features guard --config "$CARGO_GUARD_PATCH"
+        run: |
+          cargo build --release --package host --features guard \
+            --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.git="ssh://git@github.com/djowinz/omni-guard.git"' \
+            --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.branch="main"'
 
       - name: Extract .text SHA-256 from Stage 1 binary
         id: integrity
@@ -64,9 +66,12 @@ jobs:
       - name: Build Stage 2 (release binary; strict-integrity)
         shell: bash
         env:
-          CARGO_GUARD_PATCH: 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard={ git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main", features = ["strict-integrity"] }'
           OMNI_GUARD_TEXT_SHA256: ${{ steps.integrity.outputs.hash }}
-        run: cargo build --release --package host --features guard --config "$CARGO_GUARD_PATCH"
+        run: |
+          cargo build --release --package host --features guard \
+            --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.git="ssh://git@github.com/djowinz/omni-guard.git"' \
+            --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.branch="main"' \
+            --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.features=["strict-integrity"]'
 
       - name: Verify Stage 1 and Stage 2 .text bytes match
         shell: bash

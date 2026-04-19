@@ -5,7 +5,7 @@
         rust test-rust lint-rust format-rust clean-rust \
         node test-node lint-node format-node clean-node \
         installer release release-notes \
-        build-real-guard tree-guard \
+        build-real-guard tree-guard tree-real-guard \
         dev dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
         dev-desktop dev-worker dev-worker-seeded deploy-worker \
         types-gen types-check structure-check
@@ -66,26 +66,38 @@ release-notes:
 # The workspace Cargo.toml unconditionally patches `omni-guard` to
 # `stubs/omni-guard/` so contributors without SSH access to the private
 # djowinz/omni-guard repo can still compile. Cargo does not support
-# conditional [patch] sections, so the only way to resolve the real
-# private crate is to pass a `--config` override that replaces the
-# workspace patch with a git source. This is the same mechanism
-# `.github/workflows/release.yml` uses.
+# conditional [patch] sections (see cargo#9227), so the only way to
+# resolve the real private crate is to pass `--config` overrides that
+# replace the workspace patch with a git source.
+#
+# Cargo's `--config` CLI flag rejects inline tables. The patch has to
+# be expressed as multiple scalar dotted-key overrides, one per field,
+# which cargo then merges into an equivalent table entry.
 #
 # Requires SSH access to ssh://git@github.com/djowinz/omni-guard.git.
 # Without the key, `cargo fetch` will fail; fall back to a plain
 # `make build` (which uses the stub) if you don't have access.
 #
 # Verify which source resolved with `make tree-guard` after building.
-CARGO_GUARD_PATCH := 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard={ git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main" }'
+GUARD_URL := ssh://git@github.com/djowinz/omni-guard.git
+CARGO_GUARD_CONFIG := \
+	--config 'patch."$(GUARD_URL)".omni-guard.git="$(GUARD_URL)"' \
+	--config 'patch."$(GUARD_URL)".omni-guard.branch="main"'
 
 build-real-guard:
-	cargo build --release --package host --features guard --config $(CARGO_GUARD_PATCH)
+	cargo build --release --package host --features guard $(CARGO_GUARD_CONFIG)
 
 # Print which omni-guard source Cargo actually resolved for the host
 # binary. `stubs/omni-guard` path = using the public no-op stub;
 # `ssh://git@github.com/djowinz/omni-guard` = real private crate active.
 tree-guard:
 	cargo tree -p host --features guard -e normal | grep -iE 'omni-guard'
+
+# Same as tree-guard but forces the real-guard config override, so you
+# can confirm the patch resolves correctly WITHOUT spending a full
+# release build. Requires SSH access to the private crate.
+tree-real-guard:
+	cargo tree -p host --features guard -e normal $(CARGO_GUARD_CONFIG) | grep -iE 'omni-guard'
 
 # --- Dev shortcuts ---
 # `dev`, `dev-seed`, etc. invoke the omni-dev Rust orchestrator directly; see
