@@ -237,21 +237,25 @@ fn seed_thumbnails() -> anyhow::Result<()> {
         "thumb-dev-bob-theme-1",
         "thumb-dev-bob-bundle-1",
     ];
+    // R2 CLI takes the real bucket name (not the wrangler binding). `BLOBS`
+    // is the binding alias in wrangler.toml; the bucket itself is named
+    // `omni-themes-blobs` — same name used for local miniflare + remote.
+    const R2_BUCKET: &str = "omni-themes-blobs";
     for key in thumbnail_keys {
         let tmp = NamedTempFile::new()?;
         fs::write(tmp.path(), &png_bytes)?;
-        let r2key = format!("BLOBS/thumbnails/{}", key);
+        let r2_path = format!("{R2_BUCKET}/thumbnails/{}", key);
         let tmp_path = tmp.path().to_string_lossy().to_string();
         let status = shell::std_cmd(
             "pnpm",
             [
-                "exec", "wrangler", "r2", "object", "put", &r2key, "--file", &tmp_path, "--local",
+                "exec", "wrangler", "r2", "object", "put", &r2_path, "--file", &tmp_path, "--local",
             ],
         )
         .current_dir(WORKER_DIR)
         .status()?;
         if !status.success() {
-            return Err(anyhow!("wrangler r2 put failed for {r2key}"));
+            return Err(anyhow!("wrangler r2 put failed for {r2_path}"));
         }
     }
     Ok(())
