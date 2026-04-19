@@ -518,7 +518,11 @@ mod tests {
         // handler kind. Skipping any `.`-prefixed entry fixes both that bug
         // and future scratch files the renderer might add.
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::fs::write(tmp.path().join("overlay.omni"), b"<overlay/>").expect("write overlay");
+        std::fs::write(
+            tmp.path().join("overlay.omni"),
+            b"<widget><template><div/></template></widget>",
+        )
+        .expect("write overlay");
         std::fs::write(tmp.path().join(".omni_current.html"), b"<html/>").expect("write scratch");
         std::fs::write(tmp.path().join(".swp"), b"editor swap").expect("write swp");
         let files = walk_bundle(tmp.path()).await.expect("walk");
