@@ -151,16 +151,29 @@ export function IdentityBackupDialog({
     setError(null);
     setCopyStatus('idle');
     try {
-      // BackendApi doesn't yet expose identity.backup; call the bridge directly
-      // (mirrors BackendApi's send pattern). #016 will fold this into BackendApi
-      // alongside the rest of the identity surface.
-      const bridge = window.omni?.sendMessage;
-      if (!bridge) throw new Error('IPC bridge not available');
-      // Reference `backend` so the hook isn't unused (and tests can spy via the
-      // BackendApi singleton in the future when the method moves there).
-      void backend;
-      const response = await bridge({ type: 'identity.backup', passphrase });
-      const b64: unknown = (response as { encrypted_bytes_b64?: unknown })?.encrypted_bytes_b64;
+      // identity.backup is routed through the share:ws-message IPC channel,
+      // not the generic ws-message bridge — the host dispatches it from
+      // `share::ws_messages.rs`. Per the wire-shape rule (feedback memory)
+      // params are nested under "params", and the response envelope is
+      // { id, type: 'identity.backupResult' | 'error', params | error }.
+      const bridge = window.omni?.sendShareMessage;
+      if (!bridge) throw new Error('IPC share bridge not available');
+      void backend; // reserved for future BackendApi migration
+      const id = crypto.randomUUID();
+      const response = (await bridge({
+        id,
+        type: 'identity.backup',
+        params: { passphrase },
+      })) as {
+        id?: string;
+        type?: string;
+        params?: { encrypted_bytes_b64?: unknown };
+        error?: { message?: string; detail?: string };
+      };
+      if (response.type === 'error') {
+        throw new Error(response.error?.message ?? response.error?.detail ?? 'identity.backup failed');
+      }
+      const b64 = response.params?.encrypted_bytes_b64;
       if (typeof b64 !== 'string') {
         throw new Error('Malformed identity.backup response');
       }

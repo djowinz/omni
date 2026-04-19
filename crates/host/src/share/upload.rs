@@ -313,6 +313,29 @@ async fn render_thumbnail_inner(
     sanitized_files: &BTreeMap<String, Vec<u8>>,
     sanitized_bytes: Vec<u8>,
 ) -> Result<(Vec<u8>, Vec<u8>), UploadError> {
+    // Dev-only bypass for the Ultralight thumbnail step. Set
+    // `OMNI_SKIP_THUMBNAIL=1` when the thumbnail renderer is crashing
+    // (e.g. the STATUS_STACK_BUFFER_OVERRUN surfaced by Marathon during
+    // #015 T10 smoke) so the rest of the upload pipeline can still be
+    // validated end-to-end. Ships a tiny 1×1 transparent PNG as the
+    // artifact thumbnail. Do NOT use in release builds — Discover will
+    // show a blank cover for the upload.
+    if std::env::var_os("OMNI_SKIP_THUMBNAIL").is_some() {
+        tracing::warn!(
+            "OMNI_SKIP_THUMBNAIL set — shipping placeholder PNG, Ultralight render skipped"
+        );
+        // Minimal valid PNG: 1x1 transparent pixel, 68 bytes. Matches the
+        // placeholder the dev-orchestrator seeds for fixture artifacts.
+        const TRANSPARENT_PNG: [u8; 68] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0xDA, 0x63, 0x64, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x05, 0xA8, 0x8D, 0x50, 0x47,
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        return Ok((TRANSPARENT_PNG.to_vec(), sanitized_bytes));
+    }
+
     match kind {
         ArtifactKind::Theme => {
             let css =

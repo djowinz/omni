@@ -455,8 +455,34 @@ fn identity_not_implemented(id: &str) -> Option<String> {
     )
 }
 
-async fn handle_identity_backup(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
-    identity_not_implemented(id)
+async fn handle_identity_backup(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    #[derive(Deserialize)]
+    struct P {
+        passphrase: String,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad identity.backup params: {e}"))),
+    };
+    if p.passphrase.is_empty() {
+        return Some(bad_input(id, "passphrase must not be empty"));
+    }
+    match ctx.identity.export_encrypted(&p.passphrase) {
+        Ok(encrypted) => Some(
+            json!({
+                "id": id,
+                "type": "identity.backupResult",
+                "params": {
+                    "encrypted_bytes_b64": STANDARD.encode(&encrypted),
+                }
+            })
+            .to_string(),
+        ),
+        Err(e) => Some(bad_input(id, format!("identity.backup failed: {e}"))),
+    }
 }
 
 async fn handle_identity_import(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
@@ -1055,6 +1081,61 @@ mod tests {
         assert_eq!(parsed["type"], "identity.showResult");
         assert_eq!(parsed["id"], "r2");
         assert_eq!(parsed["params"]["pubkey_hex"], expected_pk);
+    }
+
+    #[tokio::test]
+    async fn identity_backup_returns_base64_encrypted_bytes() {
+        // End-to-end check: the WS handler must call the identity crate's
+        // `export_encrypted` and return a base64-encoded frame. If this regresses
+        // (e.g. handler gets re-stubbed or the response shape drifts), the
+        // renderer's identity-backup-dialog breaks silently during D3 smoke —
+        // this test catches it at PR time instead of manual validation.
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "r-backup-1",
+            "type": "identity.backup",
+            "params": { "passphrase": "correct-horse-battery-staple" }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["id"], "r-backup-1");
+        assert_eq!(parsed["type"], "identity.backupResult");
+        let b64 = parsed["params"]["encrypted_bytes_b64"]
+            .as_str()
+            .expect("encrypted_bytes_b64 is a string");
+        let decoded = STANDARD.decode(b64).expect("valid base64");
+        assert!(!decoded.is_empty(), "backup bytes should be non-empty");
+    }
+
+    #[tokio::test]
+    async fn identity_backup_rejects_empty_passphrase() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "r-backup-2",
+            "type": "identity.backup",
+            "params": { "passphrase": "" }
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "BAD_INPUT");
+    }
+
+    #[tokio::test]
+    async fn identity_backup_rejects_missing_passphrase() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "r-backup-3",
+            "type": "identity.backup",
+            "params": {}
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["error"]["code"], "BAD_INPUT");
     }
 
     #[tokio::test]
