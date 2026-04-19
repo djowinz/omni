@@ -347,6 +347,7 @@ async fn cache_entry_visible_in_followup_list() {
             tag: vec![],
             cursor: None,
             limit: None,
+            author_pubkey: None,
         })
         .await
         .expect("list ok");
