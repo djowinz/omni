@@ -21,7 +21,7 @@ proptest! {
     fn pack_unpack_roundtrips(
         themes in prop::collection::vec((arb_theme_name(), arb_css_bytes()), 0..6)
     ) {
-        let overlay = b"<overlay/>".to_vec();
+        let overlay = b"<widget><template><div/></template></widget>".to_vec();
 
         let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         files.insert("overlay.omni".into(), overlay.clone());

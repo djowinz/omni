@@ -95,11 +95,18 @@ fn pseudo_random_bytes(size: usize, seed: u64) -> Vec<u8> {
 }
 
 fn make_overlay(size: usize) -> Vec<u8> {
-    let mut s = String::from("<overlay>");
+    // Build a multi-widget overlay fragment until we exceed `size`. Each
+    // widget is structurally valid: <widget><template><div/></template></widget>.
+    // Bundle tests that call this only care about byte length / sha stability,
+    // not about content semantics.
+    let mut s = String::new();
+    let mut i: u32 = 0;
     while s.len() < size {
-        s.push_str("<widget type='text' sensor='cpu.usage'/>");
+        s.push_str(&format!(
+            "<widget id=\"w{i}\" name=\"W{i}\" enabled=\"true\"><template><div/></template></widget>",
+        ));
+        i = i.wrapping_add(1);
     }
-    s.push_str("</overlay>");
     s.into_bytes()
 }
 

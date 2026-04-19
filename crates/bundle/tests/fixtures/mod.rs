@@ -20,7 +20,7 @@ pub fn test_zip_opts() -> zip::write::FileOptions {
 
 #[allow(dead_code)]
 pub fn sample_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
-    let overlay = b"<overlay/>".to_vec();
+    let overlay = b"<widget><template><div/></template></widget>".to_vec();
     let css = b":root{--a:0}".to_vec();
 
     let mut files = BTreeMap::new();
