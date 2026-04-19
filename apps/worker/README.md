@@ -52,15 +52,17 @@ make dev                           # start everything + auto-seed
 
 ### Commands
 
-| Command                       | Effect                                                                            |
-| ----------------------------- | --------------------------------------------------------------------------------- |
-| `make dev`                    | Start everything + seed                                                           |
-| `make dev ARGS=--no-seed`     | Start everything with no seed (empty-state testing)                               |
-| `make dev-seed`               | Re-run seed against a running dev stack (idempotent)                              |
-| `make dev-reset`              | Wipe miniflare state + re-migrate + re-bootstrap + re-seed                        |
-| `make dev-reset-identity`     | Regenerate user + admin keypairs (restart `make dev` after)                       |
-| `make dev-kill`               | Force-kill any process bound to 8787 / 9473                                       |
-| `make dev-admin ARGS='stats'` | Run any `omni-admin` subcommand (e.g. `review`, `stats`) against the local worker |
+| Command                       | Effect                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `make dev`                    | Start everything (wrangler + Electron + host) + seed                               |
+| `make dev ARGS=--no-seed`     | Start everything with no seed (empty-state testing)                                |
+| `make dev-worker-seeded`      | Start wrangler dev + admin pubkey + seed, NO Electron (API iteration via curl/etc) |
+| `make dev-worker`             | Bare `wrangler dev` (no admin injection, no seed — public routes only)             |
+| `make dev-seed`               | Re-run seed against a running dev stack (idempotent)                               |
+| `make dev-reset`              | Wipe miniflare state + re-migrate + re-bootstrap + re-seed                         |
+| `make dev-reset-identity`     | Regenerate user + admin keypairs (restart `make dev` after)                        |
+| `make dev-kill`               | Force-kill any process bound to 8787 / 9473                                        |
+| `make dev-admin ARGS='stats'` | Run any `omni-admin` subcommand (e.g. `review`, `stats`) against the local worker  |
 
 The Make targets are thin wrappers around the `omni-dev` Rust binary at `tools/dev-orchestrator/`. You can also invoke it directly:
 

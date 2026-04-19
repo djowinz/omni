@@ -28,6 +28,13 @@ enum Command {
         #[arg(long)]
         no_seed: bool,
     },
+    /// Start wrangler dev ONLY (with admin pubkey + seed); skips Electron/host.
+    /// Useful for iterating on worker code or hitting the local API from
+    /// curl / Postman without the Electron overhead.
+    Worker {
+        #[arg(long)]
+        no_seed: bool,
+    },
     /// Seed (or re-seed) the local miniflare D1 + R2 with fixture data.
     Seed,
     /// Wipe miniflare state, re-migrate, re-bootstrap, optionally re-seed.
@@ -61,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Run { no_seed } => orchestrator::run(no_seed).await,
+        Command::Worker { no_seed } => orchestrator::worker(no_seed).await,
         Command::Seed => seed::run(),
         Command::Reset { no_seed } => reset::run(no_seed),
         Command::ResetIdentity { which } => {

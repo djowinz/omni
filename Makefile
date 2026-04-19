@@ -5,7 +5,7 @@
         rust test-rust lint-rust format-rust clean-rust \
         node test-node lint-node format-node clean-node \
         installer release release-notes \
-        dev dev-desktop dev-worker dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
+        dev dev-desktop dev-worker dev-worker-seeded dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
         deploy-worker \
         types-gen types-check structure-check
 
@@ -87,8 +87,15 @@ dev-admin:
 dev-desktop:
 	pnpm dev:desktop
 
+# Bare wrangler dev — no admin pubkey injection, no seed. Use when you just
+# want to hit public worker routes without dev-orchestrator setup.
 dev-worker:
 	pnpm dev:worker
+
+# wrangler dev + admin pubkey injected + seed, but NO Electron/host. Useful
+# for iterating on worker code or hitting the local API from curl/Postman.
+dev-worker-seeded:
+	cargo run --quiet -p dev-orchestrator -- worker $(ARGS)
 
 deploy-worker:
 	./scripts/deploy-worker.sh

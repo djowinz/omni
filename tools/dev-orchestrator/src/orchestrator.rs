@@ -99,6 +99,58 @@ pub async fn run(skip_seed: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `omni-dev worker` — start wrangler dev with admin-pubkey + seed, NO Electron.
+///
+/// Useful when iterating on worker code or hitting the local API from curl /
+/// Postman / a browser without the Electron overhead. Same admin-keypair
+/// injection + seed behavior as `run`, just skips the Electron half.
+pub async fn worker(skip_seed: bool) -> anyhow::Result<()> {
+    // No host-binary preflight needed — the host isn't spawned.
+    identity_mgmt::ensure(identity_mgmt::Which::Admin)?;
+
+    let key_paths = identity_mgmt::key_paths()?;
+    let admin_pubkey = identity_mgmt::read_pubkey_hex(&key_paths.admin)?
+        .ok_or_else(|| anyhow!("admin key unexpectedly missing after ensure"))?;
+    tracing::info!(%admin_pubkey, "admin pubkey ready");
+
+    fixtures::ensure_fixture_authors(Path::new("apps/worker/seed/dev-fixtures"))?;
+
+    let mut wrangler = spawn_wrangler(&admin_pubkey).context("spawn wrangler dev")?;
+    let wrangler_id = wrangler.id();
+
+    if let Some(stdout) = wrangler.stdout.take() {
+        tokio::spawn(tee("[worker]", "\x1b[36m", stdout));
+    }
+    if let Some(stderr) = wrangler.stderr.take() {
+        tokio::spawn(tee_err("[worker]", "\x1b[36m", stderr));
+    }
+
+    if !wait_for_port(8787, Duration::from_secs(30)).await {
+        let _ = wrangler.kill().await;
+        anyhow::bail!("wrangler dev did not start within 30s");
+    }
+
+    if !skip_seed {
+        if let Err(e) = seed::run() {
+            tracing::warn!(error = %e, "seed failed — continuing, worker stays running");
+        }
+    }
+
+    tracing::info!(wrangler_pid = ?wrangler_id, "wrangler running (worker-only mode)");
+
+    tokio::select! {
+        _ = signal::ctrl_c() => {
+            tracing::info!("Ctrl-C received; shutting down wrangler");
+        }
+        status = wrangler.wait() => {
+            tracing::info!(status = ?status, "wrangler exited");
+        }
+    }
+
+    let _ = wrangler.kill().await;
+    Ok(())
+}
+
 fn preflight() -> anyhow::Result<()> {
     if !Path::new(HOST_BIN_PATH).exists() {
         anyhow::bail!("host binary missing at {HOST_BIN_PATH} — run `cargo build -p host` first");
