@@ -26,47 +26,61 @@ impl Handler for ThemeHandler {
     }
 
     fn sanitize(&self, path: &str, bytes: &[u8]) -> Result<Vec<u8>, SanitizeError> {
-        let src = std::str::from_utf8(bytes).map_err(|e| SanitizeError::Handler {
-            kind: self.kind(),
-            path: path.into(),
-            detail: format!("utf8: {e}"),
-            source: Some(Box::new(e)),
-        })?;
-
-        let lower = src.to_ascii_lowercase();
-        if lower.contains("@import") {
-            return Err(SanitizeError::Handler {
-                kind: self.kind(),
-                path: path.into(),
-                detail: "@import disallowed".into(),
-                source: None,
-            });
-        }
-        scan_urls(self.kind(), path, src, &lower)?;
-
-        let sheet = StyleSheet::parse(src, ParserOptions::default()).map_err(|e| {
-            SanitizeError::Handler {
-                kind: self.kind(),
-                path: path.into(),
-                detail: format!("parse: {e}"),
-                source: None,
-            }
-        })?;
-
-        let printed = sheet
-            .to_css(PrinterOptions {
-                minify: true,
-                ..Default::default()
-            })
-            .map_err(|e| SanitizeError::Handler {
-                kind: self.kind(),
-                path: path.into(),
-                detail: format!("print: {e}"),
-                source: None,
-            })?;
-
-        Ok(printed.code.into_bytes())
+        sanitize_css(self.kind(), path, bytes)
     }
+}
+
+/// CSS sanitization pipeline. Exposed at crate visibility so the overlay
+/// handler can reuse this for widget `<style>` body sanitization without
+/// duplicating the lightningcss + URL-whitelist logic.
+///
+/// `kind` is passed through to error variants so callers can tag errors
+/// with the originating handler name ("theme" for standalone themes,
+/// "overlay" for embedded styles inside an overlay).
+pub(crate) fn sanitize_css(
+    kind: &'static str,
+    path: &str,
+    bytes: &[u8],
+) -> Result<Vec<u8>, SanitizeError> {
+    let src = std::str::from_utf8(bytes).map_err(|e| SanitizeError::Handler {
+        kind,
+        path: path.into(),
+        detail: format!("utf8: {e}"),
+        source: Some(Box::new(e)),
+    })?;
+
+    let lower = src.to_ascii_lowercase();
+    if lower.contains("@import") {
+        return Err(SanitizeError::Handler {
+            kind,
+            path: path.into(),
+            detail: "@import disallowed".into(),
+            source: None,
+        });
+    }
+    scan_urls(kind, path, src, &lower)?;
+
+    let sheet =
+        StyleSheet::parse(src, ParserOptions::default()).map_err(|e| SanitizeError::Handler {
+            kind,
+            path: path.into(),
+            detail: format!("parse: {e}"),
+            source: None,
+        })?;
+
+    let printed = sheet
+        .to_css(PrinterOptions {
+            minify: true,
+            ..Default::default()
+        })
+        .map_err(|e| SanitizeError::Handler {
+            kind,
+            path: path.into(),
+            detail: format!("print: {e}"),
+            source: None,
+        })?;
+
+    Ok(printed.code.into_bytes())
 }
 
 fn scan_urls(kind: &'static str, path: &str, src: &str, lower: &str) -> Result<(), SanitizeError> {
