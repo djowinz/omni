@@ -26,6 +26,14 @@ pub struct CachedArtifactDetail {
     pub author_pubkey: String,
     pub name: String,
     pub kind: String, // "theme" | "bundle"
+    // `/v1/list` rows don't include `r2_url` — that URL is only emitted by
+    // `/v1/artifact/:id` (see ArtifactDetail in client.rs). Marking this
+    // `#[serde(default)]` lets the same struct deserialize both shapes:
+    // cached-from-detail rows keep the real URL, list-derived rows get "".
+    // Consumers that need the URL must fetch `/v1/artifact/:id` via
+    // `ShareClient::get_artifact` or read it via the cache's post-upload
+    // merge path (which always has the full detail).
+    #[serde(default)]
     pub r2_url: String,
     pub thumbnail_url: String,
     pub updated_at: i64,
