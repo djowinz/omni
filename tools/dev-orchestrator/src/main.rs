@@ -5,6 +5,12 @@
 
 use clap::{Parser, Subcommand};
 
+mod admin;
+mod fixtures;
+mod identity_mgmt;
+mod kill;
+mod paths;
+
 #[derive(Parser, Debug)]
 #[command(name = "omni-dev", about = "Local dev stack for Omni", version)]
 struct Cli {
@@ -60,14 +66,14 @@ async fn main() -> anyhow::Result<()> {
         Command::Reset { no_seed: _ } => {
             todo!("reset — landed in T7")
         }
-        Command::ResetIdentity { which: _ } => {
-            todo!("identity_mgmt::reset — landed in T5")
+        Command::ResetIdentity { which } => {
+            identity_mgmt::reset(identity_mgmt::Which::from_str(&which))?;
+            Ok(())
         }
-        Command::Admin { args: _ } => {
-            todo!("admin — landed in T4")
-        }
+        Command::Admin { args } => admin::run(args),
         Command::Kill => {
-            todo!("kill — landed in T3")
+            kill::kill_all()?;
+            Ok(())
         }
     }
 }
