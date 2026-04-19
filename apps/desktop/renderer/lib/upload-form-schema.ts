@@ -37,4 +37,12 @@ export const DEFAULT_FORM: UploadFormValues = {
   description: '',
   tags: [],
   license: '',
+  // New publishes default to 1.0.0 — the host's upload.publish handler
+  // requires a valid semver and the ReviewStep doesn't expose a version
+  // field to the user for new uploads (only bump is relevant on update,
+  // which is a separate flow). For now, omni_min_version defaults to
+  // 0.1.0 (permissive: "works on any host from 0.1.0 onward"); in the
+  // future this should be derived from the running host version.
+  version: '1.0.0',
+  omni_min_version: '0.1.0',
 };
