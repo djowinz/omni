@@ -68,14 +68,31 @@ export type InstallPhase = z.infer<typeof InstallPhaseSchema>;
 
 // Oracle: contracts/ws-explorer.md §explorer.list result items
 // Shipped: crates/host/src/share/cache.rs CachedArtifactDetail
+// Worker source: apps/worker/src/routes/list.ts rowToItem()
+//
+// The worker's /v1/list response does NOT include `r2_url` — that URL is
+// served by /v1/get (see ArtifactDetailSchema below) so consumers fetch
+// detail on selection. `r2_url` is optional here to keep this schema
+// dual-use as the installed-bundle cache descriptor, where r2_url is
+// populated from the install-time /v1/get response.
+//
+// Added fields (tags, installs, author_fingerprint_hex, created_at) reflect
+// what the worker actually sends today — prior versions of this schema
+// discarded them silently via z.object()'s default unknown-key stripping.
+// Making them optional avoids breaking host/client.rs deserialization paths
+// that still use the older sparse shape for the installed-cache descriptor.
 export const CachedArtifactDetailSchema = z.object({
   artifact_id: z.string(),
   content_hash: z.string(),
   author_pubkey: z.string(),
+  author_fingerprint_hex: z.string().optional(),
   name: z.string(),
   kind: z.enum(['theme', 'bundle']),
-  r2_url: z.string(),
+  tags: z.array(z.string()).default([]),
+  installs: z.number().int().default(0),
+  r2_url: z.string().optional(),
   thumbnail_url: z.string(),
+  created_at: z.number().int().optional(),
   updated_at: z.number().int(),
 });
 export type CachedArtifactDetail = z.infer<typeof CachedArtifactDetailSchema>;

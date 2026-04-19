@@ -78,6 +78,10 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
             ? artifact.manifest.name
             : artifact.artifact_id,
         kind: artifact.kind === 'bundle' ? 'bundle' : 'theme',
+        tags: Array.isArray(artifact.manifest.tags)
+          ? (artifact.manifest.tags.filter((t): t is string => typeof t === 'string') as string[])
+          : [],
+        installs: artifact.installs ?? 0,
         r2_url: artifact.r2_url,
         thumbnail_url: artifact.thumbnail_url,
         updated_at: artifact.updated_at,

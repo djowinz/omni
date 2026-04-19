@@ -13,6 +13,8 @@ const fixture = (n: number): CachedArtifactDetail[] =>
     author_pubkey: 'pk',
     name: `Artifact ${i}`,
     kind: 'theme',
+    tags: [],
+    installs: 0,
     r2_url: `https://x/${i}`,
     thumbnail_url: `https://x/${i}/t`,
     updated_at: 1700000000 + i,

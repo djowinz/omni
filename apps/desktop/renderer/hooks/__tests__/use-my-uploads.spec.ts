@@ -10,6 +10,8 @@ const FIXTURE_ITEM: CachedArtifactDetail = {
   author_pubkey: 'aa'.repeat(32),
   name: 'My Theme',
   kind: 'theme',
+  tags: [],
+  installs: 0,
   r2_url: 'https://x/a',
   thumbnail_url: 'https://x/t',
   updated_at: 1700000000,

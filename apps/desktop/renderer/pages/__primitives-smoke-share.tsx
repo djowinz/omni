@@ -24,6 +24,8 @@ const SAMPLE_ARTIFACT: CachedArtifactDetail = {
   author_pubkey: '00'.repeat(32),
   name: 'CyberHUD Neon',
   kind: 'bundle',
+  tags: [],
+  installs: 0,
   r2_url: 'https://example.invalid/blob/x.omnipkg',
   thumbnail_url: 'https://example.invalid/v1/thumb/4a2e9b1c3d7e8f0a',
   updated_at: 1_700_000_000,

@@ -18,6 +18,8 @@ const FIXTURE_ARTIFACT: CachedArtifactDetail = {
   author_pubkey: 'pubkey-hex',
   name: 'Neon Dusk',
   kind: 'theme',
+  tags: [],
+  installs: 0,
   r2_url: 'https://r2.example/art-001.tar.zst',
   thumbnail_url: 'https://r2.example/art-001.png',
   updated_at: 1700000000,
