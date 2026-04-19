@@ -23,6 +23,11 @@ pub struct UlRenderer {
     width: u32,
     height: u32,
     last_scratch_dir: Mutex<Option<PathBuf>>,
+    /// Current mount registration in `fs_dispatcher`. Populated by
+    /// `mount()`; replaced on subsequent mounts; dropped in the explicit
+    /// `Drop` impl BEFORE `ulDestroyView` so no in-flight Ultralight
+    /// callback reads a mount whose overlay_root has been cleaned up.
+    mount_handle: Mutex<Option<fs_dispatcher::MountHandle>>,
 }
 
 impl UlRenderer {
@@ -77,30 +82,34 @@ impl UlRenderer {
                 width,
                 height,
                 last_scratch_dir: Mutex::new(None),
+                mount_handle: Mutex::new(None),
             })
         }
     }
 
-    /// Mount an overlay or bundle into the View. Scopes the platform FS to
-    /// `overlay_root`, applies the trust filter, and loads `html` via a
-    /// synthetic `file:///` URL so relative `url(...)` references resolve
-    /// against the overlay directory.
+    /// Mount `overlay_root` in the filesystem dispatcher, write a scratch
+    /// HTML at `overlay_root/.omni_current.html`, apply the trust filter,
+    /// and load the scratch via a `file:///mount-{id}/.omni_current.html`
+    /// URL so the dispatcher can route requests for this renderer's assets
+    /// without colliding with any other `UlRenderer` instance in the same
+    /// process.
     ///
-    /// A scratch file `.omni_current.html` is written inside `overlay_root`.
-    /// Callers must have write access to that directory.
+    /// A previous mount on this same `UlRenderer` is released (its entry
+    /// removed from the dispatcher) before the new one is registered.
     pub fn mount(&self, overlay_root: &Path, html: &str, trust: ViewTrust) -> Result<(), String> {
-        // DESIGN NOTE:
-        // - Ultralight loads asynchronously on the next `update_and_render`, so the FS
-        //   dispatcher and trust filter MUST be configured before `ulViewLoadURL` —
-        //   otherwise the load races the platform state and can resolve against the
-        //   wrong scope.
-        // - The scratch file persists on disk until the next `mount` (which overwrites
-        //   or removes it) or until `Drop` (which best-effort-removes it). We rely on
-        //   Ultralight finishing the load before a subsequent `mount` mutates the file.
-        // - The process-global `ACTIVE` slot in `fs_dispatcher` couples this renderer
-        //   to a single View at a time; multi-view support would require rework of
-        //   that dispatcher to key by view pointer.
-        fs_dispatcher::set_active(OverlayFilesystem::new(overlay_root.to_path_buf()));
+        // Register the new mount FIRST. The returned handle replaces any
+        // previous one inside `mount_handle`; the previous handle's Drop
+        // removes its dispatcher entry. Holding both briefly is harmless —
+        // the URL we load references the NEW id, so no callback races to
+        // the old entry before it is removed.
+        let fs = OverlayFilesystem::new(overlay_root.to_path_buf());
+        let handle = fs_dispatcher::register_mount(fs);
+        let mount_id = handle.id();
+        {
+            let mut slot = self.mount_handle.lock().expect("mount_handle poisoned");
+            *slot = Some(handle);
+        }
+
         unsafe {
             trust_filter::apply(self.view, trust);
         }
@@ -112,8 +121,8 @@ impl UlRenderer {
             )
         })?;
 
-        // If a previous mount used a different directory, best-effort-remove its
-        // scratch file so we don't leak orphans when switching overlays.
+        // If a previous mount used a different directory, best-effort-remove
+        // its scratch file so we don't leak orphans when switching overlays.
         {
             let guard = self
                 .last_scratch_dir
@@ -135,7 +144,7 @@ impl UlRenderer {
             .lock()
             .expect("scratch dir mutex poisoned") = Some(overlay_root.to_path_buf());
 
-        let url = format!("file:///{}", SCRATCH_NAME);
+        let url = format!("file:///mount-{}/{}", mount_id, SCRATCH_NAME);
         unsafe {
             let c = std::ffi::CString::new(url).map_err(|e| format!("url cstring: {e}"))?;
             let ul_url = ultralight_sys::ulCreateString(c.as_ptr());
@@ -264,6 +273,17 @@ impl UlRenderer {
 
 impl Drop for UlRenderer {
     fn drop(&mut self) {
+        // Remove the dispatcher mount BEFORE destroying the Ultralight
+        // view. `ulDestroyView` may synchronously fire final FS callbacks
+        // to unwind in-flight loads; if the mount is still in the map at
+        // that point, callbacks could reference an overlay_root whose
+        // owning tempdir has already been cleaned up by the caller.
+        // Removing the handle first guarantees those callbacks fall
+        // through to `RESOURCES_FS` (or return None) harmlessly.
+        if let Ok(mut slot) = self.mount_handle.lock() {
+            let _ = slot.take(); // drops MountHandle -> removes from MOUNTS
+        }
+
         // Best-effort-remove the scratch file from the last successful mount.
         if let Ok(mut guard) = self.last_scratch_dir.lock() {
             if let Some(dir) = guard.take() {

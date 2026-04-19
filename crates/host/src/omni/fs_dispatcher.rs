@@ -199,19 +199,6 @@ fn log_reject(op: &str, req: &str, err: &ResolveError) {
     debug!(op, path = %req, ?err, "fs_dispatcher: rejected");
 }
 
-// ── compatibility stubs (REMOVE IN B1) ──────────────────────────────
-// These no-op stubs exist solely so `ul_renderer.rs` (which still calls
-// `set_active` / `clear_active`) compiles while Wave A is committed in
-// isolation. Task B1 deletes these when it rewrites `ul_renderer::mount`.
-
-#[doc(hidden)]
-#[deprecated(note = "removed by fs_dispatcher refactor; B1 deletes this call site in ul_renderer")]
-pub fn set_active(_fs: OverlayFilesystem) {}
-
-#[doc(hidden)]
-#[deprecated(note = "removed by fs_dispatcher refactor; B1 deletes this call site in ul_renderer")]
-pub fn clear_active() {}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
