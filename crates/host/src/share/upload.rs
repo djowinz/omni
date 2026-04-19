@@ -133,7 +133,10 @@ pub async fn pack_only(
                 })?;
             let (out, report) =
                 sanitize::sanitize_theme(css_bytes).map_err(|e| UploadError::BadInput {
-                    msg: "sanitize_theme failed".into(),
+                    // Display includes the SanitizeError variant + inner detail;
+                    // without it the wire envelope just says "sanitize_theme failed"
+                    // and the operator has no idea which file / which limit tripped.
+                    msg: format!("sanitize_theme failed: {e}"),
                     source: Some(Box::new(e)),
                 })?;
             let mut map = BTreeMap::new();
@@ -144,7 +147,10 @@ pub async fn pack_only(
             let (out, report) =
                 sanitize::sanitize_bundle(&manifest, files_raw.clone()).map_err(|e| {
                     UploadError::BadInput {
-                        msg: "sanitize_bundle failed".into(),
+                        // Display the SanitizeError so the user sees which file /
+                        // which limit tripped. Without this the wire only carries
+                        // "sanitize_bundle failed" and the rejection is opaque.
+                        msg: format!("sanitize_bundle failed: {e}"),
                         source: Some(Box::new(e)),
                     }
                 })?;
@@ -362,7 +368,29 @@ async fn walk_bundle(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadErr
     let root = root.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut out = BTreeMap::new();
-        for entry in walkdir::WalkDir::new(&root).follow_links(false) {
+        // Skip hidden entries (name starts with '.') — this excludes host-owned
+        // runtime scratch like `.omni_current.html` (see `ul_renderer::SCRATCH_NAME`)
+        // plus any `.bak`/`.swp`/`.git*` files a user might leave in the overlay
+        // dir. Without this filter the sanitizer rejects the bundle because those
+        // files have no handler kind and exceed per-file limits.
+        let walker = walkdir::WalkDir::new(&root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                // depth 0 is the root itself — always traverse. Filtering the
+                // root out would empty the walk entirely (and on Windows,
+                // tempfile::tempdir() names start with `.tmp`, so the test
+                // would false-positive that regression).
+                if entry.depth() == 0 {
+                    return true;
+                }
+                entry
+                    .file_name()
+                    .to_str()
+                    .map(|n| !n.starts_with('.'))
+                    .unwrap_or(true)
+            });
+        for entry in walker {
             let entry = entry.map_err(|e| UploadError::Io(std::io::Error::other(e)))?;
             if entry.file_type().is_file() {
                 let rel = entry
@@ -479,6 +507,23 @@ mod tests {
         );
         let back: UploadStatus = serde_json::from_str("\"unchanged\"").unwrap();
         assert_eq!(back, UploadStatus::Unchanged);
+    }
+
+    #[tokio::test]
+    async fn walk_bundle_skips_dotfiles() {
+        // Regression: host-owned runtime scratch files like
+        // `.omni_current.html` (written by `ul_renderer`) live inside every
+        // overlay dir. Before this filter, walk_bundle picked them up and
+        // sanitize_bundle rejected the whole upload because `.html` has no
+        // handler kind. Skipping any `.`-prefixed entry fixes both that bug
+        // and future scratch files the renderer might add.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(tmp.path().join("overlay.omni"), b"<overlay/>").expect("write overlay");
+        std::fs::write(tmp.path().join(".omni_current.html"), b"<html/>").expect("write scratch");
+        std::fs::write(tmp.path().join(".swp"), b"editor swap").expect("write swp");
+        let files = walk_bundle(tmp.path()).await.expect("walk");
+        let names: Vec<&str> = files.keys().map(String::as_str).collect();
+        assert_eq!(names, vec!["overlay.omni"], "only the overlay survives the dotfile filter; got {names:?}");
     }
 
     #[tokio::test]
