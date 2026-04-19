@@ -52,6 +52,7 @@ jobs:
         shell: bash
         run: |
           cargo build --release --package host --features guard \
+            --config 'net.git-fetch-with-cli=true' \
             --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.git="ssh://git@github.com/djowinz/omni-guard.git"' \
             --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.branch="main"'
 
@@ -69,6 +70,7 @@ jobs:
           OMNI_GUARD_TEXT_SHA256: ${{ steps.integrity.outputs.hash }}
         run: |
           cargo build --release --package host --features guard \
+            --config 'net.git-fetch-with-cli=true' \
             --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.git="ssh://git@github.com/djowinz/omni-guard.git"' \
             --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.branch="main"' \
             --config 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard.features=["strict-integrity"]'

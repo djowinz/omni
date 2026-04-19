@@ -80,7 +80,14 @@ release-notes:
 #
 # Verify which source resolved with `make tree-guard` after building.
 GUARD_URL := ssh://git@github.com/djowinz/omni-guard.git
+# `net.git-fetch-with-cli=true` makes cargo shell out to the system git
+# binary (which uses the OS SSH agent) instead of libgit2's built-in SSH
+# client. libgit2's SSH is notoriously finicky on Windows — it can't
+# prompt for passphrases, hangs on first-time host-key confirmation, and
+# often just silently loops forever. Scoped to these real-guard targets
+# so the default `make build` (stub path, no git fetch) is unaffected.
 CARGO_GUARD_CONFIG := \
+	--config 'net.git-fetch-with-cli=true' \
 	--config 'patch."$(GUARD_URL)".omni-guard.git="$(GUARD_URL)"' \
 	--config 'patch."$(GUARD_URL)".omni-guard.branch="main"'
 
