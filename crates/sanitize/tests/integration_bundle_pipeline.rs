@@ -146,3 +146,59 @@ fn case_g_schema_version_rejection() {
         other => panic!("expected Malformed, got {other:?}"),
     }
 }
+
+/// Regression: feed the host's `reference_overlay.omni` through
+/// `sanitize_bundle` and assert success. The reference overlay is the
+/// canonical example of the real `.omni` format; if this test fails the
+/// sanitizer has drifted from the format spec.
+#[test]
+fn reference_overlay_roundtrips_through_sanitize() {
+    use bundle::{FileEntry, Manifest};
+    use sanitize::sanitize_bundle;
+    use std::collections::BTreeMap;
+
+    let reference_bytes = include_bytes!(
+        "../../host/src/omni/assets/reference_overlay.omni"
+    )
+    .to_vec();
+    let theme_bytes = b":root { --bg: #000; --text: #fff; }".to_vec();
+
+    let mut files = BTreeMap::new();
+    files.insert("overlay.omni".to_string(), reference_bytes.clone());
+    files.insert("themes/theme.css".to_string(), theme_bytes.clone());
+
+    let manifest = Manifest {
+        schema_version: 1,
+        name: "reference".into(),
+        version: semver::Version::new(0, 1, 0),
+        omni_min_version: semver::Version::new(0, 1, 0),
+        description: "reference overlay integration fixture".into(),
+        tags: vec![],
+        license: "MIT".into(),
+        entry_overlay: "overlay.omni".into(),
+        default_theme: Some("themes/theme.css".into()),
+        sensor_requirements: vec![],
+        files: vec![
+            FileEntry {
+                path: "overlay.omni".into(),
+                sha256: common::sha256(&reference_bytes),
+            },
+            FileEntry {
+                path: "themes/theme.css".into(),
+                sha256: common::sha256(&theme_bytes),
+            },
+        ],
+        resource_kinds: None,
+    };
+
+    let (out, _report) = sanitize_bundle(&manifest, files)
+        .expect("reference overlay must sanitize");
+    let sanitized_overlay = out.get("overlay.omni").expect("overlay in output");
+    let body = std::str::from_utf8(sanitized_overlay).unwrap();
+
+    assert!(body.contains("<theme"), "theme element must survive; first 200 chars: {}", &body[..body.len().min(200)]);
+    assert!(body.contains("<widget"), "widget element must survive");
+    assert!(body.contains("<template"), "template element must survive");
+    assert!(body.contains("<style"), "style element must survive");
+    assert!(body.contains("{cpu.usage}"), "interpolation text must survive");
+}
