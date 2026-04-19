@@ -1,0 +1,23 @@
+[package]
+name = "test-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bundle = { path = "../bundle" }
+host = { package = "host", path = "../host" }
+identity = { path = "../identity" }
+omni-guard-trait = { path = "../omni-guard-trait" }
+shared = { path = "../shared" }
+semver = "1"
+sha2 = "0.10"
+tempfile = "3"
+tokio-util = { version = "0.7", features = ["rt"] }
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

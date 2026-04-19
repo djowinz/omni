@@ -74,6 +74,7 @@ sha2 = "0.10"
 semver = { version = "1", features = ["serde"] }
 identity = { path = "../identity" }
 bundle = { path = "../bundle" }
+test-harness = { path = "../test-harness" }
 
 [dependencies.windows]
 version = "0.58"

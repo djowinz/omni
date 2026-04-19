@@ -36,6 +36,7 @@ hex-literal = "0.4"
 identity = { path = "../identity" }
 proptest = "1"
 semver = { version = "1", features = ["serde"] }
+test-harness = { path = "../test-harness" }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }

@@ -8,6 +8,7 @@ members = [
     "crates/sanitize",
     "crates/identity",
     "crates/omni-guard-trait",
+    "crates/test-harness",
     "crates/ultralight-sys",
     "tools/admin",
     "tools/dev-orchestrator",

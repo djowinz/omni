@@ -1396,6 +1396,7 @@ dependencies = [
  "shared",
  "sysinfo",
  "tempfile",
+ "test-harness",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
@@ -3182,6 +3183,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "sha2",
+ "test-harness",
  "thiserror 1.0.69",
  "ttf-parser",
  "wasm-bindgen",
@@ -3605,6 +3607,23 @@ name = "termtree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+
+[[package]]
+name = "test-harness"
+version = "0.1.0"
+dependencies = [
+ "bundle",
+ "host",
+ "identity",
+ "omni-guard-trait",
+ "semver",
+ "sha2",
+ "shared",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "url",
+]
 
 [[package]]
 name = "thiserror"
