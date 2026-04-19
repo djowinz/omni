@@ -24,7 +24,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// Build a signed bundle whose manifest carries `name` and is signed by `kp`.
 /// Two-file fixture: `overlay.omni` + `themes/theme.css` (mirrors install.rs).
 fn build_signed_bundle(name: &str, kp: &Keypair) -> Vec<u8> {
-    let overlay_bytes = b"<overlay></overlay>".to_vec();
+    let overlay_bytes = b"<widget><template><div/></template></widget>".to_vec();
     let theme_bytes = b"body { color: red; }".to_vec();
     let overlay_sha: [u8; 32] = {
         let mut h = Sha256::new();
