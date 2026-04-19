@@ -75,6 +75,13 @@ contextBridge.exposeInMainWorld('omni', {
 
   // Settings
   restartHost: () => ipcRenderer.invoke('restart-host'),
+
+  // Identity backup save — shows a native save dialog and writes the
+  // encrypted bytes to the chosen path in one round-trip. Returns the
+  // absolute path on success, undefined if the user cancelled.
+  saveIdentityBackup: (bytes: Uint8Array): Promise<string | undefined> =>
+    ipcRenderer.invoke('identity:save-backup', bytes),
+
   getLoginItemSettings: () => ipcRenderer.invoke('get-login-item-settings'),
   setLoginItemSettings: (openAtLogin: boolean) =>
     ipcRenderer.invoke('set-login-item-settings', openAtLogin),

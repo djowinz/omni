@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, dialog } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -155,6 +155,37 @@ ipcMain.handle('set-login-item-settings', (_event, openAtLogin: boolean) => {
   app.setLoginItemSettings({ openAtLogin });
   return { success: true };
 });
+
+// Identity backup: show a native save dialog and write the encrypted bytes
+// to the chosen path atomically. Called by the IdentityBackupDialog's
+// defaultSaveBackup() after the host returns an identity.backupResult with
+// the argon2+XChaCha20Poly1305 ciphertext. Single IPC round-trip so the
+// renderer doesn't need to juggle a separate fs:writeFile call.
+//
+// Returns:
+//   - absolute path (string) if the user chose a location and write succeeded
+//   - undefined if the user cancelled the dialog
+// Throws:
+//   - fs write errors bubble up to the renderer as IPC errors
+ipcMain.handle(
+  'identity:save-backup',
+  async (_event, bytes: Uint8Array): Promise<string | undefined> => {
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+      throw new Error('identity:save-backup requires non-empty Uint8Array');
+    }
+    const result = await dialog.showSaveDialog({
+      title: 'Save identity backup',
+      defaultPath: 'omni-identity.omniid',
+      filters: [
+        { name: 'Omni identity backup', extensions: ['omniid'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePath) return undefined;
+    await fs.promises.writeFile(result.filePath, Buffer.from(bytes));
+    return result.filePath;
+  },
+);
 
 // Unsolicited share-hub streaming frames forwarded to the renderer via the
 // 'share:event' ipc channel for useShareWs.subscribe() consumers. Keep this

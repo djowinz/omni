@@ -16,6 +16,12 @@ interface OmniIpcBridge {
   onUpdateReady: (callback: (version: string, releaseDate: string) => void) => () => void;
   installUpdate: () => void;
   restartHost: () => Promise<{ success: boolean }>;
+  /**
+   * Save an identity backup via a native save dialog. Returns the absolute
+   * path the user chose, or undefined if they cancelled. Rejects on write
+   * errors. Wired to main-process `identity:save-backup`.
+   */
+  saveIdentityBackup: (bytes: Uint8Array) => Promise<string | undefined>;
   getLoginItemSettings: () => Promise<{ openAtLogin: boolean }>;
   setLoginItemSettings: (openAtLogin: boolean) => Promise<{ success: boolean }>;
   startLogTail: () => Promise<{ path: string }>;

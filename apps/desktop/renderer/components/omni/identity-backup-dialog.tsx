@@ -95,19 +95,17 @@ function toUserFacing(err: unknown): UserFacingError {
 }
 
 /**
- * Default persistence implementation. References main-process IPC handlers
- * that do NOT exist yet (`dialog:saveIdentityBackup`, `fs:writeFile`) — those
- * are scoped to #016. Calling this in the current Electron build will throw.
- * Tests + the smoke page must pass a `saveBackup` prop instead.
+ * Default persistence implementation. Wired to the main-process
+ * `identity:save-backup` IPC handler, which shows a native save dialog,
+ * writes the encrypted bytes to the chosen path, and returns that path —
+ * all in a single round-trip (see apps/desktop/main/main.ts). Tests + the
+ * smoke page may still pass a `saveBackup` prop to stub this out.
  */
 async function defaultSaveBackup(bytes: Uint8Array): Promise<string> {
-  const electron = (window as any).electron;
-  if (!electron?.ipcRenderer?.invoke) {
-    throw new Error('Save bridge not available');
-  }
-  const path: string | undefined = await electron.ipcRenderer.invoke('dialog:saveIdentityBackup');
+  const save = window.omni?.saveIdentityBackup;
+  if (!save) throw new Error('Save bridge not available');
+  const path = await save(bytes);
   if (!path) throw new Error('Save cancelled');
-  await electron.ipcRenderer.invoke('fs:writeFile', { path, bytes });
   return path;
 }
 
