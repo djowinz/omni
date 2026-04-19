@@ -134,7 +134,11 @@ export function ReviewStep({ form }: ReviewStepProps) {
     const next = selectedTags.includes(tag)
       ? selectedTags.filter((t) => t !== tag)
       : [...selectedTags, tag];
-    setValue('tags', next, { shouldValidate: true });
+    // Don't cascade whole-form validation on tag toggles — the step's
+    // Advance button already calls form.trigger() before moving on. Passing
+    // shouldValidate: true here fired Name-required errors before the user
+    // even reached the Name field.
+    setValue('tags', next, { shouldValidate: false, shouldDirty: true });
   };
 
   return (
@@ -150,7 +154,12 @@ export function ReviewStep({ form }: ReviewStepProps) {
         <Select
           value={bump}
           onValueChange={(v) =>
-            setValue('bump', v as UploadFormValues['bump'], { shouldValidate: true })
+            // Same reasoning as toggleTag — defer whole-form validation to
+            // the step's Advance handler (form.trigger()).
+            setValue('bump', v as UploadFormValues['bump'], {
+              shouldValidate: false,
+              shouldDirty: true,
+            })
           }
         >
           <SelectTrigger data-testid="upload-bump">
