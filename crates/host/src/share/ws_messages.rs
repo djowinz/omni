@@ -90,6 +90,12 @@ pub struct ShareContext {
     /// tests substitute a recording double. Consumed by #021's
     /// `handle_preview`.
     pub theme_swap: Arc<dyn ThemeSwap>,
+
+    /// Root of the user's Omni workspace (contains `overlays/` and `themes/`).
+    /// Relative `workspace_path` fields from `upload.pack` / `upload.publish`
+    /// (e.g. `"overlays/Marathon"`) are resolved against this root. Renderer
+    /// callers use the same relative format as `file.list` / `file.read`.
+    pub data_dir: PathBuf,
 }
 
 impl ShareContext {
@@ -137,6 +143,19 @@ fn bad_input(id: &str, msg: impl Into<String>) -> String {
         },
     )
     .to_string()
+}
+
+/// Resolve a renderer-supplied `workspace_path` against the host's `data_dir`.
+/// Absolute paths are returned unchanged so tests (and any future absolute-path
+/// caller) keep working; relative paths — the renderer's format today — get
+/// prefixed with `data_dir`.
+fn resolve_workspace_path(data_dir: &std::path::Path, workspace_path: &str) -> PathBuf {
+    let p = PathBuf::from(workspace_path);
+    if p.is_absolute() {
+        p
+    } else {
+        data_dir.join(p)
+    }
 }
 
 fn parse_kind(s: Option<&str>) -> ArtifactKind {
@@ -198,7 +217,7 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
     };
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
-        source_path: p.workspace_path.into(),
+        source_path: resolve_workspace_path(&ctx.data_dir, &p.workspace_path),
         name: p.name.unwrap_or_default(),
         description: String::new(),
         tags: Vec::<Tag>::new(),
@@ -328,7 +347,7 @@ where
     };
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
-        source_path: p.workspace_path.into(),
+        source_path: resolve_workspace_path(&ctx.data_dir, &p.workspace_path),
         name: p.name.unwrap_or_default(),
         description: p.description.unwrap_or_default(),
         tags,
@@ -989,6 +1008,7 @@ mod tests {
         let preview_slot = Arc::new(PreviewSlot::new());
         let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
         let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopSwap);
+        let data_dir = tmp.path().to_path_buf();
         let ctx = ShareContext {
             identity: kp,
             guard,
@@ -1001,6 +1021,7 @@ mod tests {
             preview_slot,
             cancel_registry,
             theme_swap,
+            data_dir,
         };
         (ctx, tmp)
     }
@@ -1061,6 +1082,35 @@ mod tests {
         let parsed: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(parsed["type"], "error");
         assert_eq!(parsed["error"]["code"], "BAD_INPUT");
+    }
+
+    #[test]
+    fn resolve_workspace_path_joins_relative_against_data_dir() {
+        // Regression: bug hit 2026-04-18 — handle_pack / handle_publish fed
+        // `"overlays/Marathon"` straight into `UploadRequest.source_path`,
+        // leaving it relative to the host's CWD instead of `data_dir`. Every
+        // real upload failed with os error 3 "path not found".
+        let data_dir = std::path::Path::new("C:\\Users\\test\\AppData\\Roaming\\omni");
+        let resolved = super::resolve_workspace_path(data_dir, "overlays/Marathon");
+        assert_eq!(
+            resolved,
+            data_dir.join("overlays").join("Marathon"),
+            "relative workspace_path must be joined against data_dir"
+        );
+    }
+
+    #[test]
+    fn resolve_workspace_path_passes_absolute_through_unchanged() {
+        // Absolute paths (tests, future callers) must not be re-rooted under
+        // `data_dir` — that would turn an absolute path into a nonsense
+        // nested path on Unix and silently corrupt it on Windows.
+        #[cfg(windows)]
+        let abs = "C:\\tmp\\my-theme";
+        #[cfg(not(windows))]
+        let abs = "/tmp/my-theme";
+        let data_dir = std::path::Path::new("/unused");
+        let resolved = super::resolve_workspace_path(data_dir, abs);
+        assert_eq!(resolved, std::path::PathBuf::from(abs));
     }
 
     #[test]
@@ -1251,6 +1301,7 @@ mod tests {
         ));
         let preview_slot = Arc::new(PreviewSlot::new());
         let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopSwap);
+        let data_dir = tmp.path().to_path_buf();
         let ctx = ShareContext {
             identity: kp,
             guard,
@@ -1263,6 +1314,7 @@ mod tests {
             preview_slot: preview_slot.clone(),
             cancel_registry: Arc::new(Mutex::new(HashMap::new())),
             theme_swap: theme_swap.clone(),
+            data_dir,
         };
 
         // Pre-occupy the slot with an unrelated session so the handler's
@@ -1450,6 +1502,7 @@ mod tests {
         let preview_slot = Arc::new(PreviewSlot::new());
         let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
         let theme_swap: Arc<dyn ThemeSwap> = Arc::new(NoopSwap);
+        let data_dir = tmp.path().to_path_buf();
         let ctx = ShareContext {
             identity: kp,
             guard,
@@ -1462,6 +1515,7 @@ mod tests {
             preview_slot,
             cancel_registry,
             theme_swap,
+            data_dir,
         };
         (ctx, tmp)
     }

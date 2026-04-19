@@ -1072,6 +1072,7 @@ fn build_share_context(
         preview_slot,
         cancel_registry,
         theme_swap,
+        data_dir: state.data_dir.clone(),
     })
 }
 
