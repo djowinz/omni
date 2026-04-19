@@ -9,6 +9,7 @@ mod admin;
 mod fixtures;
 mod identity_mgmt;
 mod kill;
+mod orchestrator;
 mod paths;
 mod reset;
 mod seed;
@@ -59,9 +60,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Command::Run { no_seed: _ } => {
-            todo!("orchestrator::run — landed in T8")
-        }
+        Command::Run { no_seed } => orchestrator::run(no_seed).await,
         Command::Seed => seed::run(),
         Command::Reset { no_seed } => reset::run(no_seed),
         Command::ResetIdentity { which } => {
