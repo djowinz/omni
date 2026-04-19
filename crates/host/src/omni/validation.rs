@@ -5,29 +5,11 @@
 
 use super::parser::ParseError;
 
-/// Known element names supported in .omni templates. Includes HTML (div,
-/// span, i) plus the SVG subset used by the charting system.
-pub const KNOWN_ELEMENTS: &[&str] = &[
-    // HTML
-    "div",
-    "span",
-    "i",
-    // SVG container and shapes used by <chart> / <chart-card> desugaring
-    "svg",
-    "g",
-    "polyline",
-    "path",
-    "rect",
-    "circle",
-    "line",
-    "text",
-    "ellipse",
-    "polygon",
-    "defs",
-    "linearGradient",
-    "radialGradient",
-    "stop",
-];
+/// Known element names supported in .omni templates. Sourced from
+/// `bundle::omni_schema::KNOWN_TEMPLATE_TAGS` so this list stays in
+/// lockstep with the sanitizer's allowlist. See
+/// `docs/superpowers/specs/2026-04-18-omni-sanitizer-realignment-design.md`.
+pub const KNOWN_ELEMENTS: &[&str] = bundle::omni_schema::KNOWN_TEMPLATE_TAGS;
 
 /// Known sensor paths for interpolation expressions.
 pub const KNOWN_SENSOR_PATHS: &[&str] = &[
