@@ -425,7 +425,7 @@ mod tests {
 
     fn build_fixture() -> (Vec<u8>, Keypair, BundleLimits) {
         let kp = Keypair::generate();
-        let overlay_bytes = b"<overlay></overlay>".to_vec();
+        let overlay_bytes = b"<widget><template><div/></template></widget>".to_vec();
         let theme_bytes = b"body { color: red; }".to_vec();
         let overlay_sha: [u8; 32] = {
             let mut h = Sha256::new();
@@ -539,7 +539,7 @@ mod tests {
         // valid bundle WITHOUT a `signature.jws` entry. `unpack_signed_bundle`
         // must surface that absence as `IdentityError::MissingSignature`,
         // which the install pipeline maps to `InstallError::SignatureFailed`.
-        let overlay_bytes = b"<overlay></overlay>".to_vec();
+        let overlay_bytes = b"<widget><template><div/></template></widget>".to_vec();
         let theme_bytes = b"body { color: red; }".to_vec();
         let overlay_sha: [u8; 32] = {
             let mut h = Sha256::new();
