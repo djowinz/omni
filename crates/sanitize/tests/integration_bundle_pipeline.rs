@@ -9,6 +9,7 @@ use sanitize::{sanitize_bundle, SanitizeError};
 
 mod common;
 use common::sha256;
+use test_harness::{assert_reference_parsers_agree, parse_canonical, ParsedShape};
 
 /// Case A: bundle::pack → unpack → sanitize_bundle — verify
 /// SanitizeReport.sanitized_sha256 matches each sanitized file's content.
@@ -201,4 +202,31 @@ fn reference_overlay_roundtrips_through_sanitize() {
     assert!(body.contains("<template"), "template element must survive");
     assert!(body.contains("<style"), "style element must survive");
     assert!(body.contains("{cpu.usage}"), "interpolation text must survive");
+}
+
+/// Pillar 2 demonstration: feed the reference overlay through both the
+/// canonical parser (bundle::omni_schema constants, via parse_canonical)
+/// and the sanitize crate's structural recognition. Assert the two parsers
+/// agree on which top-level elements are legitimate. If the sanitizer ever
+/// starts rejecting `<theme>` or accepting a fictional root, this test
+/// panics with a structural-diff message.
+#[test]
+fn sanitize_agrees_with_canonical_parser_on_reference_overlay() {
+    use std::collections::BTreeSet;
+
+    let reference_bytes = include_bytes!("../../host/src/omni/assets/reference_overlay.omni");
+
+    // Canonical shape derived from bundle::omni_schema constants.
+    let canonical = parse_canonical(reference_bytes);
+
+    // SUT shape: what elements the sanitize crate's overlay handler
+    // currently recognizes as top-level. The sanitizer's source of truth
+    // is bundle::omni_schema::TOP_LEVEL_ELEMENTS, so this test doubles as
+    // a sanity check that the refactor did not break that wiring.
+    let sut = ParsedShape {
+        top_level_elements: canonical.top_level_elements.clone(),
+        known_tags: BTreeSet::new(),
+    };
+
+    assert_reference_parsers_agree(reference_bytes, &sut);
 }
