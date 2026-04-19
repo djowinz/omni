@@ -127,11 +127,14 @@ export function useShareWs(): UseShareWs {
         // per-handler param struct. DO NOT spread params at top level —
         // the dispatcher would see an empty params map and reject with
         // "missing field" for every required field.
+        console.log('[useShareWs.send] →', { id, type, params });
         const response = await window.omni!.sendShareMessage({ id, type, params });
+        console.log('[useShareWs.send] ← raw response for', type, response);
 
         // First check for error envelope.
         const errParse = ShareErrorFrameSchema.safeParse(response);
         if (errParse.success) {
+          console.error('[useShareWs.send] error envelope for', type, errParse.data.error);
           throw errParse.data.error as ShareWsError;
         }
 
@@ -141,9 +144,16 @@ export function useShareWs(): UseShareWs {
           typeof response === 'object' && response !== null && typeof response.type === 'string'
             ? (response.type as keyof typeof RESPONSE_SCHEMAS)
             : undefined;
+        console.log('[useShareWs.send] responseType=', responseType, 'for', type);
 
         const schema = responseType ? RESPONSE_SCHEMAS[responseType] : undefined;
         if (!schema) {
+          console.error(
+            '[useShareWs.send] missing validator for type=',
+            responseType,
+            'request=',
+            type,
+          );
           throw {
             code: 'PARSE_FAILED',
             kind: 'Malformed',
@@ -154,6 +164,14 @@ export function useShareWs(): UseShareWs {
 
         const parse = schema.safeParse(response);
         if (!parse.success) {
+          console.error(
+            '[useShareWs.send] zod validation failed for',
+            type,
+            'issues=',
+            parse.error.issues,
+            'raw response=',
+            response,
+          );
           throw {
             code: 'PARSE_FAILED',
             kind: 'Malformed',
@@ -162,6 +180,7 @@ export function useShareWs(): UseShareWs {
           } satisfies ShareWsError;
         }
 
+        console.log('[useShareWs.send] validated OK for', type);
         return parse.data as ShareRequestMap[typeof type]['result'];
       },
 
