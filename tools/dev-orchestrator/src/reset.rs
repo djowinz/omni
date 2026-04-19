@@ -33,9 +33,20 @@ fn wipe_state() -> anyhow::Result<()> {
 
 fn run_d1_migrations() -> anyhow::Result<()> {
     tracing::info!("applying D1 migrations");
-    let status = shell::std_cmd("pnpm exec wrangler d1 migrations apply META --local")
-        .current_dir(WORKER_DIR)
-        .status()?;
+    let status = shell::std_cmd(
+        "pnpm",
+        [
+            "exec",
+            "wrangler",
+            "d1",
+            "migrations",
+            "apply",
+            "META",
+            "--local",
+        ],
+    )
+    .current_dir(WORKER_DIR)
+    .status()?;
     if !status.success() {
         anyhow::bail!("wrangler d1 migrations apply failed");
     }
@@ -44,7 +55,7 @@ fn run_d1_migrations() -> anyhow::Result<()> {
 
 fn run_kv_bootstrap() -> anyhow::Result<()> {
     tracing::info!("bootstrapping KV");
-    let status = shell::std_cmd("node scripts/bootstrap-kv.mjs --local")
+    let status = shell::std_cmd("node", ["scripts/bootstrap-kv.mjs", "--local"])
         .current_dir(WORKER_DIR)
         .status()?;
     if !status.success() {

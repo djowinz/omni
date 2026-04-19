@@ -153,18 +153,21 @@ fn preflight() -> anyhow::Result<()> {
 }
 
 fn spawn_wrangler(admin_pubkey_hex: &str) -> std::io::Result<Child> {
-    let script = format!("pnpm exec wrangler dev --var OMNI_ADMIN_PUBKEYS:{admin_pubkey_hex}");
-    shell::tokio_cmd(&script)
-        .current_dir(WORKER_DIR)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let admin_var = format!("OMNI_ADMIN_PUBKEYS:{admin_pubkey_hex}");
+    shell::tokio_cmd(
+        "pnpm",
+        ["exec", "wrangler", "dev", "--var", admin_var.as_str()],
+    )
+    .current_dir(WORKER_DIR)
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
 }
 
 /// Spawn the Electron dev server with dev env vars pre-set so Electron's
 /// host child inherits them.
 fn spawn_electron(worker_url: &str, identity_path: &str) -> std::io::Result<Child> {
-    shell::tokio_cmd("pnpm --filter @omni/desktop dev")
+    shell::tokio_cmd("pnpm", ["--filter", "@omni/desktop", "dev"])
         .env("OMNI_WORKER_URL", worker_url)
         .env("OMNI_IDENTITY_PATH", identity_path)
         .stdout(Stdio::piped())
