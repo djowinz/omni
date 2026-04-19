@@ -31,7 +31,11 @@ fn wipe_state() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_d1_migrations() -> anyhow::Result<()> {
+/// Apply pending D1 migrations to the local miniflare DB. Idempotent:
+/// wrangler tracks applied migration IDs and skips ones already on record.
+/// Exposed `pub(crate)` so the orchestrator can prime a fresh `.wrangler/state/`
+/// before seeding.
+pub(crate) fn run_d1_migrations() -> anyhow::Result<()> {
     tracing::info!("applying D1 migrations");
     let status = shell::std_cmd(
         "pnpm",
@@ -53,7 +57,10 @@ fn run_d1_migrations() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_kv_bootstrap() -> anyhow::Result<()> {
+/// Run the KV bootstrap script that seeds `config:vocab` + `config:limits`.
+/// Idempotent (script overwrites the same keys each run). Exposed
+/// `pub(crate)` so the orchestrator can prime a fresh `.wrangler/state/`.
+pub(crate) fn run_kv_bootstrap() -> anyhow::Result<()> {
     tracing::info!("bootstrapping KV");
     let status = shell::std_cmd("node", ["scripts/bootstrap-kv.mjs", "--local"])
         .current_dir(WORKER_DIR)

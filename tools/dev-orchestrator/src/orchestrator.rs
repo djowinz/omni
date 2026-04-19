@@ -11,7 +11,7 @@
 //!   7. Tee colored prefixed logs.
 //!   8. Ctrl-C: kill children in reverse spawn order.
 
-use crate::{fixtures, identity_mgmt, seed, shell};
+use crate::{fixtures, identity_mgmt, reset, seed, shell};
 use anyhow::{anyhow, Context};
 use std::path::Path;
 use std::process::Stdio;
@@ -51,6 +51,17 @@ pub async fn run(skip_seed: bool) -> anyhow::Result<()> {
     if !wait_for_port(8787, Duration::from_secs(30)).await {
         let _ = wrangler.kill().await;
         anyhow::bail!("wrangler dev did not start within 30s");
+    }
+
+    // Prime the D1 schema + KV config on every boot. Both operations are
+    // idempotent — migrations track applied IDs, bootstrap-kv overwrites
+    // the same two keys. Needed because a fresh `.wrangler/state/` (first
+    // boot or after `dev reset` wipes it) has no schema.
+    if let Err(e) = reset::run_d1_migrations() {
+        tracing::warn!(error = %e, "D1 migrations failed — seed will likely fail too");
+    }
+    if let Err(e) = reset::run_kv_bootstrap() {
+        tracing::warn!(error = %e, "KV bootstrap failed — worker endpoints may error on missing config");
     }
 
     if !skip_seed {
@@ -122,6 +133,14 @@ pub async fn worker(skip_seed: bool) -> anyhow::Result<()> {
     if !wait_for_port(8787, Duration::from_secs(30)).await {
         let _ = wrangler.kill().await;
         anyhow::bail!("wrangler dev did not start within 30s");
+    }
+
+    // Same schema+config prime as `run` — see comment there.
+    if let Err(e) = reset::run_d1_migrations() {
+        tracing::warn!(error = %e, "D1 migrations failed — seed will likely fail too");
+    }
+    if let Err(e) = reset::run_kv_bootstrap() {
+        tracing::warn!(error = %e, "KV bootstrap failed — worker endpoints may error on missing config");
     }
 
     if !skip_seed {
