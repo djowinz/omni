@@ -9,11 +9,11 @@
 //! the whole seed no-ops.
 
 use crate::fixtures::{self, FixtureAuthor};
+use crate::shell;
 use anyhow::{anyhow, Context};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use tempfile::NamedTempFile;
 
 const WORKER_DIR: &str = "apps/worker";
@@ -115,18 +115,11 @@ fn build_plan(authors: &[FixtureAuthor]) -> Vec<ArtifactRow> {
 }
 
 fn first_artifact_seeded(id: &str) -> anyhow::Result<bool> {
-    let out = Command::new("pnpm")
-        .args([
-            "exec",
-            "wrangler",
-            "d1",
-            "execute",
-            "META",
-            "--local",
-            "--json",
-            "--command",
-            &format!("SELECT id FROM artifacts WHERE id = '{}' LIMIT 1;", id),
-        ])
+    let script = format!(
+        "pnpm exec wrangler d1 execute META --local --json --command \"SELECT id FROM artifacts WHERE id = '{}' LIMIT 1;\"",
+        id
+    );
+    let out = shell::std_cmd(&script)
         .current_dir(WORKER_DIR)
         .output()
         .context("spawn wrangler d1 execute")?;
@@ -204,13 +197,11 @@ fn seed_sql(plan: &[ArtifactRow]) -> anyhow::Result<()> {
     }
     let sqlfile = NamedTempFile::new()?;
     fs::write(sqlfile.path(), sql)?;
-    let status = Command::new("pnpm")
-        .args([
-            "exec", "wrangler", "d1", "execute", "META", "--local", "--file",
-        ])
-        .arg(sqlfile.path())
-        .current_dir(WORKER_DIR)
-        .status()?;
+    let script = format!(
+        "pnpm exec wrangler d1 execute META --local --file \"{}\"",
+        sqlfile.path().display()
+    );
+    let status = shell::std_cmd(&script).current_dir(WORKER_DIR).status()?;
     if !status.success() {
         return Err(anyhow!("wrangler d1 execute --file failed"));
     }
@@ -229,20 +220,12 @@ fn seed_thumbnails() -> anyhow::Result<()> {
         let tmp = NamedTempFile::new()?;
         fs::write(tmp.path(), &png_bytes)?;
         let r2key = format!("thumbnails/{}", key);
-        let status = Command::new("pnpm")
-            .args([
-                "exec",
-                "wrangler",
-                "r2",
-                "object",
-                "put",
-                &format!("BLOBS/{}", r2key),
-                "--file",
-            ])
-            .arg(tmp.path())
-            .args(["--local"])
-            .current_dir(WORKER_DIR)
-            .status()?;
+        let script = format!(
+            "pnpm exec wrangler r2 object put \"BLOBS/{}\" --file \"{}\" --local",
+            r2key,
+            tmp.path().display()
+        );
+        let status = shell::std_cmd(&script).current_dir(WORKER_DIR).status()?;
         if !status.success() {
             return Err(anyhow!("wrangler r2 put failed for {r2key}"));
         }

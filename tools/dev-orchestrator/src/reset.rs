@@ -2,11 +2,10 @@
 //! bootstrap, optionally re-seed. Preserves identity keypairs (they live
 //! outside the worker dir).
 
-use crate::seed;
+use crate::{seed, shell};
 use anyhow::Context;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 const WORKER_DIR: &str = "apps/worker";
 const STATE_DIR: &str = "apps/worker/.wrangler/state";
@@ -34,16 +33,7 @@ fn wipe_state() -> anyhow::Result<()> {
 
 fn run_d1_migrations() -> anyhow::Result<()> {
     tracing::info!("applying D1 migrations");
-    let status = Command::new("pnpm")
-        .args([
-            "exec",
-            "wrangler",
-            "d1",
-            "migrations",
-            "apply",
-            "META",
-            "--local",
-        ])
+    let status = shell::std_cmd("pnpm exec wrangler d1 migrations apply META --local")
         .current_dir(WORKER_DIR)
         .status()?;
     if !status.success() {
@@ -54,8 +44,7 @@ fn run_d1_migrations() -> anyhow::Result<()> {
 
 fn run_kv_bootstrap() -> anyhow::Result<()> {
     tracing::info!("bootstrapping KV");
-    let status = Command::new("node")
-        .args(["scripts/bootstrap-kv.mjs", "--local"])
+    let status = shell::std_cmd("node scripts/bootstrap-kv.mjs --local")
         .current_dir(WORKER_DIR)
         .status()?;
     if !status.success() {

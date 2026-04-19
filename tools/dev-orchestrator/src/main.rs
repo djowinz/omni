@@ -13,6 +13,7 @@ mod orchestrator;
 mod paths;
 mod reset;
 mod seed;
+mod shell;
 
 #[derive(Parser, Debug)]
 #[command(name = "omni-dev", about = "Local dev stack for Omni", version)]

@@ -11,12 +11,12 @@
 //!   7. Tee colored prefixed logs.
 //!   8. Ctrl-C: kill children in reverse spawn order.
 
-use crate::{fixtures, identity_mgmt, seed};
+use crate::{fixtures, identity_mgmt, seed, shell};
 use anyhow::{anyhow, Context};
 use std::path::Path;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::signal;
 use tokio::time::{sleep, Duration, Instant};
 
@@ -61,13 +61,7 @@ pub async fn run(skip_seed: bool) -> anyhow::Result<()> {
 
     // Spawn Electron with env.
     let identity_path_str = key_paths.user.to_string_lossy().to_string();
-    let mut electron = Command::new("pnpm")
-        .args(["--filter", "@omni/desktop", "dev"])
-        .env("OMNI_WORKER_URL", "http://127.0.0.1:8787/")
-        .env("OMNI_IDENTITY_PATH", &identity_path_str)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut electron = spawn_electron("http://127.0.0.1:8787/", &identity_path_str)
         .context("spawn Electron dev")?;
     let electron_id = electron.id();
     if let Some(stdout) = electron.stdout.take() {
@@ -159,15 +153,20 @@ fn preflight() -> anyhow::Result<()> {
 }
 
 fn spawn_wrangler(admin_pubkey_hex: &str) -> std::io::Result<Child> {
-    Command::new("pnpm")
-        .args([
-            "exec",
-            "wrangler",
-            "dev",
-            "--var",
-            &format!("OMNI_ADMIN_PUBKEYS:{admin_pubkey_hex}"),
-        ])
+    let script = format!("pnpm exec wrangler dev --var OMNI_ADMIN_PUBKEYS:{admin_pubkey_hex}");
+    shell::tokio_cmd(&script)
         .current_dir(WORKER_DIR)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+}
+
+/// Spawn the Electron dev server with dev env vars pre-set so Electron's
+/// host child inherits them.
+fn spawn_electron(worker_url: &str, identity_path: &str) -> std::io::Result<Child> {
+    shell::tokio_cmd("pnpm --filter @omni/desktop dev")
+        .env("OMNI_WORKER_URL", worker_url)
+        .env("OMNI_IDENTITY_PATH", identity_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
