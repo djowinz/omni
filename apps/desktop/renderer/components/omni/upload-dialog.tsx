@@ -110,6 +110,30 @@ export function UploadDialog({
     return unsub;
   }, [subscribe]);
 
+  // Reset all multi-step state whenever the dialog closes. Without this the
+  // "Artifact published" success screen from the previous session stays on
+  // screen when the user reopens the dialog — they see the old artifact_id,
+  // old status, old content_hash instead of a fresh Step 1 form. Resetting on
+  // the close transition (not open-time) also preserves in-flight state if
+  // the user accidentally reopens while a publish is racing.
+  useEffect(() => {
+    if (!open) {
+      setStep(sourcePath ? 'review' : 'source');
+      setChosenSource(sourcePath);
+      setPacking(false);
+      setPackResult(null);
+      setPackError(null);
+      setProgress(null);
+      setPublishResult(null);
+      setPublishError(null);
+      setBackupDialogOpen(false);
+      // skippedBackup is intentionally session-scoped — keep it across
+      // open/close cycles so the user isn't re-prompted mid-session after
+      // they already dismissed the first-publish gate once.
+      form.reset(DEFAULT_FORM);
+    }
+  }, [open, sourcePath, form]);
+
   const handleSourceSelect = (path: string) => {
     setChosenSource(path);
   };

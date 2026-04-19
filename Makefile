@@ -8,7 +8,7 @@
         build-real-guard tree-guard tree-real-guard \
         dev dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
         dev-desktop dev-worker dev-worker-seeded deploy-worker \
-        dev-reset-ratelimit dev-check-limits \
+        dev-reset-ratelimit dev-check-limits dev-list-artifacts \
         types-gen types-check structure-check
 
 # --- Top-level ---
@@ -164,6 +164,13 @@ dev-reset-ratelimit:
 # `getLimits()` in apps/worker/src/routes/upload.ts.
 dev-check-limits:
 	@cd apps/worker && pnpm exec wrangler kv key get --binding=STATE --local config:limits || echo "(not seeded — run your worker boot script or make dev-reset)"
+
+# Print every row in D1's `artifacts` table — useful for confirming the seed
+# populated (should show 4 rows: Neon Alley, HWMon Compact, Solarize Lite,
+# Full Telemetry) and for verifying that a just-completed upload landed in
+# the table. Empty result = the explore list will be empty too.
+dev-list-artifacts:
+	@cd apps/worker && pnpm exec wrangler d1 execute META --local --command "SELECT id, name, kind, hex(author_pubkey) AS author_pubkey_hex, install_count, is_removed, datetime(created_at, 'unixepoch') AS created FROM artifacts ORDER BY created_at DESC;"
 
 # --- Shared types ---
 types-gen:

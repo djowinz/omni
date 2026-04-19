@@ -153,6 +153,11 @@ app.get('/', async (c) => {
   const cursorRaw = url.searchParams.get('cursor') ?? undefined;
   const limit = clampLimit(url.searchParams.get('limit') ?? undefined);
   const tagParams = url.searchParams.getAll('tag');
+  const rid = Date.now().toString(36);
+  const tag = `[list rid=${rid}]`;
+  console.log(
+    `${tag} START kind=${kindParam ?? '(all)'} sort=${sort} limit=${limit} tags=${JSON.stringify(tagParams)} cursor=${cursorRaw ? 'present' : 'none'}`,
+  );
 
   const conditions: string[] = ['is_removed = 0'];
   const binds: unknown[] = [];
@@ -206,14 +211,20 @@ app.get('/', async (c) => {
   // Fetch one extra row to detect "has next page" without a COUNT query.
   binds.push(limit + 1);
 
+  console.log(`${tag} sql=${sql.replace(/\s+/g, ' ').trim()}`);
+  console.log(`${tag} binds=${JSON.stringify(binds)}`);
   const { results } = await c.env.META.prepare(sql)
     .bind(...binds)
     .all<ArtifactRow>();
 
   const rows = results ?? [];
+  console.log(`${tag} rows returned: ${rows.length}`);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const items = page.map(rowToItem);
+  console.log(
+    `${tag} serialized ${items.length} items${hasMore ? ' + next_cursor' : ''}`,
+  );
 
   const body: { items: ListItem[]; next_cursor?: string } = { items };
   if (hasMore) {
