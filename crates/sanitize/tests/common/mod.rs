@@ -13,7 +13,7 @@ pub fn sha256(b: &[u8]) -> [u8; 32] {
 }
 
 fn bundle_with_asset(path: &str, bytes: Vec<u8>) -> (Manifest, BTreeMap<String, Vec<u8>>) {
-    let overlay = br#"<overlay><template><div/></template></overlay>"#.to_vec();
+    let overlay = br#"<widget><template><div/></template></widget>"#.to_vec();
     let mut files = BTreeMap::new();
     files.insert("overlay.omni".to_string(), overlay.clone());
     files.insert(path.to_string(), bytes.clone());
@@ -77,7 +77,7 @@ pub fn bundle_with_overlay_bytes(bytes: Vec<u8>) -> (Manifest, BTreeMap<String, 
 /// Valid bundle with one overlay + one theme. For integration roundtrip tests.
 pub fn clean_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
     let overlay =
-        br#"<overlay><template><div class="x"/></template><style>body{}</style></overlay>"#
+        br#"<widget><template><div class="x"/></template><style>body{}</style></widget>"#
             .to_vec();
     let css = b"body{color:red}".to_vec();
     let mut files = BTreeMap::new();
