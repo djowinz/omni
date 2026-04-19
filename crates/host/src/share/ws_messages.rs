@@ -329,6 +329,13 @@ where
             return;
         }
     };
+    // `omni_min_version` is the minimum host version required to install
+    // this artifact. The authoritative source is the running host's own
+    // semver (ctx.current_version, sourced from CARGO_PKG_VERSION). If the
+    // renderer omits the field — as the DEFAULT_FORM does for new publishes
+    // — default to the current host version: "this was built and tested on
+    // vX, so it should install on vX or later." Explicit user-supplied
+    // values still win, in case the UI eventually exposes a picker.
     let omni_min_version = match p.omni_min_version.as_deref() {
         Some(s) => match Version::parse(s) {
             Ok(v) => v,
@@ -340,10 +347,7 @@ where
                 return;
             }
         },
-        None => {
-            send_fn(bad_input(id, "missing required field: omni_min_version"));
-            return;
-        }
+        None => ctx.current_version.clone(),
     };
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
