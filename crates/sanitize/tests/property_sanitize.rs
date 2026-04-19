@@ -37,7 +37,7 @@ proptest! {
     #[test]
     fn no_panic_on_mutated_theme(bytes in proptest::collection::vec(any::<u8>(), 0..2048)) {
         let mut files = BTreeMap::new();
-        files.insert("overlay.omni".to_string(), br#"<overlay><template/></overlay>"#.to_vec());
+        files.insert("overlay.omni".to_string(), br#"<widget><template><div/></template></widget>"#.to_vec());
         files.insert("themes/x.css".to_string(), bytes);
         let manifest = manifest_with(&files);
         let r = sanitize_bundle(&manifest, files);
@@ -55,7 +55,7 @@ proptest! {
     #[test]
     fn no_panic_on_random_image(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
         let mut files = BTreeMap::new();
-        files.insert("overlay.omni".to_string(), br#"<overlay><template/></overlay>"#.to_vec());
+        files.insert("overlay.omni".to_string(), br#"<widget><template><div/></template></widget>"#.to_vec());
         files.insert("images/x.png".to_string(), bytes);
         let manifest = manifest_with(&files);
         let _ = sanitize_bundle(&manifest, files);
