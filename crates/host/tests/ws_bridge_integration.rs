@@ -26,19 +26,16 @@
 //!    rather than duplicated because those tests already lock in the wire
 //!    behavior unchanged by #021's Wave 3 edits.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use identity::{pack_signed_bundle, Keypair};
-use omni_guard_trait::{Guard, StubGuard};
 use omni_host::share::client::ShareClient;
 use omni_host::share::handlers::install_context_unavailable;
-use omni_host::share::preview::{PreviewSlot, ThemeSwap};
-use omni_host::share::registry::{RegistryHandle, RegistryKind};
-use omni_host::share::tofu::TofuStore;
+use omni_host::share::preview::ThemeSwap;
 use omni_host::share::ws_messages::{dispatch, ShareContext};
 use semver::Version;
 use serde_json::{json, Value};
@@ -136,42 +133,16 @@ impl ThemeSwap for CountingThemeSwap {
 /// install-only tests pass an inert swap and ignore it.
 fn build_share_context(worker_url: Url, theme_swap: Arc<dyn ThemeSwap>) -> (ShareContext, TempDir) {
     let tmp = TempDir::new().expect("tempdir");
-    let identity = Arc::new(Keypair::generate());
-    let guard: Arc<dyn Guard> = Arc::new(StubGuard);
+    let mut ctx = test_harness::build_share_context(tmp.path());
+    // Swap the harness's default ShareClient (127.0.0.1:0 base) for a
+    // client pointed at the mock worker this test spun up.
     let client = Arc::new(ShareClient::new(
         worker_url,
-        identity.clone(),
-        guard.clone(),
+        ctx.identity.clone(),
+        ctx.guard.clone(),
     ));
-    let tofu = Arc::new(Mutex::new(TofuStore::open(tmp.path()).expect("tofu open")));
-    let bundles_registry = Arc::new(Mutex::new(
-        RegistryHandle::load(tmp.path(), RegistryKind::Bundles).expect("bundles registry"),
-    ));
-    let themes_registry = Arc::new(Mutex::new(
-        RegistryHandle::load(tmp.path(), RegistryKind::Themes).expect("themes registry"),
-    ));
-    let limits = Arc::new(Mutex::new(BundleLimits::DEFAULT));
-    // `install::install` uses `current_version >= manifest.omni_min_version`;
-    // the fixture manifest sets `omni_min_version = 0.1.0`, so 99.0.0 here
-    // keeps the version-gate from short-circuiting the install path.
-    let current_version = Version::new(99, 0, 0);
-    let preview_slot = Arc::new(PreviewSlot::new());
-    let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
-    let data_dir = tmp.path().to_path_buf();
-    let ctx = ShareContext {
-        identity,
-        guard,
-        client,
-        tofu,
-        bundles_registry,
-        themes_registry,
-        limits,
-        current_version,
-        preview_slot,
-        cancel_registry,
-        theme_swap,
-        data_dir,
-    };
+    ctx.client = client;
+    ctx.theme_swap = theme_swap;
     (ctx, tmp)
 }
 
