@@ -10,6 +10,8 @@ mod fixtures;
 mod identity_mgmt;
 mod kill;
 mod paths;
+mod reset;
+mod seed;
 
 #[derive(Parser, Debug)]
 #[command(name = "omni-dev", about = "Local dev stack for Omni", version)]
@@ -60,12 +62,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Run { no_seed: _ } => {
             todo!("orchestrator::run — landed in T8")
         }
-        Command::Seed => {
-            todo!("seed — landed in T6")
-        }
-        Command::Reset { no_seed: _ } => {
-            todo!("reset — landed in T7")
-        }
+        Command::Seed => seed::run(),
+        Command::Reset { no_seed } => reset::run(no_seed),
         Command::ResetIdentity { which } => {
             identity_mgmt::reset(identity_mgmt::Which::from_str(&which))?;
             Ok(())
