@@ -157,6 +157,7 @@ fn build_share_context(worker_url: Url, theme_swap: Arc<dyn ThemeSwap>) -> (Shar
     let current_version = Version::new(99, 0, 0);
     let preview_slot = Arc::new(PreviewSlot::new());
     let cancel_registry = Arc::new(Mutex::new(HashMap::new()));
+    let data_dir = tmp.path().to_path_buf();
     let ctx = ShareContext {
         identity,
         guard,
@@ -169,6 +170,7 @@ fn build_share_context(worker_url: Url, theme_swap: Arc<dyn ThemeSwap>) -> (Shar
         preview_slot,
         cancel_registry,
         theme_swap,
+        data_dir,
     };
     (ctx, tmp)
 }
