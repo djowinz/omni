@@ -22,7 +22,7 @@ fn unwrap_err_no_debug<T, E>(r: Result<T, E>, msg: &str) -> E {
 }
 
 fn fixture() -> (Manifest, BTreeMap<String, Vec<u8>>) {
-    let overlay = br#"<overlay><template><div/></template></overlay>"#.to_vec();
+    let overlay = br#"<widget><template><div/></template></widget>"#.to_vec();
     let css = b"body{color:red}".to_vec();
     let mut files = BTreeMap::new();
     files.insert("overlay.omni".to_string(), overlay.clone());
