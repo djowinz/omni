@@ -98,10 +98,11 @@ realistic cross-app reuse (keep it inside the app).
 Command-line tools for maintainers, CI, or contributors. **Never shipped
 to end users.**
 
-| Current                 | Language | Role                                         |
-| ----------------------- | -------- | -------------------------------------------- |
-| `tools/admin/`          | Rust     | Moderation CLI for the themes Worker         |
-| `tools/integrity-hash/` | Rust     | SHA-256 utility used in the release pipeline |
+| Current                   | Language | Role                                                        |
+| ------------------------- | -------- | ----------------------------------------------------------- |
+| `tools/admin/`            | Rust     | Moderation CLI for the themes Worker                        |
+| `tools/dev-orchestrator/` | Rust     | Local dev loop: orchestrates worker + Electron, seed, reset |
+| `tools/integrity-hash/`   | Rust     | SHA-256 utility used in the release pipeline                |
 
 **Put something here if:** it's a CLI that only maintainers or CI will run,
 regardless of language.

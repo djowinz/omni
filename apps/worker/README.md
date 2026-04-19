@@ -39,6 +39,47 @@ test/
   do.test.ts               # DO-binding anchor (tier B, pool-workers)
 ```
 
+## Local dev loop
+
+Run the full Omni stack locally — worker (miniflare R2/D1/KV) + Electron + host — in one command.
+
+### Quick start
+
+```bash
+cargo build -p host                # build host binary (first run only)
+pnpm dev:all                       # start everything + auto-seed
+```
+
+### Commands
+
+| Command                          | Effect                                                                            |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `pnpm dev:all`                   | Start everything + seed                                                           |
+| `pnpm dev:all -- --no-seed`      | Start everything with no seed (empty-state testing)                               |
+| `pnpm dev:seed`                  | Re-run seed against a running dev stack (idempotent)                              |
+| `pnpm dev:reset`                 | Wipe miniflare state + re-migrate + re-bootstrap + re-seed                        |
+| `pnpm dev:reset-identity`        | Regenerate user + admin keypairs (restart `dev:all` after)                        |
+| `pnpm dev:kill`                  | Force-kill any process bound to 8787 / 9473                                       |
+| `pnpm dev:admin -- <subcommand>` | Run any `omni-admin` subcommand (e.g. `review`, `stats`) against the local worker |
+
+All commands are implemented in Rust at `tools/dev-orchestrator/`. The `pnpm` wrappers exist for discoverability alongside the existing `pnpm dev:*` scripts; the same commands work directly:
+
+```bash
+cargo run -p dev-orchestrator -- run
+cargo run -p dev-orchestrator -- reset
+```
+
+### Fixture caveats
+
+- Fixture artifacts are **display-only**. Their `content_hash` is a dummy value and no bundle blob exists in R2. Clicking Install on a fixture will fail at blob fetch — this is expected.
+- To validate install end-to-end, upload your own artifact via the Electron app's Publish flow, then Install it from Discover.
+
+### Troubleshooting
+
+- `EADDRINUSE 8787` — run `pnpm dev:kill`, then retry `pnpm dev:all`.
+- "host binary missing" — run `cargo build -p host`.
+- Admin commands fail with auth error after `dev:reset-identity` — restart `pnpm dev:all` so wrangler picks up the new admin pubkey.
+
 ## Local development
 
 Requires Node ≥ 20.
