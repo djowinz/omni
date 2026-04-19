@@ -10,6 +10,7 @@ members = [
     "crates/omni-guard-trait",
     "crates/ultralight-sys",
     "tools/admin",
+    "tools/dev-orchestrator",
     "tools/integrity-hash",
 ]
 
