@@ -35,7 +35,7 @@ fn reaches_malformed_on_bad_schema_version() {
     let mut files = BTreeMap::new();
     files.insert(
         "overlay.omni".to_string(),
-        br#"<overlay><template/></overlay>"#.to_vec(),
+        br#"<widget><template><div/></template></widget>"#.to_vec(),
     );
     let manifest = minimal_manifest(&files, 999);
     let err = sanitize_bundle(&manifest, files).unwrap_err();
@@ -55,7 +55,7 @@ fn reaches_unknown_resource_kind_via_declared_unknown() {
     let mut files = BTreeMap::new();
     files.insert(
         "overlay.omni".to_string(),
-        br#"<overlay><template/></overlay>"#.to_vec(),
+        br#"<widget><template><div/></template></widget>"#.to_vec(),
     );
     files.insert("sounds/x.wav".to_string(), b"RIFF____WAVE".to_vec());
     let mut rk = BTreeMap::new();
@@ -91,7 +91,7 @@ fn reaches_size_exceeded() {
     let mut files = BTreeMap::new();
     files.insert(
         "overlay.omni".to_string(),
-        br#"<overlay><template/></overlay>"#.to_vec(),
+        br#"<widget><template><div/></template></widget>"#.to_vec(),
     );
     files.insert("themes/x.css".to_string(), css.clone());
     let mut m = minimal_manifest(&files, 1);
