@@ -5,7 +5,8 @@
         rust test-rust lint-rust format-rust clean-rust \
         node test-node lint-node format-node clean-node \
         installer release release-notes \
-        dev-desktop dev-worker deploy-worker \
+        dev dev-desktop dev-worker dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
+        deploy-worker \
         types-gen types-check structure-check
 
 # --- Top-level ---
@@ -60,6 +61,29 @@ release-notes:
 	./scripts/gen-release-notes.sh
 
 # --- Dev shortcuts ---
+# `dev`, `dev-seed`, etc. invoke the omni-dev Rust orchestrator directly; see
+# tools/dev-orchestrator/src/main.rs for subcommand details. `dev-admin` forwards
+# all args after `--` to the omni-admin CLI against the local worker, e.g.:
+#   make dev-admin ARGS='review'
+#   make dev-admin ARGS='stats --json'
+dev:
+	cargo run --quiet -p dev-orchestrator -- run $(ARGS)
+
+dev-seed:
+	cargo run --quiet -p dev-orchestrator -- seed
+
+dev-reset:
+	cargo run --quiet -p dev-orchestrator -- reset $(ARGS)
+
+dev-reset-identity:
+	cargo run --quiet -p dev-orchestrator -- reset-identity $(ARGS)
+
+dev-kill:
+	cargo run --quiet -p dev-orchestrator -- kill
+
+dev-admin:
+	cargo run --quiet -p dev-orchestrator -- admin -- $(ARGS)
+
 dev-desktop:
 	pnpm dev:desktop
 

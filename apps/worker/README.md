@@ -47,26 +47,27 @@ Run the full Omni stack locally — worker (miniflare R2/D1/KV) + Electron + hos
 
 ```bash
 cargo build -p host                # build host binary (first run only)
-pnpm dev:all                       # start everything + auto-seed
+make dev                           # start everything + auto-seed
 ```
 
 ### Commands
 
-| Command                          | Effect                                                                            |
-| -------------------------------- | --------------------------------------------------------------------------------- |
-| `pnpm dev:all`                   | Start everything + seed                                                           |
-| `pnpm dev:all -- --no-seed`      | Start everything with no seed (empty-state testing)                               |
-| `pnpm dev:seed`                  | Re-run seed against a running dev stack (idempotent)                              |
-| `pnpm dev:reset`                 | Wipe miniflare state + re-migrate + re-bootstrap + re-seed                        |
-| `pnpm dev:reset-identity`        | Regenerate user + admin keypairs (restart `dev:all` after)                        |
-| `pnpm dev:kill`                  | Force-kill any process bound to 8787 / 9473                                       |
-| `pnpm dev:admin -- <subcommand>` | Run any `omni-admin` subcommand (e.g. `review`, `stats`) against the local worker |
+| Command                       | Effect                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| `make dev`                    | Start everything + seed                                                           |
+| `make dev ARGS=--no-seed`     | Start everything with no seed (empty-state testing)                               |
+| `make dev-seed`               | Re-run seed against a running dev stack (idempotent)                              |
+| `make dev-reset`              | Wipe miniflare state + re-migrate + re-bootstrap + re-seed                        |
+| `make dev-reset-identity`     | Regenerate user + admin keypairs (restart `make dev` after)                       |
+| `make dev-kill`               | Force-kill any process bound to 8787 / 9473                                       |
+| `make dev-admin ARGS='stats'` | Run any `omni-admin` subcommand (e.g. `review`, `stats`) against the local worker |
 
-All commands are implemented in Rust at `tools/dev-orchestrator/`. The `pnpm` wrappers exist for discoverability alongside the existing `pnpm dev:*` scripts; the same commands work directly:
+The Make targets are thin wrappers around the `omni-dev` Rust binary at `tools/dev-orchestrator/`. You can also invoke it directly:
 
 ```bash
 cargo run -p dev-orchestrator -- run
 cargo run -p dev-orchestrator -- reset
+cargo run -p dev-orchestrator -- admin -- stats --json
 ```
 
 ### Fixture caveats
@@ -76,9 +77,9 @@ cargo run -p dev-orchestrator -- reset
 
 ### Troubleshooting
 
-- `EADDRINUSE 8787` — run `pnpm dev:kill`, then retry `pnpm dev:all`.
+- `EADDRINUSE 8787` — run `make dev-kill`, then retry `make dev`.
 - "host binary missing" — run `cargo build -p host`.
-- Admin commands fail with auth error after `dev:reset-identity` — restart `pnpm dev:all` so wrangler picks up the new admin pubkey.
+- Admin commands fail with auth error after `make dev-reset-identity` — restart `make dev` so wrangler picks up the new admin pubkey.
 
 ## Local development
 
