@@ -17,6 +17,7 @@
 mod error;
 mod hash;
 mod manifest;
+pub mod omni_schema;
 mod pack;
 mod path;
 mod unpack;
