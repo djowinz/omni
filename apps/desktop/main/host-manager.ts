@@ -199,10 +199,24 @@ export class HostManager extends EventEmitter {
       }
       const requestId = msg.id;
       const handler = (response: any) => {
-        if (response && response.id === requestId) {
-          cleanup();
-          resolve(response);
+        if (!response || response.id !== requestId) return;
+        // Streaming progress frames (upload.publishProgress, explorer.installProgress,
+        // upload.packProgress) share the request id with the terminal response but
+        // must route through `share:event` (see main.ts:390 SHARE_EVENT_TYPES), NOT
+        // through this request/response promise. Skip them and keep waiting for
+        // the terminal frame (upload.publishResult / explorer.installResult / etc.).
+        // Kept in sync with SHARE_EVENT_TYPES in main.ts — if that set changes, update
+        // this one too. Follow-up: extract to a shared module to make drift impossible.
+        if (
+          typeof response.type === 'string' &&
+          (response.type === 'upload.publishProgress' ||
+            response.type === 'upload.packProgress' ||
+            response.type === 'explorer.installProgress')
+        ) {
+          return;
         }
+        cleanup();
+        resolve(response);
       };
       const timer = setTimeout(() => {
         cleanup();
