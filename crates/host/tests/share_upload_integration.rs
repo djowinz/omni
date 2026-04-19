@@ -13,8 +13,8 @@
 
 use std::sync::Arc;
 
-use identity::Keypair;
 use omni_guard_trait::{Guard, StubGuard};
+use test_harness::deterministic_keypair;
 use omni_host::share::{
     client::{ListParams, ShareClient, SANITIZE_VERSION},
     progress::UploadProgress,
@@ -103,7 +103,7 @@ async fn happy_path_upload_emits_jws_header_and_progress() {
     let css_path = write_theme(dir.path(), "theme.css", b":root { --omni-accent: #f0f; }\n");
 
     // 3. Build host-side infrastructure
-    let identity = Arc::new(Keypair::generate());
+    let identity = Arc::new(deterministic_keypair());
     let guard = stub_guard();
     let base = Url::parse(&server.uri()).unwrap();
     let client = Arc::new(ShareClient::new(base, identity.clone(), guard.clone()));
@@ -178,7 +178,7 @@ async fn rate_limited_retries_once_then_succeeds() {
     let dir = tempfile::tempdir().unwrap();
     let p = write_theme(dir.path(), "t.css", b"/* empty */");
 
-    let identity = Arc::new(Keypair::generate());
+    let identity = Arc::new(deterministic_keypair());
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
@@ -215,7 +215,7 @@ async fn auth_bad_signature_is_not_retried() {
     let dir = tempfile::tempdir().unwrap();
     let p = write_theme(dir.path(), "t.css", b"/* empty */");
 
-    let identity = Arc::new(Keypair::generate());
+    let identity = Arc::new(deterministic_keypair());
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
@@ -268,7 +268,7 @@ async fn oversized_bundle_returns_bad_input_before_hitting_server() {
         b":root { --a: #ffffff; --b: #000000; } /* plenty of bytes */",
     );
 
-    let identity = Arc::new(Keypair::generate());
+    let identity = Arc::new(deterministic_keypair());
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
@@ -325,7 +325,7 @@ async fn cache_entry_visible_in_followup_list() {
     let dir = tempfile::tempdir().unwrap();
     let p = write_theme(dir.path(), "t.css", b":root { --a: 1; }");
 
-    let identity = Arc::new(Keypair::generate());
+    let identity = Arc::new(deterministic_keypair());
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
