@@ -39,7 +39,7 @@ fn sha256_of(bytes: &[u8]) -> [u8; 32] {
 async fn worker_to_host_to_workspace_roundtrip() {
     // ---- 1. Build a signed bundle (mirrors install.rs::tests::build_fixture) ----
     let kp = Keypair::generate();
-    let overlay_bytes = b"<overlay></overlay>".to_vec();
+    let overlay_bytes = b"<widget><template><div/></template></widget>".to_vec();
     let theme_bytes = b"body { color: red; }".to_vec();
     let overlay_sha = sha256_of(&overlay_bytes);
     let theme_sha = sha256_of(&theme_bytes);
