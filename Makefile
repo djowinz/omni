@@ -8,6 +8,7 @@
         build-real-guard tree-guard tree-real-guard \
         dev dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
         dev-desktop dev-worker dev-worker-seeded deploy-worker \
+        dev-reset-ratelimit dev-check-limits \
         types-gen types-check structure-check
 
 # --- Top-level ---
@@ -145,6 +146,26 @@ dev-worker-seeded:
 
 deploy-worker:
 	./scripts/deploy-worker.sh
+
+# --- Dev-state reset / inspection --------------------------------------
+#
+# Rate limits live in the worker's STATE KV as `quota:device:<df_hex>:<date>`
+# and `quota:pubkey:<pk_hex>:<date>` counters (see apps/worker/src/lib/rate_limit.ts).
+# Burning through 5 upload_new attempts/day/device is easy during smoke
+# testing — especially when host auto-retries a failed 5xx (client.rs §9).
+# This target lists every `quota:*` key in the local miniflare KV and
+# deletes each one; leaves `config:*`, D1, R2, and identity keys intact.
+
+dev-reset-ratelimit:
+	@cd apps/worker && pnpm exec wrangler kv key list --binding=STATE --local --prefix=quota: > .ratelimit-keys.json
+	@cd apps/worker && node -e "const fs=require('fs');const {execSync}=require('child_process');const keys=JSON.parse(fs.readFileSync('.ratelimit-keys.json','utf8'));if(!keys.length){console.log('no quota:* keys to delete');}else{console.log('deleting '+keys.length+' quota keys:');for(const k of keys){console.log('  '+k.name);execSync('pnpm exec wrangler kv key delete --binding=STATE --local '+JSON.stringify(k.name),{stdio:'inherit'});}}"
+	@rm -f apps/worker/.ratelimit-keys.json
+
+# Print the current value of `config:limits` in the local STATE KV.
+# Empty/missing = the cause of upload /v1/upload 500 errors per
+# `getLimits()` in apps/worker/src/routes/upload.ts.
+dev-check-limits:
+	@cd apps/worker && pnpm exec wrangler kv key get --binding=STATE --local config:limits || echo "(not seeded — run your worker boot script or make dev-reset)"
 
 # --- Shared types ---
 types-gen:
