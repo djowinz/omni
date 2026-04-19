@@ -11,12 +11,14 @@ const fixture = (n: number): CachedArtifactDetail[] =>
     artifact_id: `art-${i}`,
     content_hash: `h-${i}`,
     author_pubkey: 'pk',
+    author_fingerprint_hex: '',
     name: `Artifact ${i}`,
     kind: 'theme',
     tags: [],
     installs: 0,
     r2_url: `https://x/${i}`,
     thumbnail_url: `https://x/${i}/t`,
+    created_at: 0,
     updated_at: 1700000000 + i,
   }));
 

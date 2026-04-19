@@ -16,12 +16,14 @@ const FIXTURE_ARTIFACT: CachedArtifactDetail = {
   artifact_id: 'art-001',
   content_hash: 'deadbeef',
   author_pubkey: 'pubkey-hex',
+  author_fingerprint_hex: '',
   name: 'Neon Dusk',
   kind: 'theme',
   tags: [],
   installs: 0,
   r2_url: 'https://r2.example/art-001.tar.zst',
   thumbnail_url: 'https://r2.example/art-001.png',
+  created_at: 0,
   updated_at: 1700000000,
 };
 

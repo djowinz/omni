@@ -79,20 +79,34 @@ export type InstallPhase = z.infer<typeof InstallPhaseSchema>;
 // Added fields (tags, installs, author_fingerprint_hex, created_at) reflect
 // what the worker actually sends today — prior versions of this schema
 // discarded them silently via z.object()'s default unknown-key stripping.
-// Making them optional avoids breaking host/client.rs deserialization paths
-// that still use the older sparse shape for the installed-cache descriptor.
+//
+// Shape alignment note (integration-testing-discipline #A2):
+// All previously-optional fields now use .default() so the inferred type
+// always carries the field (never undefined). This matches the Rust struct's
+// #[serde(default)] which guarantees a value is always present. The generated
+// ts-rs type (packages/shared-types/src/generated/CachedArtifactDetail.ts)
+// treats all fields as required; the sidecar type-test enforces bidirectional
+// assignability between this schema and the generated type.
+// `kind` uses z.string() rather than z.enum() — the Rust source is String (not
+// a closed enum), and the generated type is `string`. The enum constraint is
+// enforced at runtime by the worker, not at the type level here.
 export const CachedArtifactDetailSchema = z.object({
   artifact_id: z.string(),
   content_hash: z.string(),
   author_pubkey: z.string(),
-  author_fingerprint_hex: z.string().optional(),
+  // Default to empty string — matches Rust #[serde(default)] on this field.
+  author_fingerprint_hex: z.string().default(''),
   name: z.string(),
-  kind: z.enum(['theme', 'bundle']),
+  // z.string() (not z.enum()) — Rust source is String; generated TS is string.
+  // Runtime values are always "theme" | "bundle" per the worker contract.
+  kind: z.string(),
   tags: z.array(z.string()).default([]),
   installs: z.number().int().default(0),
-  r2_url: z.string().optional(),
+  // Default to empty string — matches Rust #[serde(default)] on this field.
+  r2_url: z.string().default(''),
   thumbnail_url: z.string(),
-  created_at: z.number().int().optional(),
+  // Default to 0 — matches Rust #[serde(default)] on this field.
+  created_at: z.number().int().default(0),
   updated_at: z.number().int(),
 });
 export type CachedArtifactDetail = z.infer<typeof CachedArtifactDetailSchema>;
@@ -119,6 +133,30 @@ export const ArtifactDetailSchema = z.object({
   status: z.string(),
 });
 export type ArtifactDetail = z.infer<typeof ArtifactDetailSchema>;
+
+// ── UploadResult (upload.publish direct result) ────────────────────────────────
+
+// Oracle: crates/host/src/share/upload.rs UploadResult + UploadStatus
+// Generated TS oracle: packages/shared-types/src/generated/UploadResult.ts
+//                      packages/shared-types/src/generated/UploadStatus.ts
+//
+// This is the struct the host emits as the direct return value of the
+// upload pipeline. `pump_to_ws` in crates/host/src/share/progress.rs wraps
+// it in a WS frame with a remapped shape (UploadPublishResultSchema below);
+// this schema stays useful as a typed oracle for any future consumer that
+// wants the raw result shape, and as the bidirectional type-test anchor in
+// share-types.types-test.ts.
+export const UploadStatusSchema = z.enum(['created', 'deduplicated', 'updated', 'unchanged']);
+export type UploadStatus = z.infer<typeof UploadStatusSchema>;
+
+export const UploadResultSchema = z.object({
+  artifact_id: z.string(),
+  content_hash: z.string(),
+  r2_url: z.string(),
+  thumbnail_url: z.string(),
+  status: UploadStatusSchema,
+});
+export type UploadResult = z.infer<typeof UploadResultSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // explorer.* request params + response shapes

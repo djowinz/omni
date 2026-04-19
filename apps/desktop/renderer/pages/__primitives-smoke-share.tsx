@@ -22,12 +22,14 @@ const SAMPLE_ARTIFACT: CachedArtifactDetail = {
   artifact_id: '4a2e9b1c3d7e8f0a',
   content_hash: 'deadbeefcafef00d'.repeat(4),
   author_pubkey: '00'.repeat(32),
+  author_fingerprint_hex: '',
   name: 'CyberHUD Neon',
   kind: 'bundle',
   tags: [],
   installs: 0,
   r2_url: 'https://example.invalid/blob/x.omnipkg',
   thumbnail_url: 'https://example.invalid/v1/thumb/4a2e9b1c3d7e8f0a',
+  created_at: 0,
   updated_at: 1_700_000_000,
 };
 

@@ -8,12 +8,14 @@ const FIXTURE_ITEM: CachedArtifactDetail = {
   artifact_id: 'mine-1',
   content_hash: 'h',
   author_pubkey: 'aa'.repeat(32),
+  author_fingerprint_hex: '',
   name: 'My Theme',
   kind: 'theme',
   tags: [],
   installs: 0,
   r2_url: 'https://x/a',
   thumbnail_url: 'https://x/t',
+  created_at: 0,
   updated_at: 1700000000,
 };
 

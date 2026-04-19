@@ -378,6 +378,12 @@ impl ShareClient {
             r2_url: body.r2_url,
             thumbnail_url: body.thumbnail_url,
             updated_at: body.created_at,
+            // author_fingerprint_hex is not returned by POST /v1/upload;
+            // the detail-fetch path (/v1/artifact/:id) fills it later.
+            author_fingerprint_hex: String::new(),
+            tags: Vec::new(),
+            installs: 0,
+            created_at: body.created_at,
         };
         self.cache
             .insert((self.pubkey_hex.clone(), body.artifact_id.clone()), detail)

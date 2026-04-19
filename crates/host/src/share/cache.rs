@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 /// Renamed from `ArtifactDetail` in the phase-2 follow-up that added
 /// `ShareClient::get_artifact`, to free the `ArtifactDetail` name for the
 /// contract-matching struct in `client.rs`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct CachedArtifactDetail {
     pub artifact_id: String,
     pub content_hash: String,
@@ -36,7 +37,34 @@ pub struct CachedArtifactDetail {
     #[serde(default)]
     pub r2_url: String,
     pub thumbnail_url: String,
+    /// Unix timestamp of last update (seconds). ts-rs would emit `bigint` for
+    /// i64 by default; `#[ts(type = "number")]` keeps the emitted TS type as
+    /// `number` so it matches the Zod z.number().int() schema in share-types.ts.
+    #[ts(type = "number")]
     pub updated_at: i64,
+    /// Author identity fingerprint (short hex). Populated by the worker's
+    /// /v1/list response; empty string when constructed from a post-upload
+    /// cache insert (detail-fetch fills it on first /v1/artifact/:id call).
+    /// Added by integration-testing-discipline (#A2) to align the Rust source
+    /// with the Zod schema that already reflected the worker's actual output.
+    #[serde(default)]
+    pub author_fingerprint_hex: String,
+    /// Tag list from /v1/list rows. Empty when constructed from post-upload
+    /// cache insert. #[serde(default)] so list-derived rows without tags
+    /// deserialize cleanly.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Download/install count from /v1/list rows. Zero for post-upload cache inserts.
+    /// `#[ts(type = "number")]` keeps emitted TS as `number` (not `bigint`).
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub installs: i64,
+    /// Unix timestamp of first upload (seconds). Zero for post-upload cache inserts;
+    /// detail-fetch fills it from the worker's created_at field.
+    /// `#[ts(type = "number")]` keeps emitted TS as `number` (not `bigint`).
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub created_at: i64,
 }
 
 /// `(pubkey_hex, artifact_id)` is the cache key per spec §7.
@@ -115,6 +143,10 @@ mod tests {
             r2_url: "".into(),
             thumbnail_url: "".into(),
             updated_at: 0,
+            author_fingerprint_hex: String::new(),
+            tags: Vec::new(),
+            installs: 0,
+            created_at: 0,
         }
     }
 

@@ -84,6 +84,8 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         installs: artifact.installs ?? 0,
         r2_url: artifact.r2_url,
         thumbnail_url: artifact.thumbnail_url,
+        author_fingerprint_hex: artifact.author_fingerprint_hex,
+        created_at: artifact.created_at,
         updated_at: artifact.updated_at,
       });
     } catch (err) {

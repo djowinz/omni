@@ -44,7 +44,8 @@ pub enum ArtifactKind {
     Bundle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct UploadResult {
     pub artifact_id: String,
     pub content_hash: String,
@@ -53,7 +54,8 @@ pub struct UploadResult {
     pub status: UploadStatus,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 #[serde(rename_all = "lowercase")]
 pub enum UploadStatus {
     Created,

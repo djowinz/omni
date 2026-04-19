@@ -27,3 +27,8 @@ export type { ConditionalClass } from './generated/ConditionalClass';
 // --- Parse diagnostics (crates/host) ---
 export type { ParseError } from './generated/ParseError';
 export type { Severity } from './generated/Severity';
+
+// --- Share-hub wire types (crates/host) ---
+export type { CachedArtifactDetail } from './generated/CachedArtifactDetail';
+export type { UploadResult } from './generated/UploadResult';
+export type { UploadStatus } from './generated/UploadStatus';
