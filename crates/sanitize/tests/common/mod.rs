@@ -77,8 +77,7 @@ pub fn bundle_with_overlay_bytes(bytes: Vec<u8>) -> (Manifest, BTreeMap<String, 
 /// Valid bundle with one overlay + one theme. For integration roundtrip tests.
 pub fn clean_bundle() -> (Manifest, BTreeMap<String, Vec<u8>>) {
     let overlay =
-        br#"<widget><template><div class="x"/></template><style>body{}</style></widget>"#
-            .to_vec();
+        br#"<widget><template><div class="x"/></template><style>body{}</style></widget>"#.to_vec();
     let css = b"body{color:red}".to_vec();
     let mut files = BTreeMap::new();
     files.insert("overlay.omni".to_string(), overlay.clone());

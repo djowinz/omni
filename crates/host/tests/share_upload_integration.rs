@@ -14,13 +14,13 @@
 use std::sync::Arc;
 
 use omni_guard_trait::{Guard, StubGuard};
-use test_harness::deterministic_keypair;
 use omni_host::share::{
     client::{ListParams, ShareClient, SANITIZE_VERSION},
     progress::UploadProgress,
     upload::{upload, ArtifactKind, UploadRequest},
 };
 use serde_json::json;
+use test_harness::deterministic_keypair;
 use tokio::sync::mpsc;
 use url::Url;
 use wiremock::matchers::{header_exists, method, path};

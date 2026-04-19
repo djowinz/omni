@@ -552,7 +552,11 @@ mod tests {
         std::fs::write(tmp.path().join(".swp"), b"editor swap").expect("write swp");
         let files = walk_bundle(tmp.path()).await.expect("walk");
         let names: Vec<&str> = files.keys().map(String::as_str).collect();
-        assert_eq!(names, vec!["overlay.omni"], "only the overlay survives the dotfile filter; got {names:?}");
+        assert_eq!(
+            names,
+            vec!["overlay.omni"],
+            "only the overlay survives the dotfile filter; got {names:?}"
+        );
     }
 
     #[tokio::test]

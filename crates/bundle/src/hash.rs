@@ -31,7 +31,10 @@ mod tests {
 
     fn sample() -> (Manifest, BTreeMap<String, Vec<u8>>) {
         let mut files = BTreeMap::new();
-        files.insert("overlay.omni".into(), b"<widget><template><div/></template></widget>".to_vec());
+        files.insert(
+            "overlay.omni".into(),
+            b"<widget><template><div/></template></widget>".to_vec(),
+        );
         files.insert("themes/default.css".into(), b":root{--a:0}".to_vec());
 
         let m = Manifest {

@@ -34,8 +34,15 @@ fn rejects_unknown_top_level_element() {
     let xml = br#"<notanode/>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
-            assert!(detail.contains("unexpected top-level"), "detail was: {detail}");
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
+            assert!(
+                detail.contains("unexpected top-level"),
+                "detail was: {detail}"
+            );
         }
         other => panic!("expected Handler error, got {other:?}"),
     }
@@ -46,7 +53,11 @@ fn rejects_unknown_config_child() {
     let xml = br#"<config><badchild sensor="x"/></config>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(detail.contains("<config> child"), "detail was: {detail}");
         }
         other => panic!("expected Handler error, got {other:?}"),
@@ -58,7 +69,11 @@ fn rejects_unknown_widget_child() {
     let xml = br#"<widget id="w" name="W" enabled="true"><notachild/></widget>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(detail.contains("<widget> child"), "detail was: {detail}");
         }
         other => panic!("expected Handler error, got {other:?}"),
@@ -70,7 +85,11 @@ fn rejects_nested_widget() {
     let xml = br#"<widget id="a" name="A" enabled="true"><widget id="b" name="B" enabled="true"/></widget>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(detail.contains("<widget> child"), "detail was: {detail}");
         }
         other => panic!("expected Handler error, got {other:?}"),
@@ -91,8 +110,15 @@ fn rejects_theme_src_with_scheme() {
     let xml = br#"<theme src="http://evil"/>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
-            assert!(detail.contains("relative workspace path"), "detail was: {detail}");
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
+            assert!(
+                detail.contains("relative workspace path"),
+                "detail was: {detail}"
+            );
         }
         other => panic!("expected Handler error, got {other:?}"),
     }
@@ -103,7 +129,11 @@ fn rejects_theme_src_absolute() {
     let xml = br#"<theme src="/abs/path"/>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(detail.contains("must be relative"), "detail was: {detail}");
         }
         other => panic!("expected Handler error, got {other:?}"),
@@ -115,7 +145,11 @@ fn rejects_theme_src_with_parent_traversal() {
     let xml = br#"<theme src="../escape.css"/>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(detail.contains(".."), "detail was: {detail}");
         }
         other => panic!("expected Handler error, got {other:?}"),
@@ -130,7 +164,10 @@ fn rejects_doctype() {
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     assert!(matches!(
         sanitize_bundle(&m, f).unwrap_err(),
-        SanitizeError::Handler { kind: "overlay", .. }
+        SanitizeError::Handler {
+            kind: "overlay",
+            ..
+        }
     ));
 }
 
@@ -140,7 +177,10 @@ fn rejects_cdata_in_envelope() {
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     assert!(matches!(
         sanitize_bundle(&m, f).unwrap_err(),
-        SanitizeError::Handler { kind: "overlay", .. }
+        SanitizeError::Handler {
+            kind: "overlay",
+            ..
+        }
     ));
 }
 
@@ -152,9 +192,15 @@ fn rejects_envelope_depth_over_three() {
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     let err = sanitize_bundle(&m, f).unwrap_err();
     match err {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(
-                detail.contains("envelope depth") || detail.contains("<poll>") || detail.contains("must be empty"),
+                detail.contains("envelope depth")
+                    || detail.contains("<poll>")
+                    || detail.contains("must be empty"),
                 "expected depth-or-poll violation; detail was: {detail}"
             );
         }
@@ -171,7 +217,10 @@ fn accepts_deep_html_inside_template() {
     for _ in 0..30 {
         inner.push_str("</div>");
     }
-    let xml = format!("<widget id=\"w\" name=\"W\" enabled=\"true\"><template>{inner}</template></widget>").into_bytes();
+    let xml = format!(
+        "<widget id=\"w\" name=\"W\" enabled=\"true\"><template>{inner}</template></widget>"
+    )
+    .into_bytes();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     sanitize_bundle(&m, f).expect("deep HTML inside template must sanitize");
 }
@@ -206,8 +255,14 @@ fn preserves_data_sensor_attrs() {
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     let (out, _r) = sanitize_bundle(&m, f).unwrap();
     let body = std::str::from_utf8(out.get("overlay.omni").unwrap()).unwrap();
-    assert!(body.contains("data-sensor=\"cpu.usage\""), "body was: {body}");
-    assert!(body.contains("data-sensor-format=\"percent\""), "body was: {body}");
+    assert!(
+        body.contains("data-sensor=\"cpu.usage\""),
+        "body was: {body}"
+    );
+    assert!(
+        body.contains("data-sensor-format=\"percent\""),
+        "body was: {body}"
+    );
 }
 
 #[test]
@@ -216,7 +271,10 @@ fn preserves_chart_card_custom_element() {
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     let (out, _r) = sanitize_bundle(&m, f).unwrap();
     let body = std::str::from_utf8(out.get("overlay.omni").unwrap()).unwrap();
-    assert!(body.contains("chart-card"), "chart-card must survive: {body}");
+    assert!(
+        body.contains("chart-card"),
+        "chart-card must survive: {body}"
+    );
     assert!(body.contains("sensor=\"cpu.usage\""), "body was: {body}");
     assert!(body.contains("type=\"line\""), "body was: {body}");
 }
@@ -241,7 +299,11 @@ fn rejects_style_import_in_widget() {
     let xml = br#"<widget id="w" name="W" enabled="true"><template><div/></template><style>@import url('evil.css');</style></widget>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(detail.contains("@import"), "detail was: {detail}");
         }
         other => panic!("expected Handler error, got {other:?}"),
@@ -253,7 +315,11 @@ fn rejects_style_external_url_in_widget() {
     let xml = br#"<widget id="w" name="W" enabled="true"><template><div/></template><style>body{background:url('http://evil/a.png')}</style></widget>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);
     match sanitize_bundle(&m, f).unwrap_err() {
-        SanitizeError::Handler { kind: "overlay", detail, .. } => {
+        SanitizeError::Handler {
+            kind: "overlay",
+            detail,
+            ..
+        } => {
             assert!(
                 detail.contains("disallowed scheme") || detail.contains("url"),
                 "detail was: {detail}"
@@ -270,7 +336,10 @@ fn minifies_style_body() {
     let (out, _r) = sanitize_bundle(&m, f).unwrap();
     let body = std::str::from_utf8(out.get("overlay.omni").unwrap()).unwrap();
     assert!(body.contains(".foo"), "body was: {body}");
-    assert!(!body.contains("   "), "minify should collapse runs of spaces: {body}");
+    assert!(
+        !body.contains("   "),
+        "minify should collapse runs of spaces: {body}"
+    );
 }
 
 // ----- Byte identity outside sanitized bodies ---------------------------

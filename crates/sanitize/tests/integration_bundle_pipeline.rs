@@ -158,10 +158,8 @@ fn reference_overlay_roundtrips_through_sanitize() {
     use sanitize::sanitize_bundle;
     use std::collections::BTreeMap;
 
-    let reference_bytes = include_bytes!(
-        "../../host/src/omni/assets/reference_overlay.omni"
-    )
-    .to_vec();
+    let reference_bytes =
+        include_bytes!("../../host/src/omni/assets/reference_overlay.omni").to_vec();
     let theme_bytes = b":root { --bg: #000; --text: #fff; }".to_vec();
 
     let mut files = BTreeMap::new();
@@ -192,16 +190,23 @@ fn reference_overlay_roundtrips_through_sanitize() {
         resource_kinds: None,
     };
 
-    let (out, _report) = sanitize_bundle(&manifest, files)
-        .expect("reference overlay must sanitize");
+    let (out, _report) =
+        sanitize_bundle(&manifest, files).expect("reference overlay must sanitize");
     let sanitized_overlay = out.get("overlay.omni").expect("overlay in output");
     let body = std::str::from_utf8(sanitized_overlay).unwrap();
 
-    assert!(body.contains("<theme"), "theme element must survive; first 200 chars: {}", &body[..body.len().min(200)]);
+    assert!(
+        body.contains("<theme"),
+        "theme element must survive; first 200 chars: {}",
+        &body[..body.len().min(200)]
+    );
     assert!(body.contains("<widget"), "widget element must survive");
     assert!(body.contains("<template"), "template element must survive");
     assert!(body.contains("<style"), "style element must survive");
-    assert!(body.contains("{cpu.usage}"), "interpolation text must survive");
+    assert!(
+        body.contains("{cpu.usage}"),
+        "interpolation text must survive"
+    );
 }
 
 /// Pillar 2 demonstration: feed the reference overlay through both the

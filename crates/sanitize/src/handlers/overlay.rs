@@ -117,7 +117,11 @@ fn validate_structure(
                 return Err(handler_err(kind, path, "DOCTYPE disallowed".into()));
             }
             Ok(Event::PI(_)) => {
-                return Err(handler_err(kind, path, "processing instruction disallowed".into()));
+                return Err(handler_err(
+                    kind,
+                    path,
+                    "processing instruction disallowed".into(),
+                ));
             }
             Ok(Event::CData(_)) => {
                 return Err(handler_err(kind, path, "CDATA disallowed".into()));
@@ -341,7 +345,7 @@ fn validate_theme_src(kind: &'static str, path: &str, e: &BytesStart) -> Result<
             format!("<theme> src must be relative, not absolute (got {src:?})"),
         ));
     }
-    if src.split(|c| c == '/' || c == '\\').any(|seg| seg == "..") {
+    if src.split(['/', '\\']).any(|seg| seg == "..") {
         return Err(handler_err(
             kind,
             path,
@@ -418,8 +422,10 @@ fn sanitize_template_html(
 
     let tags: HashSet<&str> = omni_schema::KNOWN_TEMPLATE_TAGS.iter().copied().collect();
     let generic_attrs: HashSet<&str> = omni_schema::UNIVERSAL_ATTRS.iter().copied().collect();
-    let attr_prefixes: HashSet<&str> =
-        omni_schema::TEMPLATE_ATTR_PREFIXES.iter().copied().collect();
+    let attr_prefixes: HashSet<&str> = omni_schema::TEMPLATE_ATTR_PREFIXES
+        .iter()
+        .copied()
+        .collect();
 
     let mut tag_attrs: HashMap<&str, HashSet<&str>> = HashMap::new();
     tag_attrs.insert("img", omni_schema::IMG_ATTRS.iter().copied().collect());
