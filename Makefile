@@ -5,8 +5,9 @@
         rust test-rust lint-rust format-rust clean-rust \
         node test-node lint-node format-node clean-node \
         installer release release-notes \
-        dev dev-desktop dev-worker dev-worker-seeded dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
-        deploy-worker \
+        build-real-guard tree-guard \
+        dev dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
+        dev-desktop dev-worker dev-worker-seeded deploy-worker \
         types-gen types-check structure-check
 
 # --- Top-level ---
@@ -59,6 +60,32 @@ release:
 
 release-notes:
 	./scripts/gen-release-notes.sh
+
+# --- Real omni-guard build (private crate override) ---
+#
+# The workspace Cargo.toml unconditionally patches `omni-guard` to
+# `stubs/omni-guard/` so contributors without SSH access to the private
+# djowinz/omni-guard repo can still compile. Cargo does not support
+# conditional [patch] sections, so the only way to resolve the real
+# private crate is to pass a `--config` override that replaces the
+# workspace patch with a git source. This is the same mechanism
+# `.github/workflows/release.yml` uses.
+#
+# Requires SSH access to ssh://git@github.com/djowinz/omni-guard.git.
+# Without the key, `cargo fetch` will fail; fall back to a plain
+# `make build` (which uses the stub) if you don't have access.
+#
+# Verify which source resolved with `make tree-guard` after building.
+CARGO_GUARD_PATCH := 'patch."ssh://git@github.com/djowinz/omni-guard.git".omni-guard={ git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main" }'
+
+build-real-guard:
+	cargo build --release --package host --features guard --config $(CARGO_GUARD_PATCH)
+
+# Print which omni-guard source Cargo actually resolved for the host
+# binary. `stubs/omni-guard` path = using the public no-op stub;
+# `ssh://git@github.com/djowinz/omni-guard` = real private crate active.
+tree-guard:
+	cargo tree -p host --features guard -e normal | grep -iE 'omni-guard'
 
 # --- Dev shortcuts ---
 # `dev`, `dev-seed`, etc. invoke the omni-dev Rust orchestrator directly; see
