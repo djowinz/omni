@@ -122,7 +122,12 @@ export function useShareWs(): UseShareWs {
     () => ({
       async send(type, params) {
         const id = crypto.randomUUID();
-        const response = await window.omni!.sendShareMessage({ id, type, ...params });
+        // Host dispatchers in `crates/host/src/share/ws_messages.rs` read
+        // `msg.get("params")` and deserialize that nested object into the
+        // per-handler param struct. DO NOT spread params at top level —
+        // the dispatcher would see an empty params map and reject with
+        // "missing field" for every required field.
+        const response = await window.omni!.sendShareMessage({ id, type, params });
 
         // First check for error envelope.
         const errParse = ShareErrorFrameSchema.safeParse(response);

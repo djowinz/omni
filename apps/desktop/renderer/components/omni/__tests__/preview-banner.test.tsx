@@ -123,8 +123,8 @@ describe('PreviewBanner', () => {
       expect(window.omni!.sendShareMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'explorer.cancelPreview',
-          preview_token: FIXTURE_TOKEN,
           id: expect.any(String),
+          params: expect.objectContaining({ preview_token: FIXTURE_TOKEN }),
         }),
       );
     });
