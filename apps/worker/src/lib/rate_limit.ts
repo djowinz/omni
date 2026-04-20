@@ -16,6 +16,7 @@
  *   - `flags:vm:<df_hex>`                         presence flag → 25% limits
  */
 import type { Env } from '../env';
+import { makeDebugLog } from './debug-log';
 
 export type RateLimitAction =
   | 'upload_new'
@@ -214,6 +215,7 @@ export async function checkAndIncrement(
   pubkey_hex: string,
   action: RateLimitAction,
 ): Promise<RateLimitResult> {
+  const debugLog = makeDebugLog(env);
   const kv = env.STATE;
   const now = new Date();
   // Truncate hex for log readability — full strings are long and don't help
@@ -221,7 +223,7 @@ export async function checkAndIncrement(
   const dfShort = df_hex.slice(0, 10);
   const pkShort = pubkey_hex ? pubkey_hex.slice(0, 10) : '(none)';
 
-  console.log(
+  debugLog(
     `[rate_limit] check action=${action} df=${dfShort}… pk=${pkShort}…`,
   );
 
@@ -231,7 +233,7 @@ export async function checkAndIncrement(
     pubkey_hex ? kv.get(`denylist:pubkey:${pubkey_hex}`) : Promise.resolve(null),
   ]);
   if (denyDev !== null || denyPub !== null) {
-    console.log(
+    debugLog(
       `[rate_limit] DENY: denylist hit — device=${denyDev !== null} pubkey=${denyPub !== null}`,
     );
     return { allowed: false };
@@ -239,13 +241,13 @@ export async function checkAndIncrement(
 
   // --- VM flag → 25% of nominal. ---
   const vmFlag = (await kv.get(`flags:vm:${df_hex}`)) !== null;
-  if (vmFlag) console.log(`[rate_limit] vm flag set on df=${dfShort}… (limits scaled 25%)`);
+  if (vmFlag) debugLog(`[rate_limit] vm flag set on df=${dfShort}… (limits scaled 25%)`);
 
   // --- Turnstile velocity check (only meaningful for authed actions). ---
   if (pubkey_hex && action !== 'download') {
     const tripped = await checkAndUpdateVelocity(kv, df_hex, pubkey_hex, now.getTime());
     if (tripped) {
-      console.log(
+      debugLog(
         `[rate_limit] DENY: velocity tripped — >${VELOCITY_LIMIT_DISTINCT_PUBKEYS} distinct pubkeys on df=${dfShort}… in 24h → turnstile required`,
       );
       return { allowed: false, turnstile: true };
@@ -285,11 +287,11 @@ export async function checkAndIncrement(
   // Read all counters in parallel; pick the tightest-blocked window for retry_after.
   const currents = await Promise.all(checks.map((c) => readCounter(kv, c.key)));
   for (let i = 0; i < checks.length; i++) {
-    console.log(
+    debugLog(
       `[rate_limit]   counter ${checks[i].key.replace(df_hex, dfShort + '…').replace(pubkey_hex || '__NOPK__', pkShort + '…')} = ${currents[i]}/${checks[i].limit}`,
     );
     if (currents[i] >= checks[i].limit) {
-      console.log(
+      debugLog(
         `[rate_limit] DENY: quota exhausted on ${checks[i].key} (${currents[i]} >= ${checks[i].limit}), retry in ${checks[i].window.secondsUntilRollover}s`,
       );
       return { allowed: false, retry_after: checks[i].window.secondsUntilRollover };
@@ -298,7 +300,7 @@ export async function checkAndIncrement(
 
   // All counters under their caps → increment every relevant key.
   await Promise.all(checks.map((c, i) => bumpCounter(kv, c.key, c.window.ttl, currents[i])));
-  console.log(`[rate_limit] ALLOW action=${action} (${checks.length} counters incremented)`);
+  debugLog(`[rate_limit] ALLOW action=${action} (${checks.length} counters incremented)`);
 
   return { allowed: true };
 }
