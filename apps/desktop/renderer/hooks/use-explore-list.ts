@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDebounce } from 'use-debounce';
 import { useShareWs } from './use-share-ws';
+import { debugLog } from '../lib/debug-log';
 import type { CachedArtifactDetail, ExplorerListParams, ShareWsError } from '../lib/share-types';
 
 export interface ExploreListFilters {
@@ -68,13 +69,9 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
 
   const doFetch = useCallback(
     async (cursor: string | null, append: boolean) => {
-      // DEV diagnostic — logs every stage of the list fetch so the console in
-      // Electron's devtools reveals whether (a) the hook fires, (b) the send
-      // resolves, (c) the response shape looks right, (d) state updates land.
-      // Remove after the upload smoke stabilises.
-      console.log('[useExploreList] doFetch enter', { cursor, append, tab: effectiveFilters.tab });
+      debugLog('[useExploreList] doFetch enter', { cursor, append, tab: effectiveFilters.tab });
       if (inFlight.current) {
-        console.log('[useExploreList] skipped: already in flight');
+        debugLog('[useExploreList] skipped: already in flight');
         return;
       }
       inFlight.current = true;
@@ -83,7 +80,7 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
       try {
         if (effectiveFilters.tab === 'installed') {
           // Installed tab deferred to #016 — return empty.
-          console.log('[useExploreList] installed tab → returning empty (deferred to #016)');
+          debugLog('[useExploreList] installed tab → returning empty (deferred to #016)');
           setItems((prev) => (append ? prev : []));
           setNextCursor(null);
           return;
@@ -91,16 +88,16 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
         if (effectiveFilters.tab === 'my-uploads' && !effectiveFilters.authorPubkey) {
           // My Uploads without a pubkey can't produce results — return empty,
           // let the caller set authorPubkey after identity.show resolves.
-          console.log('[useExploreList] my-uploads tab with no authorPubkey → empty until identity.show lands');
+          debugLog('[useExploreList] my-uploads tab with no authorPubkey → empty until identity.show lands');
           setItems((prev) => (append ? prev : []));
           setNextCursor(null);
           return;
         }
         const params = toListParams(effectiveFilters, cursor);
-        console.log('[useExploreList] sending explorer.list', params);
+        debugLog('[useExploreList] sending explorer.list', params);
         const resp = await send('explorer.list', params);
-        console.log('[useExploreList] raw response', resp);
-        console.log(
+        debugLog('[useExploreList] raw response', resp);
+        debugLog(
           '[useExploreList] items=',
           resp.items?.length,
           'next_cursor=',
@@ -108,7 +105,7 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
         );
         setItems((prev) => (append ? [...prev, ...resp.items] : [...resp.items]));
         setNextCursor(resp.next_cursor);
-        console.log('[useExploreList] state updated with', resp.items.length, 'items');
+        debugLog('[useExploreList] state updated with', resp.items.length, 'items');
       } catch (err) {
         console.error('[useExploreList] FAILED', err);
         setError(err as ShareWsError);
