@@ -18,13 +18,28 @@ use crate::omni::view_trust::ViewTrust;
 /// Filename of the scratch HTML written into the overlay root on mount.
 const SCRATCH_NAME: &str = ".omni_current.html";
 
-/// Raw BGRA pixel buffer produced by a thumbnail render request.
+/// Raw BGRA pixel buffer produced by a thumbnail render request, plus
+/// the bounding box of the first widget so downstream can crop to the
+/// content area and discard the empty viewport around it.
 pub struct ThumbnailPixels {
     pub width: u32,
     pub height: u32,
     pub row_bytes: u32,
     /// Tightly-packed BGRA (row-stride-stripped) — `width * 4 * height` bytes.
     pub bgra: Vec<u8>,
+    /// Bounding box of the primary widget in surface coordinates
+    /// (pixels, origin top-left). `None` when the widget query returned
+    /// no element, or the element had zero-size bounds — caller falls
+    /// back to the full frame.
+    pub widget_bbox: Option<WidgetBbox>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WidgetBbox {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
 }
 
 /// A request dispatched to the main render thread to capture a thumbnail.
@@ -404,6 +419,27 @@ impl UlRenderer {
             self.update_and_render();
         }
 
+        // Query the first widget's bounding box in the rendered DOM. The
+        // html_builder unwraps widgets directly as body children, so the
+        // first child IS the primary widget's template root. Empty body
+        // (malformed overlay) returns None; caller falls back to the
+        // full frame.
+        let bbox_js = r#"(function(){
+            var el = document.body && document.body.firstElementChild;
+            if (!el) return "null";
+            var r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return "null";
+            return JSON.stringify({x: r.left, y: r.top, w: r.width, h: r.height});
+        })();"#;
+        let widget_bbox = match self.evaluate_script_result(bbox_js) {
+            Ok(s) if s == "null" => None,
+            Ok(s) => parse_bbox_json(&s),
+            Err(e) => {
+                tracing::warn!(error = %e, "widget bbox query failed; falling back to full frame");
+                None
+            }
+        };
+
         let mut captured: Option<ThumbnailPixels> = None;
         self.with_pixels(|w, h, row_bytes, pixels, _dirty| {
             let tight_row = (w as usize) * 4;
@@ -417,6 +453,7 @@ impl UlRenderer {
                 height: h,
                 row_bytes,
                 bgra: buf,
+                widget_bbox,
             });
         });
 
@@ -462,4 +499,24 @@ impl Drop for UlRenderer {
         }
         info!("Ultralight renderer destroyed");
     }
+}
+
+/// Parse the `{x, y, w, h}` JSON emitted by the widget-bbox query script.
+/// Coordinates are CSS pixels (sub-pixel float); we truncate to integer
+/// surface coordinates and clamp negative origins to zero.
+fn parse_bbox_json(s: &str) -> Option<WidgetBbox> {
+    let v: serde_json::Value = serde_json::from_str(s).ok()?;
+    let x = v.get("x")?.as_f64()?;
+    let y = v.get("y")?.as_f64()?;
+    let w = v.get("w")?.as_f64()?;
+    let h = v.get("h")?.as_f64()?;
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    Some(WidgetBbox {
+        x: x.max(0.0).floor() as u32,
+        y: y.max(0.0).floor() as u32,
+        w: w.ceil() as u32,
+        h: h.ceil() as u32,
+    })
 }

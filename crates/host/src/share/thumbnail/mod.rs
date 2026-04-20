@@ -183,10 +183,125 @@ pub(super) fn render_omni_to_png(
     tracing::info!(
         w = pixels.width,
         h = pixels.height,
+        has_bbox = pixels.widget_bbox.is_some(),
         "render_omni_to_png: got thumbnail pixels"
     );
 
-    encode_with_size_cap(&pixels.bgra, pixels.width, pixels.height)
+    // Crop to the widget's bounding box + 5% breathing-room padding on
+    // each side, then scale to the target thumbnail dimensions with
+    // aspect preserved (letterbox in transparent pixels). If no bbox is
+    // available, fall back to the full frame and let encode_with_size_cap
+    // handle downscaling.
+    let (cropped_w, cropped_h, cropped_bgra) = match pixels.widget_bbox {
+        Some(b) => crop_with_padding(
+            &pixels.bgra,
+            pixels.width,
+            pixels.height,
+            b.x,
+            b.y,
+            b.w,
+            b.h,
+            0.05,
+        ),
+        None => (pixels.width, pixels.height, pixels.bgra),
+    };
+
+    let (out_w, out_h, out_bgra) = scale_to_fit_with_letterbox(
+        &cropped_bgra,
+        cropped_w,
+        cropped_h,
+        config.width,
+        config.height,
+    );
+
+    encode_with_size_cap(&out_bgra, out_w, out_h)
+}
+
+/// Crop a BGRA surface to `(x, y, w, h)` plus `padding_ratio` of breathing
+/// room on each side (clamped to surface bounds). Returns the new
+/// (width, height, tightly-packed BGRA).
+fn crop_with_padding(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    padding_ratio: f32,
+) -> (u32, u32, Vec<u8>) {
+    let pad_x = ((w as f32) * padding_ratio).round() as u32;
+    let pad_y = ((h as f32) * padding_ratio).round() as u32;
+    let x0 = x.saturating_sub(pad_x);
+    let y0 = y.saturating_sub(pad_y);
+    let x1 = (x + w + pad_x).min(src_w);
+    let y1 = (y + h + pad_y).min(src_h);
+    let cw = x1.saturating_sub(x0);
+    let ch = y1.saturating_sub(y0);
+    if cw == 0 || ch == 0 {
+        return (src_w, src_h, src.to_vec());
+    }
+    let src_row = (src_w as usize) * 4;
+    let dst_row = (cw as usize) * 4;
+    let mut out = Vec::with_capacity(dst_row * ch as usize);
+    for row in 0..ch as usize {
+        let src_off = (y0 as usize + row) * src_row + (x0 as usize) * 4;
+        out.extend_from_slice(&src[src_off..src_off + dst_row]);
+    }
+    (cw, ch, out)
+}
+
+/// Resize `src` to fit within `target_w × target_h` preserving aspect,
+/// then letterbox with transparent pixels into exactly `target_w × target_h`.
+/// Returns (target_w, target_h, tightly-packed BGRA).
+fn scale_to_fit_with_letterbox(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    target_w: u32,
+    target_h: u32,
+) -> (u32, u32, Vec<u8>) {
+    if src_w == 0 || src_h == 0 {
+        return (target_w, target_h, vec![0u8; (target_w * target_h * 4) as usize]);
+    }
+    let scale =
+        (target_w as f32 / src_w as f32).min(target_h as f32 / src_h as f32);
+    let scaled_w = ((src_w as f32 * scale).round() as u32).max(1).min(target_w);
+    let scaled_h = ((src_h as f32 * scale).round() as u32).max(1).min(target_h);
+
+    // `image::imageops::resize` operates per-channel so treating BGRA as
+    // RGBA for the duration of the resize is correct — channel meanings
+    // don't affect interpolation math, and the downstream `bgra_to_rgba`
+    // in `encode_with_size_cap` still sees BGRA bytes on output.
+    let src_img = match image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+        src_w,
+        src_h,
+        src.to_vec(),
+    ) {
+        Some(img) => img,
+        None => return (target_w, target_h, vec![0u8; (target_w * target_h * 4) as usize]),
+    };
+    let scaled = image::imageops::resize(
+        &src_img,
+        scaled_w,
+        scaled_h,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let scaled_bytes = scaled.as_raw();
+
+    // Letterbox into transparent target frame.
+    let mut out = vec![0u8; (target_w * target_h * 4) as usize];
+    let off_x = (target_w - scaled_w) / 2;
+    let off_y = (target_h - scaled_h) / 2;
+    let target_row = (target_w as usize) * 4;
+    let scaled_row = (scaled_w as usize) * 4;
+    for row in 0..scaled_h as usize {
+        let src_off = row * scaled_row;
+        let dst_off = (off_y as usize + row) * target_row + (off_x as usize) * 4;
+        out[dst_off..dst_off + scaled_row]
+            .copy_from_slice(&scaled_bytes[src_off..src_off + scaled_row]);
+    }
+    (target_w, target_h, out)
 }
 
 /// Map the sample-values HashMap into a [`SensorSnapshot`] by matching the
