@@ -153,7 +153,7 @@ pub(super) fn render_omni_to_png(
         }
     })?;
 
-    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
     let request = crate::ul_renderer::ThumbnailRequest {
         overlay_root,
         html: initial.full_document,
@@ -170,10 +170,12 @@ pub(super) fn render_omni_to_png(
     // Block until the main render thread replies. This function is called
     // from `tokio::task::spawn_blocking` (see `share::upload::render_thumbnail_inner`),
     // so a synchronous wait here does not stall the tokio worker pool's
-    // async tasks.
+    // async tasks. `std::sync::mpsc::Receiver::recv` is runtime-agnostic
+    // (no tokio context required) — unlike `tokio::sync::oneshot::blocking_recv`
+    // which asserts against tokio runtime detection internals.
     tracing::info!("render_omni_to_png: waiting for main thread reply");
     let pixels = reply_rx
-        .blocking_recv()
+        .recv()
         .map_err(|_| ThumbnailError::RenderFailed {
             detail: "thumbnail reply dropped (main render thread gone)".into(),
         })?

@@ -5,7 +5,9 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use tokio::sync::{mpsc, oneshot};
+use std::sync::mpsc as std_mpsc;
+
+use tokio::sync::mpsc;
 use tracing::info;
 
 use crate::omni::fs_dispatcher;
@@ -36,7 +38,12 @@ pub struct ThumbnailRequest {
     pub overlay_root: PathBuf,
     pub html: String,
     pub sample_values: HashMap<String, f64>,
-    pub reply: oneshot::Sender<Result<ThumbnailPixels, String>>,
+    /// `std::sync::mpsc::Sender` (not `tokio::sync::oneshot`) so the
+    /// receiver's `.recv()` works from any thread without tokio runtime
+    /// entanglement. The consumer calls `reply.send(Ok(...))` exactly
+    /// once; a dropped sender without sending is treated as a render
+    /// failure by the caller.
+    pub reply: std_mpsc::Sender<Result<ThumbnailPixels, String>>,
 }
 
 static THUMBNAIL_CHANNEL: OnceLock<mpsc::UnboundedSender<ThumbnailRequest>> = OnceLock::new();
