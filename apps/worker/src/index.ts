@@ -8,6 +8,7 @@ import download from './routes/download';
 import gallery from './routes/gallery';
 import list from './routes/list';
 import report from './routes/report';
+import thumbnail from './routes/thumbnail';
 import upload from './routes/upload';
 
 export { BundleProcessor } from './do/bundle_processor';
@@ -30,11 +31,14 @@ const SEMVER_RE = /^\d+\.\d+\.\d+$/;
  *   - `GET /v1/download/*` — unauthenticated CDN-cacheable downloads (spec §6).
  *     Edge caches strip arbitrary headers; requiring them here would defeat
  *     caching and the anon-install flow.
+ *   - `GET /v1/thumbnail/*` — unauthenticated PNG serving. Content-addressed
+ *     by SHA-256 so long-cacheable; same exemption rationale as download.
  */
 app.use('*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   if (path.startsWith('/v1/config/')) return next();
   if (path.startsWith('/v1/download/') && c.req.method === 'GET') return next();
+  if (path.startsWith('/v1/thumbnail/') && c.req.method === 'GET') return next();
 
   const version = c.req.header('X-Omni-Version');
   const saniVer = c.req.header('X-Omni-Sanitize-Version');
@@ -55,6 +59,7 @@ app.use('*', async (c, next) => {
 
 app.route('/v1/upload', upload);
 app.route('/v1/download', download);
+app.route('/v1/thumbnail', thumbnail);
 app.route('/v1/list', list);
 app.route('/v1/artifact', artifact);
 app.route('/v1/config', config);
