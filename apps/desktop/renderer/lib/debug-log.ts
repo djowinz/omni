@@ -11,10 +11,7 @@
 
 function envFlag(): boolean {
   try {
-    return (
-      typeof process !== 'undefined' &&
-      process.env?.NEXT_PUBLIC_OMNI_DEBUG === '1'
-    );
+    return typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_OMNI_DEBUG === '1';
   } catch {
     return false;
   }
@@ -22,10 +19,7 @@ function envFlag(): boolean {
 
 function storageFlag(): boolean {
   try {
-    return (
-      typeof window !== 'undefined' &&
-      window.localStorage?.getItem('OMNI_DEBUG') === '1'
-    );
+    return typeof window !== 'undefined' && window.localStorage?.getItem('OMNI_DEBUG') === '1';
   } catch {
     return false;
   }
