@@ -2,7 +2,7 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 
 export default defineWorkersConfig({
   test: {
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.ts', 'src/**/__tests__/**/*.test.ts'],
     // zip_compat spawns native `unzip` / `7z` via node:child_process, which
     // is not available in the workerd pool. Runs under vitest.node.config.ts.
     exclude: ['test/zip_compat.test.ts', '**/node_modules/**'],

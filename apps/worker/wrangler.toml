@@ -35,6 +35,7 @@ new_sqlite_classes = ["BundleProcessor"]
 OMNI_THEMES_ENV = "prod"
 OMNI_THEMES_RATE_LIMIT_SCALE = "1"
 OMNI_ADMIN_PUBKEYS = ""
+OMNI_DEBUG = ""
 
 [env.dev]
 # Example dev route, commented so deploys don't fail:

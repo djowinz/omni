@@ -15,4 +15,10 @@ export interface Env {
    * `src/lib/moderator.ts`.
    */
   OMNI_ADMIN_PUBKEYS: string;
+  /**
+   * When set to the string "1", enables debug breadcrumb logging across
+   * upload / list / rate-limit paths. Defaults to empty (disabled).
+   * See `src/lib/debug-log.ts` and OWI-5.
+   */
+  OMNI_DEBUG?: string;
 }
