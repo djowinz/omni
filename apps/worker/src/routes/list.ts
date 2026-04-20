@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { errorFromKind } from '../lib/errors';
 import { encodeCursor, decodeCursor, type Cursor } from '../lib/cursor';
+import { makeDebugLog } from '../lib/debug-log';
 import { hexEncode } from '../lib/hex';
 
 const app = new Hono<AppEnv>();
@@ -147,6 +148,8 @@ function cursorValueForRow(row: ArtifactRow, sort: SortMode): number | string {
 }
 
 app.get('/', async (c) => {
+  const env = c.env;
+  const debugLog = makeDebugLog(env);
   const url = new URL(c.req.url);
   const kindParam = url.searchParams.get('kind') ?? undefined;
   const sort = sortModeFrom(url.searchParams.get('sort') ?? undefined);
@@ -155,7 +158,7 @@ app.get('/', async (c) => {
   const tagParams = url.searchParams.getAll('tag');
   const rid = Date.now().toString(36);
   const tag = `[list rid=${rid}]`;
-  console.log(
+  debugLog(
     `${tag} START kind=${kindParam ?? '(all)'} sort=${sort} limit=${limit} tags=${JSON.stringify(tagParams)} cursor=${cursorRaw ? 'present' : 'none'}`,
   );
 
@@ -211,18 +214,18 @@ app.get('/', async (c) => {
   // Fetch one extra row to detect "has next page" without a COUNT query.
   binds.push(limit + 1);
 
-  console.log(`${tag} sql=${sql.replace(/\s+/g, ' ').trim()}`);
-  console.log(`${tag} binds=${JSON.stringify(binds)}`);
+  debugLog(`${tag} sql=${sql.replace(/\s+/g, ' ').trim()}`);
+  debugLog(`${tag} binds=${JSON.stringify(binds)}`);
   const { results } = await c.env.META.prepare(sql)
     .bind(...binds)
     .all<ArtifactRow>();
 
   const rows = results ?? [];
-  console.log(`${tag} rows returned: ${rows.length}`);
+  debugLog(`${tag} rows returned: ${rows.length}`);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const items = page.map(rowToItem);
-  console.log(
+  debugLog(
     `${tag} serialized ${items.length} items${hasMore ? ' + next_cursor' : ''}`,
   );
 
