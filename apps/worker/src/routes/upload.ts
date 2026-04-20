@@ -30,6 +30,7 @@ import { loadWasm } from '../lib/wasm';
 import { canonicalHash } from '../lib/canonical';
 import { sanitizeViaDO } from '../lib/sanitize';
 import { hexEncode } from '../lib/hex';
+import { makeDebugLog } from '../lib/debug-log';
 
 const app = new Hono<AppEnv>();
 
@@ -162,66 +163,67 @@ function isThemeOnly(manifest: Manifest): boolean {
 
 app.post('/', async (c) => {
   const env = c.env;
+  const debugLog = makeDebugLog(env);
   const req = c.req.raw;
   const url = new URL(req.url);
   // Request id for correlating multi-stage log lines. ms-epoch is good enough
   // for dev tailing — we only need to tell concurrent requests apart.
   const rid = Date.now().toString(36);
   const tag = `[upload rid=${rid}]`;
-  console.log(
+  debugLog(
     `${tag} START method=${req.method} url=${url.pathname}${url.search} content-length=${req.headers.get('content-length') ?? '(none)'}`,
   );
 
   // Step 1 — body cap
-  console.log(`${tag} step 1: getLimits + body cap`);
+  debugLog(`${tag} step 1: getLimits + body cap`);
   const limitsOrErr = await getLimits(env);
   if (limitsOrErr instanceof Response) {
-    console.log(`${tag} FAIL step 1: getLimits returned ${limitsOrErr.status}`);
+    debugLog(`${tag} FAIL step 1: getLimits returned ${limitsOrErr.status}`);
     return limitsOrErr;
   }
   const limits = limitsOrErr;
-  console.log(
+  debugLog(
     `${tag}   limits.max_bundle_compressed=${limits.max_bundle_compressed} max_entries=${limits.max_entries}`,
   );
   const bodyOrOver = await readBodyWithCap(req, limits.max_bundle_compressed);
   if ('over' in (bodyOrOver as object) && (bodyOrOver as { over: true }).over) {
-    console.log(`${tag} FAIL step 1: body over cap`);
+    debugLog(`${tag} FAIL step 1: body over cap`);
     return errorFromKind('Malformed', 'SizeExceeded', 'request body exceeds max_bundle_compressed');
   }
   const body = bodyOrOver as ArrayBuffer;
-  console.log(`${tag}   body buffered: ${body.byteLength} bytes`);
+  debugLog(`${tag}   body buffered: ${body.byteLength} bytes`);
 
   // Step 2 — auth
-  console.log(`${tag} step 2: verifyJws`);
+  debugLog(`${tag} step 2: verifyJws`);
   let auth;
   try {
     auth = await verifyJws(req, env, body);
   } catch (e) {
     if (e instanceof AuthError) {
-      console.log(`${tag} FAIL step 2: AuthError detail=${e.detail} message=${e.message}`);
+      debugLog(`${tag} FAIL step 2: AuthError detail=${e.detail} message=${e.message}`);
       return errorFromKind('Auth', e.detail, e.message);
     }
-    console.log(`${tag} FAIL step 2: uncaught ${(e as Error)?.message ?? String(e)}`);
+    debugLog(`${tag} FAIL step 2: uncaught ${(e as Error)?.message ?? String(e)}`);
     throw e;
   }
 
   const pubkeyHex = hexEncode(auth.pubkey);
   const dfHex = hexEncode(auth.device_fp);
-  console.log(
+  debugLog(
     `${tag}   auth ok: pk=${pubkeyHex.slice(0, 10)}… df=${dfHex.slice(0, 10)}…`,
   );
 
   // Step 3 — rate limit. `artifact_id` as query param signals update path.
   const isUpdate = url.searchParams.has('artifact_id');
   const action: RateLimitAction = isUpdate ? 'upload_update' : 'upload_new';
-  console.log(`${tag} step 3: rate limit action=${action} isUpdate=${isUpdate}`);
+  debugLog(`${tag} step 3: rate limit action=${action} isUpdate=${isUpdate}`);
   const rl = await checkAndIncrement(env, dfHex, pubkeyHex, action);
   if (!rl.allowed) {
     if (rl.turnstile) {
-      console.log(`${tag} FAIL step 3: turnstile required`);
+      debugLog(`${tag} FAIL step 3: turnstile required`);
       return errorFromKind('Quota', 'TurnstileRequired', 'turnstile challenge required');
     }
-    console.log(`${tag} FAIL step 3: rate limited, retry_after=${rl.retry_after}s`);
+    debugLog(`${tag} FAIL step 3: rate limited, retry_after=${rl.retry_after}s`);
     return errorResponse(429, 'RATE_LIMITED', 'rate limit exceeded', {
       kind: 'Quota',
       detail: 'RateLimited',
@@ -231,7 +233,7 @@ app.post('/', async (c) => {
 
   // Step 4 — parse multipart. Hono's `c.req.raw.formData()` is single-shot; we
   // already buffered `body`, so re-synthesize a Request with the buffered body.
-  console.log(`${tag} step 4: parseMultipart`);
+  debugLog(`${tag} step 4: parseMultipart`);
   const formReq = new Request(req.url, {
     method: req.method,
     headers: req.headers,
@@ -242,14 +244,14 @@ app.post('/', async (c) => {
     parts = await parseMultipart(formReq);
   } catch (e) {
     if (e instanceof MultipartError) {
-      console.log(`${tag} FAIL step 4: MultipartError ${e.message}`);
+      debugLog(`${tag} FAIL step 4: MultipartError ${e.message}`);
       return errorFromKind('Malformed', 'BadRequest', `multipart: ${e.message}`);
     }
     throw e;
   }
 
   // Step 5 — manifest fast path
-  console.log(`${tag} step 5: loadWasm + unpackSignedBundle`);
+  debugLog(`${tag} step 5: loadWasm + unpackSignedBundle`);
   const { identity } = await loadWasm();
   let manifest: Manifest;
   interface SignedHandleLike {
@@ -268,23 +270,23 @@ app.post('/', async (c) => {
       undefined,
     ) as unknown as SignedHandleLike;
     manifest = signedHandle.manifest() as Manifest;
-    console.log(
+    debugLog(
       `${tag}   manifest ok: name=${manifest.name ?? '(none)'} version=${manifest.version ?? '(none)'} schema=${manifest.schema_version}`,
     );
   } catch (e) {
     const cat = classifyWasmError(e);
-    console.log(
+    debugLog(
       `${tag} FAIL step 5: wasm unpack ${cat.kind}/${cat.detail} — ${cat.message}`,
     );
     return errorFromKind(cat.kind, cat.detail, cat.message);
   }
 
   // Step 6 — content signature verify + kid match (via the signed-bundle's authorPubkey).
-  console.log(`${tag} step 6: kid match check`);
+  debugLog(`${tag} step 6: kid match check`);
   const authorPub = signedHandle.authorPubkey();
   const authorPubHex = hexEncode(authorPub);
   if (authorPubHex !== pubkeyHex) {
-    console.log(
+    debugLog(
       `${tag} FAIL step 6: author ${authorPubHex.slice(0, 10)}… != request kid ${pubkeyHex.slice(0, 10)}…`,
     );
     try {
@@ -347,26 +349,26 @@ app.post('/', async (c) => {
     }
   }
 
-  console.log(`${tag} step 8: sanitizeViaDO (themeOnly=${themeOnly})`);
+  debugLog(`${tag} step 8: sanitizeViaDO (themeOnly=${themeOnly})`);
   let sanitized;
   try {
     sanitized = await sanitizeViaDO(env, parts.bundle, dfHex, limits);
-    console.log(
+    debugLog(
       `${tag}   sanitize ok: ${sanitized.sanitizedBundleBytes.byteLength} bytes out`,
     );
   } catch (e) {
     const cat = classifyWasmError(e);
-    console.log(
+    debugLog(
       `${tag} FAIL step 8: sanitize ${cat.kind}/${cat.detail} — ${cat.message}`,
     );
     return errorFromKind(cat.kind, cat.detail, cat.message);
   }
 
   // Step 9 — canonical hash (native hex)
-  console.log(`${tag} step 9: canonicalHash`);
+  debugLog(`${tag} step 9: canonicalHash`);
   const hashBytes = await canonicalHash(manifest);
   const contentHash = hexEncode(hashBytes);
-  console.log(`${tag}   content_hash=${contentHash.slice(0, 16)}…`);
+  debugLog(`${tag}   content_hash=${contentHash.slice(0, 16)}…`);
 
   // Step 10 — dedup / tombstone
   const tombRow = await env.META.prepare(
