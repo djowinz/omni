@@ -145,9 +145,7 @@ pub(super) fn render_omni_to_png(
 
     let overlay_root = crate::workspace::structure::overlay_dir(data_dir, overlay_name);
 
-    tracing::info!(overlay_name, "render_omni_to_png: fetching thumbnail channel");
     let sender = crate::ul_renderer::get_thumbnail_channel().ok_or_else(|| {
-        tracing::error!("render_omni_to_png: thumbnail channel not installed");
         ThumbnailError::RenderFailed {
             detail: "thumbnail channel not installed — host render loop is not running".into(),
         }
@@ -160,7 +158,6 @@ pub(super) fn render_omni_to_png(
         sample_values: config.sample_values.clone(),
         reply: reply_tx,
     };
-    tracing::info!("render_omni_to_png: sending thumbnail request to main thread");
     sender
         .send(request)
         .map_err(|_| ThumbnailError::RenderFailed {
@@ -173,19 +170,12 @@ pub(super) fn render_omni_to_png(
     // async tasks. `std::sync::mpsc::Receiver::recv` is runtime-agnostic
     // (no tokio context required) — unlike `tokio::sync::oneshot::blocking_recv`
     // which asserts against tokio runtime detection internals.
-    tracing::info!("render_omni_to_png: waiting for main thread reply");
     let pixels = reply_rx
         .recv()
         .map_err(|_| ThumbnailError::RenderFailed {
             detail: "thumbnail reply dropped (main render thread gone)".into(),
         })?
         .map_err(|detail| ThumbnailError::RenderFailed { detail })?;
-    tracing::info!(
-        w = pixels.width,
-        h = pixels.height,
-        has_bbox = pixels.widget_bbox.is_some(),
-        "render_omni_to_png: got thumbnail pixels"
-    );
 
     // Crop to the widget's bounding box + 5% breathing-room padding on
     // each side, then scale to the target thumbnail dimensions with
@@ -220,6 +210,7 @@ pub(super) fn render_omni_to_png(
 /// Crop a BGRA surface to `(x, y, w, h)` plus `padding_ratio` of breathing
 /// room on each side (clamped to surface bounds). Returns the new
 /// (width, height, tightly-packed BGRA).
+#[allow(clippy::too_many_arguments)]
 fn crop_with_padding(
     src: &[u8],
     src_w: u32,
@@ -262,10 +253,13 @@ fn scale_to_fit_with_letterbox(
     target_h: u32,
 ) -> (u32, u32, Vec<u8>) {
     if src_w == 0 || src_h == 0 {
-        return (target_w, target_h, vec![0u8; (target_w * target_h * 4) as usize]);
+        return (
+            target_w,
+            target_h,
+            vec![0u8; (target_w * target_h * 4) as usize],
+        );
     }
-    let scale =
-        (target_w as f32 / src_w as f32).min(target_h as f32 / src_h as f32);
+    let scale = (target_w as f32 / src_w as f32).min(target_h as f32 / src_h as f32);
     let scaled_w = ((src_w as f32 * scale).round() as u32).max(1).min(target_w);
     let scaled_h = ((src_h as f32 * scale).round() as u32).max(1).min(target_h);
 
@@ -273,14 +267,17 @@ fn scale_to_fit_with_letterbox(
     // RGBA for the duration of the resize is correct — channel meanings
     // don't affect interpolation math, and the downstream `bgra_to_rgba`
     // in `encode_with_size_cap` still sees BGRA bytes on output.
-    let src_img = match image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-        src_w,
-        src_h,
-        src.to_vec(),
-    ) {
-        Some(img) => img,
-        None => return (target_w, target_h, vec![0u8; (target_w * target_h * 4) as usize]),
-    };
+    let src_img =
+        match image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(src_w, src_h, src.to_vec()) {
+            Some(img) => img,
+            None => {
+                return (
+                    target_w,
+                    target_h,
+                    vec![0u8; (target_w * target_h * 4) as usize],
+                )
+            }
+        };
     let scaled = image::imageops::resize(
         &src_img,
         scaled_w,

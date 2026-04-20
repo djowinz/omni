@@ -142,10 +142,7 @@ fn route(req: &str) -> Option<PathBuf> {
 unsafe extern "C" fn cb_file_exists(path: ul::ULString) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
         let req = ul_string::from_ul(path);
-        // Leave this debug trace in place through Wave D verification — it
-        // confirms Ultralight delivers the `mount-{id}/...` prefix verbatim.
-        // Downgrade to `trace!` once stable.
-        debug!(req = %req, "fs_dispatcher: cb_file_exists");
+        tracing::trace!(req = %req, "fs_dispatcher: cb_file_exists");
         route(&req).is_some()
     }))
     .unwrap_or(false)
