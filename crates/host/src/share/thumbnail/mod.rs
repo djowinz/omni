@@ -145,7 +145,9 @@ pub(super) fn render_omni_to_png(
 
     let overlay_root = crate::workspace::structure::overlay_dir(data_dir, overlay_name);
 
+    tracing::info!(overlay_name, "render_omni_to_png: fetching thumbnail channel");
     let sender = crate::ul_renderer::get_thumbnail_channel().ok_or_else(|| {
+        tracing::error!("render_omni_to_png: thumbnail channel not installed");
         ThumbnailError::RenderFailed {
             detail: "thumbnail channel not installed — host render loop is not running".into(),
         }
@@ -158,6 +160,7 @@ pub(super) fn render_omni_to_png(
         sample_values: config.sample_values.clone(),
         reply: reply_tx,
     };
+    tracing::info!("render_omni_to_png: sending thumbnail request to main thread");
     sender
         .send(request)
         .map_err(|_| ThumbnailError::RenderFailed {
@@ -168,12 +171,18 @@ pub(super) fn render_omni_to_png(
     // from `tokio::task::spawn_blocking` (see `share::upload::render_thumbnail_inner`),
     // so a synchronous wait here does not stall the tokio worker pool's
     // async tasks.
+    tracing::info!("render_omni_to_png: waiting for main thread reply");
     let pixels = reply_rx
         .blocking_recv()
         .map_err(|_| ThumbnailError::RenderFailed {
             detail: "thumbnail reply dropped (main render thread gone)".into(),
         })?
         .map_err(|detail| ThumbnailError::RenderFailed { detail })?;
+    tracing::info!(
+        w = pixels.width,
+        h = pixels.height,
+        "render_omni_to_png: got thumbnail pixels"
+    );
 
     encode_with_size_cap(&pixels.bgra, pixels.width, pixels.height)
 }

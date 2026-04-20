@@ -903,7 +903,21 @@ fn run_host() {
                 sample_values,
                 reply,
             } = req;
+            tracing::info!(
+                overlay_root = %overlay_root.display(),
+                html_bytes = html.len(),
+                "main render loop: servicing thumbnail request"
+            );
             let result = ul.render_thumbnail_to_png(&overlay_root, &html, &sample_values);
+            match &result {
+                Ok(p) => tracing::info!(
+                    w = p.width,
+                    h = p.height,
+                    bgra_bytes = p.bgra.len(),
+                    "main render loop: thumbnail captured"
+                ),
+                Err(e) => tracing::error!(error = %e, "main render loop: thumbnail failed"),
+            }
             let _ = reply.send(result);
         }
 

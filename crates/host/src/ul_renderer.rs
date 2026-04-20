@@ -44,7 +44,12 @@ static THUMBNAIL_CHANNEL: OnceLock<mpsc::UnboundedSender<ThumbnailRequest>> = On
 /// Install the process-wide thumbnail request channel. Called from
 /// `main.rs` once at host startup; subsequent calls are ignored.
 pub fn install_thumbnail_channel(sender: mpsc::UnboundedSender<ThumbnailRequest>) {
-    let _ = THUMBNAIL_CHANNEL.set(sender);
+    let was_set = THUMBNAIL_CHANNEL.set(sender).is_err();
+    if was_set {
+        tracing::warn!("install_thumbnail_channel called twice; ignoring second call");
+    } else {
+        tracing::info!("install_thumbnail_channel: thumbnail render channel installed");
+    }
 }
 
 /// Fetch the thumbnail request sender. Returns `None` if `main.rs` has
