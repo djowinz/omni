@@ -35,6 +35,7 @@
  */
 
 import { useMemo } from 'react';
+import { debugLog } from '../lib/debug-log';
 import {
   type ShareRequestMap,
   type ShareSubscriptionMap,
@@ -127,9 +128,9 @@ export function useShareWs(): UseShareWs {
         // per-handler param struct. DO NOT spread params at top level —
         // the dispatcher would see an empty params map and reject with
         // "missing field" for every required field.
-        console.log('[useShareWs.send] →', { id, type, params });
+        debugLog('[useShareWs.send] →', { id, type, params });
         const response = await window.omni!.sendShareMessage({ id, type, params });
-        console.log('[useShareWs.send] ← raw response for', type, response);
+        debugLog('[useShareWs.send] ← raw response for', type, response);
 
         // First check for error envelope.
         const errParse = ShareErrorFrameSchema.safeParse(response);
@@ -144,7 +145,7 @@ export function useShareWs(): UseShareWs {
           typeof response === 'object' && response !== null && typeof response.type === 'string'
             ? (response.type as keyof typeof RESPONSE_SCHEMAS)
             : undefined;
-        console.log('[useShareWs.send] responseType=', responseType, 'for', type);
+        debugLog('[useShareWs.send] responseType=', responseType, 'for', type);
 
         const schema = responseType ? RESPONSE_SCHEMAS[responseType] : undefined;
         if (!schema) {
@@ -180,7 +181,7 @@ export function useShareWs(): UseShareWs {
           } satisfies ShareWsError;
         }
 
-        console.log('[useShareWs.send] validated OK for', type);
+        debugLog('[useShareWs.send] validated OK for', type);
         return parse.data as ShareRequestMap[typeof type]['result'];
       },
 
