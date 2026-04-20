@@ -1,9 +1,11 @@
 //! Safe wrapper around Ultralight C API for headless overlay rendering.
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
+use tokio::sync::{mpsc, oneshot};
 use tracing::info;
 
 use crate::omni::fs_dispatcher;
@@ -13,6 +15,53 @@ use crate::omni::view_trust::ViewTrust;
 
 /// Filename of the scratch HTML written into the overlay root on mount.
 const SCRATCH_NAME: &str = ".omni_current.html";
+
+/// Raw BGRA pixel buffer produced by a thumbnail render request.
+pub struct ThumbnailPixels {
+    pub width: u32,
+    pub height: u32,
+    pub row_bytes: u32,
+    /// Tightly-packed BGRA (row-stride-stripped) — `width * 4 * height` bytes.
+    pub bgra: Vec<u8>,
+}
+
+/// A request dispatched to the main render thread to capture a thumbnail.
+/// The thumbnail pipeline (`crate::share::thumbnail`) sends this through
+/// [`get_thumbnail_channel`]; the live render loop in `main.rs` drains the
+/// receiver between ticks and services each request synchronously on the
+/// main thread (Ultralight has process-global state that is not safe to
+/// drive from multiple Renderer instances — see `docs/superpowers/specs/
+/// 2026-04-19-ultralight-thumbnail-fix-design.md`).
+pub struct ThumbnailRequest {
+    pub overlay_root: PathBuf,
+    pub html: String,
+    pub sample_values: HashMap<String, f64>,
+    pub reply: oneshot::Sender<Result<ThumbnailPixels, String>>,
+}
+
+static THUMBNAIL_CHANNEL: OnceLock<mpsc::UnboundedSender<ThumbnailRequest>> = OnceLock::new();
+
+/// Install the process-wide thumbnail request channel. Called from
+/// `main.rs` once at host startup; subsequent calls are ignored.
+pub fn install_thumbnail_channel(sender: mpsc::UnboundedSender<ThumbnailRequest>) {
+    let _ = THUMBNAIL_CHANNEL.set(sender);
+}
+
+/// Fetch the thumbnail request sender. Returns `None` if `main.rs` has
+/// not yet installed a channel (integration-test context without a live
+/// renderer, or a startup-order bug).
+pub fn get_thumbnail_channel() -> Option<mpsc::UnboundedSender<ThumbnailRequest>> {
+    THUMBNAIL_CHANNEL.get().cloned()
+}
+
+/// Params saved from the most recent `mount()` so `render_thumbnail_to_png`
+/// can restore the live view after capturing a thumbnail frame.
+#[derive(Clone)]
+struct MountState {
+    overlay_root: PathBuf,
+    html: String,
+    trust: ViewTrust,
+}
 
 /// Safe wrapper around Ultralight renderer + view.
 pub struct UlRenderer {
@@ -28,6 +77,10 @@ pub struct UlRenderer {
     /// `Drop` impl BEFORE `ulDestroyView` so no in-flight Ultralight
     /// callback reads a mount whose overlay_root has been cleaned up.
     mount_handle: Mutex<Option<fs_dispatcher::MountHandle>>,
+    /// Saved mount params (root + HTML + trust) from the most recent
+    /// `mount()`. `render_thumbnail_to_png` uses these to restore the
+    /// live view after capturing a thumbnail frame.
+    last_mount_state: Mutex<Option<MountState>>,
 }
 
 impl UlRenderer {
@@ -83,6 +136,7 @@ impl UlRenderer {
                 height,
                 last_scratch_dir: Mutex::new(None),
                 mount_handle: Mutex::new(None),
+                last_mount_state: Mutex::new(None),
             })
         }
     }
@@ -97,6 +151,19 @@ impl UlRenderer {
     /// A previous mount on this same `UlRenderer` is released (its entry
     /// removed from the dispatcher) before the new one is registered.
     pub fn mount(&self, overlay_root: &Path, html: &str, trust: ViewTrust) -> Result<(), String> {
+        self.mount_internal(overlay_root, html, trust, /* save_state = */ true)
+    }
+
+    /// Internal mount with an option to skip saving state for restoration.
+    /// `render_thumbnail_to_png` uses `save_state = false` for the transient
+    /// thumbnail mount so the restoration target is preserved.
+    fn mount_internal(
+        &self,
+        overlay_root: &Path,
+        html: &str,
+        trust: ViewTrust,
+        save_state: bool,
+    ) -> Result<(), String> {
         // Register the new mount FIRST. The returned handle replaces any
         // previous one inside `mount_handle`; the previous handle's Drop
         // removes its dispatcher entry. Holding both briefly is harmless —
@@ -108,6 +175,18 @@ impl UlRenderer {
         {
             let mut slot = self.mount_handle.lock().expect("mount_handle poisoned");
             *slot = Some(handle);
+        }
+
+        if save_state {
+            let mut slot = self
+                .last_mount_state
+                .lock()
+                .expect("last_mount_state poisoned");
+            *slot = Some(MountState {
+                overlay_root: overlay_root.to_path_buf(),
+                html: html.to_string(),
+                trust,
+            });
         }
 
         unsafe {
@@ -268,6 +347,78 @@ impl UlRenderer {
             height = new_height,
             "Ultralight view resized"
         );
+    }
+
+    /// Handle a thumbnail render request on the main thread.
+    ///
+    /// Saves the currently-mounted live overlay, temporarily mounts the
+    /// thumbnail overlay at `overlay_root` with the provided HTML, injects
+    /// `sample_values` via `__omni_update`, renders three ticks, captures
+    /// BGRA pixels, then restores the live overlay.
+    ///
+    /// Called by the main render loop in response to messages on the
+    /// thumbnail channel. Must be invoked on the same thread that owns
+    /// this `UlRenderer` — Ultralight's C API is not thread-safe.
+    pub fn render_thumbnail_to_png(
+        &self,
+        overlay_root: &Path,
+        html: &str,
+        sample_values: &HashMap<String, f64>,
+    ) -> Result<ThumbnailPixels, String> {
+        // Snapshot the live mount state BEFORE we overwrite it with the
+        // thumbnail mount. `mount_internal(save_state = false)` below
+        // leaves this slot untouched so the restore path can read it
+        // after rendering.
+        let saved = self
+            .last_mount_state
+            .lock()
+            .expect("last_mount_state poisoned")
+            .clone();
+
+        // Mount the thumbnail overlay transiently.
+        self.mount_internal(overlay_root, html, ViewTrust::ThumbnailGen, false)?;
+
+        // Inject sample values through the privileged bootstrap.
+        let payload = serde_json::to_string(sample_values)
+            .map_err(|e| format!("sample_values JSON encode: {e}"))?;
+        self.evaluate_script(&format!(
+            "if(window.__omni_update){{__omni_update({payload});}}"
+        ));
+
+        // Three ticks: first kicks off async load, second lands the painted
+        // frame, third settles any one-step CSS transition so themes with
+        // transitions don't capture mid-interpolation.
+        for _ in 0..3 {
+            self.update_and_render();
+        }
+
+        let mut captured: Option<ThumbnailPixels> = None;
+        self.with_pixels(|w, h, row_bytes, pixels, _dirty| {
+            let tight_row = (w as usize) * 4;
+            let mut buf = Vec::with_capacity(tight_row * h as usize);
+            for row in 0..h as usize {
+                let start = row * row_bytes as usize;
+                buf.extend_from_slice(&pixels[start..start + tight_row]);
+            }
+            captured = Some(ThumbnailPixels {
+                width: w,
+                height: h,
+                row_bytes,
+                bgra: buf,
+            });
+        });
+
+        let pixels = captured.ok_or_else(|| "with_pixels produced no surface data".to_string())?;
+
+        // Restore the live mount so the render loop's next tick resumes
+        // the user's overlay. If nothing was mounted before (early boot,
+        // tests), leave the thumbnail mount in place; the next explicit
+        // `mount()` call will replace it.
+        if let Some(state) = saved {
+            self.mount_internal(&state.overlay_root, &state.html, state.trust, true)?;
+        }
+
+        Ok(pixels)
     }
 }
 

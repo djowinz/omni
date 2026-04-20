@@ -459,6 +459,15 @@ fn run_host() {
     let mut ul = ul_renderer::UlRenderer::init(1920, 1080, &exe_dir)
         .expect("Failed to initialize Ultralight renderer");
 
+    // Thumbnail render channel. The `share::thumbnail` pipeline cannot
+    // spawn a second Ultralight renderer in this process (architectural
+    // invariant #24 — Ultralight's C API has global state that crashes
+    // on multi-instance use), so it sends requests here and the main
+    // render loop services them on-thread between live ticks.
+    let (thumb_tx, mut thumb_rx) =
+        tokio::sync::mpsc::unbounded_channel::<ul_renderer::ThumbnailRequest>();
+    ul_renderer::install_thumbnail_channel(thumb_tx);
+
     let mut ul_viewport_w: u32 = 0;
     let mut ul_viewport_h: u32 = 0;
     let mut ul_needs_reload = false;
@@ -879,6 +888,24 @@ fn run_host() {
         });
 
         debug!("Ultralight frame rendered");
+
+        // Drain any pending thumbnail render requests. Each request
+        // temporarily remounts the live view to render the thumbnail
+        // overlay; the live overlay is restored before returning. See
+        // `ul_renderer::render_thumbnail_to_png` for the save/restore
+        // sequence. During the render the live preview briefly freezes
+        // — acceptable because thumbnails are only generated on
+        // user-initiated upload.
+        while let Ok(req) = thumb_rx.try_recv() {
+            let ul_renderer::ThumbnailRequest {
+                overlay_root,
+                html,
+                sample_values,
+                reply,
+            } = req;
+            let result = ul.render_thumbnail_to_png(&overlay_root, &html, &sample_values);
+            let _ = reply.send(result);
+        }
 
         // Wake on scanner poll, watcher events, or sensor data
         let timeout = {

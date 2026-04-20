@@ -25,7 +25,6 @@ use crate::omni::history::SensorHistory;
 use crate::omni::html_builder::build_initial_html;
 use crate::omni::types::OmniFile;
 use crate::omni::view_trust::ViewTrust;
-use crate::ul_renderer::UlRenderer;
 use shared::SensorSnapshot;
 
 /// Public error enum for thumbnail generation.
@@ -115,21 +114,16 @@ pub(super) fn render_omni_to_png(
     overlay_name: &str,
     config: &ThumbnailConfig,
 ) -> Result<Vec<u8>, ThumbnailError> {
-    // Resources dir: mirror production (`UlRenderer` is booted from
-    // `current_exe().parent()` everywhere else — platform font loader and
-    // `./resources/` prefix resolve from there).
-    let exe = std::env::current_exe().map_err(|e| ThumbnailError::RenderFailed {
-        detail: format!("current_exe: {e}"),
-    })?;
-    let resources_dir = exe
-        .parent()
-        .ok_or_else(|| ThumbnailError::RenderFailed {
-            detail: "current_exe has no parent".into(),
-        })?
-        .to_path_buf();
-
-    let renderer = UlRenderer::init(config.width, config.height, &resources_dir)
-        .map_err(|detail| ThumbnailError::RenderFailed { detail })?;
+    // Architectural invariant #24 prevents a second `UlRenderer` instance
+    // — Ultralight's C API has process-global state that crashes on
+    // multi-instance use (Windows `STATUS_STACK_BUFFER_OVERRUN` /
+    // `STATUS_ACCESS_VIOLATION`). Instead, the render request is sent to
+    // the main thread's live renderer via a process-wide channel installed
+    // at host startup by `main.rs`. The live render loop drains the
+    // channel between ticks and services the request on-thread — the live
+    // preview briefly freezes (~100 ms) while the thumbnail captures, then
+    // the live overlay is remounted. See spec
+    // `docs/superpowers/specs/2026-04-19-ultralight-thumbnail-fix-design.md`.
 
     let snapshot = sample_values_to_snapshot(&config.sample_values);
     let hwinfo_values: HashMap<String, f64> = HashMap::new();
@@ -150,53 +144,38 @@ pub(super) fn render_omni_to_png(
     );
 
     let overlay_root = crate::workspace::structure::overlay_dir(data_dir, overlay_name);
-    renderer
-        .mount(
-            &overlay_root,
-            &initial.full_document,
-            ViewTrust::ThumbnailGen,
-        )
+
+    let sender = crate::ul_renderer::get_thumbnail_channel().ok_or_else(|| {
+        ThumbnailError::RenderFailed {
+            detail: "thumbnail channel not installed — host render loop is not running".into(),
+        }
+    })?;
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let request = crate::ul_renderer::ThumbnailRequest {
+        overlay_root,
+        html: initial.full_document,
+        sample_values: config.sample_values.clone(),
+        reply: reply_tx,
+    };
+    sender
+        .send(request)
+        .map_err(|_| ThumbnailError::RenderFailed {
+            detail: "thumbnail channel closed".into(),
+        })?;
+
+    // Block until the main render thread replies. This function is called
+    // from `tokio::task::spawn_blocking` (see `share::upload::render_thumbnail_inner`),
+    // so a synchronous wait here does not stall the tokio worker pool's
+    // async tasks.
+    let pixels = reply_rx
+        .blocking_recv()
+        .map_err(|_| ThumbnailError::RenderFailed {
+            detail: "thumbnail reply dropped (main render thread gone)".into(),
+        })?
         .map_err(|detail| ThumbnailError::RenderFailed { detail })?;
 
-    // Inject sample values through the privileged bootstrap. `__omni_update`
-    // is the same entry point the live pipeline uses (sub-spec #002). Only
-    // the keys that correspond to `data-sensor` attributes in the reference
-    // overlay take effect; extras are silently ignored by the bootstrap.
-    let payload =
-        serde_json::to_string(&config.sample_values).map_err(|e| ThumbnailError::RenderFailed {
-            detail: format!("sample_values JSON encode: {e}"),
-        })?;
-    renderer.evaluate_script(&format!(
-        "if(window.__omni_update){{__omni_update({payload});}}"
-    ));
-
-    // Three ticks: Ultralight's first `ulUpdate` kicks off async load; a
-    // second tick lands the painted frame; a third gives one animation step
-    // to settle so themes with CSS transitions don't capture mid-interpolation.
-    for _ in 0..3 {
-        renderer.update_and_render();
-    }
-
-    let mut captured: Option<(u32, u32, Vec<u8>)> = None;
-    renderer.with_pixels(|width, height, row_bytes, pixels, _dirty| {
-        // Ultralight hands back BGRA8 premultiplied. Row stride may exceed
-        // `width * 4` on some backends; copy row-by-row to produce a tightly
-        // packed buffer suitable for PNG encoding.
-        let tight_row = (width as usize) * 4;
-        let mut buf = Vec::with_capacity(tight_row * height as usize);
-        for row in 0..height as usize {
-            let start = row * row_bytes as usize;
-            buf.extend_from_slice(&pixels[start..start + tight_row]);
-        }
-        captured = Some((width, height, buf));
-    });
-
-    let (w, h, bgra) = captured.ok_or(ThumbnailError::SurfaceDimensionsMismatch)?;
-    if w != config.width || h != config.height {
-        return Err(ThumbnailError::SurfaceDimensionsMismatch);
-    }
-
-    encode_with_size_cap(&bgra, w, h)
+    encode_with_size_cap(&pixels.bgra, pixels.width, pixels.height)
 }
 
 /// Map the sample-values HashMap into a [`SensorSnapshot`] by matching the
