@@ -392,8 +392,14 @@ app.post('/', async (c) => {
       return Response.json({
         artifact_id: row.id,
         content_hash: row.content_hash,
-        r2_url: `r2://bundles/${row.content_hash}.omnipkg`,
-        thumbnail_url: `r2://thumbnails/${row.thumbnail_hash}.png`,
+        // Use the HTTP paths the worker serves (matches /v1/list's rowToItem
+        // in routes/list.ts). r2:// pseudo-URLs are internal identifiers
+        // for the R2 bucket and are NOT fetchable by Chromium — emitting
+        // them caused `net::ERR_UNKNOWN_URL_SCHEME` in the Electron UI
+        // when consuming the post-upload cache during an immediate list
+        // render.
+        r2_url: `/v1/download/${row.id}`,
+        thumbnail_url: `/v1/thumbnail/${row.thumbnail_hash}`,
         created_at: row.created_at,
         status: 'deduplicated',
       });
@@ -475,12 +481,14 @@ app.post('/', async (c) => {
     .bind(contentHash, artifactId, now)
     .run();
 
-  // Step 14 — respond
+  // Step 14 — respond. Emit HTTP paths (not r2:// pseudo-URLs) so the
+  // Electron renderer can fetch the thumbnail immediately — see the
+  // matching dedup-path comment above.
   return Response.json({
     artifact_id: artifactId,
     content_hash: contentHash,
-    r2_url: `r2://bundles/${contentHash}.omnipkg`,
-    thumbnail_url: `r2://thumbnails/${thumbHash}.png`,
+    r2_url: `/v1/download/${artifactId}`,
+    thumbnail_url: `/v1/thumbnail/${thumbHash}`,
     created_at: now,
     status: 'created',
   });
