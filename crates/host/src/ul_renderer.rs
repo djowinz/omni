@@ -402,7 +402,42 @@ impl UlRenderer {
             .expect("last_mount_state poisoned")
             .clone();
 
-        // Mount the thumbnail overlay transiently.
+        // Inner body runs mount-through-capture. Whatever it returns, we
+        // attempt to restore the live mount in the guaranteed-tail below —
+        // including on error paths — so a rare mid-sequence failure (JSON
+        // encode, `with_pixels` returning nothing) doesn't leave the view
+        // stuck on the thumbnail overlay.
+        let result = self.render_thumbnail_inner(overlay_root, html, sample_values);
+
+        // Always attempt restoration. Log-and-continue on restore failure
+        // rather than overwriting the caller's error — a restore failure
+        // here is unlikely and less actionable than the primary cause.
+        if let Some(state) = saved {
+            if let Err(e) = self.mount_internal(&state.overlay_root, &state.html, state.trust, true)
+            {
+                tracing::error!(
+                    error = %e,
+                    "live overlay restore after thumbnail capture failed; next mount() will recover"
+                );
+            }
+        }
+
+        result
+    }
+
+    /// Inner body of [`render_thumbnail_to_png`] covering the
+    /// mount-thumbnail → inject → tick → capture sequence. Extracted so
+    /// the outer method can guarantee live-overlay restoration on every
+    /// exit path, error or success.
+    fn render_thumbnail_inner(
+        &self,
+        overlay_root: &Path,
+        html: &str,
+        sample_values: &HashMap<String, f64>,
+    ) -> Result<ThumbnailPixels, String> {
+        // Mount the thumbnail overlay transiently. `save_state = false`
+        // leaves the saved live-mount snapshot intact so the caller's
+        // restore path can read it.
         self.mount_internal(overlay_root, html, ViewTrust::ThumbnailGen, false)?;
 
         // Inject sample values through the privileged bootstrap.
@@ -457,17 +492,7 @@ impl UlRenderer {
             });
         });
 
-        let pixels = captured.ok_or_else(|| "with_pixels produced no surface data".to_string())?;
-
-        // Restore the live mount so the render loop's next tick resumes
-        // the user's overlay. If nothing was mounted before (early boot,
-        // tests), leave the thumbnail mount in place; the next explicit
-        // `mount()` call will replace it.
-        if let Some(state) = saved {
-            self.mount_internal(&state.overlay_root, &state.html, state.trust, true)?;
-        }
-
-        Ok(pixels)
+        captured.ok_or_else(|| "with_pixels produced no surface data".to_string())
     }
 }
 
@@ -490,6 +515,18 @@ impl Drop for UlRenderer {
                 let _ = std::fs::remove_file(dir.join(SCRATCH_NAME));
             }
         }
+
+        // Invariant: the mount must be released before destroying the
+        // Ultralight view. A future refactor that drops this invariant
+        // would reintroduce the use-after-free risk the mount-handle
+        // Drop-first ordering was designed to prevent.
+        debug_assert!(
+            self.mount_handle
+                .lock()
+                .map(|g| g.is_none())
+                .unwrap_or(true),
+            "mount_handle must be released before ulDestroyView"
+        );
 
         unsafe {
             ultralight_sys::ulDestroyView(self.view);

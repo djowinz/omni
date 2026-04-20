@@ -1,26 +1,39 @@
-//! Regression test for the fs_dispatcher mount-ID routing fix.
+//! Regression test for the fs_dispatcher multi-mount routing table.
 //!
-//! Reproduces the pattern that caused `STATUS_STACK_BUFFER_OVERRUN` before
-//! the `fs_dispatcher::ACTIVE`-slot-to-`MOUNTS`-routing refactor: two
-//! concurrent `UlRenderer` instances, each rendering its own overlay, with
-//! interleaved `update_and_render` ticks. Under the old design the second
-//! mount overwrote the global active slot and the first renderer's
-//! callbacks dereferenced a swapped-out FS.
+//! Scope note: the shipped thumbnail pipeline uses a SINGLE UlRenderer
+//! instance that remounts between the live overlay and a transient
+//! thumbnail overlay via MountHandle swaps (see
+//! `crates/host/src/ul_renderer.rs::render_thumbnail_to_png`). The design
+//! pivoted away from two concurrent UlRenderers when Ultralight's C API
+//! was shown to crash (STATUS_STACK_BUFFER_OVERRUN / ACCESS_VIOLATION on
+//! Windows) whenever a second Renderer instance is created in the same
+//! process — independent of the fs_dispatcher race this spec was
+//! originally scoped to address.
+//!
+//! What this test DOES cover: the fs_dispatcher's multi-mount routing is
+//! still load-bearing for the shipped design, because `render_thumbnail_to_png`
+//! registers a second MountHandle for the thumbnail overlay while the
+//! live MountHandle is still alive. The test below constructs two
+//! UlRenderers as the simplest way to force two simultaneous mounts in
+//! the dispatcher — both must resolve correctly under the new routing.
+//!
+//! What this test does NOT cover: the full render_thumbnail_to_png
+//! save/mount/render/restore sequence on a single renderer. That path is
+//! validated by the Marathon manual smoke gate; adding a unit-level
+//! assertion against it would require mocking Ultralight and is deferred.
 //!
 //! `#[ignore]`-gated: requires Ultralight's platform resources dir to be
 //! adjacent to the test binary. Run with:
 //!
 //!   cargo test -p host --test ul_concurrent_render -- --ignored
 //!
-//! KNOWN LIMITATION (not caused by this spec): Ultralight's C API does not
-//! cleanly survive multiple `ulCreateRenderer` / `ulDestroyRenderer` cycles
-//! within a single process — the existing `thumbnail_integration.rs` tests
-//! exhibit the same pattern (they pass individually but crash when chained).
-//! Because of that, this file intentionally contains a SINGLE test so
-//! `cargo test --ignored` on this binary never exercises the
-//! destroy-and-recreate path. The single test exercises the core regression
-//! scenario end-to-end: both renderers are alive at the same time and each
-//! resolves its own mount via the new routing table without crashing.
+//! KNOWN LIMITATION (pre-existing, not caused by this spec): Ultralight's
+//! C API does not cleanly survive multiple `ulCreateRenderer` /
+//! `ulDestroyRenderer` cycles within a single process — the existing
+//! `thumbnail_integration.rs` tests exhibit the same pattern (they pass
+//! individually but crash when chained). Because of that, this file
+//! intentionally contains a SINGLE test so `cargo test --ignored` on
+//! this binary never exercises the destroy-and-recreate path.
 
 use std::path::PathBuf;
 
