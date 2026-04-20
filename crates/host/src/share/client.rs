@@ -259,6 +259,31 @@ impl ShareClient {
         self.base_url.join(path).expect("valid path")
     }
 
+    /// Rewrite a worker-relative URL (`/v1/thumbnail/<hash>`,
+    /// `/v1/download/<id>`) into an absolute URL rooted at the worker's
+    /// base. Used to absolutize URL fields on CachedArtifactDetail +
+    /// ArtifactDetail before they reach the Electron renderer — which
+    /// is served from a different origin (:8888 in dev) and cannot
+    /// resolve worker-relative paths against its own document URL.
+    ///
+    /// Strings already containing a scheme (`http://`, `https://`, etc.)
+    /// pass through unchanged.
+    fn absolutize_url(&self, url: &str) -> String {
+        if url.is_empty() || url.contains("://") {
+            return url.to_string();
+        }
+        self.base_url
+            .join(url)
+            .map(|u| u.to_string())
+            .unwrap_or_else(|_| url.to_string())
+    }
+
+    /// Apply [`absolutize_url`] to every URL field in a list row.
+    fn absolutize_row(&self, row: &mut super::cache::CachedArtifactDetail) {
+        row.r2_url = self.absolutize_url(&row.r2_url);
+        row.thumbnail_url = self.absolutize_url(&row.thumbnail_url);
+    }
+
     fn pubkey_hex(&self) -> &str {
         &self.pubkey_hex
     }
@@ -361,11 +386,15 @@ impl ShareClient {
             return Err(Self::decode_error(resp).await);
         }
         let body: UploadResponseBody = resp.json().await.map_err(UploadError::Network)?;
+        // Absolutize worker-relative URLs so consumers in the Electron
+        // renderer (different origin) can fetch them directly.
+        let r2_url_abs = self.absolutize_url(&body.r2_url);
+        let thumbnail_url_abs = self.absolutize_url(&body.thumbnail_url);
         let result = UploadResult {
             artifact_id: body.artifact_id.clone(),
             content_hash: body.content_hash.clone(),
-            r2_url: body.r2_url.clone(),
-            thumbnail_url: body.thumbnail_url.clone(),
+            r2_url: r2_url_abs.clone(),
+            thumbnail_url: thumbnail_url_abs.clone(),
             status: UploadStatus::from_worker(&body.status),
         };
 
@@ -375,8 +404,8 @@ impl ShareClient {
             author_pubkey: self.pubkey_hex.clone(),
             name: manifest_name,
             kind: manifest_kind,
-            r2_url: body.r2_url,
-            thumbnail_url: body.thumbnail_url,
+            r2_url: r2_url_abs,
+            thumbnail_url: thumbnail_url_abs,
             updated_at: body.created_at,
             // author_fingerprint_hex is not returned by POST /v1/upload;
             // the detail-fetch path (/v1/artifact/:id) fills it later.
@@ -419,6 +448,9 @@ impl ShareClient {
         let mut lr: ListResult = self
             .send_signed(Method::GET, "/v1/list", &query, self.http.get(url))
             .await?;
+        for row in lr.items.iter_mut() {
+            self.absolutize_row(row);
+        }
         lr.items = self
             .cache
             .merge_into_list(self.pubkey_hex(), lr.items)
@@ -436,8 +468,12 @@ impl ShareClient {
     /// `explorer.get`.
     pub async fn get_artifact(&self, artifact_id: &str) -> Result<ArtifactDetail, UploadError> {
         let path = format!("/v1/artifact/{artifact_id}");
-        self.send_signed(Method::GET, &path, "", self.http.get(self.url(&path)))
-            .await
+        let mut detail: ArtifactDetail = self
+            .send_signed(Method::GET, &path, "", self.http.get(self.url(&path)))
+            .await?;
+        detail.r2_url = self.absolutize_url(&detail.r2_url);
+        detail.thumbnail_url = self.absolutize_url(&detail.thumbnail_url);
+        Ok(detail)
     }
 
     pub async fn patch(&self, id: &str, edit: PatchEdit) -> Result<UploadResult, UploadError> {
@@ -486,8 +522,8 @@ impl ShareClient {
         Ok(UploadResult {
             artifact_id: body.artifact_id,
             content_hash: body.content_hash,
-            r2_url: body.r2_url,
-            thumbnail_url: body.thumbnail_url,
+            r2_url: self.absolutize_url(&body.r2_url),
+            thumbnail_url: self.absolutize_url(&body.thumbnail_url),
             status: UploadStatus::Updated,
         })
     }
@@ -531,9 +567,12 @@ impl ShareClient {
 
     pub async fn gallery(&self) -> Result<Vec<CachedArtifactDetail>, UploadError> {
         let path = "/v1/me/gallery";
-        let lr: ListResult = self
+        let mut lr: ListResult = self
             .send_signed(Method::GET, path, "", self.http.get(self.url(path)))
             .await?;
+        for row in lr.items.iter_mut() {
+            self.absolutize_row(row);
+        }
         Ok(self
             .cache
             .merge_into_list(self.pubkey_hex(), lr.items)
