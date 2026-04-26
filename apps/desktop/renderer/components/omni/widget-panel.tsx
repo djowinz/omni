@@ -394,8 +394,7 @@ export function WidgetPanel() {
       <UploadDialog
         open={uploadOpen}
         onOpenChange={setUploadOpen}
-        sourcePath={currentOverlay ? `overlays/${currentOverlay.name}` : null}
-        mode="publish"
+        prefilledPath={currentOverlay ? `overlays/${currentOverlay.name}` : null}
       />
     </div>
   );

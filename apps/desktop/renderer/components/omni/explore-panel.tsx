@@ -117,12 +117,7 @@ export function ExplorePanel() {
           <MyUploadsView />
         )}
       </div>
-      <UploadDialog
-        open={uploadOpen}
-        onOpenChange={setUploadOpen}
-        sourcePath={null}
-        mode="publish"
-      />
+      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} prefilledPath={null} />
     </div>
   );
 }

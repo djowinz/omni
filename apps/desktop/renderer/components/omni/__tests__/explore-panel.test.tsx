@@ -57,12 +57,43 @@ describe('ExplorePanel', () => {
     vi.doMock('../../../hooks/use-config-vocab', () => ({
       useConfigVocab: () => ({ tags: [], version: 0, loading: false, error: null }),
     }));
-    // UploadDialog's SourceStep loads the workspace via useWorkspaceList,
-    // which calls window.omni.sendMessage({ type: 'file.list' }). Stub it so
-    // the dialog can mount when the + Upload CTA is clicked.
+    // UploadDialog's source picker loads the workspace via useWorkspaceList,
+    // which now calls the `workspace.listPublishables` Share-WS RPC (replaced
+    // file.list in upload-flow-redesign Wave A0). Stub the `window.omni`
+    // bridge that production `useShareWs` reads so the dialog can mount.
+    //
+    // We do NOT vi.doMock('use-share-ws') because that pattern returns a
+    // fresh hook-result object every render, which makes effects with
+    // `[ws]` deps re-fire infinitely → OOM.
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn(async () => ({ type: 'file.list', overlays: [], themes: [] })),
-      sendShareMessage: vi.fn(),
+      sendMessage: vi.fn(),
+      sendShareMessage: vi.fn(async (msg: { id: string; type: string }) => {
+        if (msg.type === 'workspace.listPublishables') {
+          return {
+            id: msg.id,
+            type: 'workspace.listPublishablesResult',
+            params: { entries: [] },
+          };
+        }
+        if (msg.type === 'identity.show') {
+          return {
+            id: msg.id,
+            type: 'identity.showResult',
+            params: {
+              pubkey_hex: 'cc'.repeat(32),
+              fingerprint_hex: '',
+              fingerprint_emoji: [],
+              fingerprint_words: [],
+              created_at: 0,
+              backed_up: true,
+            },
+          };
+        }
+        if (msg.type === 'config.vocab') {
+          return { id: msg.id, type: 'config.vocabResult', params: { tags: [], version: 0 } };
+        }
+        throw new Error('unexpected sendShareMessage: ' + msg.type);
+      }),
       onShareEvent: vi.fn(() => () => {}),
     });
   });
@@ -131,7 +162,9 @@ describe('ExplorePanel', () => {
       </Wrap>,
     );
     await user.click(screen.getByTestId('explore-upload-cta'));
-    // Dialog renders step-source (no source prefilled)
-    await waitFor(() => expect(screen.getByTestId('upload-step-source')).toBeInTheDocument());
+    // Dialog renders the new source-picker (no prefilledPath given, so the
+    // source picker is the first thing visible inside the dialog content).
+    await waitFor(() => expect(screen.getByTestId('upload-dialog-content')).toBeInTheDocument());
+    expect(screen.getByTestId('source-picker')).toBeInTheDocument();
   });
 });
