@@ -2,11 +2,17 @@
  * PackingViolationsCard — aggregate Dependency Check failure card (INV-7.8.5).
  *
  * Groups violations by category ("Missing files", "Unused files",
- * "Content-safety"; the third lands in Wave B1.5 — the renderer accepts it
- * today so the wire shape doesn't churn later). Each group renders a header
- * + a list of compact monospace path rows with a one-line reason. Footer
- * shows "Fix all of the following, then retry." copy + a Retry button that
+ * "Content-safety"). Each group renders a header + a list of compact
+ * monospace path rows with a one-line reason. Footer shows
+ * "Fix all of the following, then retry." copy + a Retry button that
  * re-runs the full Packing pipeline (INV-7.8.6).
+ *
+ * Wave B1.5 / OWI-55 added the "Content-safety (N)" group rendering. The
+ * row reason renders the host's `detail` string verbatim when present and
+ * already formatted (e.g. `"flagged · conf 0.91"`), AND tolerates raw
+ * `confidence=0.XX` shapes from older host builds by formatting them as
+ * `flagged · conf 0.XX` so the card stays readable across the wire-shape
+ * transition documented in `crates/host/src/share/error.rs`.
  */
 
 import { AlertCircle } from 'lucide-react';
@@ -20,6 +26,11 @@ export interface PackingViolation {
   /**
    * Optional reason / detail rendered in the right-side label slot. Falls
    * back to a kind-derived default if absent.
+   *
+   * For `content-safety`, the host (Wave B1.4 / OWI-54) emits a
+   * pre-formatted `"flagged · conf 0.XX"` string. As a defense-in-depth
+   * fallback, raw `confidence=0.XX` (or bare numeric `0.XX`) shapes are
+   * normalized at render time — see {@link formatContentSafetyDetail}.
    */
   detail?: string;
 }
@@ -52,6 +63,37 @@ function groupByKind(violations: PackingViolation[]): Record<ViolationKind, Pack
   };
   for (const v of violations) out[v.kind].push(v);
   return out;
+}
+
+/** Matches `confidence=0.91`, `confidence: 0.91`, or a bare `0.91`. */
+const CONFIDENCE_PATTERN = /(?:^|\bconfidence\s*[:=]\s*)(0?\.\d{1,4}|1(?:\.0+)?)/i;
+
+/**
+ * Normalize a `content-safety` row reason into the human-friendly
+ * `"flagged · conf 0.XX"` shape that the mockup specifies.
+ *
+ * - Already-formatted strings (anything containing `flagged`) pass through
+ *   verbatim — Wave B1.4 / OWI-54's host emits exactly that shape.
+ * - Raw `confidence=0.XX` / bare `0.XX` shapes get reformatted.
+ * - Anything else (or absent detail) falls back to plain `"flagged"`.
+ */
+function formatContentSafetyDetail(detail: string | undefined): string {
+  if (!detail) return 'flagged';
+  if (/flagged/i.test(detail)) return detail;
+  const match = detail.match(CONFIDENCE_PATTERN);
+  if (match === null) return 'flagged';
+  const raw = match[1];
+  // Normalize `.91` → `0.91` and clamp to two-decimal display.
+  const num = Number(raw.startsWith('.') ? `0${raw}` : raw);
+  if (!Number.isFinite(num)) return 'flagged';
+  return `flagged · conf ${num.toFixed(2)}`;
+}
+
+function rowReason(violation: PackingViolation): string {
+  if (violation.kind === 'content-safety') {
+    return formatContentSafetyDetail(violation.detail);
+  }
+  return violation.detail ?? KIND_DEFAULT_REASON[violation.kind];
 }
 
 export function PackingViolationsCard({ violations, onRetry }: PackingViolationsCardProps) {
@@ -98,7 +140,7 @@ export function PackingViolationsCard({ violations, onRetry }: PackingViolations
                     {row.path}
                   </code>
                   <span className="flex-shrink-0 text-[10px] text-[#f43f5e]">
-                    {row.detail ?? KIND_DEFAULT_REASON[kind]}
+                    {rowReason(row)}
                   </span>
                 </div>
               ))}

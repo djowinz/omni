@@ -131,6 +131,53 @@ describe('PackingViolationsCard', () => {
     expect(screen.getByText('flagged · conf 0.91')).toBeInTheDocument();
   });
 
+  it('renders all three groups when violations span every category', () => {
+    render(<PackingViolationsCard violations={violations} onRetry={vi.fn()} />);
+    expect(screen.getByTestId('packing-violations-group-missing-ref')).toBeInTheDocument();
+    expect(screen.getByTestId('packing-violations-group-unused-file')).toBeInTheDocument();
+    expect(screen.getByTestId('packing-violations-group-content-safety')).toBeInTheDocument();
+    // Aggregate header reflects the total row count.
+    expect(screen.getByTestId('packing-violations-card')).toHaveTextContent(
+      '4 dependency violations',
+    );
+  });
+
+  it('omits a group when no violations of that kind are present', () => {
+    const onlySafety: PackingViolation[] = [
+      { kind: 'content-safety', path: 'images/hud-bg.png', detail: 'flagged · conf 0.95' },
+    ];
+    render(<PackingViolationsCard violations={onlySafety} onRetry={vi.fn()} />);
+    expect(screen.getByTestId('packing-violations-group-content-safety')).toHaveTextContent(
+      'Content-safety (1)',
+    );
+    expect(screen.queryByTestId('packing-violations-group-missing-ref')).toBeNull();
+    expect(screen.queryByTestId('packing-violations-group-unused-file')).toBeNull();
+    expect(screen.getByTestId('packing-violations-card')).toHaveTextContent(
+      '1 dependency violation',
+    );
+  });
+
+  it('normalizes raw confidence=0.XX detail strings into "flagged · conf 0.XX"', () => {
+    const raw: PackingViolation[] = [
+      { kind: 'content-safety', path: 'images/a.png', detail: 'confidence=0.91' },
+      { kind: 'content-safety', path: 'images/b.png', detail: 'confidence: 0.8' },
+      { kind: 'content-safety', path: 'images/c.png', detail: '0.83' },
+    ];
+    render(<PackingViolationsCard violations={raw} onRetry={vi.fn()} />);
+    expect(screen.getByText('flagged · conf 0.91')).toBeInTheDocument();
+    expect(screen.getByText('flagged · conf 0.80')).toBeInTheDocument();
+    expect(screen.getByText('flagged · conf 0.83')).toBeInTheDocument();
+  });
+
+  it('falls back to plain "flagged" when content-safety detail is absent or unparseable', () => {
+    const fallbacks: PackingViolation[] = [
+      { kind: 'content-safety', path: 'images/no-detail.png' },
+      { kind: 'content-safety', path: 'images/garbage.png', detail: 'something opaque' },
+    ];
+    render(<PackingViolationsCard violations={fallbacks} onRetry={vi.fn()} />);
+    expect(screen.getAllByText('flagged')).toHaveLength(2);
+  });
+
   it('invokes onRetry when the Retry Verification button is clicked', () => {
     const onRetry = vi.fn();
     render(<PackingViolationsCard violations={violations} onRetry={onRetry} />);
@@ -237,6 +284,43 @@ describe('Packing', () => {
 
     fireEvent.click(screen.getByTestId('packing-violations-retry'));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders all three violation groups when Dependency Check fails with mixed categories', () => {
+    const retry = vi.fn();
+    const violations: PackingViolation[] = [
+      { kind: 'missing-ref', path: 'images/ghost.png' },
+      { kind: 'unused-file', path: 'images/orphan.png' },
+      { kind: 'unused-file', path: 'images/draft.jpg' },
+      { kind: 'content-safety', path: 'images/hud-bg.png', detail: 'flagged · conf 0.91' },
+    ];
+    const { fire } = stubShareEvent();
+    render(<Packing actions={{ retry }} violations={violations} />);
+
+    act(() => {
+      fire(packFrame('schema', 'passed'));
+      fire(packFrame('content-safety', 'passed'));
+      fire(packFrame('asset', 'passed'));
+      fire(packFrame('dependency', 'failed', '4 violations'));
+    });
+
+    const card = screen.getByTestId('packing-violations-card');
+    expect(card).toHaveTextContent('4 dependency violations');
+
+    // All three category headers render with correct counts.
+    expect(screen.getByTestId('packing-violations-group-missing-ref')).toHaveTextContent(
+      'Missing files (1)',
+    );
+    expect(screen.getByTestId('packing-violations-group-unused-file')).toHaveTextContent(
+      'Unused files (2)',
+    );
+    expect(screen.getByTestId('packing-violations-group-content-safety')).toHaveTextContent(
+      'Content-safety (1)',
+    );
+
+    // Content-safety reason renders the host's pre-formatted detail verbatim.
+    expect(screen.getByText('flagged · conf 0.91')).toBeInTheDocument();
+    expect(screen.getByText('images/hud-bg.png')).toBeInTheDocument();
   });
 
   it('shows pulse-styled icon on a stage marked running', () => {
