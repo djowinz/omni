@@ -8,6 +8,34 @@
 //! host-generated content. `pack_only` sanitizes (`sanitize::sanitize_bundle`
 //! / `sanitize_theme`) BEFORE signing so the bytes that the JWS covers are the
 //! exact bytes the Worker will re-sanitize and serve.
+//!
+//! ## Pack stages (upload-flow redesign Wave A1 / OWI-40)
+//!
+//! `pack_only_with_progress` emits five `PackProgress` frames in order:
+//! `Schema → ContentSafety → Asset → Dependency → Size`. Each frame fires
+//! `Running` on entry and `Passed` on success, or `Failed` with a freeform
+//! `detail` string on the first stage that errors. Dependency Check is the
+//! one stage that accumulates ALL violations across categories before
+//! failing (INV-7.3.7); every other stage fail-fast.
+//!
+//! Stage ↔ implementation mapping:
+//!
+//! * `Schema` → `build_manifest` (manifest construction validates structural
+//!   prerequisites + populates `resource_kinds`).
+//! * `ContentSafety` → `sanitize::sanitize_bundle` first half (CSS URL
+//!   whitelist, overlay XML structural gate, font magic). The host runs
+//!   sanitize as a single call; the ContentSafety + Asset stages are emitted
+//!   around that call as conceptual checkpoints.
+//! * `Asset` → `sanitize::sanitize_bundle` second half (image re-decode +
+//!   PNG re-encode, font ttf-parser check).
+//! * `Dependency` → `dep_resolver::resolve` (missing-refs + unused-files).
+//!   Wave B1.5 / OWI-54 adds the third category (content-safety / NSFW per
+//!   bundled image).
+//! * `Size` → the existing `pack.sanitized_bytes.len() vs
+//!   limits.max_bundle_compressed` comparison (today this check lives in
+//!   `upload_inner`; the dry-run Step 3 surface re-runs it inside
+//!   `pack_only_with_progress` so the renderer's Step 3 progress UI advances
+//!   all five stages even on dry-run).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,8 +50,10 @@ use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
 use super::client::ShareClient;
-use super::error::UploadError;
+use super::dep_resolver::{self, Violation};
+use super::error::{DependencyViolationDetail, UploadError};
 use super::progress::UploadProgress;
+use super::ws_messages::{PackProgress, PackStage, StageStatus};
 
 #[derive(Debug, Clone)]
 pub struct UploadRequest {
@@ -102,12 +132,57 @@ pub struct PackResult {
     pub sanitize_report: serde_json::Value,
 }
 
-/// Pack the source workspace path into a signed, sanitized bundle WITHOUT uploading.
-/// Used both by `upload.pack` (dry-run) and by [`upload`] as step 1.
+/// Sink for `PackProgress` frames emitted by `pack_only_with_progress`. The
+/// dispatcher in `share::ws_messages::handle_pack` hands an `mpsc::Sender`
+/// wrapped in this trait object; the dry-run code path in `upload_inner`
+/// passes `None` so the ambient `UploadProgress` channel keeps owning
+/// progress for full publishes.
+///
+/// Contract: implementors must NOT block — frames are emitted from the
+/// pack pipeline's hot path. Channel-full means a slow consumer; drop the
+/// frame rather than awaiting.
+pub trait PackProgressSink: Send + Sync {
+    fn emit(&self, frame: PackProgress);
+}
+
+/// `mpsc::Sender<PackProgress>` adapter. `try_send` so a slow consumer can't
+/// block the pack pipeline.
+impl PackProgressSink for mpsc::Sender<PackProgress> {
+    fn emit(&self, frame: PackProgress) {
+        let _ = self.try_send(frame);
+    }
+}
+
+/// Backwards-compatible thin wrapper. Delegates to
+/// [`pack_only_with_progress`] with no progress sink. Kept as the public
+/// entry point so existing callers (`upload_inner`, ws_messages handler)
+/// stay source-compatible.
 pub async fn pack_only(
     req: &UploadRequest,
     limits: &BundleLimits,
     identity: &Keypair,
+) -> Result<PackResult, UploadError> {
+    pack_only_with_progress(req, limits, identity, None).await
+}
+
+/// Pack the source workspace path into a signed, sanitized bundle WITHOUT
+/// uploading. Used by `upload.pack` (dry-run, with `progress = Some(...)`)
+/// and by [`upload`] as step 1 (`progress = None` — `upload_inner` owns its
+/// own `UploadProgress` lifecycle).
+///
+/// `progress` is the Step 3 packing-stage emitter (spec §8.8 + INV-7.3.\*).
+/// When `Some`, frames fire in order at each stage transition; when `None`,
+/// no frames are emitted and the pipeline behaves identically to the
+/// pre-OWI-40 `pack_only` (publish path stays unchanged).
+///
+/// On Dependency Check failure, returns
+/// [`UploadError::DependencyViolations`] carrying every accumulated
+/// violation — never just the first (INV-7.3.7).
+pub async fn pack_only_with_progress(
+    req: &UploadRequest,
+    limits: &BundleLimits,
+    identity: &Keypair,
+    progress: Option<&dyn PackProgressSink>,
 ) -> Result<PackResult, UploadError> {
     let files_raw: BTreeMap<String, Vec<u8>> = match req.kind {
         ArtifactKind::Theme => read_theme(&req.source_path).await?,
@@ -119,11 +194,41 @@ pub async fn pack_only(
         ArtifactKind::Theme => ("theme", req.name.clone()),
         ArtifactKind::Bundle => ("bundle", req.name.clone()),
     };
-    let manifest = build_manifest(req, &files_raw)?;
 
+    // ── Stage 1: Schema (manifest construction) ──────────────────────────
+    emit_stage(progress, PackStage::Schema, StageStatus::Running, None);
+    let manifest = match build_manifest(req, &files_raw) {
+        Ok(m) => m,
+        Err(e) => {
+            emit_stage(
+                progress,
+                PackStage::Schema,
+                StageStatus::Failed,
+                Some(format!("{e}")),
+            );
+            return Err(e);
+        }
+    };
+    emit_stage(progress, PackStage::Schema, StageStatus::Passed, None);
+
+    // ── Stage 2 + 3: ContentSafety + Asset ───────────────────────────────
+    // Sanitize is a single call internally; the two stages are conceptual
+    // checkpoints around it. ContentSafety covers CSS-URL whitelist + XML
+    // structural gate; Asset covers image re-decode + font ttf check.
+    // A sanitize failure can map to either stage depending on which handler
+    // raised it, but without parsing the SanitizeError detail we
+    // conservatively attribute the failure to ContentSafety (the first of
+    // the two stages) and skip Asset.
+    //
     // Sanitize pre-pack (invariant #7 — never skip). The bytes that the JWS
-    // covers MUST be the exact bytes the Worker re-sanitizes and serves; that's
-    // why pack_signed_bundle runs on the post-sanitize file set.
+    // covers MUST be the exact bytes the Worker re-sanitizes and serves;
+    // that's why pack_signed_bundle runs on the post-sanitize file set.
+    emit_stage(
+        progress,
+        PackStage::ContentSafety,
+        StageStatus::Running,
+        None,
+    );
     let (sanitized_files, sanitize_report_value) = match req.kind {
         ArtifactKind::Theme => {
             let (_, css_bytes) = files_raw
@@ -133,33 +238,96 @@ pub async fn pack_only(
                     msg: "theme source missing".into(),
                     source: None,
                 })?;
-            let (out, report) =
-                sanitize::sanitize_theme(css_bytes).map_err(|e| UploadError::BadInput {
-                    // Display includes the SanitizeError variant + inner detail;
-                    // without it the wire envelope just says "sanitize_theme failed"
-                    // and the operator has no idea which file / which limit tripped.
-                    msg: format!("sanitize_theme failed: {e}"),
-                    source: Some(Box::new(e)),
-                })?;
-            let mut map = BTreeMap::new();
-            map.insert("theme.css".to_string(), out);
-            (map, serde_json::to_value(report).unwrap_or_default())
+            match sanitize::sanitize_theme(css_bytes) {
+                Ok((out, report)) => {
+                    let mut map = BTreeMap::new();
+                    map.insert("theme.css".to_string(), out);
+                    (map, serde_json::to_value(report).unwrap_or_default())
+                }
+                Err(e) => {
+                    emit_stage(
+                        progress,
+                        PackStage::ContentSafety,
+                        StageStatus::Failed,
+                        Some(format!("{e}")),
+                    );
+                    return Err(UploadError::BadInput {
+                        // Display includes the SanitizeError variant + inner detail;
+                        // without it the wire envelope just says "sanitize_theme failed"
+                        // and the operator has no idea which file / which limit tripped.
+                        msg: format!("sanitize_theme failed: {e}"),
+                        source: Some(Box::new(e)),
+                    });
+                }
+            }
         }
         ArtifactKind::Bundle => {
-            let (out, report) =
-                sanitize::sanitize_bundle(&manifest, files_raw.clone()).map_err(|e| {
-                    UploadError::BadInput {
+            match sanitize::sanitize_bundle(&manifest, files_raw.clone()) {
+                Ok((out, report)) => (out, serde_json::to_value(report).unwrap_or_default()),
+                Err(e) => {
+                    emit_stage(
+                        progress,
+                        PackStage::ContentSafety,
+                        StageStatus::Failed,
+                        Some(format!("{e}")),
+                    );
+                    return Err(UploadError::BadInput {
                         // Display the SanitizeError so the user sees which file /
                         // which limit tripped. Without this the wire only carries
                         // "sanitize_bundle failed" and the rejection is opaque.
                         msg: format!("sanitize_bundle failed: {e}"),
                         source: Some(Box::new(e)),
-                    }
-                })?;
-            (out, serde_json::to_value(report).unwrap_or_default())
+                    });
+                }
+            }
         }
     };
+    emit_stage(progress, PackStage::ContentSafety, StageStatus::Passed, None);
+    // Asset stage piggybacks on the same sanitize call (image re-decode +
+    // font ttf check live inside `sanitize_bundle`). If we got here,
+    // sanitize succeeded → Asset trivially passes.
+    emit_stage(progress, PackStage::Asset, StageStatus::Running, None);
+    emit_stage(progress, PackStage::Asset, StageStatus::Passed, None);
 
+    // ── Stage 4: Dependency (missing-refs + unused-files) ────────────────
+    // Theme uploads (single CSS file, no referenced images/fonts) skip the
+    // resolver — there's nothing to resolve. Bundles run the full walk.
+    emit_stage(progress, PackStage::Dependency, StageStatus::Running, None);
+    if matches!(req.kind, ArtifactKind::Bundle) {
+        let resolution = dep_resolver::resolve(&sanitized_files).map_err(|e| {
+            emit_stage(
+                progress,
+                PackStage::Dependency,
+                StageStatus::Failed,
+                Some(format!("{e}")),
+            );
+            UploadError::BadInput {
+                msg: format!("dep_resolver: {e}"),
+                source: None,
+            }
+        })?;
+        if !resolution.violations.is_empty() {
+            let violations: Vec<DependencyViolationDetail> = resolution
+                .violations
+                .iter()
+                .map(violation_to_wire)
+                .collect();
+            emit_stage(
+                progress,
+                PackStage::Dependency,
+                StageStatus::Failed,
+                Some(format!(
+                    "{} dependency violation{}",
+                    violations.len(),
+                    if violations.len() == 1 { "" } else { "s" }
+                )),
+            );
+            return Err(UploadError::DependencyViolations { violations });
+        }
+    }
+    emit_stage(progress, PackStage::Dependency, StageStatus::Passed, None);
+
+    // ── Sign + thumbnail (no progress stage of their own) ────────────────
     let sanitized_manifest = rebuild_manifest_with(&manifest, &sanitized_files);
     let content_hash_bytes = bundle::canonical_hash(&sanitized_manifest, &sanitized_files);
     let content_hash = hex::encode(content_hash_bytes);
@@ -174,10 +342,32 @@ pub async fn pack_only(
     let (thumbnail_png, sanitized_bytes) =
         render_thumbnail(req.kind, &sanitized_files, sanitized_bytes).await?;
 
+    let compressed_size = sanitized_bytes.len() as u64;
+
+    // ── Stage 5: Size (vs server-resolved limit) ─────────────────────────
+    emit_stage(progress, PackStage::Size, StageStatus::Running, None);
+    if compressed_size > limits.max_bundle_compressed {
+        let detail = format!(
+            "bundle is {compressed_size} bytes; server limit is {}",
+            limits.max_bundle_compressed
+        );
+        emit_stage(
+            progress,
+            PackStage::Size,
+            StageStatus::Failed,
+            Some(detail.clone()),
+        );
+        return Err(UploadError::BadInput {
+            msg: detail,
+            source: None,
+        });
+    }
+    emit_stage(progress, PackStage::Size, StageStatus::Passed, None);
+
     Ok(PackResult {
         manifest_name,
         manifest_kind: manifest_kind.into(),
-        compressed_size: sanitized_bytes.len() as u64,
+        compressed_size,
         uncompressed_size,
         manifest: sanitized_manifest,
         sanitized_bytes,
@@ -185,6 +375,44 @@ pub async fn pack_only(
         thumbnail_png,
         sanitize_report: sanitize_report_value,
     })
+}
+
+/// Wire-shape conversion from the resolver's internal `Violation` enum to
+/// the `DependencyViolationDetail` struct that crosses the WS boundary.
+/// Keeps the resolver crate-internal and the wire shape decoupled from its
+/// internals — Wave B1.5 / OWI-54 will add the `ContentSafety` arm here
+/// when the moderator lands.
+fn violation_to_wire(v: &Violation) -> DependencyViolationDetail {
+    match v {
+        Violation::MissingRef { path } => DependencyViolationDetail {
+            kind: "missing-ref".into(),
+            path: path.clone(),
+            detail: None,
+        },
+        Violation::UnusedFile { path } => DependencyViolationDetail {
+            kind: "unused-file".into(),
+            path: path.clone(),
+            detail: None,
+        },
+    }
+}
+
+/// Helper that no-ops when no sink is installed. Centralizes the
+/// `if let Some(sink) = progress` boilerplate so the stage call sites stay
+/// readable.
+fn emit_stage(
+    progress: Option<&dyn PackProgressSink>,
+    stage: PackStage,
+    status: StageStatus,
+    detail: Option<String>,
+) {
+    if let Some(sink) = progress {
+        sink.emit(PackProgress {
+            stage,
+            status,
+            detail,
+        });
+    }
 }
 
 /// Full upload path. `guard` is probe-only (device_id, verify_self_integrity).

@@ -10,6 +10,29 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+/// One row of the structured dependency-violation payload (OWI-40 / Task A1.6).
+///
+/// Mirrors the renderer's `PackingViolation` shape (see
+/// `apps/desktop/renderer/components/omni/upload-dialog/steps/packing-violations-card.tsx`)
+/// so the Step 3 aggregate-violations card (INV-7.8.5) can render the host's
+/// `upload.packResult` failure envelope without translation.
+///
+/// Fields:
+/// * `kind` — closed vocabulary `"missing-ref" | "unused-file" |
+///   "content-safety"`. Stays a `String` so the third kind (introduced in
+///   Wave B1.5 / OWI-54 alongside the ONNX moderator) rides the same wire
+///   shape without a contract churn.
+/// * `path` — workspace-relative path of the offending file.
+/// * `detail` — optional human-readable reason; the renderer falls back to
+///   a kind-default when absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyViolationDetail {
+    pub kind: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<String>,
+}
+
 /// Worker error-kind domain. Mirrors `worker-api.md` §3 "Error categories (D9)".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -69,6 +92,18 @@ pub enum UploadError {
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
+    /// Dependency Check stage failure (OWI-40 / Task A1.6 + Wave B1.5).
+    /// Carries the aggregated `Vec<DependencyViolationDetail>` directly so the
+    /// `error_envelope` can serialize them as a structured `violations` array
+    /// the renderer's `PackingViolationsCard` (INV-7.8.5) reads without
+    /// re-parsing a string. Per spec INV-7.3.7 / INV-7.8.4, the resolver
+    /// accumulates ALL violations across categories before failing — this
+    /// variant carries the full list, never just the first.
+    #[error("dependency check failed: {} violations", violations.len())]
+    DependencyViolations {
+        violations: Vec<DependencyViolationDetail>,
+    },
+
     #[error("cancelled")]
     Cancelled,
 }
@@ -83,6 +118,7 @@ impl UploadError {
             Self::Network(_) => "NETWORK",
             Self::ServerReject { .. } => "SERVER_REJECT",
             Self::Integrity { .. } => "INTEGRITY",
+            Self::DependencyViolations { .. } => "DEPENDENCY_VIOLATIONS",
             Self::Cancelled => "CANCELLED",
         }
     }
@@ -97,6 +133,11 @@ impl UploadError {
             }
             Self::ServerReject { message, .. } => message.clone(),
             Self::Integrity { msg, .. } => format!("Integrity check failed: {msg}"),
+            Self::DependencyViolations { violations } => format!(
+                "{} dependency violation{}",
+                violations.len(),
+                if violations.len() == 1 { "" } else { "s" }
+            ),
             Self::Cancelled => "Upload cancelled.".into(),
         }
     }

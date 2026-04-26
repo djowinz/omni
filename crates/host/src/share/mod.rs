@@ -23,9 +23,14 @@
 //!   bundle (upload-flow redesign Wave A0; spec §8.3). Named `save_preview`
 //!   to avoid colliding with the existing in-session theme-swap [`preview`]
 //!   module.
+//! * [`dep_resolver`] — overlay/theme/font/image dependency resolver +
+//!   missing-refs / unused-files violation collector consumed by the
+//!   Step 3 Dependency Check stage (upload-flow redesign Wave A1; spec
+//!   §8.4 + INV-7.8.\*).
 
 pub mod cache;
 pub mod client;
+pub mod dep_resolver;
 pub mod error;
 pub mod handlers;
 pub mod identity_metadata;

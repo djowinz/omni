@@ -102,6 +102,12 @@ where
 }
 
 /// Build the `{ code, kind, detail, message }` error envelope for a given `UploadError`.
+///
+/// `UploadError::DependencyViolations` carries an extra `violations` array on
+/// the inner `error` object (OWI-40 / Task A1.6). The renderer's
+/// `PackingViolationsCard` (INV-7.8.5) reads it directly without re-parsing
+/// the textual `detail` field. All other variants emit the canonical
+/// `{ code, kind, detail, message }` shape.
 pub fn error_envelope(request_id: &str, err: &UploadError) -> Value {
     let (kind, detail) = match err {
         UploadError::ServerReject { kind, detail, .. } => (kind.to_string(), detail.clone()),
@@ -109,17 +115,29 @@ pub fn error_envelope(request_id: &str, err: &UploadError) -> Value {
         UploadError::BadInput { msg, .. } => ("Malformed".into(), Some(msg.clone())),
         UploadError::Network(_) => ("Io".into(), None),
         UploadError::Integrity { msg, .. } => ("Integrity".into(), Some(msg.clone())),
+        UploadError::DependencyViolations { .. } => ("Malformed".into(), None),
         UploadError::Cancelled => ("Io".into(), None),
     };
+    let mut error_obj = json!({
+        "code": err.code(),
+        "kind": kind,
+        "detail": detail,
+        "message": err.user_message(),
+    });
+    if let UploadError::DependencyViolations { violations } = err {
+        // Serialize via DependencyViolationDetail's serde impl so the wire
+        // shape matches the renderer's PackingViolation struct (kind/path/detail).
+        if let Some(map) = error_obj.as_object_mut() {
+            map.insert(
+                "violations".into(),
+                serde_json::to_value(violations).unwrap_or(Value::Null),
+            );
+        }
+    }
     json!({
         "id": request_id,
         "type": "error",
-        "error": {
-            "code": err.code(),
-            "kind": kind,
-            "detail": detail,
-            "message": err.user_message(),
-        }
+        "error": error_obj,
     })
 }
 

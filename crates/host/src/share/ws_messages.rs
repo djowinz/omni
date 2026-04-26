@@ -29,7 +29,7 @@ use super::progress::{error_envelope, pump_to_ws};
 use super::registry::{RegistryHandle, RegistryKind};
 use super::sidecar::{read_sidecar, read_theme_sidecar, PublishSidecar};
 use super::tofu::TofuStore;
-use super::upload::{upload, ArtifactKind, UploadRequest};
+use super::upload::{pack_only_with_progress, upload, ArtifactKind, UploadRequest};
 use crate::omni::parser::parse_omni_with_diagnostics;
 use crate::workspace::structure::{list_overlays, list_themes};
 
@@ -193,7 +193,10 @@ where
     let params = msg.get("params").cloned().unwrap_or(json!({}));
 
     match ty {
-        "upload.pack" => handle_pack(&id, params, ctx).await,
+        "upload.pack" => {
+            handle_pack(&id, params, ctx, send_fn).await;
+            None
+        }
         "upload.publish" => {
             handle_publish(&id, params, ctx, false, send_fn).await;
             None
@@ -220,7 +223,10 @@ where
     }
 }
 
-async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+async fn handle_pack<F>(id: &str, params: Value, ctx: &ShareContext, send_fn: F)
+where
+    F: Fn(String) + Send + Sync + Clone + 'static,
+{
     #[derive(Deserialize)]
     struct P {
         workspace_path: String,
@@ -231,7 +237,10 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
-        Err(e) => return Some(bad_input(id, format!("bad upload.pack params: {e}"))),
+        Err(e) => {
+            send_fn(bad_input(id, format!("bad upload.pack params: {e}")));
+            return;
+        }
     };
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
@@ -258,15 +267,45 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
             );
             bundle::BundleLimits::DEFAULT
         }
-        Err(e) => return Some(error_envelope(id, &e).to_string()),
+        Err(e) => {
+            send_fn(error_envelope(id, &e).to_string());
+            return;
+        }
     };
-    // `pack_only` takes `&Keypair`. Load once and pass the deref-target
-    // through; the loaded `Guard<Arc<Keypair>>` keeps the keypair alive
-    // even if a rotate swaps the slot mid-pack.
+    // Per-stage `upload.packProgress` frames (spec §8.8 + INV-7.3.\*). The
+    // pump task forwards each `PackProgress` from `pack_only_with_progress`'s
+    // mpsc channel onto the WS as `{ id, type: "upload.packProgress", params: ... }`.
+    // Channel size 16 is generous — only 5 stages × 2 transitions = 10 frames
+    // typically, with headroom for future Wave B per-asset content-safety
+    // sub-frames.
+    let (pack_tx, mut pack_rx) = mpsc::channel::<PackProgress>(16);
+    let id_for_pump = id.to_string();
+    let send_for_pump = send_fn.clone();
+    let pump = tokio::spawn(async move {
+        while let Some(frame) = pack_rx.recv().await {
+            let envelope = json!({
+                "id": id_for_pump,
+                "type": "upload.packProgress",
+                "params": frame,
+            });
+            send_for_pump(envelope.to_string());
+        }
+    });
+
+    // `pack_only_with_progress` takes `&Keypair`. Load once and pass the
+    // deref-target through; the loaded `Guard<Arc<Keypair>>` keeps the
+    // keypair alive even if a rotate swaps the slot mid-pack.
     let identity = ctx.identity.load_full();
-    match super::upload::pack_only(&req, &limits, &identity).await {
-        Ok(pack) => Some(
-            json!({
+    let result = pack_only_with_progress(&req, &limits, &identity, Some(&pack_tx)).await;
+    // Drop the sender so the pump task's `recv()` returns None and the
+    // task can exit. Without this drop the `pump.await` below would hang
+    // indefinitely.
+    drop(pack_tx);
+    let _ = pump.await;
+
+    match result {
+        Ok(pack) => {
+            let frame = json!({
                 "id": id,
                 "type": "upload.packResult",
                 "params": {
@@ -276,10 +315,12 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
                     "manifest": pack.manifest,
                     "sanitize_report": pack.sanitize_report,
                 }
-            })
-            .to_string(),
-        ),
-        Err(e) => Some(error_envelope(id, &e).to_string()),
+            });
+            send_fn(frame.to_string());
+        }
+        Err(e) => {
+            send_fn(error_envelope(id, &e).to_string());
+        }
     }
 }
 
@@ -1460,11 +1501,28 @@ mod tests {
 
     #[tokio::test]
     async fn upload_pack_bad_params_emits_error_envelope() {
+        // Post OWI-40 (Task A1.6), `upload.pack` is a streaming handler:
+        // packProgress frames + the terminal envelope all arrive via
+        // `send_fn`, and `dispatch` returns `None`. Bad params still emit
+        // a single error envelope (no progress frames precede it), so we
+        // capture the broadcast and look for the BAD_INPUT envelope.
         let (ctx, _tmp) = make_test_ctx();
         let msg = json!({ "id": "r3", "type": "upload.pack", "params": { /* missing workspace_path */ } });
-        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
-        let parsed: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(parsed["type"], "error");
+        let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = captured.clone();
+        let reply = dispatch(&ctx, &msg, move |s: String| {
+            captured_clone.lock().unwrap().push(s);
+        })
+        .await;
+        assert!(reply.is_none(), "upload.pack now streams via send_fn");
+        let frames = captured.lock().unwrap().clone();
+        let parsed: Value = serde_json::from_str(
+            frames
+                .iter()
+                .find(|s| s.contains("\"type\":\"error\""))
+                .expect("an error envelope must be sent"),
+        )
+        .unwrap();
         assert_eq!(parsed["error"]["code"], "BAD_INPUT");
     }
 
