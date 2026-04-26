@@ -171,7 +171,7 @@ fn custom_font_and_image_resolve() {
                background-size: cover; image-rendering: pixelated; }
     </style></head><body><div class="img"></div></body></html>"#;
 
-    let ul = UlRenderer::init(400, 200, &resources_dir())
+    let ul = UlRenderer::init(400, 200, None, &resources_dir())
         .expect("Ultralight init failed — ensure DLLs are on the path");
     ul.mount(overlay.path(), html, ViewTrust::LocalAuthored)
         .expect("mount failed");
@@ -212,7 +212,7 @@ fn parent_escape_request_is_rejected() {
     </body></html>"#
     );
 
-    let ul = UlRenderer::init(200, 100, &resources_dir()).expect("Ultralight init failed");
+    let ul = UlRenderer::init(200, 100, None, &resources_dir()).expect("Ultralight init failed");
     ul.mount(overlay.path(), &html, ViewTrust::LocalAuthored)
         .expect("mount");
     pump(&ul, 10);
@@ -240,7 +240,7 @@ fn bundle_installed_trust_rejects_http() {
         <img src="http://127.0.0.1:9/nope.png"/>
     </body></html>"#;
 
-    let ul = UlRenderer::init(200, 100, &resources_dir()).expect("Ultralight init failed");
+    let ul = UlRenderer::init(200, 100, None, &resources_dir()).expect("Ultralight init failed");
     ul.mount(overlay.path(), html, ViewTrust::BundleInstalled)
         .expect("mount");
     pump(&ul, 10);
