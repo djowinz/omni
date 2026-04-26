@@ -93,4 +93,5 @@ features = [
     "Win32_System_Time",
     "Win32_System_Performance",
     "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
 ]
