@@ -12,7 +12,7 @@ use quick_xml::Reader;
 
 use ts_rs::TS;
 
-use super::types::{ConditionalClass, HtmlNode, OmniFile, Widget};
+use super::types::{ConditionalClass, DpiScale, HtmlNode, OmniFile, Widget};
 use super::validation;
 
 /// Severity level for parse diagnostics.
@@ -83,6 +83,7 @@ fn parse_omni_with_diagnostics_inner(
     let mut errors = Vec::new();
     let mut theme_src = None;
     let mut poll_config = HashMap::new();
+    let mut dpi_scale: Option<DpiScale> = None;
     let mut widgets = Vec::new();
 
     let mut reader = Reader::from_str(source);
@@ -96,7 +97,10 @@ fn parse_omni_with_diagnostics_inner(
                     Err(e) => errors.push(e),
                 },
                 b"config" => match parse_config_block(source, &mut reader) {
-                    Ok(config) => poll_config = config,
+                    Ok(config) => {
+                        poll_config = config.poll;
+                        dpi_scale = config.dpi_scale;
+                    }
                     Err(e) => errors.push(e),
                 },
                 b"theme" => {
@@ -137,7 +141,7 @@ fn parse_omni_with_diagnostics_inner(
         let file = OmniFile {
             theme_src,
             poll_config,
-            dpi_scale: None,
+            dpi_scale,
             widgets,
         };
 
@@ -571,22 +575,55 @@ fn read_text_content(
     Ok(content)
 }
 
-/// Parse a `<config>` block containing `<poll sensor="..." interval="..." />` entries.
+/// Result of parsing the `<config>` block. Carries the per-sensor poll map
+/// AND the optional per-overlay DPI scale directive.
+struct ConfigBlock {
+    poll: HashMap<String, u64>,
+    dpi_scale: Option<DpiScale>,
+}
+
+/// Parse a `<config>` block containing `<poll sensor=".." interval=".."/>` and/or
+/// `<dpi-scale value="auto|<float>"/>` entries.
 fn parse_config_block(
     source: &str,
     reader: &mut Reader<&[u8]>,
-) -> Result<HashMap<String, u64>, ParseError> {
-    let mut config = HashMap::new();
+) -> Result<ConfigBlock, ParseError> {
+    let mut poll = HashMap::new();
+    let mut dpi_scale: Option<DpiScale> = None;
 
     loop {
         match reader.read_event() {
             Ok(Event::Empty(ref e)) if e.name().as_ref() == b"poll" => {
                 let sensor = get_attr(e, "sensor");
                 let interval = get_attr(e, "interval").and_then(|v| v.parse::<u64>().ok());
-
                 if let (Some(sensor), Some(interval)) = (sensor, interval) {
-                    config.insert(sensor, interval);
+                    poll.insert(sensor, interval);
                 }
+            }
+            Ok(Event::Empty(ref e)) if e.name().as_ref() == b"dpi-scale" => {
+                if dpi_scale.is_some() {
+                    return Err(make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        "duplicate <dpi-scale> in <config>".to_string(),
+                    ));
+                }
+                let value_str = get_attr(e, "value").ok_or_else(|| {
+                    let mut err = make_error(
+                        source,
+                        reader.buffer_position() as usize,
+                        "<dpi-scale> requires a 'value' attribute".to_string(),
+                    );
+                    err.suggestion = Some(
+                        "expected `value=\"auto\"` or `value=\"<number>\"`".to_string(),
+                    );
+                    err
+                })?;
+                dpi_scale = Some(parse_dpi_scale_value(
+                    &value_str,
+                    source,
+                    reader.buffer_position() as usize,
+                )?);
             }
             Ok(Event::End(ref e)) if e.name().as_ref() == b"config" => break,
             Ok(Event::Eof) => {
@@ -600,7 +637,38 @@ fn parse_config_block(
         }
     }
 
-    Ok(config)
+    Ok(ConfigBlock { poll, dpi_scale })
+}
+
+/// Parse the `value` attribute of `<dpi-scale>`. Accepts "auto" (case-
+/// insensitive) or a finite float in [0.5, 4.0].
+fn parse_dpi_scale_value(
+    s: &str,
+    source: &str,
+    offset: usize,
+) -> Result<DpiScale, ParseError> {
+    if s.eq_ignore_ascii_case("auto") {
+        return Ok(DpiScale::Auto);
+    }
+    let n: f64 = s.parse().map_err(|_| {
+        let mut err = make_error(
+            source,
+            offset,
+            format!("<dpi-scale value=\"{s}\"> is not a number or 'auto'"),
+        );
+        err.suggestion = Some("expected `auto` or a number between 0.5 and 4.0".to_string());
+        err
+    })?;
+    if !n.is_finite() || !(0.5..=4.0).contains(&n) {
+        let mut err = make_error(
+            source,
+            offset,
+            format!("<dpi-scale value=\"{n}\"> is out of range"),
+        );
+        err.suggestion = Some("must be between 0.5 and 4.0".to_string());
+        return Err(err);
+    }
+    Ok(DpiScale::Manual(n))
 }
 
 /// Extract an attribute value from an XML element.
@@ -1731,6 +1799,120 @@ mod tests {
                 "unexpected diagnostic mentioning raw chart tag: {}",
                 d.message
             );
+        }
+    }
+
+    #[test]
+    fn parse_dpi_scale_auto() {
+        let src = r#"
+<config><dpi-scale value="auto"/></config>
+<widget id="w" name="W" enabled="true">
+<template><div>x</div></template><style></style>
+</widget>
+"#;
+        let file = parse_omni(src).expect("parse");
+        assert_eq!(file.dpi_scale, Some(DpiScale::Auto));
+    }
+
+    #[test]
+    fn parse_dpi_scale_manual_15() {
+        let src = r#"
+<config><dpi-scale value="1.5"/></config>
+<widget id="w" name="W" enabled="true">
+<template><div>x</div></template><style></style>
+</widget>
+"#;
+        let file = parse_omni(src).expect("parse");
+        assert_eq!(file.dpi_scale, Some(DpiScale::Manual(1.5)));
+    }
+
+    #[test]
+    fn parse_dpi_scale_zero_rejected() {
+        let src = r#"
+<config><dpi-scale value="0"/></config>
+"#;
+        let errs = parse_omni(src).expect_err("expected parse error");
+        assert!(
+            errs.iter().any(|e| e.message.contains("out of range")),
+            "got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn parse_dpi_scale_above_four_rejected() {
+        let src = r#"
+<config><dpi-scale value="5.0"/></config>
+"#;
+        let errs = parse_omni(src).expect_err("expected parse error");
+        assert!(
+            errs.iter().any(|e| e.message.contains("out of range")),
+            "got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn parse_dpi_scale_non_numeric_rejected() {
+        let src = r#"
+<config><dpi-scale value="banana"/></config>
+"#;
+        let errs = parse_omni(src).expect_err("expected parse error");
+        assert!(
+            errs.iter().any(|e| e.message.contains("not a number")),
+            "got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn parse_dpi_scale_missing_value_attr_rejected() {
+        let src = r#"
+<config><dpi-scale/></config>
+"#;
+        let errs = parse_omni(src).expect_err("expected parse error");
+        assert!(
+            errs.iter().any(|e| e.message.contains("requires a 'value'")),
+            "got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn parse_dpi_scale_duplicate_rejected() {
+        let src = r#"
+<config>
+<dpi-scale value="auto"/>
+<dpi-scale value="2.0"/>
+</config>
+"#;
+        let errs = parse_omni(src).expect_err("expected parse error");
+        assert!(
+            errs.iter().any(|e| e.message.contains("duplicate")),
+            "got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn parse_dpi_scale_absent_yields_none() {
+        let src = r#"
+<config><poll sensor="fps" interval="100"/></config>
+<widget id="w" name="W" enabled="true">
+<template><div>x</div></template><style></style>
+</widget>
+"#;
+        let file = parse_omni(src).expect("parse");
+        assert_eq!(file.dpi_scale, None);
+    }
+
+    #[test]
+    fn dpi_scale_serde_roundtrip() {
+        use crate::omni::types::DpiScale;
+        for variant in [DpiScale::Auto, DpiScale::Manual(1.0), DpiScale::Manual(2.5)] {
+            let json = serde_json::to_string(&variant).expect("ser");
+            let back: DpiScale = serde_json::from_str(&json).expect("de");
+            assert_eq!(back, variant, "round-trip mismatch for {:?}", variant);
         }
     }
 }
