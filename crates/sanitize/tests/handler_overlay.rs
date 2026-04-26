@@ -21,6 +21,24 @@ fn accepts_theme_config_widget_multi_root() {
 }
 
 #[test]
+fn accepts_dpi_scale_in_config_block() {
+    // Per spec docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md:
+    // overlays may opt into per-overlay DPI awareness via <dpi-scale> as a
+    // <config> child. Sanitizer must allow the element name; the value's
+    // bounds-check happens in the host parser at load time.
+    let xml = br#"<config><dpi-scale value="auto"/><poll sensor="cpu.usage" interval="500"/></config><widget id="w" name="W" enabled="true"><template><div/></template></widget>"#.to_vec();
+    let (m, f) = common::bundle_with_overlay_bytes(xml);
+    sanitize_bundle(&m, f).expect("<dpi-scale> in <config> must sanitize");
+}
+
+#[test]
+fn accepts_dpi_scale_manual_value() {
+    let xml = br#"<config><dpi-scale value="1.5"/></config><widget id="w" name="W" enabled="true"><template><div/></template></widget>"#.to_vec();
+    let (m, f) = common::bundle_with_overlay_bytes(xml);
+    sanitize_bundle(&m, f).expect("<dpi-scale value=\"1.5\"/> must sanitize");
+}
+
+#[test]
 fn accepts_multiple_widgets() {
     let xml = br#"<widget id="a" name="A" enabled="true"><template><div/></template></widget><widget id="b" name="B" enabled="true"><template><span/></template></widget>"#.to_vec();
     let (m, f) = common::bundle_with_overlay_bytes(xml);

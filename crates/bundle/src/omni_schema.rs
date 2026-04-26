@@ -19,9 +19,14 @@
 pub const TOP_LEVEL_ELEMENTS: &[&str] = &["theme", "config", "widget"];
 
 /// Element names valid as direct children of `<config>`.
-/// Each is an empty element (self-closing) with `sensor="..."` and
-/// `interval="..."` attributes.
-pub const CONFIG_CHILDREN: &[&str] = &["poll"];
+/// - `<poll sensor="..." interval="..."/>` — per-sensor poll-interval override.
+/// - `<dpi-scale value="auto|<float>"/>` — per-overlay device scale opt-in
+///   (spec: `2026-04-25-overlay-dpi-scale-design.md`). Numeric `value` is
+///   bounds-checked by the host parser at load time; the sanitizer here
+///   only validates the element name to keep this module dependency-free
+///   (matches the existing `<poll>` pattern — `sensor`/`interval` content
+///   is similarly host-parser-validated).
+pub const CONFIG_CHILDREN: &[&str] = &["poll", "dpi-scale"];
 
 /// Element names valid as direct children of `<widget>`.
 /// `<template>` is the required HTML body; `<style>` is optional CSS.
@@ -179,8 +184,10 @@ mod tests {
     }
 
     #[test]
-    fn config_children_is_poll_only() {
-        assert_eq!(CONFIG_CHILDREN, &["poll"]);
+    fn config_children_allows_poll_and_dpi_scale() {
+        assert!(CONFIG_CHILDREN.contains(&"poll"));
+        assert!(CONFIG_CHILDREN.contains(&"dpi-scale"));
+        assert_eq!(CONFIG_CHILDREN.len(), 2);
     }
 
     #[test]
