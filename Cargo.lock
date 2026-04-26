@@ -1403,6 +1403,7 @@ dependencies = [
  "identity",
  "image 0.24.9",
  "lightningcss",
+ "moderation",
  "moka",
  "notify",
  "omni-guard",

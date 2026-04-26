@@ -35,6 +35,7 @@ pub mod error;
 pub mod handlers;
 pub mod identity_metadata;
 pub mod install;
+pub mod moderation;
 pub mod preview;
 pub mod preview_impl;
 pub mod progress;
