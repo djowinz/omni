@@ -144,27 +144,18 @@ impl UlRenderer {
                 return Err("Failed to create Ultralight renderer".into());
             }
 
-            // Create view (transparent, CPU renderer)
-            let view_config = ultralight_sys::ulCreateViewConfig();
-            ultralight_sys::ulViewConfigSetIsAccelerated(view_config, false);
-            ultralight_sys::ulViewConfigSetIsTransparent(view_config, true);
-            if let Some(scale) = device_scale {
-                ultralight_sys::ulViewConfigSetInitialDeviceScale(view_config, scale);
-            }
-
-            let view = ultralight_sys::ulCreateView(
-                renderer,
-                width,
-                height,
-                view_config,
-                std::ptr::null_mut(), // default session
-            );
-            if view.is_null() {
-                ultralight_sys::ulDestroyViewConfig(view_config);
-                ultralight_sys::ulDestroyRenderer(renderer);
-                ultralight_sys::ulDestroyConfig(config);
-                return Err("Failed to create Ultralight view".into());
-            }
+            // Build the view through the same helper `recreate_view` uses, so
+            // the view-config flag set (accelerated/transparent/initial-device-
+            // scale) lives in exactly one place and can't drift between init
+            // and recreation paths.
+            let (view, view_config) = match Self::try_create_view(renderer, width, height, device_scale) {
+                Some(pair) => pair,
+                None => {
+                    ultralight_sys::ulDestroyRenderer(renderer);
+                    ultralight_sys::ulDestroyConfig(config);
+                    return Err("Failed to create Ultralight view".into());
+                }
+            };
 
             info!(width, height, "Ultralight renderer initialized");
 

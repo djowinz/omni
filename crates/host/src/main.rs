@@ -671,6 +671,18 @@ fn run_host() {
     let mut current_dpi_scale: Option<f64> =
         resolve_dpi_scale(current_dpi_config, scanner_instance.last_game_hwnd());
 
+    // `recreate_dims` returns the dimensions to pass to `recreate_view`:
+    // the current viewport size when the renderer has been resized at
+    // least once, otherwise the startup primary-monitor fallback. Used at
+    // every overlay-state mutator and the per-frame Auto tracker.
+    let recreate_dims =
+        |viewport_w: u32, viewport_h: u32| -> (u32, u32) {
+            (
+                if viewport_w > 0 { viewport_w } else { initial_w },
+                if viewport_h > 0 { viewport_h } else { initial_h },
+            )
+        };
+
     let mut ul = ul_renderer::UlRenderer::init(initial_w, initial_h, current_dpi_scale, &exe_dir)
         .expect("Failed to initialize Ultralight renderer");
 
@@ -786,6 +798,7 @@ fn run_host() {
                 if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                     *overlay = host.current_overlay.clone();
                 }
+                let (rw, rh) = recreate_dims(ul_viewport_w, ul_viewport_h);
                 maybe_recreate_for_scale_change(
                     &mut ul,
                     &mut current_dpi_config,
@@ -793,16 +806,8 @@ fn run_host() {
                     &mut ul_needs_reload,
                     host.omni_file.dpi_scale,
                     scanner_instance.last_game_hwnd(),
-                    if ul_viewport_w > 0 {
-                        ul_viewport_w
-                    } else {
-                        initial_w
-                    },
-                    if ul_viewport_h > 0 {
-                        ul_viewport_h
-                    } else {
-                        initial_h
-                    },
+                    rw,
+                    rh,
                 );
             }
         }
@@ -931,6 +936,7 @@ fn run_host() {
         }
         if overlay_changed {
             host.sync_chart_sensor_registrations();
+            let (rw, rh) = recreate_dims(ul_viewport_w, ul_viewport_h);
             maybe_recreate_for_scale_change(
                 &mut ul,
                 &mut current_dpi_config,
@@ -938,16 +944,8 @@ fn run_host() {
                 &mut ul_needs_reload,
                 host.omni_file.dpi_scale,
                 scanner_instance.last_game_hwnd(),
-                if ul_viewport_w > 0 {
-                    ul_viewport_w
-                } else {
-                    initial_w
-                },
-                if ul_viewport_h > 0 {
-                    ul_viewport_h
-                } else {
-                    initial_h
-                },
+                rw,
+                rh,
             );
         }
 
@@ -964,6 +962,7 @@ fn run_host() {
                     host.reload_overlay();
                     host.sync_chart_sensor_registrations();
                     ul_needs_reload = true;
+                    let (rw, rh) = recreate_dims(ul_viewport_w, ul_viewport_h);
                     maybe_recreate_for_scale_change(
                         &mut ul,
                         &mut current_dpi_config,
@@ -971,16 +970,8 @@ fn run_host() {
                         &mut ul_needs_reload,
                         host.omni_file.dpi_scale,
                         scanner_instance.last_game_hwnd(),
-                        if ul_viewport_w > 0 {
-                            ul_viewport_w
-                        } else {
-                            initial_w
-                        },
-                        if ul_viewport_h > 0 {
-                            ul_viewport_h
-                        } else {
-                            initial_h
-                        },
+                        rw,
+                        rh,
                     );
                 }
                 watcher::ReloadEvent::Theme => {
@@ -1009,6 +1000,7 @@ fn run_host() {
                         if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                             *overlay = host.current_overlay.clone();
                         }
+                        let (rw, rh) = recreate_dims(ul_viewport_w, ul_viewport_h);
                         maybe_recreate_for_scale_change(
                             &mut ul,
                             &mut current_dpi_config,
@@ -1016,16 +1008,8 @@ fn run_host() {
                             &mut ul_needs_reload,
                             host.omni_file.dpi_scale,
                             scanner_instance.last_game_hwnd(),
-                            if ul_viewport_w > 0 {
-                                ul_viewport_w
-                            } else {
-                                initial_w
-                            },
-                            if ul_viewport_h > 0 {
-                                ul_viewport_h
-                            } else {
-                                initial_h
-                            },
+                            rw,
+                            rh,
                         );
                     }
 
@@ -1064,16 +1048,7 @@ fn run_host() {
             let new_scale =
                 resolve_dpi_scale(current_dpi_config, scanner_instance.last_game_hwnd());
             if new_scale != current_dpi_scale {
-                let recreate_w = if ul_viewport_w > 0 {
-                    ul_viewport_w
-                } else {
-                    initial_w
-                };
-                let recreate_h = if ul_viewport_h > 0 {
-                    ul_viewport_h
-                } else {
-                    initial_h
-                };
+                let (recreate_w, recreate_h) = recreate_dims(ul_viewport_w, ul_viewport_h);
                 match ul.recreate_view(recreate_w, recreate_h, new_scale) {
                     Ok(()) => {
                         info!(
