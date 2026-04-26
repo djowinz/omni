@@ -2,8 +2,9 @@ import { openDB, type IDBPDatabase } from 'idb';
 import type { EditorTab } from '@/types/omni';
 
 const DB_NAME = 'omni-editor';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'state';
+const CUSTOM_PREVIEW_STORE = 'customPreview';
 const STATE_KEY = 'editor';
 
 export interface EditorViewState {
@@ -18,11 +19,14 @@ export interface PersistedEditorState {
   viewStates: Record<string, EditorViewState>;
 }
 
-function getDb(): Promise<IDBPDatabase> {
+export function getDb(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains(CUSTOM_PREVIEW_STORE)) {
+        db.createObjectStore(CUSTOM_PREVIEW_STORE);
       }
     },
   });
