@@ -60,6 +60,32 @@ pub fn generate_for_theme(
     // TempDir drops here.
 }
 
+/// Render a PNG thumbnail for a theme CSS file sitting in the user's
+/// workspace.
+///
+/// Added for the upload-flow-redesign save-time preview hook (spec §8.3 /
+/// Wave A0 Task A0.2-3-4). Reads the CSS bytes off disk and delegates to
+/// [`generate_for_theme`]; using the default [`ThumbnailConfig`] so the
+/// rendered surface matches the upload-pipeline thumbnail.
+///
+/// **Sanitization caveat.** [`generate_for_theme`] documents that
+/// `css_bytes` MUST be sanitized before reaching the renderer (invariant #8
+/// keeps the trust boundary at Ultralight). At save-time we are reading
+/// content the user just typed in the editor — it has NOT been through
+/// `omni-sanitize`. The renderer's hardened `ViewTrust::ThumbnailGen`
+/// configuration (network off, JS defanged, URL resolver scoped) is the
+/// active defense; the preview is rendered, written to disk, and shown only
+/// in the upload-dialog source picker. The hook caller (file.write
+/// integration in a downstream task) MUST swallow render failures so a
+/// malformed save never blocks the file-written response.
+pub fn generate_for_workspace_theme(
+    css_path: &std::path::Path,
+) -> Result<Vec<u8>, ThumbnailError> {
+    let css_bytes = std::fs::read(css_path).map_err(ThumbnailError::Io)?;
+    let config = ThumbnailConfig::default();
+    generate_for_theme(&css_bytes, &config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

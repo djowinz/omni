@@ -121,6 +121,73 @@ pub fn generate_for_bundle(
     // `tmp` drops here; the TempDir is deleted on scope exit.
 }
 
+/// Render a PNG thumbnail for an UNPACKED overlay sitting in the user's
+/// workspace at `data_dir/overlays/<overlay_name>/`.
+///
+/// Added for the upload-flow-redesign save-time `.omni-preview.png` hook
+/// (spec §8.3 / Wave A0 Task A0.2-3-4). Unlike [`generate_for_bundle`] this
+/// path skips the signed-bundle unpack/verify dance — the workspace is the
+/// trust boundary at this layer (the file was just written by the host's own
+/// `file.write` handler), so no extra crypto is needed.
+///
+/// `overlay_dir` is the full path to the overlay folder, e.g.
+/// `%APPDATA%\Omni\overlays\marathon-hud`. The function derives `data_dir`
+/// (two parents up: `…\Omni`) and `overlay_name` (the leaf component) and
+/// delegates to the same [`render_omni_to_png`] core path used by
+/// [`generate_for_bundle`].
+///
+/// Reads `overlay_dir/overlay.omni` from disk on every call (no caching) —
+/// the save-time hook fires on the file just written, so the disk read sees
+/// the new contents.
+pub fn generate_for_workspace_overlay(
+    overlay_dir: &std::path::Path,
+) -> Result<Vec<u8>, ThumbnailError> {
+    use crate::omni::parser::Severity;
+
+    // Derive `data_dir` and `overlay_name`. `overlay_dir` is expected to be of
+    // the form `<data_dir>/overlays/<name>`; defensive fallbacks let an
+    // unusual layout (e.g. tests with `<tempdir>/<name>` only) still fail
+    // with a structured error rather than panicking.
+    let overlay_name = overlay_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| ThumbnailError::RenderFailed {
+            detail: format!(
+                "overlay_dir has no UTF-8 leaf component: {}",
+                overlay_dir.display()
+            ),
+        })?;
+    let data_dir = overlay_dir
+        .parent() // `<data_dir>/overlays`
+        .and_then(|p| p.parent()) // `<data_dir>`
+        .ok_or_else(|| ThumbnailError::RenderFailed {
+            detail: format!(
+                "overlay_dir is not under a data_dir/overlays/ layout: {}",
+                overlay_dir.display()
+            ),
+        })?;
+
+    let entry_path = overlay_dir.join("overlay.omni");
+    let entry_source = std::fs::read_to_string(&entry_path).map_err(ThumbnailError::Io)?;
+
+    let (parsed, diagnostics) = parse_omni_with_diagnostics(&entry_source);
+    let errors: Vec<_> = diagnostics
+        .into_iter()
+        .filter(|d| matches!(d.severity, Severity::Error))
+        .collect();
+    if !errors.is_empty() {
+        return Err(ThumbnailError::RenderFailed {
+            detail: format!("parse {}: {errors:?}", entry_path.display()),
+        });
+    }
+    let omni_file = parsed.ok_or_else(|| ThumbnailError::RenderFailed {
+        detail: format!("parse {} produced no OmniFile", entry_path.display()),
+    })?;
+
+    let config = ThumbnailConfig::default();
+    render_omni_to_png(&omni_file, data_dir, overlay_name, &config)
+}
+
 /// Derive a stable `overlay_name` for the workspace layout. Uses the manifest
 /// `name` lowercased and stripped of path-invalid characters; falls back to
 /// `"bundle"` if nothing usable remains. Bundles only ever live under
