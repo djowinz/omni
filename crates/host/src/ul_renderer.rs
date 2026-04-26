@@ -385,6 +385,18 @@ impl UlRenderer {
     /// Caller is responsible for re-mounting the live overlay via `mount()`
     /// afterward; this method leaves the new view empty.
     ///
+    /// **Failure semantics:** if `ulCreateView` returns null at the new dims,
+    /// the renderer attempts a rollback by recreating the view at the previous
+    /// dimensions with no device scale (the most permissive Ultralight
+    /// configuration). On rollback success the function returns `Err` but the
+    /// renderer remains usable at the previous geometry; the caller may log
+    /// and continue. If rollback ALSO fails, the renderer is truly
+    /// unrecoverable and the function panics.
+    ///
+    /// `last_mount_state` and `last_scratch_dir` are intentionally preserved
+    /// across recreation so the caller's required `mount()` (or any in-flight
+    /// thumbnail capture's restore path) refers to the correct overlay.
+    ///
     /// Used by main.rs when the resolved DPI scale changes (per-overlay
     /// `<dpi-scale>` directive switched, or `Auto` mode game-window-monitor DPI
     /// changed). Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
@@ -394,17 +406,70 @@ impl UlRenderer {
         new_height: u32,
         device_scale: Option<f64>,
     ) -> Result<(), String> {
+        let old_width = self.width;
+        let old_height = self.height;
+
         // 1. Drop mount handle FIRST — see Drop impl invariant.
         {
             let mut slot = self.mount_handle.lock().expect("mount_handle poisoned");
             let _ = slot.take();
         }
+
         // 2. Tear down view + view_config.
         unsafe {
             ultralight_sys::ulDestroyView(self.view);
             ultralight_sys::ulDestroyViewConfig(self.view_config);
         }
-        // 3. Build replacement.
+
+        // 3. Try to create the new view at requested dims + scale.
+        if let Some((view, view_config)) =
+            Self::try_create_view(self.renderer, new_width, new_height, device_scale)
+        {
+            self.view = view;
+            self.view_config = view_config;
+            self.width = new_width;
+            self.height = new_height;
+            info!(
+                width = new_width,
+                height = new_height,
+                ?device_scale,
+                "Ultralight view recreated"
+            );
+            return Ok(());
+        }
+
+        // 4. Rollback: try original dimensions with NO device scale (most permissive).
+        if let Some((view, view_config)) =
+            Self::try_create_view(self.renderer, old_width, old_height, None)
+        {
+            self.view = view;
+            self.view_config = view_config;
+            // self.width / self.height already hold old values (untouched in step 3).
+            let msg = format!(
+                "ulCreateView failed at {}x{} scale={:?}; rolled back to {}x{} no-scale",
+                new_width, new_height, device_scale, old_width, old_height
+            );
+            tracing::warn!(error = %msg, "Ultralight view recreation rolled back");
+            return Err(msg);
+        }
+
+        // 5. Both attempts failed — Ultralight is in an unrecoverable state.
+        panic!(
+            "ulCreateView failed in recreate_view (target {}x{} scale {:?}) AND rollback to {}x{} no-scale ALSO failed; renderer is unrecoverable",
+            new_width, new_height, device_scale, old_width, old_height
+        );
+    }
+
+    /// Build a fresh `ULView` + `ULViewConfig` against the given renderer.
+    /// Returns `None` if `ulCreateView` returns null, after destroying the
+    /// orphaned `view_config` so the FFI doesn't leak. Caller is responsible
+    /// for storing the returned pair.
+    fn try_create_view(
+        renderer: ultralight_sys::ULRenderer,
+        width: u32,
+        height: u32,
+        device_scale: Option<f64>,
+    ) -> Option<(ultralight_sys::ULView, ultralight_sys::ULViewConfig)> {
         unsafe {
             let view_config = ultralight_sys::ulCreateViewConfig();
             ultralight_sys::ulViewConfigSetIsAccelerated(view_config, false);
@@ -413,26 +478,19 @@ impl UlRenderer {
                 ultralight_sys::ulViewConfigSetInitialDeviceScale(view_config, scale);
             }
             let view = ultralight_sys::ulCreateView(
-                self.renderer,
-                new_width,
-                new_height,
+                renderer,
+                width,
+                height,
                 view_config,
                 std::ptr::null_mut(),
             );
             if view.is_null() {
                 ultralight_sys::ulDestroyViewConfig(view_config);
-                return Err("ulCreateView returned null on view recreation".into());
+                None
+            } else {
+                Some((view, view_config))
             }
-            self.view = view;
-            self.view_config = view_config;
-            self.width = new_width;
-            self.height = new_height;
         }
-        info!(
-            new_width, new_height, ?device_scale,
-            "Ultralight view recreated"
-        );
-        Ok(())
     }
 
     /// Handle a thumbnail render request on the main thread.
