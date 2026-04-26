@@ -148,8 +148,9 @@ pub async fn install(
         });
     }
 
-    // TOFU check must run before any filesystem work so a mismatch never
-    // leaves partial state behind.
+    // TOFU recording before filesystem work — keeps the registry's "first-seen"
+    // timestamp consistent with what gets installed (no half-committed entries
+    // if sanitize/stage fails downstream).
     let author_pubkey = *signed.author_pubkey();
     let display_name = signed.manifest().name.clone();
     let tofu_result = tofu

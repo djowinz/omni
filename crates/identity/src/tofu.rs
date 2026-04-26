@@ -75,10 +75,12 @@ impl TofuRegistry {
         atomic_write(&self.path, &bytes)
     }
 
-    /// Look up `pubkey`. If unseen, record it with `display_name` (which may
-    /// be `None` when the worker resolver is offline — better to label nothing
-    /// than to label wrong) and return `FirstSeen`. If already known, return
-    /// `KnownMatch`. Persists the registry on first-seen.
+    /// Returns `KnownMatch` (no-op, no I/O) if `pubkey` is already in the registry,
+    /// or `FirstSeen` after inserting a new entry and persisting the registry.
+    /// Per 2026-04-26 spec §3 Q3 — pubkey is the trust anchor; display_name is
+    /// purely informational. On `KnownMatch`, the existing entry's `display_name`
+    /// is left untouched — callers that need to refresh a stored label should
+    /// use a future `update_display_name` API (T11 territory).
     ///
     /// Per 2026-04-26 spec §2: the prior impersonation check was removed —
     /// display_names are non-unique under the `<display_name>#<8-hex>`
@@ -91,8 +93,8 @@ impl TofuRegistry {
     ) -> Result<TofuResult, IdentityError> {
         let pk_hex = pubkey.to_hex();
         use std::collections::hash_map::Entry;
-        let result = match self.doc.entries.entry(pk_hex) {
-            Entry::Occupied(_) => TofuResult::KnownMatch,
+        match self.doc.entries.entry(pk_hex) {
+            Entry::Occupied(_) => Ok(TofuResult::KnownMatch),
             Entry::Vacant(e) => {
                 let fp = pubkey.fingerprint();
                 let words = fp.to_words();
@@ -102,11 +104,10 @@ impl TofuRegistry {
                     fingerprint_words: format!("{}-{}-{}", words[0], words[1], words[2]),
                     install_count: 0,
                 });
-                TofuResult::FirstSeen
+                self.save()?;
+                Ok(TofuResult::FirstSeen)
             }
-        };
-        self.save()?;
-        Ok(result)
+        }
     }
 
     pub fn record_install(&mut self, pubkey: PublicKey) {
