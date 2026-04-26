@@ -30,10 +30,7 @@ import type { UploadPublishResult } from '../../../lib/share-types';
 import { Stepper } from './stepper';
 import { UploadDialogHeader } from './header';
 import { UploadDialogFooter } from './footer';
-import {
-  useUploadMachine,
-  type UploadMachineState,
-} from './hooks/use-upload-machine';
+import { useUploadMachine, type UploadMachineState } from './hooks/use-upload-machine';
 import { SourcePicker } from './steps/source-picker';
 import { Review } from './steps/review';
 import { Packing } from './steps/packing';

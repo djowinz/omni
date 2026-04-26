@@ -38,9 +38,7 @@ export function SourcePickerListRow({ entry, selected, onClick }: SourcePickerLi
       ? `${entry.widget_count ?? 0} widgets · Modified ${modifiedDate}`
       : `Modified ${modifiedDate}`;
 
-  const borderClass = selected
-    ? 'border-[#00D9FF] bg-[#00D9FF]/5'
-    : 'border-[#27272A]';
+  const borderClass = selected ? 'border-[#00D9FF] bg-[#00D9FF]/5' : 'border-[#27272A]';
 
   return (
     <button
@@ -52,11 +50,7 @@ export function SourcePickerListRow({ entry, selected, onClick }: SourcePickerLi
     >
       <div className="w-14 h-9 rounded bg-gradient-to-br from-[#27272A] to-[#3f3f46] shrink-0 overflow-hidden">
         {previewSrc && (
-          <img
-            src={previewSrc}
-            alt=""
-            className="w-full h-full object-cover rounded"
-          />
+          <img src={previewSrc} alt="" className="w-full h-full object-cover rounded" />
         )}
       </div>
       <div className="flex-1 min-w-0">

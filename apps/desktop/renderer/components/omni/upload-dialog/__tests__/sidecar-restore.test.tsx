@@ -129,9 +129,7 @@ describe('UploadDialog — sidecar silent-restore (T-A2.6 / OWI-46)', () => {
     // Wait for the overlay row to render. This also implicitly waits for
     // the workspace.listPublishables RPC to resolve — without entries the
     // picker would render `source-picker-empty` instead of the row.
-    const overlayRow = await screen.findByTestId(
-      `source-row-${OVERLAY_ENTRY.workspace_path}`,
-    );
+    const overlayRow = await screen.findByTestId(`source-row-${OVERLAY_ENTRY.workspace_path}`);
 
     // Click the row — dispatches SELECT_ITEM which calls
     // detectMode(entry, currentPubkey). With the identity bootstrap

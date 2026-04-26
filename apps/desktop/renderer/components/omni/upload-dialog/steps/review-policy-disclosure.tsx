@@ -21,10 +21,7 @@ export interface ReviewPolicyDisclosureProps {
 
 export function ReviewPolicyDisclosure({ policyUrl = POLICY_URL }: ReviewPolicyDisclosureProps) {
   return (
-    <div
-      data-testid="review-policy-disclosure"
-      className="text-xs leading-relaxed text-zinc-400"
-    >
+    <div data-testid="review-policy-disclosure" className="text-xs leading-relaxed text-zinc-400">
       By publishing, you confirm this content follows Omni&apos;s content policy (no illegal
       content, no harassment, no explicit material).{' '}
       <a

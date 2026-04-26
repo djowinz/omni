@@ -245,9 +245,7 @@ app.post('/', async (c) => {
 
   const pubkeyHex = hexEncode(auth.pubkey);
   const dfHex = hexEncode(auth.device_fp);
-  debugLog(
-    `${tag}   auth ok: pk=${pubkeyHex.slice(0, 10)}… df=${dfHex.slice(0, 10)}…`,
-  );
+  debugLog(`${tag}   auth ok: pk=${pubkeyHex.slice(0, 10)}… df=${dfHex.slice(0, 10)}…`);
 
   // Step 3 — rate limit. `artifact_id` as query param signals update path.
   const isUpdate = url.searchParams.has('artifact_id');
@@ -311,9 +309,7 @@ app.post('/', async (c) => {
     );
   } catch (e) {
     const cat = classifyWasmError(e);
-    debugLog(
-      `${tag} FAIL step 5: wasm unpack ${cat.kind}/${cat.detail} — ${cat.message}`,
-    );
+    debugLog(`${tag} FAIL step 5: wasm unpack ${cat.kind}/${cat.detail} — ${cat.message}`);
     return errorFromKind(cat.kind, cat.detail, cat.message);
   }
 
@@ -389,14 +385,10 @@ app.post('/', async (c) => {
   let sanitized;
   try {
     sanitized = await sanitizeViaDO(env, parts.bundle, dfHex, limits);
-    debugLog(
-      `${tag}   sanitize ok: ${sanitized.sanitizedBundleBytes.byteLength} bytes out`,
-    );
+    debugLog(`${tag}   sanitize ok: ${sanitized.sanitizedBundleBytes.byteLength} bytes out`);
   } catch (e) {
     const cat = classifyWasmError(e);
-    debugLog(
-      `${tag} FAIL step 8: sanitize ${cat.kind}/${cat.detail} — ${cat.message}`,
-    );
+    debugLog(`${tag} FAIL step 8: sanitize ${cat.kind}/${cat.detail} — ${cat.message}`);
     return errorFromKind(cat.kind, cat.detail, cat.message);
   }
 

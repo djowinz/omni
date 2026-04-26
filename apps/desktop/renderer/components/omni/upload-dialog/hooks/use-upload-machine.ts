@@ -64,11 +64,7 @@ import type {
   UploadPublishResult,
 } from '../../../../lib/share-types';
 import type { PackingViolation } from '../steps/packing-violations-card';
-import type {
-  PublishError,
-  PublishProgress,
-  PublishResult,
-} from '../steps/publish';
+import type { PublishError, PublishProgress, PublishResult } from '../steps/publish';
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -357,8 +353,7 @@ function reducer(state: UploadMachineState, action: Action): UploadMachineState 
       // packing step — past a transition out (e.g. user already clicked
       // Publish and we're in 'upload'), late frames must not re-enable a
       // CTA that's no longer relevant.
-      const primaryDisabled =
-        state.step === 'packing' ? !allPassed : state.primaryDisabled;
+      const primaryDisabled = state.step === 'packing' ? !allPassed : state.primaryDisabled;
       // First failure marks the stepper pill red.
       const stepError =
         action.status === 'failed' && state.step === 'packing' ? 'error' : state.stepError;
@@ -517,9 +512,7 @@ export interface UseUploadMachineResult {
   form: UseFormReturn<UploadFormValues>;
 }
 
-export function useUploadMachine(
-  options: UseUploadMachineOptions = {},
-): UseUploadMachineResult {
+export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUploadMachineResult {
   const { prefilledPath = null, onPublished } = options;
   const ws = useShareWs();
 
@@ -724,7 +717,7 @@ export function useUploadMachine(
           type: 'PUBLISH_SUCCESS',
           result: {
             artifact_id: resp.params.artifact_id,
-            name: common.name ?? (cur.selected?.name ?? ''),
+            name: common.name ?? cur.selected?.name ?? '',
             kind: cur.selected?.kind ?? 'overlay',
             tags: common.tags ?? [],
           },

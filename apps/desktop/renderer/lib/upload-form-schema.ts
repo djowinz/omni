@@ -41,10 +41,7 @@ export const UploadFormSchema = z.object({
   // pair back into the single user-visible license string before posting to
   // the worker. INV-7.2.6.
   license: z.string().max(64, 'License must be 64 characters or less').optional(),
-  customLicense: z
-    .string()
-    .max(64, 'Custom license must be 64 characters or less')
-    .optional(),
+  customLicense: z.string().max(64, 'Custom license must be 64 characters or less').optional(),
   version: z.string().optional(),
   omni_min_version: z.string().optional(),
 });

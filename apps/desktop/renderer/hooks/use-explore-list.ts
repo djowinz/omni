@@ -88,7 +88,9 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
         if (effectiveFilters.tab === 'my-uploads' && !effectiveFilters.authorPubkey) {
           // My Uploads without a pubkey can't produce results — return empty,
           // let the caller set authorPubkey after identity.show resolves.
-          debugLog('[useExploreList] my-uploads tab with no authorPubkey → empty until identity.show lands');
+          debugLog(
+            '[useExploreList] my-uploads tab with no authorPubkey → empty until identity.show lands',
+          );
           setItems((prev) => (append ? prev : []));
           setNextCursor(null);
           return;
@@ -97,12 +99,7 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
         debugLog('[useExploreList] sending explorer.list', params);
         const resp = await send('explorer.list', params);
         debugLog('[useExploreList] raw response', resp);
-        debugLog(
-          '[useExploreList] items=',
-          resp.items?.length,
-          'next_cursor=',
-          resp.next_cursor,
-        );
+        debugLog('[useExploreList] items=', resp.items?.length, 'next_cursor=', resp.next_cursor);
         setItems((prev) => (append ? [...prev, ...resp.items] : [...resp.items]));
         setNextCursor(resp.next_cursor);
         debugLog('[useExploreList] state updated with', resp.items.length, 'items');

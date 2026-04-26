@@ -73,10 +73,7 @@ vi.mock('../../../../hooks/use-workspace-list', () => ({
 
 // Import AFTER vi.mock so the component picks up the mocked hook.
 import { SourcePicker } from '../steps/source-picker';
-import type {
-  SourcePickerActions,
-  SourcePickerState,
-} from '../steps/source-picker';
+import type { SourcePickerActions, SourcePickerState } from '../steps/source-picker';
 
 function makeActions(overrides: Partial<SourcePickerActions> = {}): SourcePickerActions {
   return {

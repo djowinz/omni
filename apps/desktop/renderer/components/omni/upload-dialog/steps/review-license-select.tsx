@@ -40,9 +40,7 @@ export function ReviewLicenseSelect({ form }: ReviewLicenseSelectProps) {
       <Label htmlFor="upload-license">License</Label>
       <Select
         value={license || undefined}
-        onValueChange={(v) =>
-          setValue('license', v, { shouldValidate: false, shouldDirty: true })
-        }
+        onValueChange={(v) => setValue('license', v, { shouldValidate: false, shouldDirty: true })}
       >
         <SelectTrigger
           id="upload-license"

@@ -25,15 +25,17 @@ export interface PackingStageRowProps {
   testId?: string;
 }
 
-const PENDING_CLASSES =
-  'flex items-center gap-2.5 rounded-md border border-[#27272A] px-3 py-2.5';
+const PENDING_CLASSES = 'flex items-center gap-2.5 rounded-md border border-[#27272A] px-3 py-2.5';
 const PASSED_CLASSES =
   'flex items-center gap-2.5 rounded-md border border-[rgba(16,185,129,0.6)] bg-[rgba(16,185,129,0.06)] px-3 py-2.5';
 const FAILED_CLASSES =
   'flex items-center gap-2.5 rounded-md border border-[rgba(244,63,94,0.6)] bg-[rgba(244,63,94,0.06)] px-3 py-2.5';
 
 function defaultTestId(title: string): string {
-  return `packing-stage-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+  return `packing-stage-${title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')}`;
 }
 
 export function PackingStageRow({ title, subtitle, status, testId }: PackingStageRowProps) {
@@ -75,11 +77,7 @@ export function PackingStageRow({ title, subtitle, status, testId }: PackingStag
   const isRunning = status === 'running';
   return (
     <div data-testid={id} data-status={status} className={PENDING_CLASSES}>
-      <div
-        className={
-          'flex-shrink-0 text-[#52525b]' + (isRunning ? ' animate-pulse' : '')
-        }
-      >
+      <div className={'flex-shrink-0 text-[#52525b]' + (isRunning ? ' animate-pulse' : '')}>
         {isRunning ? (
           <Shield className="h-[18px] w-[18px]" strokeWidth={1.75} />
         ) : (

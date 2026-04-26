@@ -48,9 +48,7 @@ export interface SourcePickerProps {
 export function SourcePicker({ state, actions }: SourcePickerProps) {
   const { entries, loading } = useWorkspaceList();
   const selectedKind = state.selectedKind;
-  const filteredEntries = selectedKind
-    ? entries.filter((e) => e.kind === selectedKind)
-    : [];
+  const filteredEntries = selectedKind ? entries.filter((e) => e.kind === selectedKind) : [];
 
   const sidecar = state.selected?.sidecar ?? null;
   const showLinked = sidecar !== null && state.mode === 'update';
@@ -78,9 +76,7 @@ export function SourcePicker({ state, actions }: SourcePickerProps) {
       {/* Section header (INV-7.1.1) */}
       <div>
         <div className="text-sm font-semibold mb-1">What would you like to publish?</div>
-        <div className="text-xs text-[#a1a1aa]">
-          Choose the type of content you want to share
-        </div>
+        <div className="text-xs text-[#a1a1aa]">Choose the type of content you want to share</div>
       </div>
 
       {/* Type cards (INV-7.1.2 through INV-7.1.6) */}
@@ -112,10 +108,7 @@ export function SourcePicker({ state, actions }: SourcePickerProps) {
             Loading workspace…
           </p>
         ) : selectedKind === null ? (
-          <p
-            className="text-sm text-zinc-500"
-            data-testid="source-picker-no-kind"
-          >
+          <p className="text-sm text-zinc-500" data-testid="source-picker-no-kind">
             Select a type above to see your {isThemeSelected ? 'themes' : 'overlays'}.
           </p>
         ) : filteredEntries.length === 0 ? (
@@ -142,7 +135,9 @@ export function SourcePicker({ state, actions }: SourcePickerProps) {
 // Lucide icons accept the same props as bare SVGs. Typed loosely so the
 // `Package` / `Palette` exports line up without leaking lucide-react types
 // into the public SourcePicker surface.
-type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number; strokeWidth?: number }>;
+type IconComponent = ComponentType<
+  SVGProps<SVGSVGElement> & { size?: number; strokeWidth?: number }
+>;
 
 interface TypeCardProps {
   testId: string;
@@ -154,9 +149,7 @@ interface TypeCardProps {
 }
 
 function TypeCard({ testId, icon: Icon, label, sublabel, selected, onClick }: TypeCardProps) {
-  const borderClass = selected
-    ? 'border-[#00D9FF] bg-[#00D9FF]/[0.07]'
-    : 'border-[#27272A]';
+  const borderClass = selected ? 'border-[#00D9FF] bg-[#00D9FF]/[0.07]' : 'border-[#27272A]';
   const iconColor = selected ? 'text-[#00D9FF]' : 'text-[#a1a1aa]';
   const labelColor = selected ? 'text-[#FAFAFA]' : 'text-[#d4d4d8]';
   const sublabelColor = selected ? 'text-[#a1a1aa]' : 'text-[#71717a]';
@@ -177,11 +170,7 @@ function TypeCard({ testId, icon: Icon, label, sublabel, selected, onClick }: Ty
           ✓
         </div>
       )}
-      <Icon
-        className={`mx-auto mb-2.5 ${iconColor}`}
-        size={32}
-        strokeWidth={1.75}
-      />
+      <Icon className={`mx-auto mb-2.5 ${iconColor}`} size={32} strokeWidth={1.75} />
       <div className={`text-sm font-semibold mb-1 ${labelColor}`}>{label}</div>
       <div className={`text-[11px] leading-snug whitespace-pre-line ${sublabelColor}`}>
         {sublabel}

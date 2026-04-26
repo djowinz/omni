@@ -46,10 +46,7 @@ export function PubkeyMismatchBanner({ sidecar }: BannerProps) {
       data-testid="pubkey-mismatch-banner"
       className="px-3 py-2 mb-3 rounded-md border border-amber-700/50 bg-amber-900/10 flex gap-2 items-start"
     >
-      <AlertTriangle
-        className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5"
-        strokeWidth={2}
-      />
+      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" strokeWidth={2} />
       <div className="text-xs leading-relaxed">
         <div className="font-semibold text-amber-500 mb-0.5">
           Originally published by a different identity

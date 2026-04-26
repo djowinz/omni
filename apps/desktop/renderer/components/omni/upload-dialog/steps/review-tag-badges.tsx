@@ -32,9 +32,7 @@ export function ReviewTagBadges({ form, tags: tagsOverride }: ReviewTagBadgesPro
   const selected = watch('tags') ?? [];
 
   const toggle = (tag: string) => {
-    const next = selected.includes(tag)
-      ? selected.filter((t) => t !== tag)
-      : [...selected, tag];
+    const next = selected.includes(tag) ? selected.filter((t) => t !== tag) : [...selected, tag];
     // shouldValidate: false — see file-level note. The Step 2 Continue
     // handler already calls form.trigger() before advancing.
     setValue('tags', next, { shouldValidate: false, shouldDirty: true });
@@ -49,10 +47,7 @@ export function ReviewTagBadges({ form, tags: tagsOverride }: ReviewTagBadgesPro
   }
 
   return (
-    <div
-      data-testid="review-tag-badges"
-      className="flex flex-wrap gap-1.5"
-    >
+    <div data-testid="review-tag-badges" className="flex flex-wrap gap-1.5">
       {tags.map((tag) => {
         const isSelected = selected.includes(tag);
         return (

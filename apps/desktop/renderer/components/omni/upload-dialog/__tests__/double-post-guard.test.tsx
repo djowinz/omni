@@ -263,56 +263,58 @@ describe('useUploadMachine — double-POST guard (T-A2.2 / OWI-42, §8.9)', () =
     // not blocked once the first call's promise settles.
 
     // Override the mock for this test to resolve upload.publish.
-    sendShareMessage.mockImplementation(async (msg: { id: string; type: string; params: unknown }) => {
-      sentMessages.push(msg);
-      if (msg.type === 'identity.show') {
-        return {
-          id: msg.id,
-          type: 'identity.showResult',
-          params: {
-            pubkey_hex: '00'.repeat(32),
-            fingerprint_hex: '',
-            fingerprint_emoji: [],
-            fingerprint_words: [],
-            created_at: 0,
-            backed_up: true,
-          },
-        };
-      }
-      if (msg.type === 'workspace.listPublishables') {
-        return {
-          id: msg.id,
-          type: 'workspace.listPublishablesResult',
-          params: { entries: [] },
-        };
-      }
-      if (msg.type === 'upload.pack') {
-        return {
-          id: msg.id,
-          type: 'upload.packResult',
-          params: {
-            content_hash: 'sha256:0000',
-            compressed_size: 0,
-            uncompressed_size: 0,
-            manifest: {},
-            sanitize_report: { issues: [] },
-          },
-        };
-      }
-      if (msg.type === 'upload.publish') {
-        return {
-          id: msg.id,
-          type: 'upload.publishResult',
-          params: {
-            artifact_id: 'ov_01ABC',
-            content_hash: 'sha256:deadbeef',
-            status: 'created',
-            worker_url: 'https://hub.example/ov_01ABC',
-          },
-        };
-      }
-      throw new Error(`unexpected: ${msg.type}`);
-    });
+    sendShareMessage.mockImplementation(
+      async (msg: { id: string; type: string; params: unknown }) => {
+        sentMessages.push(msg);
+        if (msg.type === 'identity.show') {
+          return {
+            id: msg.id,
+            type: 'identity.showResult',
+            params: {
+              pubkey_hex: '00'.repeat(32),
+              fingerprint_hex: '',
+              fingerprint_emoji: [],
+              fingerprint_words: [],
+              created_at: 0,
+              backed_up: true,
+            },
+          };
+        }
+        if (msg.type === 'workspace.listPublishables') {
+          return {
+            id: msg.id,
+            type: 'workspace.listPublishablesResult',
+            params: { entries: [] },
+          };
+        }
+        if (msg.type === 'upload.pack') {
+          return {
+            id: msg.id,
+            type: 'upload.packResult',
+            params: {
+              content_hash: 'sha256:0000',
+              compressed_size: 0,
+              uncompressed_size: 0,
+              manifest: {},
+              sanitize_report: { issues: [] },
+            },
+          };
+        }
+        if (msg.type === 'upload.publish') {
+          return {
+            id: msg.id,
+            type: 'upload.publishResult',
+            params: {
+              artifact_id: 'ov_01ABC',
+              content_hash: 'sha256:deadbeef',
+              status: 'created',
+              worker_url: 'https://hub.example/ov_01ABC',
+            },
+          };
+        }
+        throw new Error(`unexpected: ${msg.type}`);
+      },
+    );
 
     const { result } = renderHook(() => useUploadMachine());
     act(() => {

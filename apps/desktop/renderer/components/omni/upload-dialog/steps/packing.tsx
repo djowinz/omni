@@ -98,9 +98,7 @@ const STAGE_FAILURE_BODY: Record<PackStage, { title: string; body: string }> = {
   },
 };
 
-function findFirstFailure(
-  stages: Record<PackStage, PackStageStatus>,
-): PackStage | null {
+function findFirstFailure(stages: Record<PackStage, PackStageStatus>): PackStage | null {
   for (const s of PACK_STAGES) {
     if (stages[s] === 'failed') return s;
   }
@@ -140,20 +138,11 @@ export function Packing({ actions, violations = [] }: PackingProps) {
       {STAGE_DEFS.map(({ stage, title, subtitle }) => {
         const status = stages[stage];
         let effectiveSubtitle = subtitle;
-        if (
-          stage === 'dependency' &&
-          status === 'failed' &&
-          violations.length > 0
-        ) {
+        if (stage === 'dependency' && status === 'failed' && violations.length > 0) {
           effectiveSubtitle = `${violations.length} violation${violations.length === 1 ? '' : 's'} — see details below`;
         }
         return (
-          <PackingStageRow
-            key={stage}
-            title={title}
-            subtitle={effectiveSubtitle}
-            status={status}
-          />
+          <PackingStageRow key={stage} title={title} subtitle={effectiveSubtitle} status={status} />
         );
       })}
 
