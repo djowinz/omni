@@ -235,6 +235,59 @@ function mapMalformed(detail: string | undefined): [ContentfulStatusCode, ErrorC
   }
 }
 
+/**
+ * Structured detail payload for `AuthorNameConflict` (spec §8.7, INV-7.6.3).
+ *
+ * Surfaced on POST /v1/upload Step 11 when the same author re-uploads under a
+ * name they've already used. The renderer's Step 4 amber recovery card uses
+ * these fields to render the existing-artifact summary row + wire the
+ * "Link and update" action to `existing_artifact_id`.
+ *
+ * `last_published_at` is ISO-8601 (the artifacts table stores `updated_at` as
+ * a unix-seconds integer; the route converts before serialising so renderers
+ * never have to think about epoch units).
+ */
+export interface AuthorNameConflictDetail {
+  existing_artifact_id: string;
+  existing_version: string;
+  last_published_at: string;
+}
+
+/**
+ * Build the 409 envelope for the per-author name-uniqueness check (spec §8.7).
+ *
+ * Backwards-compatible with older clients: the envelope's `error.message`
+ * remains a plain human string ("Name already taken under your identity"), so
+ * pre-recovery-card renderers fall through to the generic error UI; only the
+ * Wave A2 Step 4 recovery card consumes the structured `detail` field.
+ *
+ * `detail` rides as a JSON-stringified blob inside the top-level envelope's
+ * `detail` field (NOT inside `error.*`) — same envelope shape `errorResponse`
+ * produces for every kind/detail-bearing error, kept consistent so renderers
+ * parse the envelope identically across error codes.
+ *
+ * The Response is constructed directly here (rather than via `errorResponse`)
+ * because the `code: "AuthorNameConflict"` is a recovery-card-only contract
+ * code that lives outside the legacy `ErrorCode` vocabulary in `types.ts`
+ * (see worker-api.md §3 — the renderer reads it by string literal, not by
+ * the typed union). Treating it as a literal here keeps `ErrorCode` as the
+ * vocabulary of *generic* status codes the rest of the worker maps into.
+ */
+export function authorNameConflictResponse(detail: AuthorNameConflictDetail): Response {
+  const body = {
+    error: {
+      code: 'AuthorNameConflict',
+      message: 'Name already taken under your identity',
+    },
+    kind: 'Malformed' as ErrorKind,
+    detail: JSON.stringify(detail),
+  };
+  return new Response(JSON.stringify(body), {
+    status: 409,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+}
+
 function mapAdmin(detail: string | undefined): [ContentfulStatusCode, ErrorCode] {
   switch (detail) {
     case 'NotModerator':

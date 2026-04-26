@@ -22,7 +22,12 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import type { Env } from '../env';
-import { errorResponse, errorFromKind, classifyWasmError } from '../lib/errors';
+import {
+  errorResponse,
+  errorFromKind,
+  classifyWasmError,
+  authorNameConflictResponse,
+} from '../lib/errors';
 import { verifyJws, AuthError } from '../lib/auth';
 import { checkAndIncrement, type RateLimitAction } from '../lib/rate_limit';
 import { parseMultipart, MultipartError } from '../lib/multipart';
@@ -151,11 +156,27 @@ interface Manifest {
   [k: string]: unknown;
 }
 
-function isThemeOnly(manifest: Manifest): boolean {
+/**
+ * Classify a manifest as theme-only for rate-limit-bucket selection.
+ *
+ * Returns `true` ONLY when `resource_kinds` is a non-empty object whose every
+ * key is `"theme"`. Missing / null / non-object / empty `resource_kinds`
+ * returns `false` — the caller (host) is responsible for populating
+ * `resource_kinds`; absence is NOT theme-only-by-default (would mis-bucket
+ * non-theme bundles into the lighter quota).
+ *
+ * Pre-2026-04-25 behavior was the inverse on the missing/empty branches and
+ * silently biased every host that hadn't populated `resource_kinds` into the
+ * theme bucket. The host fix in OWI-33 (Task A0.7) populates `resource_kinds`
+ * from bundle contents so all bundles classify correctly.
+ *
+ * Exported for direct unit testing — see `apps/worker/test/upload-is-theme-only.test.ts`.
+ */
+export function isThemeOnly(manifest: Manifest): boolean {
   const kinds = manifest.resource_kinds;
-  if (!kinds || typeof kinds !== 'object') return true;
+  if (!kinds || typeof kinds !== 'object') return false;
   const keys = Object.keys(kinds);
-  if (keys.length === 0) return true;
+  if (keys.length === 0) return false;
   return keys.every((k) => k === 'theme');
 }
 
@@ -408,16 +429,25 @@ app.post('/', async (c) => {
     }
   }
 
-  // Step 11 — per-author name uniqueness (only on new upload)
+  // Step 11 — per-author name uniqueness (only on new upload).
+  //
+  // On conflict we surface the structured `AuthorNameConflict` envelope
+  // (`apps/worker/src/lib/errors.ts::authorNameConflictResponse`) so the
+  // renderer's Step 4 amber recovery card (INV-7.6.3, spec §8.7) can render
+  // the existing-artifact summary row and offer Link-and-update.
   const authorPubkeyBlob = auth.pubkey;
   if (!isUpdate) {
     const nameRow = await env.META.prepare(
-      'SELECT id FROM artifacts WHERE author_pubkey = ? AND name = ?',
+      'SELECT id, version, updated_at FROM artifacts WHERE author_pubkey = ? AND name = ? AND is_removed = 0',
     )
       .bind(authorPubkeyBlob, manifest.name)
-      .first<{ id: string }>();
+      .first<{ id: string; version: string; updated_at: number }>();
     if (nameRow) {
-      return errorFromKind('Malformed', 'Conflict', 'name already used by this author');
+      return authorNameConflictResponse({
+        existing_artifact_id: nameRow.id,
+        existing_version: nameRow.version,
+        last_published_at: new Date(nameRow.updated_at * 1000).toISOString(),
+      });
     }
   }
 
