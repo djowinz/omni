@@ -24,29 +24,54 @@ fn full_lifecycle_generate_backup_restore() {
 }
 
 #[test]
-fn tofu_flags_impersonation_across_restart() {
+fn export_import_roundtrip_survives_intervening_rotation() {
+    // Per 2026-04-26 identity-completion spec §2: backup blobs must be
+    // independent of on-disk state. After exporting kp1, rotating the
+    // on-disk key (via generate_and_write) MUST NOT corrupt the prior
+    // backup — restoring from the blob still yields kp1.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("identity.key");
+
+    let kp1 = Keypair::generate_and_write(&path).unwrap();
+    let backup = kp1.export_encrypted("very-long-passphrase").unwrap();
+    let pk1 = kp1.public_key();
+
+    // Rotate after backup — the prior key bytes are gone from disk.
+    let _kp2 = Keypair::generate_and_write(&path).unwrap();
+
+    // The backup blob still imports to the original keypair regardless of disk.
+    let restored = Keypair::import_encrypted(&backup, "very-long-passphrase").unwrap();
+    assert_eq!(restored.public_key(), pk1);
+}
+
+#[test]
+fn tofu_records_first_seen_then_known_match_across_restart() {
+    // Per 2026-04-26 spec §2: the prior `tofu_flags_impersonation_across_restart`
+    // test exercised the removed `DisplayNameMismatch` variant. The persistence
+    // contract is still meaningful — a recorded pubkey survives reload — so
+    // we keep the across-restart shape, just without the impersonation alarm.
     let dir = tempdir().unwrap();
     let tofu_path = dir.path().join("tofu.json");
 
     let kp_a = Keypair::generate();
-    let kp_b = Keypair::generate();
 
     {
         let mut r = TofuRegistry::load(&tofu_path).unwrap();
         assert_eq!(
-            r.check_or_record(kp_a.public_key(), "lx92", 1),
+            r.check_or_record(kp_a.public_key(), Some("lx92"), 1)
+                .unwrap(),
             TofuResult::FirstSeen
         );
-        r.save().unwrap();
     }
 
-    // New process: B claims the same display name.
+    // New process: same pubkey is now known.
     {
         let mut r = TofuRegistry::load(&tofu_path).unwrap();
-        match r.check_or_record(kp_b.public_key(), "lx92", 2) {
-            TofuResult::DisplayNameMismatch { .. } => {}
-            other => panic!("expected mismatch, got {other:?}"),
-        }
+        assert_eq!(
+            r.check_or_record(kp_a.public_key(), Some("lx92"), 2)
+                .unwrap(),
+            TofuResult::KnownMatch
+        );
     }
 }
 

@@ -21,16 +21,23 @@ impl TofuStore {
         Ok(Self { inner, path })
     }
 
+    /// Check or record an author pubkey under TOFU.
+    ///
+    /// Per 2026-04-26 identity-completion-and-display-name spec §2: the
+    /// `display_name` slot is now `Option<&str>` so callers can record `None`
+    /// when the worker resolver is offline (better to label nothing than to
+    /// label wrong). T11 replaces the bundle-name-based call site in
+    /// `install.rs` with worker-resolver lookup; this signature is the seam.
     pub fn check_or_record(
         &mut self,
         pubkey: &PublicKey,
-        display_name: &str,
+        display_name: Option<&str>,
     ) -> Result<TofuResult, IdentityError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        Ok(self.inner.check_or_record(*pubkey, display_name, now))
+        self.inner.check_or_record(*pubkey, display_name, now)
     }
 
     pub fn record_install(&mut self, pubkey: &PublicKey) -> Result<(), IdentityError> {

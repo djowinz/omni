@@ -182,6 +182,26 @@ impl Keypair {
         }
     }
 
+    /// Generate a fresh keypair, atomically write it to `path` (overwriting any
+    /// existing file), and apply the user-only Windows ACL. Used by the host's
+    /// `identity.rotate` WS handler per the 2026-04-26
+    /// identity-completion-and-display-name spec §2 — a rotation primitive that
+    /// keeps the atomic-write + ACL helpers crate-private.
+    pub fn generate_and_write(path: &Path) -> Result<Self, IdentityError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let kp = Self::generate();
+        let seed = kp.seed();
+        let enc = crate::format::encode_identity_key(&seed);
+        crate::atomic::atomic_write(path, &enc)?;
+        #[cfg(windows)]
+        {
+            crate::acl::set_user_only(path)?;
+        }
+        Ok(kp)
+    }
+
     pub fn export_encrypted(&self, passphrase: &str) -> Result<Vec<u8>, IdentityError> {
         use argon2::{Algorithm, Argon2, Params, Version};
         use chacha20poly1305::{

@@ -1,5 +1,12 @@
 //! Trust-On-First-Use registry. Maps author pubkey → display_name + metadata.
-//! Detects display-name claims from two different pubkeys (impersonation signal).
+//!
+//! Per 2026-04-26 identity-completion-and-display-name spec §2: the prior
+//! impersonation check (alarming on display_name reuse across pubkeys) was
+//! removed because display_names are non-unique by design — the pubkey-slice
+//! is the canonical disambiguator (`<display_name>#<8-hex>`). The registry
+//! now stores `Option<String>` for display_name so callers without a label
+//! (e.g., when the worker resolver is offline) record `None` rather than a
+//! placeholder.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,17 +21,12 @@ use crate::fingerprint::PublicKey;
 pub enum TofuResult {
     FirstSeen,
     KnownMatch,
-    DisplayNameMismatch {
-        known_pubkey_hex: String,
-        seen_pubkey_hex: String,
-        display_name: String,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TofuEntry {
     pub first_seen_at: u64,
-    pub display_name: String,
+    pub display_name: Option<String>,
     pub fingerprint_words: String,
     pub install_count: u64,
 }
@@ -73,40 +75,38 @@ impl TofuRegistry {
         atomic_write(&self.path, &bytes)
     }
 
+    /// Look up `pubkey`. If unseen, record it with `display_name` (which may
+    /// be `None` when the worker resolver is offline — better to label nothing
+    /// than to label wrong) and return `FirstSeen`. If already known, return
+    /// `KnownMatch`. Persists the registry on first-seen.
+    ///
+    /// Per 2026-04-26 spec §2: the prior impersonation check was removed —
+    /// display_names are non-unique under the `<display_name>#<8-hex>`
+    /// disambiguation scheme, so the check returned false positives by design.
     pub fn check_or_record(
         &mut self,
         pubkey: PublicKey,
-        display_name: &str,
+        display_name: Option<&str>,
         now_unix: u64,
-    ) -> TofuResult {
+    ) -> Result<TofuResult, IdentityError> {
         let pk_hex = pubkey.to_hex();
-
-        // Impersonation check: same display_name, different pubkey?
-        for (other_hex, entry) in self.doc.entries.iter() {
-            if other_hex != &pk_hex && entry.display_name == display_name {
-                return TofuResult::DisplayNameMismatch {
-                    known_pubkey_hex: other_hex.clone(),
-                    seen_pubkey_hex: pk_hex,
-                    display_name: display_name.to_string(),
-                };
-            }
-        }
-
         use std::collections::hash_map::Entry;
-        match self.doc.entries.entry(pk_hex) {
+        let result = match self.doc.entries.entry(pk_hex) {
             Entry::Occupied(_) => TofuResult::KnownMatch,
             Entry::Vacant(e) => {
                 let fp = pubkey.fingerprint();
                 let words = fp.to_words();
                 e.insert(TofuEntry {
                     first_seen_at: now_unix,
-                    display_name: display_name.to_string(),
+                    display_name: display_name.map(|s| s.to_string()),
                     fingerprint_words: format!("{}-{}-{}", words[0], words[1], words[2]),
                     install_count: 0,
                 });
                 TofuResult::FirstSeen
             }
-        }
+        };
+        self.save()?;
+        Ok(result)
     }
 
     pub fn record_install(&mut self, pubkey: PublicKey) {
@@ -135,26 +135,39 @@ mod tests {
         let dir = tempdir().unwrap();
         let mut r = TofuRegistry::load(&dir.path().join("tofu.json")).unwrap();
         assert_eq!(
-            r.check_or_record(pk(1), "alice", 100),
+            r.check_or_record(pk(1), Some("alice"), 100).unwrap(),
             TofuResult::FirstSeen
         );
         assert_eq!(
-            r.check_or_record(pk(1), "alice", 200),
+            r.check_or_record(pk(1), Some("alice"), 200).unwrap(),
             TofuResult::KnownMatch
         );
     }
 
     #[test]
-    fn display_name_mismatch_detected() {
+    fn check_or_record_accepts_none_label() {
         let dir = tempdir().unwrap();
         let mut r = TofuRegistry::load(&dir.path().join("tofu.json")).unwrap();
-        r.check_or_record(pk(1), "alice", 100);
-        match r.check_or_record(pk(2), "alice", 200) {
-            TofuResult::DisplayNameMismatch { display_name, .. } => {
-                assert_eq!(display_name, "alice");
-            }
-            other => panic!("expected mismatch, got {other:?}"),
-        }
+        let result = r.check_or_record(pk(1), None, 100);
+        assert!(matches!(result, Ok(TofuResult::FirstSeen)));
+
+        let entry = r.entry(pk(1)).unwrap();
+        assert_eq!(entry.display_name, None);
+    }
+
+    #[test]
+    fn check_or_record_does_not_emit_display_name_mismatch() {
+        // Two pubkeys with the same display_name no longer trip an alarm:
+        // display_names are non-unique in v1, the slice is the disambiguator.
+        // (Per 2026-04-26 identity-completion-and-display-name spec §2.)
+        let dir = tempdir().unwrap();
+        let mut r = TofuRegistry::load(&dir.path().join("tofu.json")).unwrap();
+        r.check_or_record(pk(1), Some("alice"), 100).unwrap();
+        let result = r.check_or_record(pk(2), Some("alice"), 200).unwrap();
+        assert!(
+            matches!(result, TofuResult::FirstSeen),
+            "expected FirstSeen for new pubkey regardless of display_name collision, got {result:?}"
+        );
     }
 
     #[test]
@@ -163,14 +176,14 @@ mod tests {
         let path = dir.path().join("tofu.json");
         {
             let mut r = TofuRegistry::load(&path).unwrap();
-            r.check_or_record(pk(7), "bob", 500);
+            r.check_or_record(pk(7), Some("bob"), 500).unwrap();
             r.record_install(pk(7));
             r.record_install(pk(7));
             r.save().unwrap();
         }
         let r2 = TofuRegistry::load(&path).unwrap();
         let e = r2.entry(pk(7)).unwrap();
-        assert_eq!(e.display_name, "bob");
+        assert_eq!(e.display_name.as_deref(), Some("bob"));
         assert_eq!(e.install_count, 2);
     }
 

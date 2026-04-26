@@ -192,7 +192,6 @@ fn tofu_result_to_wire_str(r: &TofuResult) -> &'static str {
     match r {
         TofuResult::FirstSeen => "first_install",
         TofuResult::KnownMatch => "matched",
-        TofuResult::DisplayNameMismatch { .. } => "mismatch",
     }
 }
 
@@ -483,20 +482,10 @@ mod tests {
         };
         let f1 = install_outcome_to_result_frame("r", &base(TofuResult::FirstSeen));
         let f2 = install_outcome_to_result_frame("r", &base(TofuResult::KnownMatch));
-        let f3 = install_outcome_to_result_frame(
-            "r",
-            &base(TofuResult::DisplayNameMismatch {
-                known_pubkey_hex: "aa".into(),
-                seen_pubkey_hex: "bb".into(),
-                display_name: "x".into(),
-            }),
-        );
         let p1: JsonValue = serde_json::from_str(&f1).unwrap();
         let p2: JsonValue = serde_json::from_str(&f2).unwrap();
-        let p3: JsonValue = serde_json::from_str(&f3).unwrap();
         assert_eq!(p1["tofu"], "first_install");
         assert_eq!(p2["tofu"], "matched");
-        assert_eq!(p3["tofu"], "mismatch");
     }
 
     fn all_preview_error_variants() -> Vec<PreviewError> {

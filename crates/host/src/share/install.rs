@@ -153,19 +153,12 @@ pub async fn install(
     let author_pubkey = *signed.author_pubkey();
     let display_name = signed.manifest().name.clone();
     let tofu_result = tofu
-        .check_or_record(&author_pubkey, &display_name)
+        .check_or_record(&author_pubkey, Some(display_name.as_str()))
         .map_err(identity_to_install_error)?;
-    if let TofuResult::DisplayNameMismatch {
-        known_pubkey_hex,
-        seen_pubkey_hex,
-        ..
-    } = &tofu_result
-    {
-        return Err(InstallError::TofuViolation {
-            known: known_pubkey_hex.clone(),
-            seen: seen_pubkey_hex.clone(),
-        });
-    }
+    // TOFU mismatch handling intentionally absent — the DisplayNameMismatch
+    // variant was removed in identity-completion spec §2 (non-coherent under
+    // non-unique display_names). T11 replaces this entire display_name-population
+    // path with worker-resolver lookup.
 
     sanitize_stage_and_commit(
         &signed,
