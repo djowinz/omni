@@ -202,15 +202,6 @@ impl ShareClient {
         }
     }
 
-    /// Test-only accessor for the shared identity slot. Returned reference
-    /// is the same `Arc<ArcSwap<Keypair>>` `ShareContext` holds — a
-    /// `.store(...)` against the slot retargets this client's signer
-    /// atomically. Exposed to let `share_client_sees_post_swap_keypair`
-    /// observe the post-rotate state without depending on the wire layer.
-    pub fn identity(&self) -> &Arc<ArcSwap<Keypair>> {
-        &self.identity
-    }
-
     pub fn cache(&self) -> &ArtifactCache {
         &self.cache
     }
@@ -1167,7 +1158,7 @@ mod tests {
             Arc::clone(&identity),
             Arc::new(StubGuard) as Arc<dyn Guard>,
         );
-        assert_eq!(client.identity().load().public_key().0, pk1);
+        assert_eq!(client.identity.load().public_key().0, pk1);
 
         // Swap the key against the outer slot — what an `identity.rotate`
         // handler will do via `ctx.identity.store(...)`.
@@ -1178,7 +1169,7 @@ mod tests {
         // Client must see the new pubkey through its own handle. If
         // ShareClient stored a separate `Arc<Keypair>` clone, this
         // assertion would observe `pk1` and fail.
-        assert_eq!(client.identity().load().public_key().0, pk2);
+        assert_eq!(client.identity.load().public_key().0, pk2);
         assert_ne!(pk1, pk2);
     }
 }

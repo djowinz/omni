@@ -70,7 +70,6 @@ image = { version = "0.24", default-features = false, features = ["png"] }
 lightningcss = "1.0.0-alpha.56"
 
 [dev-dependencies]
-arc-swap = "1"
 wiremock = "0.6"
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
