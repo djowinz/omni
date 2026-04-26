@@ -9,10 +9,11 @@
  *       themes   → "Modified YYYY-MM-DD"
  *   - selection chrome: cyan border + 5% cyan tint + 20px ✓ badge on the right
  *
- * The preview source is derived from `entry.workspace_path` plus the host's
- * `data_dir`. The host RPC will eventually expose an absolute path resolver
- * (per spec §8.3); for now we render a `file:///` URL with a TODO marker so
- * the placeholder keeps working until that wiring lands.
+ * The preview source is derived from `entry.workspace_path` and resolved
+ * through the `omni-preview://` Electron protocol handler registered in
+ * `apps/desktop/main/main.ts`. That handler maps `omni-preview://<segment>/<rest>`
+ * to `<userData>/<segment>/<rest>` — `<userData>` matches the Rust host's
+ * `config::data_dir()` (both `%APPDATA%/Omni`).
  */
 
 import type { PublishablesEntry } from '@omni/shared-types';
@@ -23,14 +24,30 @@ export interface SourcePickerListRowProps {
   onClick: () => void;
 }
 
+/**
+ * Build the `omni-preview://` URL for a publishable entry, or `null` when
+ * no save-time preview exists (the row then renders the zinc gradient).
+ *
+ * Overlays: preview lives at `<data_dir>/overlays/<name>/.omni-preview.png`
+ *   (per `crates/host/src/share/save_preview.rs::OVERLAY_PREVIEW_FILENAME`).
+ * Themes:   preview lives at `<data_dir>/themes/<base>.preview.png` where
+ *   `<base>` is the theme filename minus its `.css` extension (per
+ *   `crates/host/src/share/ws_messages.rs` listPublishables — the `has_preview`
+ *   probe). `entry.workspace_path` for themes is `themes/<filename>.css`,
+ *   so we strip `.css` from the trailing segment.
+ */
+function previewUrlFor(entry: PublishablesEntry): string | null {
+  if (!entry.has_preview) return null;
+  if (entry.kind === 'overlay') {
+    return `omni-preview://${entry.workspace_path}/.omni-preview.png`;
+  }
+  // theme: `themes/<filename>.css` → `omni-preview://themes/<base>.preview.png`
+  const base = entry.workspace_path.replace(/\.css$/i, '');
+  return `omni-preview://${base}.preview.png`;
+}
+
 export function SourcePickerListRow({ entry, selected, onClick }: SourcePickerListRowProps) {
-  // TODO(upload-flow-redesign A2.1): thread the host data_dir through props
-  // so this resolves to an actual on-disk preview file. Until then the
-  // string is intentionally non-resolving — the `<img>` falls back to
-  // transparent, leaving the gradient placeholder visible.
-  const previewSrc = entry.has_preview
-    ? `file:///__omni_preview__/${entry.workspace_path}/.omni-preview.png`
-    : null;
+  const previewSrc = previewUrlFor(entry);
 
   const modifiedDate = entry.modified_at ? entry.modified_at.slice(0, 10) : '';
   const subtitle =

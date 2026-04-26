@@ -68,18 +68,26 @@ export interface ReviewProps {
 }
 
 /**
- * Resolve the auto-preview `file://` URL for an entry, mirroring the
- * convention in `source-picker-list-row.tsx`. Returns `null` when the
- * overlay has no rendered preview yet — the Preview Image field then
- * shows the zinc-gradient placeholder per INV-7.2.4 default state.
+ * Resolve the auto-preview URL for an entry, mirroring the convention in
+ * `source-picker-list-row.tsx::previewUrlFor`. Returns `null` when the entry
+ * has no save-time rendered preview — the Preview Image field then shows the
+ * zinc-gradient placeholder per INV-7.2.4 default state.
  *
- * TODO(upload-flow-redesign §8.3): host RPC will eventually expose an
- * absolute path resolver for previews; this `__omni_preview__` prefix is
- * the placeholder convention until that wiring lands.
+ * URLs use the `omni-preview://` scheme registered in
+ * `apps/desktop/main/main.ts`, which maps `omni-preview://<segment>/<rest>`
+ * to `<userData>/<segment>/<rest>` on disk.
+ *
+ * Overlay preview path: `<data_dir>/overlays/<name>/.omni-preview.png`.
+ * Theme preview path:   `<data_dir>/themes/<base>.preview.png` where `<base>`
+ * is the theme filename minus its `.css` extension.
  */
 function resolveAutoPreviewSrc(entry: PublishablesEntry | null): string | null {
   if (!entry || !entry.has_preview) return null;
-  return `file:///__omni_preview__/${entry.workspace_path}/.omni-preview.png`;
+  if (entry.kind === 'overlay') {
+    return `omni-preview://${entry.workspace_path}/.omni-preview.png`;
+  }
+  const base = entry.workspace_path.replace(/\.css$/i, '');
+  return `omni-preview://${base}.preview.png`;
 }
 
 export function Review({ state, form }: ReviewProps) {

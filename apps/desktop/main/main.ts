@@ -1,6 +1,7 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, dialog } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, dialog, net } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import * as fs from 'fs';
 import { HostManager } from './host-manager';
 import { LogTailer } from './log-tailer';
@@ -272,11 +273,20 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
   return hostManager.sendAndWait(msg, expectedType);
 });
 
-// Register omni:// protocol for serving local resources
+// Register omni:// protocol for serving local resources, plus
+// omni-preview:// for save-time preview thumbnails read from the host's
+// data_dir (`%APPDATA%/Omni`). The renderer can't load `file://` URLs
+// directly under `webSecurity: true`, so the upload dialog routes preview
+// reads through this scheme — see `omni-preview` handler below for the
+// path-traversal guard and URL → on-disk-path mapping.
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'omni',
     privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
+  {
+    scheme: 'omni-preview',
+    privileges: { secure: true, supportFetchAPI: true, bypassCSP: true },
   },
 ]);
 
@@ -343,6 +353,50 @@ app.on('ready', async () => {
       return new Response('Internal Error', { status: 500 });
     }
   });
+
+  // omni-preview:// — serves save-time preview thumbnails from the host's
+  // data_dir (the Rust host's `config::data_dir()` is `%APPDATA%/Omni`,
+  // which matches Electron's `app.getPath('userData')` because the
+  // electron-builder productName is "Omni"). Renderer call sites:
+  //   - apps/desktop/renderer/components/omni/upload-dialog/steps/source-picker-list-row.tsx
+  //   - apps/desktop/renderer/components/omni/upload-dialog/steps/review.tsx
+  //
+  // URL shape:
+  //   omni-preview://overlays/<name>/.omni-preview.png
+  //   omni-preview://themes/<name>.preview.png
+  //
+  // url.host       → 'overlays' | 'themes'
+  // url.pathname   → '/<rest of path>' (URL-decoded before joining)
+  //
+  // Security: the only allowed segment hosts are 'overlays' and 'themes';
+  // the resolved on-disk path must remain inside `<dataDir>/<segment>` or
+  // we return 403 (defends against `..` traversal in pathname).
+  const dataDir = app.getPath('userData');
+  protocol.handle('omni-preview', async (request) => {
+    try {
+      const url = new URL(request.url);
+      const segment = url.host;
+      if (segment !== 'overlays' && segment !== 'themes') {
+        return new Response('Bad Request', { status: 400 });
+      }
+      const tail = decodeURIComponent(url.pathname);
+      const safeRoot = path.normalize(path.join(dataDir, segment));
+      const target = path.normalize(path.join(safeRoot, tail));
+      // Path-traversal guard: target must remain inside safeRoot.
+      if (target !== safeRoot && !target.startsWith(safeRoot + path.sep)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      try {
+        await fs.promises.access(target, fs.constants.R_OK);
+      } catch {
+        return new Response('Not Found', { status: 404 });
+      }
+      return net.fetch(pathToFileURL(target).toString());
+    } catch {
+      return new Response('Internal Error', { status: 500 });
+    }
+  });
+
   mainWindow = createWindow();
   createTray();
 
