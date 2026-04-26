@@ -112,7 +112,18 @@ pub struct UlRenderer {
 
 impl UlRenderer {
     /// Initialize Ultralight with the given viewport dimensions.
-    pub fn init(width: u32, height: u32, resources_dir: &Path) -> Result<Self, String> {
+    ///
+    /// `device_scale`, when `Some(s)`, is applied via
+    /// `ulViewConfigSetInitialDeviceScale` BEFORE the view is created so the
+    /// Ultralight view comes up DPI-aware. `None` preserves today's behavior
+    /// (implicit scale = 1.0). Spec:
+    /// docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+    pub fn init(
+        width: u32,
+        height: u32,
+        device_scale: Option<f64>,
+        resources_dir: &Path,
+    ) -> Result<Self, String> {
         unsafe {
             // Set up platform handlers (from AppCore)
             ultralight_sys::ulEnablePlatformFontLoader();
@@ -137,6 +148,9 @@ impl UlRenderer {
             let view_config = ultralight_sys::ulCreateViewConfig();
             ultralight_sys::ulViewConfigSetIsAccelerated(view_config, false);
             ultralight_sys::ulViewConfigSetIsTransparent(view_config, true);
+            if let Some(scale) = device_scale {
+                ultralight_sys::ulViewConfigSetInitialDeviceScale(view_config, scale);
+            }
 
             let view = ultralight_sys::ulCreateView(
                 renderer,
