@@ -63,6 +63,50 @@ pub fn handle_write(data_dir: &Path, relative_path: &str, content: &str) -> Valu
     match fs::write(&full_path, content) {
         Ok(()) => {
             info!(path = relative_path, "File written");
+
+            // Save-time preview render — fire-and-forget; never block save success.
+            //
+            // Spec: upload-flow-redesign §8.3 — `.omni-preview.png` /
+            // `<theme>.css.preview.png` is a renderer-side preview only, not the
+            // canonical upload thumbnail. Source picker (§7.1.9) falls back to a
+            // zinc gradient placeholder when the preview is missing, so failure
+            // here is never user-visible. Insertion site documented in
+            // `notes/0.1-save-hook-location.md` (between `info!()` and the
+            // success `json!` return inside the `Ok(())` arm). Runs synchronously
+            // on the WS `std::thread`; `spawn_blocking` is unavailable because
+            // `handle_write` is not in a tokio context.
+            if relative_path.ends_with("/overlay.omni") {
+                if let Some(overlay_rel_dir) = Path::new(relative_path).parent() {
+                    let overlay_abs_dir = data_dir.join(overlay_rel_dir);
+                    if let Err(e) =
+                        crate::share::save_preview::render_overlay_preview(&overlay_abs_dir)
+                    {
+                        tracing::warn!(
+                            path = relative_path,
+                            error = %e,
+                            "overlay preview render failed",
+                        );
+                    }
+                }
+            } else if relative_path.starts_with("themes/") && relative_path.ends_with(".css") {
+                let themes_dir = data_dir.join("themes");
+                let filename = Path::new(relative_path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                if !filename.is_empty() {
+                    if let Err(e) =
+                        crate::share::save_preview::render_theme_preview(&themes_dir, filename)
+                    {
+                        tracing::warn!(
+                            path = relative_path,
+                            error = %e,
+                            "theme preview render failed",
+                        );
+                    }
+                }
+            }
+
             json!({ "type": "file.written", "path": relative_path })
         }
         Err(e) => json!({
