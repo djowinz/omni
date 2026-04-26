@@ -140,6 +140,7 @@ pub(super) fn render_omni_to_png(
         &hwinfo_values,
         &hwinfo_units,
         &history,
+        None,
         ViewTrust::ThumbnailGen,
     );
 
