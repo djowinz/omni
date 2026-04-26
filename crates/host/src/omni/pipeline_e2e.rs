@@ -21,6 +21,7 @@ fn overlay_with_cpu_span() -> OmniFile {
     OmniFile {
         theme_src: None,
         poll_config: Default::default(),
+        dpi_scale: None,
         widgets: vec![Widget {
             id: "w".into(),
             name: "w".into(),
@@ -115,6 +116,7 @@ fn class_diff_pipeline_produces_set_classes_call() {
     let omni = OmniFile {
         theme_src: None,
         poll_config: Default::default(),
+        dpi_scale: None,
         widgets: vec![Widget {
             id: "w".into(),
             name: "w".into(),

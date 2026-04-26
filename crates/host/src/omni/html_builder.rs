@@ -913,6 +913,7 @@ mod tests {
         let file = OmniFile {
             theme_src: None,
             poll_config: HashMap::new(),
+            dpi_scale: None,
             widgets: vec![Widget {
                 id: "bar".to_string(),
                 name: "Bar".to_string(),
@@ -1112,6 +1113,7 @@ mod render_tests {
         OmniFile {
             theme_src: None,
             poll_config: HashMap::new(),
+            dpi_scale: None,
             widgets: vec![Widget {
                 id: "test".to_string(),
                 name: "Test".to_string(),
@@ -1203,6 +1205,7 @@ mod render_tests {
         let omni = OmniFile {
             theme_src: None,
             poll_config: Default::default(),
+            dpi_scale: None,
             widgets: vec![Widget {
                 id: "w".into(),
                 name: "w".into(),
@@ -1248,6 +1251,7 @@ mod render_tests {
         let omni = OmniFile {
             theme_src: None,
             poll_config: Default::default(),
+            dpi_scale: None,
             widgets: vec![Widget {
                 id: "w".into(),
                 name: "w".into(),

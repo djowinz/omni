@@ -854,6 +854,7 @@ mod tests {
         let file = crate::omni::types::OmniFile {
             theme_src: None,
             poll_config: std::collections::HashMap::new(),
+            dpi_scale: None,
             widgets: vec![],
         };
 
