@@ -11,7 +11,7 @@ use bundle::{BundleLimits, Tag};
 use identity::{Keypair, PublicKey};
 use omni_guard_trait::Guard;
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -27,8 +27,11 @@ use super::install::{self, InstallProgress, InstallRequest};
 use super::preview::{PreviewSlot, ThemeSwap};
 use super::progress::{error_envelope, pump_to_ws};
 use super::registry::{RegistryHandle, RegistryKind};
+use super::sidecar::{read_sidecar, read_theme_sidecar, PublishSidecar};
 use super::tofu::TofuStore;
 use super::upload::{upload, ArtifactKind, UploadRequest};
+use crate::omni::parser::parse_omni_with_diagnostics;
+use crate::workspace::structure::{list_overlays, list_themes};
 
 /// Bundle of shared state consumed by `explorer.*` + `upload.*` + `identity.*`
 /// + `config.*` + `report.*` WebSocket handlers.
@@ -212,6 +215,7 @@ where
         "explorer.cancelPreview" => handle_cancel_preview(&id, params, ctx).await,
         "explorer.list" => handle_list(&id, params, ctx).await,
         "explorer.get" => handle_get(&id, params, ctx).await,
+        "workspace.listPublishables" => handle_list_publishables(&id, params, ctx).await,
         _ => None,
     }
 }
@@ -1010,6 +1014,276 @@ async fn handle_get(id: &str, params: Value, ctx: &ShareContext) -> Option<Strin
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// upload-flow-redesign Wave A0 — `upload.packProgress` wire contract
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Spec: docs/superpowers/specs/2026-04-21-upload-flow-redesign-design.md §8.8.
+//
+// Renderer-side oracle: `apps/desktop/renderer/lib/share-types.ts`
+// (`PackProgressSchema` + `ShareSubscriptionSchemas['upload.packProgress']`).
+// Generated TypeScript view: `packages/shared-types/src/generated/PackProgress.ts`,
+// `PackStage.ts`, `StageStatus.ts` (auto-emitted by `cargo test -p host`).
+//
+// The frame envelope sent over the wire is
+// `{ id, type: "upload.packProgress", params: PackProgress }` — the `id`
+// correlates with the originating `upload.pack` request and is constructed
+// by the upload pipeline (Wave A1 task A1.4), not by this struct. `PackProgress`
+// IS `params`.
+
+/// Stage of the pack pipeline currently executing. Lower-case-kebab so the
+/// JSON wire form matches the Zod enum
+/// `'schema' | 'content-safety' | 'asset' | 'dependency' | 'size'` in
+/// `share-types.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
+#[serde(rename_all = "kebab-case")]
+pub enum PackStage {
+    Schema,
+    ContentSafety,
+    Asset,
+    Dependency,
+    Size,
+}
+
+/// Status of the current pack stage. Lower-case so the JSON wire form matches
+/// `'running' | 'passed' | 'failed'` in `share-types.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
+#[serde(rename_all = "lowercase")]
+pub enum StageStatus {
+    Running,
+    Passed,
+    Failed,
+}
+
+/// Per-stage progress payload streamed during `upload.pack`. `detail` carries
+/// human-readable context (file name, violation summary) when relevant; on
+/// `Failed` it carries the failure reason. The renderer accumulates one
+/// `PackProgress` per stage into a `Record<PackStage, StageStatus>` for the
+/// progressive Step 3 UI.
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
+pub struct PackProgress {
+    pub stage: PackStage,
+    pub status: StageStatus,
+    pub detail: Option<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// upload-flow-redesign Wave A0 — `workspace.listPublishables` RPC
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Spec: §8.8 + INV-7.1.10 (per-row metadata). Replaces the Step 1 source
+// picker's previous `file.list` round-trip + per-item parallel reads with a
+// single rich-row RPC: each entry carries the data needed to render the
+// stack of overlay/theme rows (name, widget count, modified date, preview
+// presence, sidecar update-mode signal) in one frame.
+
+/// One row in the `workspace.listPublishables` response. Maps 1-to-1 with the
+/// renderer's `PublishablesEntry` (zod schema in
+/// `apps/desktop/renderer/lib/share-types.ts`).
+///
+/// Field semantics:
+/// - `kind` — closed vocabulary `"overlay" | "theme"`. Kept as `String` for
+///   forward-compat with future kinds (matches the convention used by
+///   `CachedArtifactDetail.kind` and `PublishIndexEntry.kind`).
+/// - `workspace_path` — relative path under `data_dir`, suitable for passing
+///   straight back to `upload.pack` / `upload.publish` (e.g.
+///   `"overlays/marathon-hud"` or `"themes/synth.css"`).
+/// - `name` — display name (overlay folder name or theme filename without
+///   extension).
+/// - `widget_count` — `Some(n)` for overlays where `overlay.omni` parses;
+///   `None` when the file is missing or unparseable, OR when the row is a
+///   theme (themes have no widgets).
+/// - `modified_at` — RFC 3339 / ISO-8601 string of the artifact's primary
+///   file mtime (`overlay.omni` for overlays, the `.css` file for themes).
+///   Empty string when mtime unavailable.
+/// - `has_preview` — true when the corresponding `.omni-preview.png` (overlay)
+///   or `<theme>.preview.png` (theme) exists. INV-7.1.9: when false the
+///   renderer renders a zinc-gradient placeholder.
+/// - `sidecar` — `Some(_)` when `.omni-publish.json` (overlays) or
+///   `<theme>.css.publish.json` (themes) exists and parses. The renderer's
+///   Step 1 banner (INV-7.1.13) and Step 4 update-mode pivot key off this
+///   field's presence + the `author_pubkey_hex` match against the running
+///   identity.
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
+pub struct PublishablesEntry {
+    pub kind: String,
+    pub workspace_path: String,
+    pub name: String,
+    pub widget_count: Option<u32>,
+    pub modified_at: String,
+    pub has_preview: bool,
+    pub sidecar: Option<PublishSidecar>,
+}
+
+/// Convert a filesystem mtime to an RFC 3339 / ISO-8601 string. Returns the
+/// empty string on any failure (clock skew before UNIX epoch, format error) —
+/// the renderer's INV-7.1.10 metadata subtitle just hides the date when this
+/// is empty rather than rendering "Modified <invalid>".
+fn mtime_to_iso(modified: std::time::SystemTime) -> String {
+    use std::time::UNIX_EPOCH;
+    match modified.duration_since(UNIX_EPOCH) {
+        Ok(d) => format_unix_secs_as_iso8601_utc(d.as_secs() as i64),
+        Err(_) => String::new(),
+    }
+}
+
+/// Format a UNIX timestamp (seconds) as `YYYY-MM-DDTHH:MM:SSZ`. Hand-rolled
+/// to avoid pulling in `chrono` / `time` solely for this RPC. The renderer's
+/// INV-7.1.10 only displays the date portion (`YYYY-MM-DD`); the time + Z
+/// suffix are present for forward-compat with consumers that want full
+/// resolution. Algorithm: Howard Hinnant's civil-from-days (public domain).
+fn format_unix_secs_as_iso8601_utc(secs: i64) -> String {
+    if secs < 0 {
+        return String::new();
+    }
+    let secs_u = secs as u64;
+    let day = (secs_u / 86_400) as i64;
+    let time_of_day = secs_u % 86_400;
+    let hour = (time_of_day / 3_600) as u32;
+    let minute = ((time_of_day % 3_600) / 60) as u32;
+    let second = (time_of_day % 60) as u32;
+
+    // Civil-from-days: convert days since UNIX epoch (1970-01-01) to (y, m, d).
+    let z = day + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, m, d, hour, minute, second
+    )
+}
+
+/// Read mtime for `path`, returning the ISO-8601 string or empty on failure.
+fn iso_mtime_of(path: &std::path::Path) -> String {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(mtime_to_iso)
+        .unwrap_or_default()
+}
+
+/// Count widgets in an overlay's `overlay.omni`. Returns `None` if the file
+/// doesn't exist or fails to parse. The renderer treats `None` as "show no
+/// widget count" (INV-7.1.10 falls back to "Modified YYYY-MM-DD" alone).
+fn overlay_widget_count(overlay_dir: &std::path::Path) -> Option<u32> {
+    let omni_path = overlay_dir.join("overlay.omni");
+    let source = std::fs::read_to_string(&omni_path).ok()?;
+    let (parsed, _diagnostics) = parse_omni_with_diagnostics(&source);
+    // We tolerate diagnostics — the source picker should still surface a
+    // count for an overlay that emits warnings but successfully parses.
+    parsed.map(|f| f.widgets.len() as u32)
+}
+
+async fn handle_list_publishables(
+    id: &str,
+    params: Value,
+    ctx: &ShareContext,
+) -> Option<String> {
+    /// Optional `kind` filter ("overlay" | "theme"); omit / null returns both.
+    /// Unknown values are treated as "no filter" rather than a hard error so a
+    /// renderer that drifts ahead of the host still gets data instead of an
+    /// empty list.
+    #[derive(Deserialize, Default)]
+    #[serde(default)]
+    struct P {
+        kind: Option<String>,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => {
+            return Some(bad_input(
+                id,
+                format!("bad workspace.listPublishables params: {e}"),
+            ))
+        }
+    };
+
+    let kind_filter = p.kind.as_deref();
+    let want_overlays = matches!(kind_filter, None | Some("overlay"));
+    let want_themes = matches!(kind_filter, None | Some("theme"));
+
+    let mut entries: Vec<PublishablesEntry> = Vec::new();
+
+    if want_overlays {
+        for name in list_overlays(&ctx.data_dir) {
+            let overlay_dir = ctx.data_dir.join("overlays").join(&name);
+            let omni_path = overlay_dir.join("overlay.omni");
+            let preview_path = overlay_dir.join(".omni-preview.png");
+            let sidecar = read_sidecar(&overlay_dir).ok().flatten();
+            let modified_at = iso_mtime_of(&omni_path);
+            let widget_count = overlay_widget_count(&overlay_dir);
+            entries.push(PublishablesEntry {
+                kind: "overlay".to_string(),
+                workspace_path: format!("overlays/{}", name),
+                name,
+                widget_count,
+                modified_at,
+                has_preview: preview_path.exists(),
+                sidecar,
+            });
+        }
+    }
+
+    if want_themes {
+        let themes_dir = ctx.data_dir.join("themes");
+        for filename in list_themes(&ctx.data_dir) {
+            let css_path = themes_dir.join(filename.as_str());
+            // Spec §8.3 / §7.1.9: theme preview lives at
+            // `themes/<base>.preview.png`. Strip the `.css` extension to
+            // derive the base, then suffix `.preview.png`. Falls back to
+            // `<filename>.preview.png` when the strip would be a no-op.
+            let preview_filename = match filename.strip_suffix(".css") {
+                Some(base) => format!("{}.preview.png", base),
+                None => format!("{}.preview.png", filename),
+            };
+            let preview_path = themes_dir.join(&preview_filename);
+            let sidecar = read_theme_sidecar(&themes_dir, &filename)
+                .ok()
+                .flatten();
+            let modified_at = iso_mtime_of(&css_path);
+            // Display name: theme filename without `.css` extension. Matches
+            // INV-7.1.10's "Modified YYYY-MM-DD" (themes have no widget count
+            // line), and keeps `workspace_path` distinct (`themes/synth.css`)
+            // for round-tripping back through `upload.pack`.
+            let display_name = filename
+                .strip_suffix(".css")
+                .map(str::to_string)
+                .unwrap_or_else(|| filename.clone());
+            entries.push(PublishablesEntry {
+                kind: "theme".to_string(),
+                workspace_path: format!("themes/{}", filename),
+                name: display_name,
+                widget_count: None,
+                modified_at,
+                has_preview: preview_path.exists(),
+                sidecar,
+            });
+        }
+    }
+
+    Some(
+        json!({
+            "id": id,
+            "type": "workspace.listPublishablesResult",
+            "params": {
+                "entries": entries,
+            },
+        })
+        .to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1729,5 +2003,138 @@ mod tests {
             BundleLimits::DEFAULT.max_bundle_uncompressed
         );
         assert_eq!(slot.max_entries, BundleLimits::DEFAULT.max_entries);
+    }
+
+    // ── upload-flow-redesign Wave A0 — workspace.listPublishables ───────
+
+    /// Stage a workspace with one parseable overlay (with `.omni-publish.json`
+    /// sidecar + `.omni-preview.png`) and one theme. The handler must return
+    /// both rows with the right kind / paths / counts / preview flags / sidecar.
+    #[tokio::test]
+    async fn list_publishables_returns_overlay_and_theme_rows() {
+        use crate::share::sidecar::{write_sidecar, write_theme_sidecar, PublishSidecar};
+
+        let (ctx, _tmp) = make_test_ctx();
+
+        // Stage an overlay with the minimal parseable .omni file. Uses the
+        // documented overlay.omni format so the parser can count widgets.
+        let overlay_dir = ctx.data_dir.join("overlays").join("marathon-hud");
+        std::fs::create_dir_all(&overlay_dir).unwrap();
+        let omni_source = "[widget.cpu]\ntemplate = <div>cpu</div>\n";
+        std::fs::write(overlay_dir.join("overlay.omni"), omni_source).unwrap();
+        // Drop a fake .omni-preview.png so has_preview flips to true.
+        std::fs::write(overlay_dir.join(".omni-preview.png"), b"fake png").unwrap();
+        // Sidecar — the renderer keys the linked-artifact banner off this.
+        let sidecar = PublishSidecar {
+            artifact_id: "ov_test".to_string(),
+            author_pubkey_hex: hex::encode(ctx.identity.public_key().0),
+            version: "1.0.0".to_string(),
+            last_published_at: "2026-04-21T00:00:00Z".to_string(),
+        };
+        write_sidecar(&overlay_dir, &sidecar).unwrap();
+
+        // Stage a theme + theme sidecar.
+        let themes_dir = ctx.data_dir.join("themes");
+        std::fs::create_dir_all(&themes_dir).unwrap();
+        std::fs::write(themes_dir.join("synth.css"), b"body { color: cyan; }").unwrap();
+        write_theme_sidecar(&themes_dir, "synth.css", &sidecar).unwrap();
+
+        let msg = json!({
+            "id": "lp-1",
+            "type": "workspace.listPublishables",
+            "params": {},
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["id"], "lp-1");
+        assert_eq!(parsed["type"], "workspace.listPublishablesResult");
+        let entries = parsed["params"]["entries"].as_array().expect("entries");
+        // Overlay row first (handler enumerates overlays before themes).
+        let overlay = &entries[0];
+        assert_eq!(overlay["kind"], "overlay");
+        assert_eq!(overlay["name"], "marathon-hud");
+        assert_eq!(overlay["workspace_path"], "overlays/marathon-hud");
+        assert_eq!(overlay["has_preview"], serde_json::Value::Bool(true));
+        // Sidecar surfaces the original struct verbatim.
+        assert_eq!(overlay["sidecar"]["artifact_id"], "ov_test");
+        // Theme row.
+        let theme = entries
+            .iter()
+            .find(|e| e["kind"] == "theme")
+            .expect("theme row");
+        assert_eq!(theme["name"], "synth");
+        assert_eq!(theme["workspace_path"], "themes/synth.css");
+        assert_eq!(theme["widget_count"], serde_json::Value::Null);
+        assert_eq!(theme["sidecar"]["artifact_id"], "ov_test");
+    }
+
+    /// `kind: "overlay"` filter narrows to overlay rows; themes are dropped.
+    #[tokio::test]
+    async fn list_publishables_kind_filter_narrows_results() {
+        let (ctx, _tmp) = make_test_ctx();
+
+        let overlay_dir = ctx.data_dir.join("overlays").join("hud");
+        std::fs::create_dir_all(&overlay_dir).unwrap();
+        std::fs::write(overlay_dir.join("overlay.omni"), b"").unwrap();
+
+        let themes_dir = ctx.data_dir.join("themes");
+        std::fs::create_dir_all(&themes_dir).unwrap();
+        std::fs::write(themes_dir.join("dark.css"), b"").unwrap();
+
+        let msg = json!({
+            "id": "lp-2",
+            "type": "workspace.listPublishables",
+            "params": { "kind": "overlay" },
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        let entries = parsed["params"]["entries"].as_array().expect("entries");
+        assert!(entries.iter().all(|e| e["kind"] == "overlay"));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["name"], "hud");
+    }
+
+    /// Empty workspace produces an empty entries array (no panic, no error).
+    #[tokio::test]
+    async fn list_publishables_empty_workspace_returns_empty() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "lp-3",
+            "type": "workspace.listPublishables",
+            "params": {},
+        });
+        let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        let entries = parsed["params"]["entries"].as_array().expect("entries");
+        assert!(entries.is_empty());
+    }
+
+    /// PackProgress / PackStage / StageStatus serialize to the kebab/lowercase
+    /// strings the renderer Zod schema expects. Locks the contract shape so a
+    /// future serde rename_all change can't silently break the wire.
+    #[test]
+    fn pack_progress_wire_shape_matches_renderer_schema() {
+        let pp = PackProgress {
+            stage: PackStage::ContentSafety,
+            status: StageStatus::Failed,
+            detail: Some("nudity score 0.87".to_string()),
+        };
+        let v = serde_json::to_value(&pp).unwrap();
+        assert_eq!(v["stage"], "content-safety");
+        assert_eq!(v["status"], "failed");
+        assert_eq!(v["detail"], "nudity score 0.87");
+
+        // Stages render as kebab-case for everything that needs a separator.
+        assert_eq!(serde_json::to_value(PackStage::Schema).unwrap(), "schema");
+        assert_eq!(
+            serde_json::to_value(PackStage::Dependency).unwrap(),
+            "dependency"
+        );
+        // Statuses are flat lowercase.
+        assert_eq!(
+            serde_json::to_value(StageStatus::Running).unwrap(),
+            "running"
+        );
+        assert_eq!(serde_json::to_value(StageStatus::Passed).unwrap(), "passed");
     }
 }

@@ -97,13 +97,44 @@ describe('UploadDialog', () => {
   });
 
   it('without a source shows the workspace picker first', async () => {
-    const send = vi.fn(async () => VOCAB_RESULT);
+    // upload-flow-redesign Wave A0 (OWI-34): the source picker now reads
+    // workspace contents via the `workspace.listPublishables` Share-WS RPC
+    // rather than the legacy `file.list` IPC. Tests must mock the new
+    // `useShareWs.send('workspace.listPublishables', ...)` response shape.
+    const send = vi.fn(async (type: string) => {
+      if (type === 'config.vocab') return VOCAB_RESULT;
+      if (type === 'workspace.listPublishables') {
+        return {
+          id: 'r-list',
+          type: 'workspace.listPublishablesResult',
+          params: {
+            entries: [
+              {
+                kind: 'overlay',
+                workspace_path: 'overlays/Default',
+                name: 'Default',
+                widget_count: 1,
+                modified_at: '2026-04-21T00:00:00Z',
+                has_preview: false,
+                sidecar: null,
+              },
+              {
+                kind: 'overlay',
+                workspace_path: 'overlays/Marathon',
+                name: 'Marathon',
+                widget_count: 4,
+                modified_at: '2026-04-21T00:00:00Z',
+                has_preview: false,
+                sidecar: null,
+              },
+            ],
+          },
+        };
+      }
+      throw new Error('unexpected send: ' + type);
+    });
     vi.stubGlobal('omni', {
-      sendMessage: vi.fn(async () => ({
-        type: 'file.list',
-        overlays: ['Default', 'Marathon'],
-        themes: [],
-      })),
+      sendMessage: vi.fn(),
       sendShareMessage: vi.fn(),
       onShareEvent: vi.fn(() => () => {}),
     });

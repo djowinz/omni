@@ -634,6 +634,16 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             | Some("explorer.cancelPreview")
             | Some("explorer.list")
             | Some("explorer.get")
+            // upload-flow-redesign Wave A0 (OWI-34, plan task A0.8-9):
+            // Step 1 source picker calls this RPC instead of `file.list` so it
+            // gets per-row widget count, mtime, preview presence, and sidecar
+            // in a single round-trip. Routed through `dispatch_share_message`
+            // because the handler reads share-side helpers (`read_sidecar`,
+            // the omni parser). One-line wiring fix paired with
+            // `share::ws_messages::handle_list_publishables`; without this
+            // arm the message would fall through to `handle_message`, which
+            // doesn't know the type.
+            | Some("workspace.listPublishables")
     )
 }
 

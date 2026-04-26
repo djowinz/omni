@@ -355,18 +355,37 @@ export const UploadPackResultSchema = z.object({
 });
 export type UploadPackResult = z.infer<typeof UploadPackResultSchema>;
 
-// Oracle: contracts/ws-explorer.md §upload.pack progress (forwarded by main.ts SHARE_EVENT_TYPES)
-// Shipped: crates/host/src/share/progress.rs pump_to_ws() — same shape as publishProgress.
-//          Pack currently runs synchronously without emitting progress; the schema is pre-wired
-//          so Wave-3b #015 can subscribe without a follow-up fixup if/when host emits.
+// Oracle: docs/superpowers/specs/2026-04-21-upload-flow-redesign-design.md §8.8
+// Shipped: crates/host/src/share/ws_messages.rs PackProgress + PackStage + StageStatus
+// Generated TS oracle:
+//   packages/shared-types/src/generated/PackProgress.ts
+//   packages/shared-types/src/generated/PackStage.ts
+//   packages/shared-types/src/generated/StageStatus.ts
+//
+// Replaces the legacy `phase/done/total` pack-progress shape (which never
+// shipped a real emitter — spec §8.8 supersedes it). The Wave A1 pack
+// pipeline emits one frame per pack stage (schema → content-safety → asset
+// → dependency → size) with running/passed/failed status; the renderer's
+// progressive Step 3 UI accumulates these into a per-stage record.
+//
+// `params` IS the `PackProgress` Rust struct (the host wraps it in the
+// standard `{ id, type, params }` envelope at emit time). The kebab-case
+// stage values mirror serde's rename_all; the lowercase status values mirror
+// serde's rename_all = "lowercase".
+export const PackProgressSchema = z.object({
+  stage: z.enum(['schema', 'content-safety', 'asset', 'dependency', 'size']),
+  status: z.enum(['running', 'passed', 'failed']),
+  // ts-rs emits `Option<String>` as `string | null` (not `?:`), so the Zod
+  // schema mirrors that exact wire shape. Required-but-nullable matches the
+  // bidirectional types-test in share-types.types-test.ts.
+  detail: z.string().nullable(),
+});
+export type PackProgress = z.infer<typeof PackProgressSchema>;
+
 export const UploadPackProgressSchema = z.object({
   id: z.string(),
   type: z.literal('upload.packProgress'),
-  params: z.object({
-    phase: z.enum(['pack', 'sanitize']),
-    done: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-  }),
+  params: PackProgressSchema,
 });
 export type UploadPackProgress = z.infer<typeof UploadPackProgressSchema>;
 
@@ -653,6 +672,75 @@ export const ConfigLimitsResultSchema = z.object({
 export type ConfigLimitsResult = z.infer<typeof ConfigLimitsResultSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// workspace.* request params + response shapes
+// (upload-flow-redesign Wave A0 — spec §8.8 + INV-7.1.10)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Oracle: docs/superpowers/specs/2026-04-21-upload-flow-redesign-design.md §8.1
+// Shipped: crates/host/src/share/sidecar.rs PublishSidecar
+// Generated TS oracle: packages/shared-types/src/generated/PublishSidecar.ts
+//
+// On-disk shape of `.omni-publish.json`. The renderer's Step 1 source picker
+// reads `sidecar?.author_pubkey_hex` to decide whether to render the
+// "linked-artifact" banner (INV-7.1.13) and pivot Step 4 into update mode
+// (INV-7.5.*). All four fields are required in the on-disk shape.
+export const PublishSidecarSchema = z.object({
+  artifact_id: z.string(),
+  author_pubkey_hex: z.string(),
+  version: z.string(),
+  last_published_at: z.string(),
+});
+export type PublishSidecar = z.infer<typeof PublishSidecarSchema>;
+
+// Oracle: spec §8.8 + INV-7.1.10
+// Shipped: crates/host/src/share/ws_messages.rs PublishablesEntry
+// Generated TS oracle: packages/shared-types/src/generated/PublishablesEntry.ts
+//
+// One row in the `workspace.listPublishables` response. The renderer's
+// SourceStep renders these directly (no client-side derivation): widget count
+// + modified date drive INV-7.1.10's metadata subtitle, `has_preview` gates
+// the placeholder vs `.omni-preview.png` thumbnail (INV-7.1.9), and
+// `sidecar` drives both the linked-artifact banner (INV-7.1.13) and the
+// pubkey-mismatch warning (INV-7.6.4).
+export const PublishablesEntrySchema = z.object({
+  kind: z.string(),
+  workspace_path: z.string(),
+  name: z.string(),
+  widget_count: z.number().int().nonnegative().nullable(),
+  modified_at: z.string(),
+  has_preview: z.boolean(),
+  sidecar: PublishSidecarSchema.nullable(),
+});
+export type PublishablesEntry = z.infer<typeof PublishablesEntrySchema>;
+
+// Oracle: spec §8.8 + INV-7.1.10
+// Shipped: crates/host/src/share/ws_messages.rs handle_list_publishables() struct P
+//
+// Optional `kind` filter narrows the response to overlays-only or themes-only.
+// Omit / null returns both. Unknown values fall through to "no filter" on the
+// host (defensive — see the handler doc comment).
+export const WorkspaceListPublishablesParamsSchema = z.object({
+  kind: z.enum(['overlay', 'theme']).optional(),
+});
+export type WorkspaceListPublishablesParams = z.infer<
+  typeof WorkspaceListPublishablesParamsSchema
+>;
+
+// Oracle: spec §8.8 + INV-7.1.10
+// Shipped: crates/host/src/share/ws_messages.rs handle_list_publishables() —
+//          emits { id, type: 'workspace.listPublishablesResult', params: { entries } }
+export const WorkspaceListPublishablesResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('workspace.listPublishablesResult'),
+  params: z.object({
+    entries: z.array(PublishablesEntrySchema),
+  }),
+});
+export type WorkspaceListPublishablesResult = z.infer<
+  typeof WorkspaceListPublishablesResultSchema
+>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Type-level request + subscription registries
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -734,6 +822,10 @@ export interface ShareRequestMap {
     params: ConfigLimitsParams;
     result: ConfigLimitsResult;
   };
+  'workspace.listPublishables': {
+    params: WorkspaceListPublishablesParams;
+    result: WorkspaceListPublishablesResult;
+  };
 }
 
 /**
@@ -777,6 +869,7 @@ export const ShareResponseSchemas = {
   'report.submitResult': ReportSubmitResultSchema,
   'config.vocabResult': ConfigVocabResultSchema,
   'config.limitsResult': ConfigLimitsResultSchema,
+  'workspace.listPublishablesResult': WorkspaceListPublishablesResultSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 /** Exhaustive union of every WS response/progress type string a consumer may receive. Useful for discriminated switch statements. */

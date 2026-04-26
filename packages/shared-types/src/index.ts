@@ -33,3 +33,14 @@ export type { Severity } from './generated/Severity';
 export type { CachedArtifactDetail } from './generated/CachedArtifactDetail';
 export type { UploadResult } from './generated/UploadResult';
 export type { UploadStatus } from './generated/UploadStatus';
+
+// --- Upload-flow-redesign Wave A0 wire contracts (crates/host) ---
+// `upload.packProgress` per-stage stream payload (spec §8.8) + the
+// `workspace.listPublishables` per-row shape (INV-7.1.10). Authored alongside
+// the renderer Zod schemas in `apps/desktop/renderer/lib/share-types.ts`;
+// the sidecar types-test there enforces bidirectional assignability.
+export type { PackProgress } from './generated/PackProgress';
+export type { PackStage } from './generated/PackStage';
+export type { StageStatus } from './generated/StageStatus';
+export type { PublishablesEntry } from './generated/PublishablesEntry';
+export type { PublishSidecar } from './generated/PublishSidecar';
