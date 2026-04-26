@@ -644,7 +644,7 @@ fn bootstrap_integration_smoke() {
         .expect("parent of deps/ — should be target/debug/")
         .to_path_buf();
 
-    let ul = match UlRenderer::init(800, 400, &exe_dir) {
+    let ul = match UlRenderer::init(800, 400, None, &exe_dir) {
         Ok(r) => r,
         Err(e) => {
             panic!(

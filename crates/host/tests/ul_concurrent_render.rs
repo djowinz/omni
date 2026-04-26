@@ -70,8 +70,8 @@ fn two_ultralight_renderers_concurrent_no_crash() {
     let tmp_a = TempDir::new().expect("tempdir a");
     let tmp_b = TempDir::new().expect("tempdir b");
 
-    let a = UlRenderer::init(800, 450, &resources).expect("renderer a");
-    let b = UlRenderer::init(800, 450, &resources).expect("renderer b");
+    let a = UlRenderer::init(800, 450, None, &resources).expect("renderer a");
+    let b = UlRenderer::init(800, 450, None, &resources).expect("renderer b");
 
     // Interleave: mount A, mount B, tick A, tick B, tick A, tick B.
     a.mount(tmp_a.path(), trivial_html(), ViewTrust::ThumbnailGen)
