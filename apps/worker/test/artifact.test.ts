@@ -351,6 +351,10 @@ const FIXTURE_SEED = hexToBytes(FIXTURE_SEED_HEX);
 const FIXTURE_PUB = hexToBytes(FIXTURE_PUBKEY_HEX);
 const FIXTURE_DF = hexToBytes(FIXTURE_DF_HEX);
 
+// Minimal valid overlay: sanitize's TOP_LEVEL_ELEMENTS allowlist
+// (crates/bundle/src/omni_schema.rs:19) accepts only <theme>, <config>,
+// <widget>. Use <widget> per the Rust sanitize integration tests at
+// crates/sanitize/tests/handler_overlay.rs.
 const OVERLAY_BYTES = new TextEncoder().encode(
   '<widget><template><div data-sensor="cpu.usage"/></template></widget>',
 );

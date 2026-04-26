@@ -74,6 +74,9 @@ const PUBKEY = hexToBytes(PUBKEY_HEX);
 const DF = hexToBytes(DF_HEX);
 
 // Match fixtures.json "theme-only" entry — tiny overlay + one CSS theme.
+// Sanitize's TOP_LEVEL_ELEMENTS allowlist (crates/bundle/src/omni_schema.rs:19)
+// accepts only <theme>, <config>, <widget>. Use <widget> per the Rust sanitize
+// integration tests at crates/sanitize/tests/handler_overlay.rs.
 const OVERLAY_BYTES = new TextEncoder().encode(
   '<widget><template><div data-sensor="cpu.usage"/></template></widget>',
 );
