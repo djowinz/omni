@@ -1,8 +1,9 @@
-//! Dependency resolver for overlay/theme upload bundling (OWI-40 / Task A1.6).
+//! Dependency resolver for overlay/theme upload bundling (OWI-40 / Task A1.6
+//! + OWI-54 / Task B1.4).
 //!
 //! Spec: docs/superpowers/specs/2026-04-21-upload-flow-redesign-design.md §8.4
-//! steps 1-6, INV-7.8.1, INV-7.8.2, INV-7.8.3, INV-7.8.4 (missing-refs +
-//! unused-files only — content-safety lands in Wave B1.5 / OWI-54).
+//! steps 1-7, INV-7.8.1, INV-7.8.2, INV-7.8.3, INV-7.8.4 (missing-refs +
+//! unused-files + content-safety).
 //!
 //! ## What this resolves
 //!
@@ -15,7 +16,18 @@
 //!   first, then refs in deterministic discovery order.
 //! - `violations`: `MissingRef` for refs whose target isn't in
 //!   `workspace_files`, `UnusedFile` for files under `images/` / `fonts/` or
-//!   referenced theme.css paths that nothing references.
+//!   referenced theme.css paths that nothing references, `ContentSafety` for
+//!   bundled images the local NudeNet ONNX detector flags at or above
+//!   threshold `0.8` (INV-7.7.3).
+//!
+//! ## Content-safety injection point (Wave B1.4)
+//!
+//! Content-safety classification is parameterized via [`ImageModerator`] so
+//! production calls into [`crate::share::moderation::check_image`] and tests
+//! can inject deterministic outcomes without loading the ~12 MB ONNX model.
+//! [`resolve`] is the production entry point and uses the real moderator
+//! gracefully (model-not-loaded ⇒ skip the check). [`resolve_with_moderation`]
+//! takes the closure explicitly for tests.
 //!
 //! ## Reference categories (INV-7.8.1)
 //!
@@ -70,11 +82,11 @@ const OVERLAY_PATH: &str = "overlay.omni";
 /// `ViolationKind` enum (see
 /// `apps/desktop/renderer/components/omni/upload-dialog/steps/packing-violations-card.tsx`).
 ///
-/// `MissingRef` and `UnusedFile` ship in this Wave A1 task. `ContentSafety`
-/// arrives in Wave B1.5 (OWI-54) when `omni-host` integrates the ONNX
-/// moderation crate; the renderer already accepts the third category so
-/// the wire shape doesn't churn later.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `MissingRef` and `UnusedFile` shipped in Wave A1.6 (OWI-40). `ContentSafety`
+/// arrived in Wave B1.4 (OWI-54) when the host integrated the ONNX moderation
+/// crate. `Eq` is intentionally not derived because `ContentSafety::confidence`
+/// is `f32`; tests use `PartialEq` for assertion.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Violation {
     /// Overlay (or a referenced theme.css) references a workspace path that
     /// doesn't exist in the workspace file map. INV-7.8.4 missing-refs.
@@ -84,7 +96,12 @@ pub enum Violation {
     /// vector (spec §7.8.4); rejecting them keeps every shipped byte
     /// reachable from the overlay. INV-7.8.4 unused-files.
     UnusedFile { path: String },
-    // ContentSafety { path, confidence } — added in Wave B1.5 (OWI-54).
+    /// Bundled image flagged by the local NudeNet ONNX detector at or above
+    /// the INV-7.7.3 threshold (`0.8`). `confidence` is the inner
+    /// `unsafe_score` (range `[0.0, 1.0]`) so the renderer can render the
+    /// `"flagged · conf 0.XX"` row reason without re-parsing a string.
+    /// INV-7.7.2 site #2 + INV-7.8.4 content-safety.
+    ContentSafety { path: String, confidence: f32 },
 }
 
 /// Outcome of `resolve`. `bundled_paths` is the deterministic file list the
@@ -114,6 +131,61 @@ pub enum ResolveError {
     InvalidOverlayXml(String),
 }
 
+/// Outcome of a single content-safety classification.
+///
+/// `Skipped` is the model-not-loaded case (`moderation::check_image` returns
+/// `CheckError::NotInitialized` during `cargo test` runs that don't pre-load
+/// the ONNX model). The resolver treats `Skipped` as "no violation" so
+/// integration tests covering missing/unused logic don't need the model
+/// available; production startup loads the model before any pack-time
+/// resolver call so `Skipped` shouldn't surface in shipped flows.
+///
+/// `Safe` and `Rejected` carry the inner `unsafe_score` for diagnostic
+/// logging. `Rejected` becomes a `Violation::ContentSafety { confidence }`
+/// in the result.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ModerationOutcome {
+    /// Inner check returned a sub-threshold score; not a violation.
+    Safe { unsafe_score: f32 },
+    /// Inner check returned a score `>= 0.8` (INV-7.7.3); becomes a
+    /// `Violation::ContentSafety { confidence: unsafe_score }`.
+    Rejected { unsafe_score: f32 },
+    /// The inner moderator can't classify right now (model not loaded,
+    /// inner crate error). Treated as "no violation" to keep the resolver
+    /// useful in test contexts that don't initialize the model.
+    Skipped,
+}
+
+/// Closure shape for content-safety classification. The `path` argument is
+/// the workspace-relative path of the candidate image; the `bytes` slice is
+/// the full file body. Implementations should call into
+/// `moderation::check_image` (production) or return a deterministic outcome
+/// (tests).
+pub type ImageModerator<'a> = dyn Fn(&str, &[u8]) -> ModerationOutcome + 'a;
+
+/// Default content-safety classifier — wraps
+/// [`crate::share::moderation::check_image`] and converts its `CheckResult`
+/// into [`ModerationOutcome`]. `CheckError::NotInitialized` and any other
+/// inner failure decay to [`ModerationOutcome::Skipped`] so a missing model
+/// during tests doesn't fail-fast the resolver.
+pub fn default_moderator(_path: &str, bytes: &[u8]) -> ModerationOutcome {
+    use crate::share::moderation::check_image;
+    match check_image(bytes) {
+        Ok(result) => {
+            if result.rejected {
+                ModerationOutcome::Rejected {
+                    unsafe_score: result.unsafe_score,
+                }
+            } else {
+                ModerationOutcome::Safe {
+                    unsafe_score: result.unsafe_score,
+                }
+            }
+        }
+        Err(_) => ModerationOutcome::Skipped,
+    }
+}
+
 /// Resolve overlay + theme + image + font references against the workspace.
 ///
 /// `workspace_files` is the same map shape `share::upload::walk_bundle`
@@ -124,8 +196,27 @@ pub enum ResolveError {
 /// `workspace_files` does not contain `overlay.omni`. Theme-only artifacts
 /// (no `overlay.omni`) skip the resolver entirely — this entry point is
 /// only invoked for `ArtifactKind::Bundle`.
+///
+/// Content-safety classification (Wave B1.4) routes through
+/// [`default_moderator`] which calls into [`crate::share::moderation`]. The
+/// model-not-loaded path decays to "no violation" so test runs without the
+/// bundled ONNX model still exercise the missing/unused logic. Production
+/// host startup loads the model before any pack call.
 pub fn resolve(
     workspace_files: &BTreeMap<String, Vec<u8>>,
+) -> Result<ResolveResult, ResolveError> {
+    resolve_with_moderation(workspace_files, &default_moderator)
+}
+
+/// Variant of [`resolve`] that takes an explicit content-safety classifier.
+///
+/// Tests inject a deterministic closure to drive `Violation::ContentSafety`
+/// without needing the ~12 MB NudeNet ONNX model file or a real NSFW
+/// fixture. Production calls [`resolve`] which delegates here with
+/// [`default_moderator`].
+pub fn resolve_with_moderation(
+    workspace_files: &BTreeMap<String, Vec<u8>>,
+    moderator: &ImageModerator<'_>,
 ) -> Result<ResolveResult, ResolveError> {
     let overlay_bytes = workspace_files
         .get(OVERLAY_PATH)
@@ -220,6 +311,33 @@ pub fn resolve(
         }
         if is_resource_path(path) {
             violations.push(Violation::UnusedFile { path: path.clone() });
+        }
+    }
+
+    // Step 7 (Wave B1.4 / OWI-54): per-image content-safety classification.
+    // Iterate `bundled` in registration order so violation ordering is
+    // deterministic and matches the order images appear in the overlay /
+    // referenced themes. INV-7.7.2 site #2 + INV-7.8.4 content-safety. Per
+    // INV-7.3.7 + INV-7.8.4, content-safety violations accumulate alongside
+    // missing/unused; no fail-fast inside this stage.
+    for path in bundled.iter() {
+        if !is_image_path(path) {
+            continue;
+        }
+        let Some(bytes) = workspace_files.get(path) else {
+            // Defensive: every entry in `bundled` should also be in
+            // `workspace_files` (we registered it from there). Skip rather
+            // than panic if that invariant ever drifts.
+            continue;
+        };
+        match moderator(path, bytes) {
+            ModerationOutcome::Rejected { unsafe_score } => {
+                violations.push(Violation::ContentSafety {
+                    path: path.clone(),
+                    confidence: unsafe_score,
+                });
+            }
+            ModerationOutcome::Safe { .. } | ModerationOutcome::Skipped => {}
         }
     }
 
@@ -448,6 +566,23 @@ fn is_resource_path(path: &str) -> bool {
     path.starts_with("images/")
         || path.starts_with("fonts/")
         || path.ends_with(".css")
+}
+
+/// Whether a workspace path is an image candidate for the content-safety
+/// pass. Mirrors the spec §7.8 image extensions list (`.png`, `.jpg`,
+/// `.jpeg`, `.webp`). Restricted to entries under `images/` so we don't
+/// accidentally moderate a font or theme CSS that happens to share a
+/// suffix. Case-insensitive on the extension to match Windows authoring
+/// conventions.
+fn is_image_path(path: &str) -> bool {
+    if !path.starts_with("images/") {
+        return false;
+    }
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".webp")
 }
 
 /// Substring scan for `url(...)` values inside a CSS body. Mirrors the

@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-/// One row of the structured dependency-violation payload (OWI-40 / Task A1.6).
+/// One row of the structured dependency-violation payload (OWI-40 / Task A1.6
+/// + OWI-54 / Task B1.4).
 ///
 /// Mirrors the renderer's `PackingViolation` shape (see
 /// `apps/desktop/renderer/components/omni/upload-dialog/steps/packing-violations-card.tsx`)
@@ -19,18 +20,26 @@ use serde::{Deserialize, Serialize};
 ///
 /// Fields:
 /// * `kind` — closed vocabulary `"missing-ref" | "unused-file" |
-///   "content-safety"`. Stays a `String` so the third kind (introduced in
-///   Wave B1.5 / OWI-54 alongside the ONNX moderator) rides the same wire
-///   shape without a contract churn.
+///   "content-safety"`. Stays a `String` so adding a fourth category later
+///   doesn't churn the wire shape.
 /// * `path` — workspace-relative path of the offending file.
 /// * `detail` — optional human-readable reason; the renderer falls back to
-///   a kind-default when absent.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///   a kind-default when absent. For `content-safety` rows this is the
+///   pre-formatted `"flagged · conf 0.XX"` shape the renderer's
+///   `formatContentSafetyDetail` helper expects.
+/// * `confidence` — optional numeric confidence (range `[0.0, 1.0]`) for
+///   `content-safety` rows so consumers don't have to parse `detail`. Other
+///   kinds leave this `None`. Additive field — `Eq`/`Hash`/`PartialEq` are
+///   not impacted because we don't derive `Eq` here (f32 isn't `Eq`); we
+///   keep `PartialEq` for serde-roundtrip tests.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DependencyViolationDetail {
     pub kind: String,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub confidence: Option<f32>,
 }
 
 /// Worker error-kind domain. Mirrors `worker-api.md` §3 "Error categories (D9)".

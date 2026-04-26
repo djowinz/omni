@@ -380,19 +380,32 @@ pub async fn pack_only_with_progress(
 /// Wire-shape conversion from the resolver's internal `Violation` enum to
 /// the `DependencyViolationDetail` struct that crosses the WS boundary.
 /// Keeps the resolver crate-internal and the wire shape decoupled from its
-/// internals — Wave B1.5 / OWI-54 will add the `ContentSafety` arm here
-/// when the moderator lands.
+/// internals.
+///
+/// `ContentSafety` (added by Wave B1.4 / OWI-54) renders the renderer's
+/// expected `"flagged · conf 0.XX"` shape so
+/// `packing-violations-card.tsx::formatContentSafetyDetail` can pass the
+/// detail string through verbatim. The numeric `confidence` is also
+/// surfaced as a sidecar field for consumers that prefer structured access.
 fn violation_to_wire(v: &Violation) -> DependencyViolationDetail {
     match v {
         Violation::MissingRef { path } => DependencyViolationDetail {
             kind: "missing-ref".into(),
             path: path.clone(),
             detail: None,
+            confidence: None,
         },
         Violation::UnusedFile { path } => DependencyViolationDetail {
             kind: "unused-file".into(),
             path: path.clone(),
             detail: None,
+            confidence: None,
+        },
+        Violation::ContentSafety { path, confidence } => DependencyViolationDetail {
+            kind: "content-safety".into(),
+            path: path.clone(),
+            detail: Some(format!("flagged · conf {:.2}", confidence)),
+            confidence: Some(*confidence),
         },
     }
 }
