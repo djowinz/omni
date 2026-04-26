@@ -60,6 +60,7 @@ pub fn build_initial_html(
     hwinfo_values: &HashMap<String, f64>,
     hwinfo_units: &HashMap<String, String>,
     history: &SensorHistory,
+    scale: Option<f64>,
     trust: crate::omni::view_trust::ViewTrust,
 ) -> InitialHtml {
     let bootstrap = crate::omni::js_bootstrap::render_script_tag(trust);
@@ -110,6 +111,18 @@ pub fn build_initial_html(
         widget_css = widget_css,
     );
 
+    // CSS body dimensions are LOGICAL pixels. When a device scale is set,
+    // Ultralight scales rendering by that factor, so the body's logical
+    // viewport is physical / scale. Spec:
+    // docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+    let (vw, vh) = match scale {
+        Some(s) if s > 0.0 => (
+            (viewport_width as f64 / s).round().max(1.0) as u32,
+            (viewport_height as f64 / s).round().max(1.0) as u32,
+        ),
+        _ => (viewport_width, viewport_height),
+    };
+
     let full_document = format!(
         r#"<!DOCTYPE html>
 <html>
@@ -131,8 +144,8 @@ html,body{{width:{vw}px;height:{vh}px;background:transparent;overflow:hidden}}
 </body>
 </html>"#,
         bootstrap = bootstrap,
-        vw = viewport_width,
-        vh = viewport_height,
+        vw = vw,
+        vh = vh,
         chart_css = DEFAULT_CHART_CSS,
     );
 
@@ -1143,6 +1156,7 @@ mod render_tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::LocalAuthored,
         );
         assert!(
@@ -1178,6 +1192,7 @@ mod render_tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::BundleInstalled,
         );
         assert!(
@@ -1313,6 +1328,7 @@ mod render_tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::LocalAuthored,
         );
         assert!(
@@ -1353,6 +1369,7 @@ mod render_tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::LocalAuthored,
         );
         // Sample a handful of well-known icons — if any are missing the class
@@ -1397,6 +1414,7 @@ mod render_tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::LocalAuthored,
         );
 
@@ -1443,6 +1461,7 @@ mod render_tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::LocalAuthored,
         );
 
