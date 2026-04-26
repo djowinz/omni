@@ -30,6 +30,14 @@ export const ShareErrorSchema = z.object({
   kind: z.enum(['Malformed', 'Unsafe', 'Integrity', 'Io', 'Auth', 'Quota', 'Admin', 'HostLocal']),
   detail: z.string().nullable().optional(),
   message: z.string(),
+  // `UploadError::DependencyViolations` carries a structured per-violation
+  // array on the wire envelope (host emits it via `progress.rs::error_envelope`
+  // alongside code/kind/detail/message). Each entry has `kind` (`missing-ref`,
+  // `unused-file`, `content-safety`), `path`, optional `detail` string, and
+  // optional `confidence` (content-safety only). Kept loose-typed here so the
+  // schema doesn't fight forward-compat additions; the renderer's
+  // `extractPackViolations` validates entries via its own predicate before use.
+  violations: z.array(z.record(z.string(), z.unknown())).optional(),
 });
 export type ShareError = z.infer<typeof ShareErrorSchema>;
 
