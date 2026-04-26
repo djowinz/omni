@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { HostManager } from './host-manager';
 import { LogTailer } from './log-tailer';
+import { isAutoStartEnabled, enableAutoStart, disableAutoStart } from './auto-start';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -145,15 +146,19 @@ ipcMain.handle('restart-host', async () => {
   return { success: true };
 });
 
-// Settings: get login item (start with Windows) settings
+// Settings: get / set "Start with Windows" toggle.
+// Backed by a Windows scheduled task (see ./auto-start.ts) — the prior
+// `app.setLoginItemSettings` approach reported the toggle as enabled while
+// Windows ran nothing at logon, because the `Run` registry value was tied to
+// `process.execPath` (dev electron.exe in dev mode; potentially stale after
+// Squirrel/electron-builder updates).
 ipcMain.handle('get-login-item-settings', () => {
-  return app.getLoginItemSettings();
+  return { openAtLogin: isAutoStartEnabled() };
 });
 
-// Settings: set login item (start with Windows) settings
 ipcMain.handle('set-login-item-settings', (_event, openAtLogin: boolean) => {
-  app.setLoginItemSettings({ openAtLogin });
-  return { success: true };
+  const success = openAtLogin ? enableAutoStart() : disableAutoStart();
+  return { success };
 });
 
 // Identity backup: show a native save dialog and write the encrypted bytes

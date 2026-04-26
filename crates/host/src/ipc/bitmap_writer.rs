@@ -4,9 +4,9 @@ use std::ptr;
 use std::sync::atomic::{AtomicU64, AtomicU8};
 
 use shared::{
-    BitmapHeader, BITMAP_IPC_VERSION, BITMAP_SHM_NAME, PIXEL_DATA_OFFSET, TOTAL_SHM_SIZE,
+    total_shm_size, BitmapHeader, BITMAP_IPC_VERSION, BITMAP_SHM_NAME, PIXEL_DATA_OFFSET,
 };
-use tracing::info;
+use tracing::{info, warn};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
     CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_ALL_ACCESS, PAGE_READWRITE,
@@ -16,12 +16,24 @@ pub struct BitmapWriter {
     handle: HANDLE,
     ptr: *mut u8,
     sequence: u64,
+    pixel_capacity_bytes: usize,
 }
 
 unsafe impl Send for BitmapWriter {}
 
 impl BitmapWriter {
-    pub fn create() -> Result<Self, crate::error::HostError> {
+    /// Create the bitmap shared-memory mapping with `pixel_capacity_bytes`
+    /// reserved for pixel data. Caller is responsible for sizing capacity to
+    /// the largest expected bitmap (typically max single-monitor area * BPP).
+    pub fn create(pixel_capacity_bytes: usize) -> Result<Self, crate::error::HostError> {
+        let total = total_shm_size(pixel_capacity_bytes);
+        let total_u32: u32 = total.try_into().map_err(|_| {
+            crate::error::HostError::Message(format!(
+                "bitmap SHM size {} bytes exceeds u32 (CreateFileMappingW low-dword limit)",
+                total
+            ))
+        })?;
+
         let name_wide: Vec<u16> = BITMAP_SHM_NAME
             .encode_utf16()
             .chain(std::iter::once(0))
@@ -33,7 +45,7 @@ impl BitmapWriter {
                 None,
                 PAGE_READWRITE,
                 0,
-                TOTAL_SHM_SIZE as u32,
+                total_u32,
                 windows::core::PCWSTR(name_wide.as_ptr()),
             )
             .map_err(crate::error::HostError::Win32)?
@@ -51,17 +63,18 @@ impl BitmapWriter {
 
         let base = view.Value as *mut u8;
 
-        // Zero-initialize and set version
         unsafe {
-            ptr::write_bytes(base, 0, TOTAL_SHM_SIZE);
+            ptr::write_bytes(base, 0, total);
             let header = &mut *(base as *mut BitmapHeader);
             header.version = BITMAP_IPC_VERSION;
             header.overlay_visible = AtomicU8::new(1);
             header.write_sequence = AtomicU64::new(0);
+            header.pixel_capacity_bytes = pixel_capacity_bytes as u64;
         }
 
         info!(
-            size = TOTAL_SHM_SIZE,
+            total_bytes = total,
+            pixel_capacity_bytes,
             name = BITMAP_SHM_NAME,
             "Bitmap shared memory created"
         );
@@ -70,6 +83,7 @@ impl BitmapWriter {
             handle,
             ptr: base,
             sequence: 0,
+            pixel_capacity_bytes,
         })
     }
 
@@ -84,6 +98,19 @@ impl BitmapWriter {
         pixels: &[u8],
         dirty: (u32, u32, u32, u32),
     ) {
+        let needed = (row_bytes as usize).saturating_mul(height as usize);
+        if needed > self.pixel_capacity_bytes {
+            warn!(
+                needed,
+                capacity = self.pixel_capacity_bytes,
+                width,
+                height,
+                row_bytes,
+                "bitmap exceeds SHM pixel capacity; frame dropped (monitor larger than expected at startup — restart host to resize SHM)"
+            );
+            return;
+        }
+
         let header = unsafe { &mut *(self.ptr as *mut BitmapHeader) };
 
         header.width = width;
@@ -94,12 +121,10 @@ impl BitmapWriter {
         header.dirty_w = dirty.2;
         header.dirty_h = dirty.3;
 
-        // Copy pixel data
         let pixel_dest = unsafe { self.ptr.add(PIXEL_DATA_OFFSET) };
-        let copy_size = (row_bytes * height) as usize;
-        if copy_size <= pixels.len() {
+        if needed <= pixels.len() {
             unsafe {
-                ptr::copy_nonoverlapping(pixels.as_ptr(), pixel_dest, copy_size);
+                ptr::copy_nonoverlapping(pixels.as_ptr(), pixel_dest, needed);
             }
         }
 

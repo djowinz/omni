@@ -3,21 +3,23 @@
 //! The host renders the overlay to a BGRA bitmap via Ultralight and writes
 //! it to shared memory. The DLL/overlay-exe reads the bitmap and blits it
 //! to the game's back buffer.
+//!
+//! The pixel buffer is sized at runtime by the writer based on the largest
+//! single connected monitor (in physical pixels). The writer records the
+//! allocated capacity in `BitmapHeader.pixel_capacity_bytes` so readers can
+//! defensively bound their reads.
 
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 use crate::sensor_types::FrameData;
 
 pub const BITMAP_SHM_NAME: &str = "OmniOverlay_Bitmap";
-pub const BITMAP_IPC_VERSION: u32 = 1;
-
-/// Maximum supported resolution (4K). Determines shared memory allocation size.
-pub const MAX_WIDTH: u32 = 3840;
-pub const MAX_HEIGHT: u32 = 2160;
+/// Wire version. Bumped to 2 when the dynamically-sized pixel buffer +
+/// `pixel_capacity_bytes` field were introduced; previous v1 readers
+/// expected a fixed-size 33 MB pixel buffer with no capacity field.
+pub const BITMAP_IPC_VERSION: u32 = 2;
 /// Bytes per pixel (BGRA).
 pub const BPP: u32 = 4;
-/// Maximum pixel data size: 4K * 4 bytes = ~33 MB.
-pub const MAX_PIXEL_DATA_SIZE: usize = (MAX_WIDTH * MAX_HEIGHT * BPP) as usize;
 
 /// Fixed-size header at the start of shared memory.
 #[repr(C)]
@@ -43,6 +45,11 @@ pub struct BitmapHeader {
     _pad: [u8; 7],
     /// Frame data written by the DLL, read by the host.
     pub dll_frame_data: FrameData,
+    /// Pixel buffer capacity in bytes, set by the writer at SHM creation
+    /// based on the largest connected monitor's physical pixel area * BPP.
+    /// Readers MUST validate `(row_bytes as u64) * (height as u64) <=
+    /// pixel_capacity_bytes` before reading the pixel region.
+    pub pixel_capacity_bytes: u64,
 }
 
 impl BitmapHeader {
@@ -56,11 +63,13 @@ impl BitmapHeader {
     }
 }
 
-/// Total shared memory size: header + max pixel buffer.
-pub const TOTAL_SHM_SIZE: usize = std::mem::size_of::<BitmapHeader>() + MAX_PIXEL_DATA_SIZE;
-
 /// Offset from the start of shared memory where pixel data begins.
 pub const PIXEL_DATA_OFFSET: usize = std::mem::size_of::<BitmapHeader>();
+
+/// Compute total shared memory size for a writer-supplied pixel capacity.
+pub const fn total_shm_size(pixel_capacity_bytes: usize) -> usize {
+    PIXEL_DATA_OFFSET + pixel_capacity_bytes
+}
 
 #[cfg(test)]
 mod tests {
@@ -71,11 +80,6 @@ mod tests {
         let size = std::mem::size_of::<BitmapHeader>();
         // Should be under 256 bytes
         assert!(size < 256, "BitmapHeader is {} bytes", size);
-    }
-
-    #[test]
-    fn total_shm_size_is_under_64mb() {
-        const { assert!(TOTAL_SHM_SIZE < 64 * 1024 * 1024) };
     }
 
     #[test]
@@ -93,6 +97,7 @@ mod tests {
             overlay_visible: AtomicU8::new(1),
             _pad: [0; 7],
             dll_frame_data: FrameData::default(),
+            pixel_capacity_bytes: 0,
         };
         assert!(header.is_visible());
         header.toggle_visible();

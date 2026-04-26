@@ -53,17 +53,17 @@ pub struct EtwFrameMetrics {
     pub available: bool,
 }
 
-impl From<EtwFrameMetrics> for shared::FrameData {
-    fn from(m: EtwFrameMetrics) -> Self {
-        Self {
-            fps: m.fps,
-            frame_time_ms: m.frame_time_ms,
-            frame_time_avg_ms: m.frame_time_avg_ms,
-            frame_time_1percent_ms: m.frame_time_1pct_ms,
-            frame_time_01percent_ms: m.frame_time_01pct_ms,
-            available: m.available,
-            ..Default::default()
-        }
+impl EtwFrameMetrics {
+    /// Merge ETW-measured frame timing into an existing `FrameData`, leaving
+    /// non-ETW fields (notably `render_width` / `render_height` populated by
+    /// the `GetClientRect` path in `main.rs`) untouched.
+    pub fn merge_into(&self, fd: &mut shared::FrameData) {
+        fd.fps = self.fps;
+        fd.frame_time_ms = self.frame_time_ms;
+        fd.frame_time_avg_ms = self.frame_time_avg_ms;
+        fd.frame_time_1percent_ms = self.frame_time_1pct_ms;
+        fd.frame_time_01percent_ms = self.frame_time_01pct_ms;
+        fd.available = self.available;
     }
 }
 

@@ -1,39 +1,66 @@
 import { execSync } from 'child_process';
 import { app } from 'electron';
-import * as path from 'path';
+import {
+  TASK_NAME,
+  buildCreateTaskCommand,
+  buildDeleteTaskCommand,
+  buildQueryTaskCommand,
+} from './auto-start-cmd';
 
-const TASK_NAME = 'OmniOverlay';
-
-/** Check if the auto-start scheduled task exists. */
+/// True if the OmniOverlay scheduled task exists in the current user's task
+/// scheduler.
 export function isAutoStartEnabled(): boolean {
   try {
-    execSync(`schtasks /query /tn "${TASK_NAME}"`, { stdio: 'pipe' });
+    execSync(buildQueryTaskCommand(), { stdio: 'pipe' });
     return true;
   } catch {
     return false;
   }
 }
 
-/** Create a scheduled task to run omni-host.exe --service at user logon. */
+/// Register the Electron app to launch at user logon via Task Scheduler.
+///
+/// The Electron main process auto-spawns `omni-host` (HostManager.start()) and
+/// honors `minimize_to_tray`, so this single registration boots the tray icon,
+/// the UI window (or hidden if minimized-to-tray), and the overlay backend.
 export function enableAutoStart(): boolean {
-  const hostPath = path.join(path.dirname(app.getPath('exe')), 'omni-host.exe');
+  // Clear any legacy `HKCU\…\Run\<productName>` registration left by the
+  // previous Electron-API-based implementation. Without this, users who had
+  // the old toggle enabled would end up with both startup hooks firing — the
+  // Run-key entry typically pointing at a stale path.
+  clearLegacyRunKey();
+
+  const exePath = app.getPath('exe');
   try {
-    execSync(
-      `schtasks /create /tn "${TASK_NAME}" /tr "\\"${hostPath}\\" --service" /sc ONLOGON /rl LIMITED /f`,
-      { stdio: 'pipe' },
-    );
+    execSync(buildCreateTaskCommand(exePath), { stdio: 'pipe' });
     return true;
   } catch {
     return false;
   }
 }
 
-/** Remove the auto-start scheduled task. */
+/// Remove both the scheduled task and any legacy `Run`-key entry, so disabling
+/// the toggle is comprehensive regardless of which mechanism originally
+/// registered the app.
 export function disableAutoStart(): boolean {
+  clearLegacyRunKey();
   try {
-    execSync(`schtasks /delete /tn "${TASK_NAME}" /f`, { stdio: 'pipe' });
+    execSync(buildDeleteTaskCommand(), { stdio: 'pipe' });
     return true;
   } catch {
-    return false;
+    // Task may not exist (already disabled, or never enabled). Treat as
+    // success — the user-visible state is correct: the app does not run at
+    // logon.
+    return true;
   }
 }
+
+function clearLegacyRunKey(): void {
+  try {
+    app.setLoginItemSettings({ openAtLogin: false });
+  } catch {
+    /* best effort */
+  }
+}
+
+export { TASK_NAME };

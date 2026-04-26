@@ -4,7 +4,65 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
+use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
+use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
 use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+/// Primary monitor dimensions in physical pixels.
+///
+/// The host process is marked PerMonitorV2 DPI-aware via `resources/app.manifest`,
+/// so `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)` returns true physical pixels
+/// rather than DPI-virtualized values. Used as the initial Ultralight viewport
+/// before a game window is detected, and as the fallback when the game window's
+/// client rect query is unavailable.
+fn primary_monitor_size() -> (u32, u32) {
+    let (w, h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+    if w > 0 && h > 0 {
+        (w as u32, h as u32)
+    } else {
+        (1920, 1080)
+    }
+}
+
+/// Largest single-monitor pixel area (width × height) across all currently
+/// connected displays, in physical pixels. Used to size the bitmap shared
+/// memory so any game window on any monitor fits without truncation.
+///
+/// Returns 0 if enumeration produces no monitors; caller must apply its own
+/// floor (typically the primary monitor's area or a 4K constant).
+fn max_single_monitor_pixel_area() -> u64 {
+    let mut max_area: u64 = 0;
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            HDC(std::ptr::null_mut()),
+            None,
+            Some(monitor_enum_proc),
+            LPARAM(&mut max_area as *mut u64 as isize),
+        );
+    }
+    max_area
+}
+
+unsafe extern "system" fn monitor_enum_proc(
+    _hmon: HMONITOR,
+    _hdc: HDC,
+    rc: *mut RECT,
+    lparam: LPARAM,
+) -> BOOL {
+    if rc.is_null() || lparam.0 == 0 {
+        return BOOL(1);
+    }
+    let r = &*rc;
+    let w = (r.right - r.left).max(0) as u64;
+    let h = (r.bottom - r.top).max(0) as u64;
+    let area = w * h;
+    let max_ptr = lparam.0 as *mut u64;
+    if area > *max_ptr {
+        *max_ptr = area;
+    }
+    BOOL(1)
+}
 
 use omni::html_builder;
 use serde_json::json;
@@ -446,9 +504,30 @@ fn run_host() {
         }
     };
 
-    // Create bitmap shared memory for Ultralight pixel output
-    let mut bitmap_writer =
-        ipc::BitmapWriter::create().expect("Failed to create bitmap shared memory");
+    // Size the bitmap shared memory for the largest connected monitor's
+    // pixel area. Fallback to the primary monitor's area if enumeration
+    // returns nothing (rare — empty desktop session). The host is DPI-aware
+    // (PerMonitorV2 in resources/app.manifest), so monitor rects are reported
+    // in physical pixels.
+    let max_area = {
+        let enumerated = max_single_monitor_pixel_area();
+        if enumerated > 0 {
+            enumerated
+        } else {
+            let (pw, ph) = primary_monitor_size();
+            (pw as u64) * (ph as u64)
+        }
+    };
+    let pixel_capacity_bytes = (max_area as usize)
+        .checked_mul(shared::BPP as usize)
+        .expect("bitmap pixel capacity overflowed usize");
+    info!(
+        max_area_pixels = max_area,
+        capacity_bytes = pixel_capacity_bytes,
+        "Sizing bitmap SHM for largest connected monitor"
+    );
+    let mut bitmap_writer = ipc::BitmapWriter::create(pixel_capacity_bytes)
+        .expect("Failed to create bitmap shared memory");
 
     // Determine the resources directory (next to the exe, where build.rs copies it)
     let exe_dir = std::env::current_exe()
@@ -456,7 +535,8 @@ fn run_host() {
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let mut ul = ul_renderer::UlRenderer::init(1920, 1080, &exe_dir)
+    let (initial_w, initial_h) = primary_monitor_size();
+    let mut ul = ul_renderer::UlRenderer::init(initial_w, initial_h, &exe_dir)
         .expect("Failed to initialize Ultralight renderer");
 
     // Thumbnail render channel. The `share::thumbnail` pipeline cannot
@@ -478,8 +558,8 @@ fn run_host() {
         let initial = html_builder::build_initial_html(
             &host.omni_file,
             &latest_snapshot,
-            1920,
-            1080,
+            initial_w,
+            initial_h,
             &data_dir,
             &host.current_overlay,
             &hwinfo_values,
@@ -642,12 +722,14 @@ fn run_host() {
             }
         }
 
-        // Merge ETW frame metrics for the most recently spawned external overlay
+        // Merge ETW frame metrics for the most recently spawned external overlay.
+        // Mutates only the timing fields; `render_width`/`render_height` are
+        // populated by the `GetClientRect` path below and must not be reset.
         if let Some(last_pid) = scanner_instance.last_external_pid() {
             if let Some(capture) = etw_captures.get(&last_pid) {
                 let etw_metrics = capture.latest_metrics();
                 if etw_metrics.available {
-                    latest_snapshot.frame = etw_metrics.into();
+                    etw_metrics.merge_into(&mut latest_snapshot.frame);
                 }
             }
         }
@@ -739,6 +821,8 @@ fn run_host() {
                         }
                     }
 
+                    scanner_instance.set_config(new_config.clone());
+
                     config = new_config;
                     // Update hotkey poller if keybind changed
                     if let Some(hk) = hotkey::parse_keybind(&config.keybinds.toggle_overlay) {
@@ -774,12 +858,12 @@ fn run_host() {
             let vw = if latest_snapshot.frame.render_width > 0 {
                 latest_snapshot.frame.render_width
             } else {
-                1920
+                initial_w
             };
             let vh = if latest_snapshot.frame.render_height > 0 {
                 latest_snapshot.frame.render_height
             } else {
-                1080
+                initial_h
             };
             let (hwinfo_values, hwinfo_units) = ws_state
                 .hwinfo_state

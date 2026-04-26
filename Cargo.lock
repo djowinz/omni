@@ -3618,7 +3618,6 @@ dependencies = [
  "omni-guard-trait",
  "semver",
  "sha2",
- "shared",
  "tempfile",
  "tokio",
  "tokio-util",
