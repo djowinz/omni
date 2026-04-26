@@ -432,6 +432,72 @@ fn build_manifest(
             .unwrap_or_else(|| "overlay.omni".to_string()),
     };
 
+    // Populate `resource_kinds` from the file paths so the Worker can correctly
+    // classify the upload as bundle-vs-theme-only (spec §8.7 / OWI-33). Before
+    // this fix, every upload shipped `resource_kinds: None`, and the Worker's
+    // `isThemeOnly()` defaulted absent maps to true — biasing every bundle into
+    // the theme bucket.
+    //
+    // Mapping (matches the kind names declared by the shipped sanitize
+    // handlers — `theme`, `font`, `image`, `overlay`):
+    //   * `overlay.omni`            → "overlay"
+    //   * `*.css`                   → "theme"
+    //   * `fonts/*`                 → "font"
+    //   * `images/*`                → "image"
+    //
+    // Each declared kind carries the same (`dir`, `extensions`, `max_size_bytes`)
+    // shape that the shipped sanitize handlers use as defaults so dispatch in
+    // `omni_sanitize::handlers::dispatch_for_path` keeps resolving the file to
+    // the correct handler. If no file falls into any bucket, return `None` so
+    // the Worker still receives a structurally minimal manifest.
+    let mut resource_kinds: BTreeMap<String, bundle::ResourceKind> = BTreeMap::new();
+    for path in files.keys() {
+        let kind: Option<&'static str> = if path == "overlay.omni" {
+            Some("overlay")
+        } else if path.ends_with(".css") {
+            Some("theme")
+        } else if path.starts_with("fonts/") {
+            Some("font")
+        } else if path.starts_with("images/") {
+            Some("image")
+        } else {
+            None
+        };
+        if let Some(k) = kind {
+            // Idempotent: each kind only needs one declaration regardless of
+            // how many matching files the bundle carries. The values below
+            // mirror the shipped handler defaults in `crates/sanitize/src/handlers/`.
+            resource_kinds.entry(k.into()).or_insert_with(|| match k {
+                "overlay" => bundle::ResourceKind {
+                    dir: String::new(),
+                    extensions: vec!["omni".into()],
+                    max_size_bytes: 131_072,
+                },
+                "theme" => bundle::ResourceKind {
+                    dir: "themes".into(),
+                    extensions: vec!["css".into()],
+                    max_size_bytes: 131_072,
+                },
+                "font" => bundle::ResourceKind {
+                    dir: "fonts".into(),
+                    extensions: vec!["ttf".into(), "otf".into(), "woff2".into()],
+                    max_size_bytes: 1_572_864,
+                },
+                "image" => bundle::ResourceKind {
+                    dir: "images".into(),
+                    extensions: vec!["png".into(), "jpg".into(), "jpeg".into(), "webp".into()],
+                    max_size_bytes: 1_572_864,
+                },
+                _ => unreachable!("kind matched above"),
+            });
+        }
+    }
+    let resource_kinds = if resource_kinds.is_empty() {
+        None
+    } else {
+        Some(resource_kinds)
+    };
+
     Ok(Manifest {
         schema_version: 1,
         name: req.name.clone(),
@@ -444,8 +510,24 @@ fn build_manifest(
         default_theme: None,
         sensor_requirements: vec![],
         files: entries,
-        resource_kinds: None,
+        resource_kinds,
     })
+}
+
+/// Test-only wrapper exposing `build_manifest` to the integration test crate
+/// at `crates/host/tests/build_manifest_resource_kinds.rs` (spec §8.7 / OWI-33).
+///
+/// `#[cfg(test)]` is intentionally NOT used here: integration tests live in a
+/// separate compilation unit that links to the production library, so a
+/// `cfg(test)`-gated symbol is invisible to them. The `_for_test` suffix marks
+/// intent for human readers; production callers always use `build_manifest`
+/// internally via `pack_only`.
+#[doc(hidden)]
+pub fn build_manifest_for_test(
+    req: &UploadRequest,
+    files: &BTreeMap<String, Vec<u8>>,
+) -> Result<Manifest, UploadError> {
+    build_manifest(req, files)
 }
 
 /// Rebuild a manifest with fresh per-file sha256s taken from `files`. The
