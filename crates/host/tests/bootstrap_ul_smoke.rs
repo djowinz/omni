@@ -138,6 +138,7 @@ fn run_group_a(ul: &UlRenderer, failures: &mut Vec<String>) {
         &hv,
         &hu,
         &history,
+        None,
         ViewTrust::LocalAuthored,
     );
 

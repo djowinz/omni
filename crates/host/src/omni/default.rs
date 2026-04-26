@@ -84,6 +84,7 @@ mod tests {
             &hv,
             &hu,
             &history,
+            None,
             ViewTrust::LocalAuthored,
         );
         assert!(rendered.html.contains(r#"data-sensor="cpu.usage""#));
