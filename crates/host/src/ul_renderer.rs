@@ -376,6 +376,65 @@ impl UlRenderer {
         );
     }
 
+    /// Tear down the current view + view_config and create a fresh pair with
+    /// the given dimensions and device scale. Renderer is preserved (process-
+    /// global Ultralight state is not safe to recreate). The fs_dispatcher
+    /// mount handle is dropped before `ulDestroyView` to mirror the Drop-impl
+    /// invariant — see `Drop for UlRenderer` below.
+    ///
+    /// Caller is responsible for re-mounting the live overlay via `mount()`
+    /// afterward; this method leaves the new view empty.
+    ///
+    /// Used by main.rs when the resolved DPI scale changes (per-overlay
+    /// `<dpi-scale>` directive switched, or `Auto` mode game-window-monitor DPI
+    /// changed). Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+    pub fn recreate_view(
+        &mut self,
+        new_width: u32,
+        new_height: u32,
+        device_scale: Option<f64>,
+    ) -> Result<(), String> {
+        // 1. Drop mount handle FIRST — see Drop impl invariant.
+        {
+            let mut slot = self.mount_handle.lock().expect("mount_handle poisoned");
+            let _ = slot.take();
+        }
+        // 2. Tear down view + view_config.
+        unsafe {
+            ultralight_sys::ulDestroyView(self.view);
+            ultralight_sys::ulDestroyViewConfig(self.view_config);
+        }
+        // 3. Build replacement.
+        unsafe {
+            let view_config = ultralight_sys::ulCreateViewConfig();
+            ultralight_sys::ulViewConfigSetIsAccelerated(view_config, false);
+            ultralight_sys::ulViewConfigSetIsTransparent(view_config, true);
+            if let Some(scale) = device_scale {
+                ultralight_sys::ulViewConfigSetInitialDeviceScale(view_config, scale);
+            }
+            let view = ultralight_sys::ulCreateView(
+                self.renderer,
+                new_width,
+                new_height,
+                view_config,
+                std::ptr::null_mut(),
+            );
+            if view.is_null() {
+                ultralight_sys::ulDestroyViewConfig(view_config);
+                return Err("ulCreateView returned null on view recreation".into());
+            }
+            self.view = view;
+            self.view_config = view_config;
+            self.width = new_width;
+            self.height = new_height;
+        }
+        info!(
+            new_width, new_height, ?device_scale,
+            "Ultralight view recreated"
+        );
+        Ok(())
+    }
+
     /// Handle a thumbnail render request on the main thread.
     ///
     /// Saves the currently-mounted live overlay, temporarily mounts the
