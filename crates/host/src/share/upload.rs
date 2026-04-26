@@ -487,7 +487,14 @@ fn classify_sanitize_error(err: &SanitizeError) -> PackStage {
         || lower.contains("structure")
         || lower.contains("schema")
         || lower.contains("envelope")
-        || lower.contains("top-level");
+        || lower.contains("top-level")
+        // overlay.rs::validate_envelope_start emits "<widget> child <foo>
+        // not permitted" / "<config> child <foo/> not permitted" / "<poll>
+        // must be empty/self-closing" for unsupported NESTED elements (depth
+        // 2). These are structural rejections — not URL/content-safety. See
+        // OWI-89 follow-up.
+        || lower.contains("not permitted")
+        || lower.contains("must be");
     if is_schema {
         PackStage::Schema
     } else {
