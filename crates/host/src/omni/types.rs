@@ -6,6 +6,18 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Per-overlay device scale directive parsed from `<dpi-scale value="..."/>`
+/// inside the `<config>` block. `Auto` resolves to the current monitor's DPI
+/// at view creation/recreation time. `Manual(f)` is a literal float in the
+/// range [0.5, 4.0].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
+#[serde(tag = "kind", content = "value", rename_all = "lowercase")]
+pub enum DpiScale {
+    Auto,
+    Manual(f64),
+}
+
 /// A parsed .omni file containing a theme reference and widget definitions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
@@ -14,6 +26,12 @@ pub struct OmniFile {
     pub theme_src: Option<String>,
     /// Per-sensor poll interval configuration (sensor name -> interval in ms).
     pub poll_config: HashMap<String, u64>,
+    /// Per-overlay device scale opt-in. `None` (default, absent in source)
+    /// preserves today's behavior (scale = 1.0). `Some(...)` triggers
+    /// `ulViewConfigSetInitialDeviceScale` on the next view creation +
+    /// CSS-pixel body sizing in `build_initial_html`.
+    #[serde(default)]
+    pub dpi_scale: Option<DpiScale>,
     /// Ordered list of widget definitions.
     pub widgets: Vec<Widget>,
 }
@@ -73,6 +91,7 @@ impl OmniFile {
         Self {
             theme_src: None,
             poll_config: HashMap::new(),
+            dpi_scale: None,
             widgets: Vec::new(),
         }
     }
@@ -87,6 +106,7 @@ mod tests {
         let file = OmniFile {
             theme_src: Some("./themes/dark.css".to_string()),
             poll_config: HashMap::new(),
+            dpi_scale: None,
             widgets: vec![Widget {
                 id: "fps".to_string(),
                 name: "FPS Counter".to_string(),

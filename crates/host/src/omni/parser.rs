@@ -137,6 +137,7 @@ fn parse_omni_with_diagnostics_inner(
         let file = OmniFile {
             theme_src,
             poll_config,
+            dpi_scale: None,
             widgets,
         };
 
