@@ -23,6 +23,7 @@ export type { OmniFile } from './generated/OmniFile';
 export type { Widget } from './generated/Widget';
 export type { HtmlNode } from './generated/HtmlNode';
 export type { ConditionalClass } from './generated/ConditionalClass';
+export type { DpiScale } from './generated/DpiScale';
 
 // --- Parse diagnostics (crates/host) ---
 export type { ParseError } from './generated/ParseError';
