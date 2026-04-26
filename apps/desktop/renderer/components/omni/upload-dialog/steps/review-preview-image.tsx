@@ -141,10 +141,31 @@ export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPrevie
   }, []);
 
   // INV-7.9.2: on mount, query IDB for any previously-stored custom preview.
+  // Errors from `getCustomPreview` are swallowed and the component falls back
+  // to the auto state — the IDB read is opportunistic restoration, not a
+  // correctness gate. Failures here include:
+  //   - jsdom test runs where `indexedDB` isn't defined (integration tests
+  //     for unrelated dialog flows that mount Step 2 — recovery-card,
+  //     sidecar-restore, double-post-guard, etc.). Without this catch each
+  //     such test emits an unhandled rejection that fails vitest's process
+  //     exit even when the test assertions all pass.
+  //   - Production failures (DB locked, quota exceeded, private-mode storage
+  //     denied). The only effect of skipping the read is the user has to
+  //     re-pick their custom preview; auto state remains valid.
+  // Cross-sub-spec note (per invariant #23 / writing-lessons §C7):
+  //   discovered while wiring this component into `review.tsx` for OWI-53
+  //   (Task B1.2). The component shipped under OWI-52 (Task B1.1-3) without
+  //   a guard because its standalone tests vi.mock the IDB module — the
+  //   integration suite, which doesn't mock it, surfaces the missing catch.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const record = await getCustomPreview(overlayPath);
+      let record: Awaited<ReturnType<typeof getCustomPreview>> = null;
+      try {
+        record = await getCustomPreview(overlayPath);
+      } catch {
+        return;
+      }
       if (cancelled || record === null) return;
       const url = URL.createObjectURL(record.blob);
       replaceCustomUrl(url);

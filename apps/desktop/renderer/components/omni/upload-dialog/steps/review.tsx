@@ -6,8 +6,11 @@
  *   2. Version Bump Select (only when `state.mode === 'update'`) —
  *      Patch / Minor / Major; default Patch.
  *   3. Description (optional — NO asterisk)
- *   4. Preview Image slot — placeholder div for Wave A; the real field
- *      lands in Wave B (OWI-52, B1.1–3).
+ *   4. Preview Image — `ReviewPreviewImage` (INV-7.2.4) wired here in
+ *      OWI-53 (Wave B Task B1.2). The component owns its 5-state visual
+ *      machine + IDB persistence + ONNX RPC; this file just threads in
+ *      `overlayPath` (= `selected.workspace_path`) and the auto-preview
+ *      `file://` URL.
  *   5. Tags — `ReviewTagBadges` flex-wrap pills.
  *   6. License — `ReviewLicenseSelect` with optional Custom identifier.
  *   7. Policy Disclosure — `ReviewPolicyDisclosure` block.
@@ -17,6 +20,7 @@
  * stays compatible with `upload-dialog.tsx`'s existing form orchestration.
  */
 
+import type { PublishablesEntry } from '@omni/shared-types';
 import type { UseFormReturn } from 'react-hook-form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +35,7 @@ import {
 import type { UploadFormValues } from '@/lib/upload-form-schema';
 import { ReviewLicenseSelect } from './review-license-select';
 import { ReviewPolicyDisclosure } from './review-policy-disclosure';
+import { ReviewPreviewImage } from './review-preview-image';
 import { ReviewTagBadges } from './review-tag-badges';
 
 /**
@@ -47,8 +52,34 @@ const UPDATE_BUMP_OPTIONS: { value: UploadFormValues['bump']; label: string }[] 
 export interface ReviewProps {
   state: {
     mode: 'create' | 'update';
+    /**
+     * Currently-selected workspace entry. Threaded from the upload machine
+     * (`UploadMachineState.selected`) so the Preview Image field can derive
+     * its IndexedDB key (`workspace_path`) and the auto-generated preview
+     * `file://` URL (gated on `has_preview`). Optional so existing test
+     * harnesses that don't exercise Preview Image can omit it — when
+     * absent or `null`, the slot renders an empty placeholder div instead
+     * of the full `ReviewPreviewImage` (production code always passes the
+     * machine's `state.selected`).
+     */
+    selected?: PublishablesEntry | null;
   };
   form: UseFormReturn<UploadFormValues>;
+}
+
+/**
+ * Resolve the auto-preview `file://` URL for an entry, mirroring the
+ * convention in `source-picker-list-row.tsx`. Returns `null` when the
+ * overlay has no rendered preview yet — the Preview Image field then
+ * shows the zinc-gradient placeholder per INV-7.2.4 default state.
+ *
+ * TODO(upload-flow-redesign §8.3): host RPC will eventually expose an
+ * absolute path resolver for previews; this `__omni_preview__` prefix is
+ * the placeholder convention until that wiring lands.
+ */
+function resolveAutoPreviewSrc(entry: PublishablesEntry | null): string | null {
+  if (!entry || !entry.has_preview) return null;
+  return `file:///__omni_preview__/${entry.workspace_path}/.omni-preview.png`;
 }
 
 export function Review({ state, form }: ReviewProps) {
@@ -122,8 +153,21 @@ export function Review({ state, form }: ReviewProps) {
         ) : null}
       </div>
 
-      {/* Preview Image — owned by Wave B (OWI-52, B1.1-3) */}
-      <div data-testid="review-preview-image-slot" />
+      {/* Preview Image (INV-7.2.4) — wired in OWI-53 / Task B1.2.
+          `overlayPath` is the IDB key for any user-uploaded custom preview;
+          `autoPreviewSrc` is the `file://` URL of the host's save-time
+          rendered `.omni-preview.png` (null when `has_preview === false`,
+          which makes the component fall back to the zinc-gradient AUTO
+          placeholder). When `selected` is `null` (shouldn't happen on
+          Step 2, but typed for safety) the slot stays empty. */}
+      {state.selected ? (
+        <ReviewPreviewImage
+          overlayPath={state.selected.workspace_path}
+          autoPreviewSrc={resolveAutoPreviewSrc(state.selected)}
+        />
+      ) : (
+        <div data-testid="review-preview-image-slot" />
+      )}
 
       {/* Tags */}
       <div className="flex flex-col gap-1.5">
