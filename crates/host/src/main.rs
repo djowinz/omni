@@ -94,9 +94,18 @@ fn resolve_dpi_scale(
 /// since it doesn't pass through `host.omni_file`.
 ///
 /// On `recreate_view` failure, the renderer rolls back to its previous
-/// geometry (see `UlRenderer::recreate_view`'s rollback-on-failure
-/// guarantee). We log a warning and leave `current_dpi_*` untouched so
-/// the next mutator gets another shot.
+/// dimensions WITH NO DEVICE SCALE (see `UlRenderer::recreate_view`'s
+/// rollback-on-failure guarantee). We mirror that reality into
+/// `current_dpi_*` (clearing both) so:
+///   - The renderer's actual state matches the host's tracked state.
+///   - The per-frame `Auto` tracker stops firing for the failed scale
+///     (its gate is `current_dpi_config == Some(Auto)`); the next
+///     overlay-state mutator (switch/reload/WS push) re-reads the
+///     overlay's `dpi_scale` and tries again.
+///
+/// On the no-change branch, `current_dpi_config` is still mirrored so
+/// the per-frame `Auto` tracker reads fresh state even when consecutive
+/// overlays happen to resolve to the same scale.
 ///
 /// Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
 #[allow(clippy::too_many_arguments)]
@@ -111,21 +120,31 @@ fn maybe_recreate_for_scale_change(
     height: u32,
 ) {
     let new_scale = resolve_dpi_scale(new_config, game_hwnd);
-    if new_scale != *current_dpi_scale {
-        match ul.recreate_view(width, height, new_scale) {
-            Ok(()) => {
-                info!(?new_scale, ?new_config, "DPI scale changed; view recreated");
-                *current_dpi_config = new_config;
-                *current_dpi_scale = new_scale;
-                *ul_needs_reload = true;
-            }
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    "view recreation failed; renderer rolled back to previous geometry"
-                );
-                // Don't update current_* — recreate_view rolled back internally.
-            }
+    if new_scale == *current_dpi_scale {
+        // No recreation needed, but still mirror the active overlay's
+        // declared config so the per-frame Auto tracker sees fresh state.
+        *current_dpi_config = new_config;
+        return;
+    }
+    match ul.recreate_view(width, height, new_scale) {
+        Ok(()) => {
+            info!(?new_scale, ?new_config, "DPI scale changed; view recreated");
+            *current_dpi_config = new_config;
+            *current_dpi_scale = new_scale;
+            *ul_needs_reload = true;
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                "view recreation failed; renderer rolled back to no-scale geometry"
+            );
+            // Rollback put the renderer at OLD dims + NO scale per
+            // recreate_view's contract. Reflect that truth and clear the
+            // config so the per-frame Auto tracker stops retrying the
+            // same failed scale. The next overlay mutator will re-read
+            // host.omni_file.dpi_scale and attempt again.
+            *current_dpi_config = None;
+            *current_dpi_scale = None;
         }
     }
 }
@@ -1066,6 +1085,12 @@ fn run_host() {
                     }
                     Err(e) => {
                         warn!(error = %e, "auto DPI view recreation failed; renderer rolled back");
+                        // Mirror the rollback (no-scale geometry) and clear
+                        // the Auto config so this block stops firing for the
+                        // failed scale every frame. The next overlay mutator
+                        // re-reads host.omni_file.dpi_scale and tries again.
+                        current_dpi_config = None;
+                        current_dpi_scale = None;
                     }
                 }
             }
