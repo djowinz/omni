@@ -61,6 +61,7 @@ fn trusted_pipeline_emits_bootstrap_sensor_span_and_values() {
         &hv,
         &hu,
         &history,
+        None,
         ViewTrust::LocalAuthored,
     );
 
@@ -101,6 +102,7 @@ fn untrusted_pipeline_defangs_environment() {
         &hv,
         &hu,
         &history,
+        None,
         ViewTrust::BundleInstalled,
     );
 
@@ -148,4 +150,54 @@ fn class_diff_pipeline_produces_set_classes_call() {
     let js = format_classes_js(&diff).expect("classes js");
     assert!(js.starts_with("__omni_set_classes("));
     assert!(js.contains("sensor-warn"));
+}
+
+#[test]
+fn dpi_scale_manual_2x_emits_logical_body_dims() {
+    use crate::omni::parser::parse_omni;
+    use crate::omni::types::DpiScale;
+
+    let src = r#"<config><dpi-scale value="2.0"/></config>
+<widget id="w" name="W" enabled="true">
+<template><div id="x">hello</div></template>
+<style>#x{color:red;}</style>
+</widget>"#;
+
+    let omni = parse_omni(src).expect("parse");
+    assert_eq!(omni.dpi_scale, Some(DpiScale::Manual(2.0)));
+
+    // Resolve scale the way main.rs does for Manual.
+    let scale: Option<f64> = match omni.dpi_scale {
+        Some(DpiScale::Manual(s)) => Some(s),
+        _ => None,
+    };
+
+    let snap = SensorSnapshot::default();
+    let hv: HashMap<String, f64> = HashMap::new();
+    let hu: HashMap<String, String> = HashMap::new();
+    let history = SensorHistory::new();
+    let initial = build_initial_html(
+        &omni,
+        &snap,
+        3840, // physical_w
+        2160, // physical_h
+        Path::new("."),
+        "test-overlay",
+        &hv,
+        &hu,
+        &history,
+        scale, // C2's new positional arg
+        ViewTrust::LocalAuthored,
+    );
+
+    // Body should be sized to LOGICAL pixels = physical / scale.
+    assert!(
+        initial.full_document.contains("width:1920px"),
+        "expected body width:1920px (3840 / 2.0); body line: {:?}",
+        initial.full_document.lines().find(|l| l.contains("html,body"))
+    );
+    assert!(
+        initial.full_document.contains("height:1080px"),
+        "expected body height:1080px (2160 / 2.0)"
+    );
 }
