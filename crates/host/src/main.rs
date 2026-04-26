@@ -4,9 +4,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
-use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, MonitorFromPoint, HDC, HMONITOR, MONITOR_DEFAULTTOPRIMARY,
+};
 use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
 /// Primary monitor dimensions in physical pixels.
@@ -22,6 +25,108 @@ fn primary_monitor_size() -> (u32, u32) {
         (w as u32, h as u32)
     } else {
         (1920, 1080)
+    }
+}
+
+/// Primary monitor's effective DPI (96 = 100% scaling). Falls back to 96
+/// if `GetDpiForMonitor` returns an error or zero.
+///
+/// Used by `resolve_dpi_scale` when an overlay declares
+/// `<dpi-scale value="auto"/>` and no game window is currently tracked,
+/// or as a fallback when `GetDpiForWindow` returns 0.
+///
+/// Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+fn primary_monitor_dpi() -> u32 {
+    let primary = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+    let mut x_dpi: u32 = 96;
+    let mut y_dpi: u32 = 96;
+    let _ = unsafe { GetDpiForMonitor(primary, MDT_EFFECTIVE_DPI, &mut x_dpi, &mut y_dpi) };
+    if x_dpi == 0 {
+        96
+    } else {
+        x_dpi
+    }
+}
+
+/// Resolve the overlay's `<dpi-scale>` directive against the current
+/// monitor context. Returns the f64 scale to pass to UlRenderer, or `None`
+/// when the overlay opts out (no `<dpi-scale>` directive — preserves
+/// today's behavior).
+///
+/// `Manual(s)` clamps `s` to `[0.5, 4.0]`. `Auto` queries the game window's
+/// monitor DPI via `GetDpiForWindow` (falling back to primary monitor DPI
+/// when no game is tracked or the call returns 0) and divides by 96.
+///
+/// Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+fn resolve_dpi_scale(
+    config: Option<omni_host::omni::types::DpiScale>,
+    game_hwnd: Option<isize>,
+) -> Option<f64> {
+    use omni_host::omni::types::DpiScale;
+    match config {
+        None => None,
+        Some(DpiScale::Manual(s)) => Some(s.clamp(0.5, 4.0)),
+        Some(DpiScale::Auto) => {
+            let dpi = match game_hwnd {
+                Some(h) => {
+                    let hwnd = HWND(h as *mut _);
+                    let d = unsafe { GetDpiForWindow(hwnd) };
+                    if d == 0 {
+                        primary_monitor_dpi()
+                    } else {
+                        d
+                    }
+                }
+                None => primary_monitor_dpi(),
+            };
+            Some(((dpi as f64) / 96.0).clamp(0.5, 4.0))
+        }
+    }
+}
+
+/// Re-resolve the desired DPI scale and recreate the Ultralight view if
+/// it differs from the currently-applied scale. On success, sets
+/// `ul_needs_reload` so the next loop iteration rebuilds HTML and re-mounts.
+///
+/// Called after every overlay-state mutator (`switch_overlay`,
+/// `reload_overlay`, WS push) — anywhere `host.omni_file.dpi_scale` may
+/// have changed. The per-frame Auto tracker has its own dedicated block
+/// since it doesn't pass through `host.omni_file`.
+///
+/// On `recreate_view` failure, the renderer rolls back to its previous
+/// geometry (see `UlRenderer::recreate_view`'s rollback-on-failure
+/// guarantee). We log a warning and leave `current_dpi_*` untouched so
+/// the next mutator gets another shot.
+///
+/// Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+#[allow(clippy::too_many_arguments)]
+fn maybe_recreate_for_scale_change(
+    ul: &mut ul_renderer::UlRenderer,
+    current_dpi_config: &mut Option<omni_host::omni::types::DpiScale>,
+    current_dpi_scale: &mut Option<f64>,
+    ul_needs_reload: &mut bool,
+    new_config: Option<omni_host::omni::types::DpiScale>,
+    game_hwnd: Option<isize>,
+    width: u32,
+    height: u32,
+) {
+    let new_scale = resolve_dpi_scale(new_config, game_hwnd);
+    if new_scale != *current_dpi_scale {
+        match ul.recreate_view(width, height, new_scale) {
+            Ok(()) => {
+                info!(?new_scale, ?new_config, "DPI scale changed; view recreated");
+                *current_dpi_config = new_config;
+                *current_dpi_scale = new_scale;
+                *ul_needs_reload = true;
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "view recreation failed; renderer rolled back to previous geometry"
+                );
+                // Don't update current_* — recreate_view rolled back internally.
+            }
+        }
     }
 }
 
@@ -536,7 +641,18 @@ fn run_host() {
         .unwrap_or_else(|| PathBuf::from("."));
 
     let (initial_w, initial_h) = primary_monitor_size();
-    let mut ul = ul_renderer::UlRenderer::init(initial_w, initial_h, &exe_dir)
+
+    // Per-overlay DPI scale state. `current_dpi_config` mirrors
+    // `host.omni_file.dpi_scale` so the per-frame Auto tracker can
+    // short-circuit without reading host. `current_dpi_scale` is the
+    // resolved f64 last passed to UlRenderer (or its `recreate_view`).
+    // Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+    let mut current_dpi_config: Option<omni_host::omni::types::DpiScale> =
+        host.omni_file.dpi_scale;
+    let mut current_dpi_scale: Option<f64> =
+        resolve_dpi_scale(current_dpi_config, scanner_instance.last_game_hwnd());
+
+    let mut ul = ul_renderer::UlRenderer::init(initial_w, initial_h, current_dpi_scale, &exe_dir)
         .expect("Failed to initialize Ultralight renderer");
 
     // Thumbnail render channel. The `share::thumbnail` pipeline cannot
@@ -565,6 +681,7 @@ fn run_host() {
             &hwinfo_values,
             &hwinfo_units,
             &host.sensor_history,
+            current_dpi_scale,
             crate::omni::ViewTrust::LocalAuthored,
         );
         let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
@@ -650,6 +767,24 @@ fn run_host() {
                 if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                     *overlay = host.current_overlay.clone();
                 }
+                maybe_recreate_for_scale_change(
+                    &mut ul,
+                    &mut current_dpi_config,
+                    &mut current_dpi_scale,
+                    &mut ul_needs_reload,
+                    host.omni_file.dpi_scale,
+                    scanner_instance.last_game_hwnd(),
+                    if ul_viewport_w > 0 {
+                        ul_viewport_w
+                    } else {
+                        initial_w
+                    },
+                    if ul_viewport_h > 0 {
+                        ul_viewport_h
+                    } else {
+                        initial_h
+                    },
+                );
             }
         }
 
@@ -777,6 +912,24 @@ fn run_host() {
         }
         if overlay_changed {
             host.sync_chart_sensor_registrations();
+            maybe_recreate_for_scale_change(
+                &mut ul,
+                &mut current_dpi_config,
+                &mut current_dpi_scale,
+                &mut ul_needs_reload,
+                host.omni_file.dpi_scale,
+                scanner_instance.last_game_hwnd(),
+                if ul_viewport_w > 0 {
+                    ul_viewport_w
+                } else {
+                    initial_w
+                },
+                if ul_viewport_h > 0 {
+                    ul_viewport_h
+                } else {
+                    initial_h
+                },
+            );
         }
 
         // Handle file watcher events (hot-reload)
@@ -792,6 +945,24 @@ fn run_host() {
                     host.reload_overlay();
                     host.sync_chart_sensor_registrations();
                     ul_needs_reload = true;
+                    maybe_recreate_for_scale_change(
+                        &mut ul,
+                        &mut current_dpi_config,
+                        &mut current_dpi_scale,
+                        &mut ul_needs_reload,
+                        host.omni_file.dpi_scale,
+                        scanner_instance.last_game_hwnd(),
+                        if ul_viewport_w > 0 {
+                            ul_viewport_w
+                        } else {
+                            initial_w
+                        },
+                        if ul_viewport_h > 0 {
+                            ul_viewport_h
+                        } else {
+                            initial_h
+                        },
+                    );
                 }
                 watcher::ReloadEvent::Theme => {
                     info!("Theme file changed — reloading");
@@ -819,6 +990,24 @@ fn run_host() {
                         if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                             *overlay = host.current_overlay.clone();
                         }
+                        maybe_recreate_for_scale_change(
+                            &mut ul,
+                            &mut current_dpi_config,
+                            &mut current_dpi_scale,
+                            &mut ul_needs_reload,
+                            host.omni_file.dpi_scale,
+                            scanner_instance.last_game_hwnd(),
+                            if ul_viewport_w > 0 {
+                                ul_viewport_w
+                            } else {
+                                initial_w
+                            },
+                            if ul_viewport_h > 0 {
+                                ul_viewport_h
+                            } else {
+                                initial_h
+                            },
+                        );
                     }
 
                     scanner_instance.set_config(new_config.clone());
@@ -838,6 +1027,48 @@ fn run_host() {
             let bmp_header = unsafe { &*bitmap_writer.header_ptr() };
             bmp_header.toggle_visible();
             info!("Overlay visibility toggled");
+        }
+
+        // Per-frame DPI auto-tracking: when the active overlay declares
+        // `<dpi-scale value="auto"/>`, the resolved scale follows the current
+        // game window's monitor. The view is recreated when the resolved DPI
+        // diverges from what's currently applied. Manual and `None` branches
+        // skip this block (manual is constant; `None` is opt-out).
+        //
+        // Cost is one `GetDpiForWindow` (or `GetDpiForMonitor` fallback) per
+        // frame — microseconds. Recreations only happen on actual divergence.
+        // Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
+        if matches!(
+            current_dpi_config,
+            Some(omni_host::omni::types::DpiScale::Auto)
+        ) {
+            let new_scale =
+                resolve_dpi_scale(current_dpi_config, scanner_instance.last_game_hwnd());
+            if new_scale != current_dpi_scale {
+                let recreate_w = if ul_viewport_w > 0 {
+                    ul_viewport_w
+                } else {
+                    initial_w
+                };
+                let recreate_h = if ul_viewport_h > 0 {
+                    ul_viewport_h
+                } else {
+                    initial_h
+                };
+                match ul.recreate_view(recreate_w, recreate_h, new_scale) {
+                    Ok(()) => {
+                        info!(
+                            ?new_scale,
+                            "DPI scale auto-updated (game monitor changed); view recreated"
+                        );
+                        current_dpi_scale = new_scale;
+                        ul_needs_reload = true;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "auto DPI view recreation failed; renderer rolled back");
+                    }
+                }
+            }
         }
 
         // --- Ultralight: viewport resize ---
@@ -880,6 +1111,7 @@ fn run_host() {
                 &hwinfo_values,
                 &hwinfo_units,
                 &host.sensor_history,
+                current_dpi_scale,
                 crate::omni::ViewTrust::LocalAuthored,
             );
             let overlay_root = workspace::structure::overlay_dir(&data_dir, &host.current_overlay);
