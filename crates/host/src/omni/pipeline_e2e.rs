@@ -191,13 +191,21 @@ fn dpi_scale_manual_2x_emits_logical_body_dims() {
     );
 
     // Body should be sized to LOGICAL pixels = physical / scale.
+    // Anchor the assertion to the html,body rule so unrelated future CSS
+    // additions can't spuriously satisfy a global substring search — guards
+    // against the recurring preview-CSS regression class
+    // (memory: feedback_preview_font_tests.md).
+    let body_line = initial
+        .full_document
+        .lines()
+        .find(|l| l.contains("html,body{"))
+        .expect("html,body rule emitted");
     assert!(
-        initial.full_document.contains("width:1920px"),
-        "expected body width:1920px (3840 / 2.0); body line: {:?}",
-        initial.full_document.lines().find(|l| l.contains("html,body"))
+        body_line.contains("width:1920px"),
+        "expected body width:1920px (3840 / 2.0); got: {body_line}"
     );
     assert!(
-        initial.full_document.contains("height:1080px"),
-        "expected body height:1080px (2160 / 2.0)"
+        body_line.contains("height:1080px"),
+        "expected body height:1080px (2160 / 2.0); got: {body_line}"
     );
 }
