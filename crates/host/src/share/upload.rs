@@ -22,12 +22,10 @@
 //!
 //! * `Schema` → `build_manifest` (manifest construction validates structural
 //!   prerequisites + populates `resource_kinds`).
-//! * `ContentSafety` → `sanitize::sanitize_bundle` first half (CSS URL
-//!   whitelist, overlay XML structural gate, font magic). The host runs
-//!   sanitize as a single call; the ContentSafety + Asset stages are emitted
-//!   around that call as conceptual checkpoints.
-//! * `Asset` → `sanitize::sanitize_bundle` second half (image re-decode +
-//!   PNG re-encode, font ttf-parser check).
+//! * `ContentSafety` → `sanitize::sanitize_bundle` URL/CSS/scheme gates
+//!   (theme + overlay handlers' `@import` ban, `url()` whitelist).
+//! * `Asset` → `sanitize::sanitize_bundle` image + font passes
+//!   (image re-decode + PNG re-encode, font magic + ttf-parser check).
 //! * `Dependency` → `dep_resolver::resolve` (missing-refs + unused-files).
 //!   Wave B1.5 / OWI-54 adds the third category (content-safety / NSFW per
 //!   bundled image).
@@ -36,6 +34,20 @@
 //!   `upload_inner`; the dry-run Step 3 surface re-runs it inside
 //!   `pack_only_with_progress` so the renderer's Step 3 progress UI advances
 //!   all five stages even on dry-run).
+//!
+//! Sanitize is a single atomic call; the overlay handler's
+//! `validate_structure` (allowed-element / DOCTYPE / PI / CDATA / envelope
+//! checks), the theme handler's URL/scheme/`@import` gates, and the image /
+//! font handlers' decode + magic checks all live behind that one call. When
+//! `sanitize_bundle` (or `sanitize_theme`) errors, [`classify_sanitize_error`]
+//! inspects the resulting `SanitizeError` and emits `Failed` for the inferred
+//! stage: `Schema` for structural / envelope errors (so a stray top-level tag
+//! lands on Schema, not ContentSafety), `ContentSafety` for URL / scheme /
+//! `@import` violations, and `Asset` for image / font decode + magic
+//! failures. See OWI-89; OWI-90 tracks the architectural follow-up that
+//! splits `sanitize_bundle` into discrete `validate_structure` /
+//! `validate_content_safety` / `validate_assets` phases so the stages are
+//! real boundaries instead of a post-hoc classification.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,6 +56,7 @@ use std::sync::Arc;
 use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use identity::Keypair;
 use omni_guard_trait::Guard;
+use sanitize::SanitizeError;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -212,13 +225,15 @@ pub async fn pack_only_with_progress(
     emit_stage(progress, PackStage::Schema, StageStatus::Passed, None);
 
     // ── Stage 2 + 3: ContentSafety + Asset ───────────────────────────────
-    // Sanitize is a single call internally; the two stages are conceptual
-    // checkpoints around it. ContentSafety covers CSS-URL whitelist + XML
-    // structural gate; Asset covers image re-decode + font ttf check.
-    // A sanitize failure can map to either stage depending on which handler
-    // raised it, but without parsing the SanitizeError detail we
-    // conservatively attribute the failure to ContentSafety (the first of
-    // the two stages) and skip Asset.
+    // Sanitize is a single atomic call internally (overlay structural gate +
+    // CSS URL whitelist + image re-decode + font magic all live behind one
+    // entry point). The renderer's Step 3 UI splits this into ContentSafety
+    // and Asset rows; we run sanitize once, and on success emit `Passed` for
+    // both stages. On failure, [`classify_sanitize_error`] inspects the
+    // `SanitizeError` and routes `Failed` to whichever stage the underlying
+    // error semantically belongs to (Schema for envelope / structural
+    // errors, ContentSafety for URL / scheme / @import violations, Asset for
+    // image / font decode + magic failures). See OWI-89.
     //
     // Sanitize pre-pack (invariant #7 — never skip). The bytes that the JWS
     // covers MUST be the exact bytes the Worker re-sanitizes and serves;
@@ -245,12 +260,7 @@ pub async fn pack_only_with_progress(
                     (map, serde_json::to_value(report).unwrap_or_default())
                 }
                 Err(e) => {
-                    emit_stage(
-                        progress,
-                        PackStage::ContentSafety,
-                        StageStatus::Failed,
-                        Some(format!("{e}")),
-                    );
+                    emit_sanitize_failure(progress, &e);
                     return Err(UploadError::BadInput {
                         // Display includes the SanitizeError variant + inner detail;
                         // without it the wire envelope just says "sanitize_theme failed"
@@ -265,12 +275,7 @@ pub async fn pack_only_with_progress(
             match sanitize::sanitize_bundle(&manifest, files_raw.clone()) {
                 Ok((out, report)) => (out, serde_json::to_value(report).unwrap_or_default()),
                 Err(e) => {
-                    emit_stage(
-                        progress,
-                        PackStage::ContentSafety,
-                        StageStatus::Failed,
-                        Some(format!("{e}")),
-                    );
+                    emit_sanitize_failure(progress, &e);
                     return Err(UploadError::BadInput {
                         // Display the SanitizeError so the user sees which file /
                         // which limit tripped. Without this the wire only carries
@@ -426,6 +431,85 @@ fn emit_stage(
             detail,
         });
     }
+}
+
+/// Classify a [`SanitizeError`] into the pack stage it logically belongs to.
+///
+/// `sanitize_bundle` / `sanitize_theme` is one atomic call internally — the
+/// overlay handler's structural validator (`validate_structure`), the theme
+/// handler's URL/scheme/`@import` gate, and the image / font handlers' decode
+/// + magic checks all live behind the same entry point. The renderer's
+/// Step 3 UI splits this into Schema / ContentSafety / Asset rows; we infer
+/// which row to flame post-hoc by inspecting the `SanitizeError`.
+///
+/// Heuristic rules (OWI-89):
+///
+/// * Non-`Handler` variants (`Malformed`, `RejectedExecutableMagic`,
+///   `UnknownResourceKind`, `SizeExceeded`) fail before any handler runs and
+///   are structural / dispatch-level errors → `Schema`.
+/// * `Handler { kind: "image" | "font", .. }` is always asset-level (decode
+///   failure, bad magic, dimensions, ttf-parser reject) → `Asset`.
+/// * `Handler { kind: "theme" | "overlay", .. }` is classified by the
+///   `detail` string: substrings like `doctype`, `cdata`, `unexpected`,
+///   `element`, `attribute`, `envelope`, `top-level`, `processing
+///   instruction`, `structure`, `schema` → `Schema`; anything else (URL
+///   scheme, `@import`, traversal, `url(...)` shape) → `ContentSafety`.
+///
+/// OWI-90 tracks the architectural follow-up that splits sanitize into
+/// discrete `validate_structure` / `validate_content_safety` /
+/// `validate_assets` phases so the stages are real boundaries instead of
+/// classified post-hoc.
+fn classify_sanitize_error(err: &SanitizeError) -> PackStage {
+    let (kind, detail) = match err {
+        SanitizeError::Handler { kind, detail, .. } => (*kind, detail.as_str()),
+        // Manifest / executable-magic / unknown-kind / size-exceeded all fail
+        // before per-handler dispatch — semantically schema/dispatch errors.
+        _ => return PackStage::Schema,
+    };
+
+    // Image / font: any handler error is asset-level (decode, magic,
+    // dimensions, ttf-parser).
+    if kind == "image" || kind == "font" {
+        return PackStage::Asset;
+    }
+
+    // Theme / overlay: classify by detail substring. The schema list catches
+    // overlay envelope errors ("unexpected top-level <foo>", "DOCTYPE
+    // disallowed", "envelope depth > 3", `<widget>` child rejection, etc.)
+    // so a stray top-level tag lands on Schema, not ContentSafety.
+    let lower = detail.to_lowercase();
+    let is_schema = lower.contains("doctype")
+        || lower.contains("processing instruction")
+        || lower.contains("cdata")
+        || lower.contains("unexpected")
+        || lower.contains("element")
+        || lower.contains("attribute")
+        || lower.contains("structure")
+        || lower.contains("schema")
+        || lower.contains("envelope")
+        || lower.contains("top-level");
+    if is_schema {
+        PackStage::Schema
+    } else {
+        // Default for theme/overlay handler errors: content-safety. Catches
+        // `@import disallowed`, `disallowed scheme in url()`, `unsafe url()`,
+        // `url() too deep`, `unterminated url()`, plus parse / utf8 fallouts
+        // that aren't structural envelope rejections.
+        PackStage::ContentSafety
+    }
+}
+
+/// Emit a `Failed` frame for the stage [`classify_sanitize_error`] selects.
+///
+/// Note on stage bookkeeping: `pack_only_with_progress` already emitted
+/// `Schema: Passed` and `ContentSafety: Running` before sanitize ran. The
+/// renderer's `use-pack-progress` hook keeps the LAST-seen status per stage,
+/// so a subsequent `Schema: Failed` re-routes the Step 3 UI to the schema-row
+/// failure surface even though Schema was previously marked Passed. The
+/// `pack_stage_classification` integration test locks this behavior in.
+fn emit_sanitize_failure(progress: Option<&dyn PackProgressSink>, err: &SanitizeError) {
+    let stage = classify_sanitize_error(err);
+    emit_stage(progress, stage, StageStatus::Failed, Some(format!("{err}")));
 }
 
 /// Full upload path. `guard` is probe-only (device_id, verify_self_integrity).
