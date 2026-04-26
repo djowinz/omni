@@ -2,6 +2,7 @@
 //! modules via `use omni_host::...`. Integration tests in
 //! `crates/host/tests/*.rs` consume the same library surface.
 
+pub mod atomic;
 pub mod config;
 pub mod error;
 pub mod etw;

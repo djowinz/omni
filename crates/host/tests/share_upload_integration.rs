@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use omni_guard_trait::{Guard, StubGuard};
 use omni_host::share::{
     client::{ListParams, ShareClient, SANITIZE_VERSION},
@@ -106,7 +107,11 @@ async fn happy_path_upload_emits_jws_header_and_progress() {
     let identity = Arc::new(deterministic_keypair());
     let guard = stub_guard();
     let base = Url::parse(&server.uri()).unwrap();
-    let client = Arc::new(ShareClient::new(base, identity.clone(), guard.clone()));
+    // ShareClient holds an Arc<ArcSwap<Keypair>>; mirror the production
+    // wiring that wraps the same keypair Arc so a `.store(...)` against
+    // either side is observable on the other.
+    let identity_swap = Arc::new(ArcSwap::new(identity.clone()));
+    let client = Arc::new(ShareClient::new(base, identity_swap, guard.clone()));
 
     // 4. Drive the upload with a progress channel
     let (tx, mut rx) = mpsc::channel::<UploadProgress>(64);
@@ -182,7 +187,7 @@ async fn rate_limited_retries_once_then_succeeds() {
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
-        identity.clone(),
+        Arc::new(ArcSwap::new(identity.clone())),
         guard.clone(),
     ));
     let (tx, _rx) = mpsc::channel(8);
@@ -219,7 +224,7 @@ async fn auth_bad_signature_is_not_retried() {
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
-        identity.clone(),
+        Arc::new(ArcSwap::new(identity.clone())),
         guard.clone(),
     ));
     let (tx, _rx) = mpsc::channel(8);
@@ -272,7 +277,7 @@ async fn oversized_bundle_returns_bad_input_before_hitting_server() {
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
-        identity.clone(),
+        Arc::new(ArcSwap::new(identity.clone())),
         guard.clone(),
     ));
     let (tx, _rx) = mpsc::channel(8);
@@ -329,7 +334,7 @@ async fn cache_entry_visible_in_followup_list() {
     let guard = stub_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
-        identity.clone(),
+        Arc::new(ArcSwap::new(identity.clone())),
         guard.clone(),
     ));
 

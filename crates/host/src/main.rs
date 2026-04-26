@@ -1330,6 +1330,7 @@ fn build_share_context(
     overlay_name: &str,
     pending_theme_slot: omni_host::share::preview_impl::PendingSlot,
 ) -> Result<omni_host::share::ws_messages::ShareContext, BuildShareCtxError> {
+    use arc_swap::ArcSwap;
     use omni_host::share::client::ShareClient;
     use omni_host::share::preview::{PreviewSlot, ThemeSwap};
     use omni_host::share::preview_impl::ThemeSwapImpl;
@@ -1357,10 +1358,15 @@ fn build_share_context(
     }
     let env_override = std::env::var("OMNI_IDENTITY_PATH").ok();
     let identity_path = resolve_identity_path(&state.data_dir, env_override.as_deref());
-    let identity = Arc::new(
+    // Wrap the loaded keypair in `Arc<ArcSwap<...>>` exactly once. Both
+    // `ShareContext.identity` and the embedded `ShareClient.identity` clone
+    // this same outer Arc — they observe the same swap slot, so a future
+    // identity-rotate call (`ctx.identity.store(new_kp)`) atomically
+    // retargets every signer in the host without re-threading the keypair.
+    let identity = Arc::new(ArcSwap::new(Arc::new(
         identity::Keypair::load_or_create(&identity_path)
             .map_err(BuildShareCtxError::IdentityLoad)?,
-    );
+    )));
 
     // `make_guard()` returns `Box<dyn Guard>`; convert to Arc for ShareContext.
     let guard_box = omni_host::guard::make_guard().map_err(BuildShareCtxError::GuardInit)?;

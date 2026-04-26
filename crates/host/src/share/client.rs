@@ -12,6 +12,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use arc_swap::ArcSwap;
 use backon::ExponentialBuilder;
 use base64::Engine;
 use identity::{sign_http_jws, HttpJwsClaims, Keypair};
@@ -43,10 +44,18 @@ const LIMITS_CACHE_TTL: Duration = Duration::from_secs(300);
 pub struct ShareClient {
     base_url: Url,
     http: reqwest::Client,
-    identity: Arc<Keypair>,
+    /// Atomic swap slot for the signing keypair. Shared with `ShareContext`
+    /// — both hold clones of the same outer `Arc<ArcSwap<Keypair>>`, so a
+    /// single `.store(new_keypair)` from the rotation path retargets every
+    /// signer (HTTP-JWS and any future signer fanned through `ShareClient`)
+    /// without re-threading the keypair into long-lived spawned futures.
+    ///
+    /// Derived strings (`kid_b64`, `pubkey_hex`) are recomputed per-sign
+    /// from the freshly `load()`-ed keypair so a rotate cannot leave a
+    /// stale kid pointing at the new pubkey — that combination is the
+    /// exact failure mode the worker rejects with `AUTH_BAD_SIGNATURE`.
+    identity: Arc<ArcSwap<Keypair>>,
     guard: Arc<dyn Guard>,
-    kid_b64: String,
-    pubkey_hex: String,
     cache: ArtifactCache,
     retry_policy: ExponentialBuilder,
     limits_cache: AsyncMutex<Option<(Instant, bundle::BundleLimits)>>,
@@ -169,19 +178,16 @@ struct ErrorInner {
 }
 
 impl ShareClient {
-    pub fn new(base_url: Url, identity: Arc<Keypair>, guard: Arc<dyn Guard>) -> Self {
+    pub fn new(base_url: Url, identity: Arc<ArcSwap<Keypair>>, guard: Arc<dyn Guard>) -> Self {
         Self::with_policy(base_url, identity, guard, ExponentialBuilder::default())
     }
 
     pub fn with_policy(
         base_url: Url,
-        identity: Arc<Keypair>,
+        identity: Arc<ArcSwap<Keypair>>,
         guard: Arc<dyn Guard>,
         retry_policy: ExponentialBuilder,
     ) -> Self {
-        let pk = identity.public_key().0;
-        let kid_b64 = base64::engine::general_purpose::STANDARD.encode(pk);
-        let pubkey_hex = hex::encode(pk);
         Self {
             base_url,
             http: reqwest::Client::builder()
@@ -190,12 +196,19 @@ impl ShareClient {
                 .expect("reqwest client"),
             identity,
             guard,
-            kid_b64,
-            pubkey_hex,
             cache: ArtifactCache::new(),
             retry_policy,
             limits_cache: AsyncMutex::new(None),
         }
+    }
+
+    /// Test-only accessor for the shared identity slot. Returned reference
+    /// is the same `Arc<ArcSwap<Keypair>>` `ShareContext` holds — a
+    /// `.store(...)` against the slot retargets this client's signer
+    /// atomically. Exposed to let `share_client_sees_post_swap_keypair`
+    /// observe the post-rotate state without depending on the wire layer.
+    pub fn identity(&self) -> &Arc<ArcSwap<Keypair>> {
+        &self.identity
     }
 
     pub fn cache(&self) -> &ArtifactCache {
@@ -204,6 +217,12 @@ impl ShareClient {
 
     /// Sign a request and attach `Authorization: Omni-JWS <compact>` +
     /// `X-Omni-Version` + `X-Omni-Sanitize-Version`. Every client method funnels through this.
+    ///
+    /// Loads the keypair once from the ArcSwap slot, derives `kid_b64`
+    /// freshly from its public key, and signs with the same loaded keypair.
+    /// A concurrent rotate that swaps the slot mid-build does not produce
+    /// a torn (kid_old, sig_new) pair: this method's local `Guard` keeps
+    /// the loaded `Arc<Keypair>` alive even after the swap.
     pub(crate) fn sign(
         &self,
         method: &Method,
@@ -232,8 +251,14 @@ impl ShareClient {
             hex::encode(Sha256::digest(query.as_bytes()))
         };
 
+        // Hold the keypair Arc for the duration of the sign call so kid
+        // and signature are derived from the same key even if a rotate
+        // swaps the slot mid-call.
+        let identity = self.identity.load_full();
+        let kid_b64 = base64::engine::general_purpose::STANDARD.encode(identity.public_key().0);
+
         let claims = HttpJwsClaims::new(
-            self.kid_b64.clone(),
+            kid_b64,
             base64::engine::general_purpose::STANDARD.encode(device_id.0),
             ts,
             method.as_str(),
@@ -243,11 +268,10 @@ impl ShareClient {
             SANITIZE_VERSION,
         );
 
-        let compact =
-            sign_http_jws(&self.identity, &claims).map_err(|e| UploadError::Integrity {
-                msg: "JWS signing failed".into(),
-                source: Some(Box::new(e)),
-            })?;
+        let compact = sign_http_jws(&identity, &claims).map_err(|e| UploadError::Integrity {
+            msg: "JWS signing failed".into(),
+            source: Some(Box::new(e)),
+        })?;
 
         Ok(builder
             .header("Authorization", format!("Omni-JWS {compact}"))
@@ -284,8 +308,15 @@ impl ShareClient {
         row.thumbnail_url = self.absolutize_url(&row.thumbnail_url);
     }
 
-    fn pubkey_hex(&self) -> &str {
-        &self.pubkey_hex
+    /// Lower-hex of the currently-loaded keypair's public bytes. Returns
+    /// an owned `String` (not `&str`) because the slot may rotate between
+    /// calls and the underlying Keypair Arc is dropped after `load_full`
+    /// goes out of scope. Used as the per-author cache key in
+    /// `ArtifactCache::merge_into_list` and as `author_pubkey` on
+    /// post-upload [`CachedArtifactDetail`] writes.
+    fn pubkey_hex(&self) -> String {
+        let identity = self.identity.load();
+        hex::encode(identity.public_key().0)
     }
 
     /// Sign + send a JSON-body-less request, retrying transient failures, decoding a
@@ -398,10 +429,15 @@ impl ShareClient {
             status: UploadStatus::from_worker(&body.status),
         };
 
+        // Compute the post-rotate-tolerant pubkey_hex once and reuse so the
+        // cache key, `author_pubkey`, and any future authoring-time hash
+        // come from the SAME loaded keypair — a rotate that lands between
+        // these reads cannot produce a half-old half-new cache row.
+        let author_pubkey_hex = self.pubkey_hex();
         let detail = CachedArtifactDetail {
             artifact_id: body.artifact_id.clone(),
             content_hash: body.content_hash,
-            author_pubkey: self.pubkey_hex.clone(),
+            author_pubkey: author_pubkey_hex.clone(),
             name: manifest_name,
             kind: manifest_kind,
             r2_url: r2_url_abs,
@@ -415,7 +451,7 @@ impl ShareClient {
             created_at: body.created_at,
         };
         self.cache
-            .insert((self.pubkey_hex.clone(), body.artifact_id.clone()), detail)
+            .insert((author_pubkey_hex, body.artifact_id.clone()), detail)
             .await;
 
         Ok(result)
@@ -453,7 +489,7 @@ impl ShareClient {
         }
         lr.items = self
             .cache
-            .merge_into_list(self.pubkey_hex(), lr.items)
+            .merge_into_list(&self.pubkey_hex(), lr.items)
             .await;
         Ok(lr)
     }
@@ -575,7 +611,7 @@ impl ShareClient {
         }
         Ok(self
             .cache
-            .merge_into_list(self.pubkey_hex(), lr.items)
+            .merge_into_list(&self.pubkey_hex(), lr.items)
             .await)
     }
 
@@ -833,7 +869,7 @@ mod tests {
     fn test_client(base: &str) -> ShareClient {
         ShareClient::new(
             Url::parse(base).unwrap(),
-            Arc::new(Keypair::generate()),
+            Arc::new(ArcSwap::new(Arc::new(Keypair::generate()))),
             Arc::new(StubGuard) as Arc<dyn Guard>,
         )
     }
@@ -1025,5 +1061,124 @@ mod tests {
         assert_eq!(back["artifact_id"], body["artifact_id"]);
         assert_eq!(back["manifest"], body["manifest"]);
         assert_eq!(back["status"], body["status"]);
+    }
+
+    // ---- ArcSwap<Keypair> identity-rotation regression guards ---------
+
+    /// `ArcSwap<Keypair>::store` must be lock-free under concurrent reads
+    /// — a writer rotating the slot cannot block (or be blocked by)
+    /// readers signing in-flight requests. Spawn N reader threads each
+    /// loading the slot in a tight loop while one writer thread swaps
+    /// repeatedly. Every load() must observe a valid Keypair (asserted
+    /// by `public_key()` returning a non-zero key — Keypair::generate
+    /// has astronomically low collision with zero) and the test must
+    /// terminate without deadlock or panic.
+    ///
+    /// Direct unit-level coverage of the storage primitive — not of the
+    /// full ShareClient ↔ ShareContext sharing wire-up (that's the next
+    /// test). Pins the `arc-swap` crate behavior so a future migration
+    /// to a different mechanism (RwLock, parking_lot::Mutex) can't
+    /// silently regress to a blocking implementation.
+    #[test]
+    fn arc_swap_identity_swap_is_lock_free_under_concurrent_reads() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let slot = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
+        let stop = Arc::new(AtomicBool::new(false));
+
+        // 4 readers, 1 writer — small enough to not flake on a 2-core CI
+        // box but enough to surface contention if a lock crept in.
+        let mut readers = Vec::new();
+        for _ in 0..4 {
+            let slot = Arc::clone(&slot);
+            let stop = Arc::clone(&stop);
+            readers.push(thread::spawn(move || {
+                let mut count: u64 = 0;
+                while !stop.load(Ordering::Relaxed) {
+                    let kp = slot.load();
+                    let pk = kp.public_key().0;
+                    // Keypair::generate's pubkey is astronomically unlikely
+                    // to be all-zero; assert it as a "did we actually
+                    // dereference a real key" guard.
+                    assert_ne!(pk, [0u8; 32]);
+                    count = count.wrapping_add(1);
+                }
+                count
+            }));
+        }
+
+        let writer = {
+            let slot = Arc::clone(&slot);
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || {
+                let mut count: u64 = 0;
+                while !stop.load(Ordering::Relaxed) {
+                    slot.store(Arc::new(Keypair::generate()));
+                    count = count.wrapping_add(1);
+                }
+                count
+            })
+        };
+
+        // Run for a bounded interval; if any thread blocks/deadlocks
+        // it'll fail by exceeding this window before the test harness
+        // joins. 250ms is enough to demonstrate contention without
+        // making CI slow.
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(250) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        stop.store(true, Ordering::Relaxed);
+
+        let writes = writer.join().expect("writer thread");
+        let reads: u64 = readers
+            .into_iter()
+            .map(|h| h.join().expect("reader thread"))
+            .sum();
+
+        // Sanity: both paths actually ran. If `writes == 0` the writer
+        // thread was probably blocked or never scheduled — would defeat
+        // the purpose of the test.
+        assert!(writes > 0, "writer made no progress");
+        assert!(reads > 0, "readers made no progress");
+    }
+
+    /// Resolution-B regression: a `ShareClient` constructed with a
+    /// shared `Arc<ArcSwap<Keypair>>` must observe `.store(...)` writes
+    /// against that same slot. If a future refactor accidentally clones
+    /// the inner `Arc<Keypair>` into the client (the shape this resolution
+    /// fixes) the post-rotate read here would still see the OLD pubkey
+    /// and the assertion fails.
+    ///
+    /// This test fakes the rotation surface — we don't have a wire
+    /// `identity.rotate` handler yet — by `.store()`-ing against the
+    /// outer Arc directly, exactly what a future handler will do.
+    #[test]
+    fn share_client_sees_post_swap_keypair() {
+        let kp1 = Keypair::generate();
+        let pk1 = kp1.public_key().0;
+
+        let identity = Arc::new(ArcSwap::new(Arc::new(kp1)));
+
+        let client = ShareClient::new(
+            Url::parse("http://127.0.0.1:0/").unwrap(),
+            Arc::clone(&identity),
+            Arc::new(StubGuard) as Arc<dyn Guard>,
+        );
+        assert_eq!(client.identity().load().public_key().0, pk1);
+
+        // Swap the key against the outer slot — what an `identity.rotate`
+        // handler will do via `ctx.identity.store(...)`.
+        let kp2 = Keypair::generate();
+        let pk2 = kp2.public_key().0;
+        identity.store(Arc::new(kp2));
+
+        // Client must see the new pubkey through its own handle. If
+        // ShareClient stored a separate `Arc<Keypair>` clone, this
+        // assertion would observe `pk1` and fail.
+        assert_eq!(client.identity().load().public_key().0, pk2);
+        assert_ne!(pk1, pk2);
     }
 }

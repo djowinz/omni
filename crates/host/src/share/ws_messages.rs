@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use bundle::{BundleLimits, Tag};
 use identity::{Keypair, PublicKey};
 use omni_guard_trait::Guard;
@@ -41,7 +42,20 @@ use super::upload::{upload, ArtifactKind, UploadRequest};
 /// them without consuming `ShareContext`; fields that mutate across requests
 /// use interior `Mutex`.
 pub struct ShareContext {
-    pub identity: Arc<Keypair>,
+    /// Atomic swap slot for the signing keypair. Shared *by clone* with
+    /// the embedded `ShareClient` — both fields hold the same outer
+    /// `Arc<ArcSwap<Keypair>>`, so a single `.store(new_kp)` from the
+    /// rotate handler retargets every signer (HTTP-JWS for upload/install
+    /// and any future signer routed through `ShareClient`) without
+    /// re-threading the keypair through long-lived spawned futures.
+    ///
+    /// Read sites (`handle_pack`, `handle_publish`, `handle_identity_show`,
+    /// `handle_identity_backup`) do `.load()` to obtain a `Guard<Arc<Keypair>>`
+    /// that derefs to `&Keypair` — they pass that wherever the underlying
+    /// API takes `&Keypair`. Sites that need an owned `Arc<Keypair>`
+    /// (today: `super::upload::upload`) call `.load_full()` to clone the
+    /// inner Arc out of the swap.
+    pub identity: Arc<ArcSwap<Keypair>>,
     pub guard: Arc<dyn Guard>,
     pub client: Arc<ShareClient>,
 
@@ -242,7 +256,11 @@ async fn handle_pack(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
         }
         Err(e) => return Some(error_envelope(id, &e).to_string()),
     };
-    match super::upload::pack_only(&req, &limits, &ctx.identity).await {
+    // `pack_only` takes `&Keypair`. Load once and pass the deref-target
+    // through; the loaded `Guard<Arc<Keypair>>` keeps the keypair alive
+    // even if a rotate swaps the slot mid-pack.
+    let identity = ctx.identity.load_full();
+    match super::upload::pack_only(&req, &limits, &identity).await {
         Ok(pack) => Some(
             json!({
                 "id": id,
@@ -379,14 +397,17 @@ where
         };
         pump_to_ws(&id_cloned, result_type, rx, send_cloned).await
     });
-    let res = upload(
-        req,
-        ctx.guard.clone(),
-        ctx.identity.clone(),
-        ctx.client.clone(),
-        tx,
-    )
-    .await;
+    // `upload` takes an owned `Arc<Keypair>` for its multi-stage path
+    // (pack → sanitize → POST). `load_full` clones the inner Arc out of
+    // the swap so the bundle signing key is captured at the start of
+    // the upload. ShareClient.sign() — which signs the outgoing HTTP
+    // request — reads the same shared swap on every call, so a rotate
+    // mid-upload will desync the JWS kid from the bundle author and the
+    // worker will reject. That's an accepted race: rotation is rare and
+    // user-initiated; aborting in-flight uploads is the expected
+    // semantics.
+    let identity = ctx.identity.load_full();
+    let res = upload(req, ctx.guard.clone(), identity, ctx.client.clone(), tx).await;
     let _ = pump.await;
     if let Err(e) = res {
         send_fn(error_envelope(id, &e).to_string());
@@ -412,7 +433,7 @@ async fn handle_delete(id: &str, params: Value, ctx: &ShareContext) -> Option<St
 }
 
 async fn handle_identity_show(id: &str, ctx: &ShareContext) -> Option<String> {
-    let pk_bytes = ctx.identity.public_key().0;
+    let pk_bytes = ctx.identity.load().public_key().0;
     let pk_hex = hex::encode(pk_bytes);
     // Full fingerprint rendering (hex/words/emoji) is owned by sub-spec #006's
     // surface. Until that API surfaces here, return the pubkey + empty-field
@@ -474,7 +495,7 @@ async fn handle_identity_backup(id: &str, params: Value, ctx: &ShareContext) -> 
     if p.passphrase.is_empty() {
         return Some(bad_input(id, "passphrase must not be empty"));
     }
-    match ctx.identity.export_encrypted(&p.passphrase) {
+    match ctx.identity.load().export_encrypted(&p.passphrase) {
         Ok(encrypted) => Some(
             json!({
                 "id": id,
@@ -1019,7 +1040,11 @@ mod tests {
     /// backing files and must outlive the context.
     fn make_test_ctx() -> (ShareContext, TempDir) {
         let tmp = TempDir::new().expect("tempdir");
-        let kp = Arc::new(Keypair::generate());
+        // Wrap once in `Arc<ArcSwap<Keypair>>` so the test ctx and the
+        // embedded ShareClient share the same swap slot — any future
+        // rotate-style assertion that calls `ctx.identity.store(...)`
+        // observes the change in `ctx.client` too.
+        let kp = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
         let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
         let client = Arc::new(ShareClient::new(
             url::Url::parse("http://localhost:1/").unwrap(),
@@ -1078,7 +1103,7 @@ mod tests {
     #[tokio::test]
     async fn identity_show_returns_pubkey_hex() {
         let (ctx, _tmp) = make_test_ctx();
-        let expected_pk = hex::encode(ctx.identity.public_key().0);
+        let expected_pk = hex::encode(ctx.identity.load().public_key().0);
         let msg = json!({ "id": "r2", "type": "identity.show" });
         let out = dispatch(&ctx, &msg, |_s: String| {}).await.expect("reply");
         let parsed: Value = serde_json::from_str(&out).unwrap();
@@ -1370,7 +1395,7 @@ mod tests {
             .await;
 
         let tmp = TempDir::new().unwrap();
-        let kp = Arc::new(Keypair::generate());
+        let kp = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
         let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
         let client = Arc::new(ShareClient::new(
             url::Url::parse(&format!("{}/", server.uri())).unwrap(),
@@ -1568,7 +1593,7 @@ mod tests {
     /// Mirrors `make_test_ctx` but lets the caller inject a wiremock base.
     fn make_test_ctx_with_base(base: &str) -> (ShareContext, TempDir) {
         let tmp = TempDir::new().expect("tempdir");
-        let kp = Arc::new(Keypair::generate());
+        let kp = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
         let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
         let client = Arc::new(ShareClient::new(
             url::Url::parse(base).expect("base url parse"),

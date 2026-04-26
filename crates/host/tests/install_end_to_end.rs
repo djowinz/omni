@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 
+use arc_swap::ArcSwap;
 use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use std::sync::Arc;
 
@@ -95,7 +96,7 @@ async fn worker_to_host_to_workspace_roundtrip() {
     // ---- 4. Construct the host-side dependencies ---------------------------
     let client = ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
-        Arc::new(Keypair::generate()),
+        Arc::new(ArcSwap::new(Arc::new(Keypair::generate()))),
         Arc::new(StubGuard) as Arc<dyn Guard>,
     );
     let mut tofu = TofuStore::open(app_data.path()).unwrap();

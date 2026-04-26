@@ -8,6 +8,7 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
+arc-swap = "1"
 bundle = { path = "../bundle" }
 host = { package = "host", path = "../host" }
 identity = { path = "../identity" }

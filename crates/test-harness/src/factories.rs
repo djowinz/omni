@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use arc_swap::ArcSwap;
 use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use host::share::cache::CachedArtifactDetail;
 use host::share::client::ShareClient;
@@ -43,7 +44,14 @@ impl ThemeSwap for InertThemeSwap {
 /// guard, and a local-only `wiremock`-compatible `ShareClient` base URL
 /// (`http://127.0.0.1:0/`) that the caller replaces if it spins up a mock.
 pub fn build_share_context(data_dir: &Path) -> ShareContext {
-    let identity = Arc::new(deterministic_keypair());
+    // Production wiring (see `omni-host`'s `build_share_ctx`) wraps the
+    // loaded keypair in `Arc<ArcSwap<Keypair>>` exactly once and clones
+    // the outer Arc into both `ShareContext.identity` and the embedded
+    // `ShareClient.identity` so `ctx.identity.store(...)` retargets every
+    // signer atomically. Mirror that here so tests exercise the same
+    // shape — a test that swaps the slot through `ctx.identity.store`
+    // observes the change in the client too.
+    let identity = Arc::new(ArcSwap::new(Arc::new(deterministic_keypair())));
     let guard: Arc<dyn Guard> = Arc::new(StubGuard);
     let base = Url::parse("http://127.0.0.1:0/").unwrap();
     let client = Arc::new(ShareClient::new(base, identity.clone(), guard.clone()));
