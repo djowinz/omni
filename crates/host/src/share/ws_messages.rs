@@ -1130,11 +1130,14 @@ pub struct PackProgress {
 // `{ unsafe_score, label, rejected }`. Mirrors the existing thumbnail-upload
 // base64 transport pattern so renderer/main IPC stays text-only.
 //
-// Host startup wiring TODO: `share::moderation::init_with_path` is NOT yet
-// called from `main.rs`. Until that lands, the handler returns a
-// `Moderation:NotInitialized` error envelope on every call. Renderer-side
-// tests use a mock for `share.moderationCheck` (the production runtime path
-// will work once the bundled-model startup wiring ships).
+// Host startup wiring (OWI-73): `share::moderation::init_with_path` is called
+// once from `run_host()` in `main.rs` before the WS server starts accepting
+// connections, using the path resolved by `share::moderation::default_model_path()`.
+// Degraded mode: if the bundled `nudenet.onnx` is missing (dev builds without
+// the model staged), startup logs a warning and continues, and this handler
+// returns a `Moderation:NotInitialized` error envelope per request. Renderer-
+// side tests use a mock for `share.moderationCheck`; the production runtime
+// path is live in any installer build that ships the bundled model.
 
 /// Result frame payload emitted by `share.moderationCheck`. Mirrors
 /// `share::moderation::CheckResult` 1-to-1 over the WS boundary; the
