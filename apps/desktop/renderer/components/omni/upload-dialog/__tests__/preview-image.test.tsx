@@ -146,18 +146,16 @@ interface ModerationOutcome {
 }
 
 function stubModerationBridge(outcome: ModerationOutcome) {
-  const sendShareMessage = vi.fn(
-    async (msg: { id: string; type: string; params?: unknown }) => {
-      if (msg.type !== 'share.moderationCheck') {
-        throw new Error(`unexpected sendShareMessage type: ${msg.type}`);
-      }
-      return {
-        id: msg.id,
-        type: 'share.moderationCheckResult',
-        params: outcome,
-      };
-    },
-  );
+  const sendShareMessage = vi.fn(async (msg: { id: string; type: string; params?: unknown }) => {
+    if (msg.type !== 'share.moderationCheck') {
+      throw new Error(`unexpected sendShareMessage type: ${msg.type}`);
+    }
+    return {
+      id: msg.id,
+      type: 'share.moderationCheckResult',
+      params: outcome,
+    };
+  });
   vi.stubGlobal('omni', {
     sendMessage: vi.fn(),
     sendShareMessage,
@@ -243,7 +241,9 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
   it('switches to drag-active state on dragEnter (cyan dashed drop zone)', async () => {
     stubNoBridgeCalls();
     render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
-    await waitFor(() => expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
     const dropzone = screen.getByTestId('review-preview-image-dropzone');
     fireEvent.dragEnter(dropzone, { dataTransfer: { files: [], types: [] } });
     expect(screen.getByTestId('review-preview-image-drag-active')).toBeInTheDocument();
@@ -253,7 +253,9 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
   it('renders the size-error state when the dropped file exceeds 2 MB', async () => {
     stubNoBridgeCalls();
     render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
-    await waitFor(() => expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
     const tooLarge = makeFile('huge.png', 'image/png', 3 * 1024 * 1024);
     await dropFile(tooLarge);
     expect(screen.getByTestId('review-preview-image-error')).toBeInTheDocument();
@@ -267,7 +269,9 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
   it('renders the format-error state when the dropped file has a non-image MIME', async () => {
     stubNoBridgeCalls();
     render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
-    await waitFor(() => expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
     const wrongType = makeFile('shot.gif', 'image/gif', 100 * 1024);
     await dropFile(wrongType);
     expect(screen.getByTestId('review-preview-image-error')).toBeInTheDocument();
@@ -278,7 +282,9 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
   it('renders the moderation-rejection state with amber chrome and INV-7.7.4 copy on ONNX rejection', async () => {
     stubModerationBridge({ unsafe_score: 0.93, label: 'EXPOSED_BREAST', rejected: true });
     render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
-    await waitFor(() => expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
     const file = makeFile('shot.png', 'image/png', 50 * 1024);
     await pickFile(file);
     await waitFor(() =>
@@ -301,7 +307,9 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
   it('persists to IDB and renders the custom-thumbnail state on a clean accept', async () => {
     const send = stubModerationBridge({ unsafe_score: 0.05, label: 'safe', rejected: false });
     render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
-    await waitFor(() => expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
     const file = makeFile('clean.png', 'image/png', 200 * 1024);
     await pickFile(file);
     await waitFor(() =>
@@ -319,7 +327,9 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
   it('removes the IDB entry and reverts to auto state when the X badge is clicked', async () => {
     stubModerationBridge({ unsafe_score: 0.05, label: 'safe', rejected: false });
     render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
-    await waitFor(() => expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
     const file = makeFile('clean.png', 'image/png', 200 * 1024);
     await pickFile(file);
     await waitFor(() =>
@@ -332,9 +342,7 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() =>
-      expect(removeCustomPreviewMock).toHaveBeenCalledWith(OVERLAY_PATH),
-    );
+    await waitFor(() => expect(removeCustomPreviewMock).toHaveBeenCalledWith(OVERLAY_PATH));
     expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument();
   });
 

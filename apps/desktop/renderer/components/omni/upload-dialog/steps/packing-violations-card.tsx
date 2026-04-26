@@ -139,9 +139,7 @@ export function PackingViolationsCard({ violations, onRetry }: PackingViolations
                   <code className="flex-1 truncate font-mono text-[11px] text-[#fecdd3]">
                     {row.path}
                   </code>
-                  <span className="flex-shrink-0 text-[10px] text-[#f43f5e]">
-                    {rowReason(row)}
-                  </span>
+                  <span className="flex-shrink-0 text-[10px] text-[#f43f5e]">{rowReason(row)}</span>
                 </div>
               ))}
             </div>

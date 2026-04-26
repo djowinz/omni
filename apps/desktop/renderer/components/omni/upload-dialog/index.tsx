@@ -157,10 +157,7 @@ export function UploadDialog({
               />
             )}
             {state.step === 'details' && (
-              <Review
-                state={{ mode: state.mode, selected: state.selected }}
-                form={form}
-              />
+              <Review state={{ mode: state.mode, selected: state.selected }} form={form} />
             )}
             {state.step === 'packing' && (
               <Packing

@@ -12,11 +12,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  getCustomPreview,
-  setCustomPreview,
-  removeCustomPreview,
-} from '../custom-preview-store';
+import { getCustomPreview, setCustomPreview, removeCustomPreview } from '../custom-preview-store';
 
 describe('custom-preview-store', () => {
   beforeEach(async () => {

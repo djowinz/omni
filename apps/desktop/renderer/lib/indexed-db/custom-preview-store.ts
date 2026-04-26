@@ -18,13 +18,9 @@ export interface CustomPreviewRecord {
 }
 
 /** Returns the persisted custom preview for `overlayPath`, or `null` if absent. */
-export async function getCustomPreview(
-  overlayPath: string,
-): Promise<CustomPreviewRecord | null> {
+export async function getCustomPreview(overlayPath: string): Promise<CustomPreviewRecord | null> {
   const db = await getDb();
-  const record = (await db.get(STORE_NAME, overlayPath)) as
-    | CustomPreviewRecord
-    | undefined;
+  const record = (await db.get(STORE_NAME, overlayPath)) as CustomPreviewRecord | undefined;
   return record ?? null;
 }
 
