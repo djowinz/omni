@@ -286,7 +286,7 @@ protocol.registerSchemesAsPrivileged([
   },
   {
     scheme: 'omni-preview',
-    privileges: { secure: true, supportFetchAPI: true, bypassCSP: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true },
   },
 ]);
 
@@ -355,9 +355,14 @@ app.on('ready', async () => {
   });
 
   // omni-preview:// — serves save-time preview thumbnails from the host's
-  // data_dir (the Rust host's `config::data_dir()` is `%APPDATA%/Omni`,
-  // which matches Electron's `app.getPath('userData')` because the
-  // electron-builder productName is "Omni"). Renderer call sites:
+  // data_dir. The Rust host writes to `%APPDATA%/Omni/` via the `directories`
+  // crate (`data_dir()/Omni`). Electron's `app.getPath('userData')` resolves
+  // to `%APPDATA%/<app.name>` which is NOT the same — `app.name` comes from
+  // `package.json.name` (`@omni/desktop`) and `electron-builder.yml`'s
+  // `productName: Omni` only affects packaging, NOT userData. So we
+  // construct the host's path explicitly: `<appData>/Omni`.
+  //
+  // Renderer call sites:
   //   - apps/desktop/renderer/components/omni/upload-dialog/steps/source-picker-list-row.tsx
   //   - apps/desktop/renderer/components/omni/upload-dialog/steps/review.tsx
   //
@@ -371,7 +376,7 @@ app.on('ready', async () => {
   // Security: the only allowed segment hosts are 'overlays' and 'themes';
   // the resolved on-disk path must remain inside `<dataDir>/<segment>` or
   // we return 403 (defends against `..` traversal in pathname).
-  const dataDir = app.getPath('userData');
+  const dataDir = path.join(app.getPath('appData'), 'Omni');
   protocol.handle('omni-preview', async (request) => {
     try {
       const url = new URL(request.url);
