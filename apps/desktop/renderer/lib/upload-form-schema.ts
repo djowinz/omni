@@ -12,12 +12,39 @@
 
 import { z } from 'zod';
 
+/**
+ * SPDX license options surfaced in the Step 2 Review License dropdown.
+ *
+ * `Custom` is the escape hatch — when picked, the dialog reveals a free-text
+ * input below the Select that writes into `customLicense`. Spec INV-7.2.6.
+ */
+export const LICENSE_OPTIONS = [
+  { value: 'MIT', label: 'MIT' },
+  { value: 'Apache-2.0', label: 'Apache-2.0' },
+  { value: 'GPL-3.0', label: 'GPL-3.0' },
+  { value: 'BSD-3-Clause', label: 'BSD-3-Clause' },
+  { value: 'CC0-1.0', label: 'CC0-1.0' },
+  { value: 'Custom', label: 'Custom' },
+] as const;
+
+export type LicenseOption = (typeof LICENSE_OPTIONS)[number]['value'];
+
 export const UploadFormSchema = z.object({
   name: z.string().min(1, 'Name is required').max(64, 'Name must be 64 characters or less'),
   bump: z.enum(['patch', 'minor', 'major', 'none']),
+  // Description stays optional (no asterisk in UI) — INV-7.2.3.
   description: z.string().max(500, 'Description must be 500 characters or less').optional(),
   tags: z.array(z.string()).max(10, 'Up to 10 tags').default([]),
+  // `license` carries either an SPDX value from LICENSE_OPTIONS OR the literal
+  // `'Custom'` sentinel; in the latter case the resolved identifier lives in
+  // `customLicense`. Step 2's submit handler is responsible for collapsing the
+  // pair back into the single user-visible license string before posting to
+  // the worker. INV-7.2.6.
   license: z.string().max(64, 'License must be 64 characters or less').optional(),
+  customLicense: z
+    .string()
+    .max(64, 'Custom license must be 64 characters or less')
+    .optional(),
   version: z.string().optional(),
   omni_min_version: z.string().optional(),
 });
@@ -37,6 +64,7 @@ export const DEFAULT_FORM: UploadFormValues = {
   description: '',
   tags: [],
   license: '',
+  customLicense: '',
   // New publishes default to 1.0.0 — the host's upload.publish handler
   // requires a valid semver and the ReviewStep doesn't expose a version
   // field to the user for new uploads (only bump is relevant on update,
