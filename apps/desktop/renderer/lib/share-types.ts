@@ -468,6 +468,46 @@ export const UploadUpdateResultSchema = z.object({
 });
 export type UploadUpdateResult = z.infer<typeof UploadUpdateResultSchema>;
 
+// ── share.moderationCheck ───────────────────────────────────────────────────
+
+// Oracle: docs/superpowers/specs/2026-04-21-upload-flow-redesign-design.md §7.7
+// Shipped: crates/host/src/share/ws_messages.rs handle_moderation_check + ModerationCheckResult
+// Generated TS oracle: packages/shared-types/src/generated/ModerationCheckResult.ts
+//
+// Renderer-initiated single-image moderation gate (INV-7.7.2 site #1). The
+// renderer base64-encodes the user-uploaded Preview Image bytes and sends
+// them to the host; the host runs the bundled NudeNet ONNX detector via
+// `share::moderation::check_image` and returns the precomputed rejection
+// flag (INV-7.7.3 threshold = 0.8 applied host-side). The renderer never
+// reapplies the threshold — it switches into the amber rejection state on
+// `rejected: true` per INV-7.7.4/INV-7.7.5.
+//
+// `unsafe_score` + `label` are surfaced for INV-7.7.6's collapsible detail
+// block (`code Moderation:ClientRejected · detector onnx-nudenet-v1 ·
+// confidence 0.XX`). Sidecar types-test in `share-types.types-test.ts`
+// binds this Zod payload bidirectionally to `RustModerationCheckResult`.
+export const ModerationCheckResultSchema = z.object({
+  unsafe_score: z.number(),
+  label: z.string(),
+  rejected: z.boolean(),
+});
+export type ModerationCheckResult = z.infer<typeof ModerationCheckResultSchema>;
+
+export const ShareModerationCheckParamsSchema = z.object({
+  image_base64: z.string(),
+});
+export type ShareModerationCheckParams = z.infer<typeof ShareModerationCheckParamsSchema>;
+
+// Result frame envelope shape — `{ id, type, params: ModerationCheckResult }`
+// matching the host's `json!({ "id", "type": "share.moderationCheckResult",
+// "params": <result> })` emit path.
+export const ShareModerationCheckResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('share.moderationCheckResult'),
+  params: ModerationCheckResultSchema,
+});
+export type ShareModerationCheckResult = z.infer<typeof ShareModerationCheckResultSchema>;
+
 // ── upload.delete ───────────────────────────────────────────────────────────
 
 // Oracle: contracts/ws-explorer.md §upload.delete params
@@ -826,6 +866,11 @@ export interface ShareRequestMap {
     params: WorkspaceListPublishablesParams;
     result: WorkspaceListPublishablesResult;
   };
+  // Wave B1 — Step 2 Preview Image moderation gate (INV-7.7.2 site #1).
+  'share.moderationCheck': {
+    params: ShareModerationCheckParams;
+    result: ShareModerationCheckResult;
+  };
 }
 
 /**
@@ -870,6 +915,7 @@ export const ShareResponseSchemas = {
   'config.vocabResult': ConfigVocabResultSchema,
   'config.limitsResult': ConfigLimitsResultSchema,
   'workspace.listPublishablesResult': WorkspaceListPublishablesResultSchema,
+  'share.moderationCheckResult': ShareModerationCheckResultSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 /** Exhaustive union of every WS response/progress type string a consumer may receive. Useful for discriminated switch statements. */

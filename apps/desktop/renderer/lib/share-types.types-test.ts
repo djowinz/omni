@@ -11,14 +11,16 @@
 
 import type {
   CachedArtifactDetail as RustCachedArtifactDetail,
+  ModerationCheckResult as RustModerationCheckResult,
   PackProgress as RustPackProgress,
   PublishablesEntry as RustPublishablesEntry,
   PublishSidecar as RustPublishSidecar,
   UploadResult as RustUploadResult,
 } from '@omni/shared-types';
-import { z } from 'zod';
-import {
+import type { z } from 'zod';
+import type {
   CachedArtifactDetailSchema,
+  ModerationCheckResultSchema,
   PackProgressSchema,
   PublishablesEntrySchema,
   PublishSidecarSchema,
@@ -94,6 +96,30 @@ type _PublishablesReverse = RustPublishablesEntry extends z.input<typeof Publish
 const _publishablesForward: _PublishablesForward = true;
 const _publishablesReverse: _PublishablesReverse = true;
 
+// ---- ModerationCheckResult (upload-flow-redesign §7.7) ---------------------
+//
+// Shipped Rust source: crates/host/src/share/ws_messages.rs ModerationCheckResult
+// Generated TS: packages/shared-types/src/generated/ModerationCheckResult.ts
+//
+// The Zod payload schema (the inner `params`) binds bidirectionally to the
+// generated Rust shape. The outer envelope schema
+// (ShareModerationCheckResultSchema) wraps the same payload in the standard
+// `{ id, type, params }` frame and is validated by `useShareWs.send` at
+// runtime; the frame shape is local to the WS protocol and not part of the
+// cross-boundary type contract.
+
+type _ModerationForward = z.infer<typeof ModerationCheckResultSchema> extends RustModerationCheckResult
+  ? true
+  : never;
+type _ModerationReverse = RustModerationCheckResult extends z.input<
+  typeof ModerationCheckResultSchema
+>
+  ? true
+  : never;
+
+const _moderationForward: _ModerationForward = true;
+const _moderationReverse: _ModerationReverse = true;
+
 // Silence "unused" warnings — these declarations exist purely for their
 // type-level side effects.
 export const __typeTestSentinels = {
@@ -107,4 +133,6 @@ export const __typeTestSentinels = {
   _sidecarReverse,
   _publishablesForward,
   _publishablesReverse,
+  _moderationForward,
+  _moderationReverse,
 };

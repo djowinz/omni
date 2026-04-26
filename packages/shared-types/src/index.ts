@@ -44,3 +44,9 @@ export type { PackStage } from './generated/PackStage';
 export type { StageStatus } from './generated/StageStatus';
 export type { PublishablesEntry } from './generated/PublishablesEntry';
 export type { PublishSidecar } from './generated/PublishSidecar';
+
+// --- Upload-flow-redesign Wave B1 wire contracts (crates/host) ---
+// `share.moderationCheck` result payload (INV-7.7.2 site #1). Authored alongside
+// the renderer Zod schema in `apps/desktop/renderer/lib/share-types.ts`; the
+// sidecar types-test there enforces bidirectional assignability.
+export type { ModerationCheckResult } from './generated/ModerationCheckResult';

@@ -219,6 +219,12 @@ where
         "explorer.list" => handle_list(&id, params, ctx).await,
         "explorer.get" => handle_get(&id, params, ctx).await,
         "workspace.listPublishables" => handle_list_publishables(&id, params, ctx).await,
+        // Renderer-initiated single-image moderation gate (INV-7.7.2 site #1).
+        // Fed by Step 2's Preview Image accept path; the renderer base64-
+        // encodes the image bytes (matches the existing thumbnail-upload
+        // pattern). The host singleton from `share::moderation` runs the
+        // ONNX detector and returns the precomputed rejection flag.
+        "share.moderationCheck" => handle_moderation_check(&id, params).await,
         _ => None,
     }
 }
@@ -1109,6 +1115,123 @@ pub struct PackProgress {
     pub stage: PackStage,
     pub status: StageStatus,
     pub detail: Option<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// upload-flow-redesign Wave B1 — `share.moderationCheck` RPC
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Spec: INV-7.7.2 site #1 (Step 2 Preview Image accept), INV-7.7.3 (threshold
+// 0.8 — applied inside `share::moderation::check_image`), INV-7.7.4 (rejection
+// copy + amber chrome owned renderer-side).
+//
+// Wire shape: renderer sends `{ image_base64: String }`; host base64-decodes,
+// calls the process-global moderation singleton, and returns
+// `{ unsafe_score, label, rejected }`. Mirrors the existing thumbnail-upload
+// base64 transport pattern so renderer/main IPC stays text-only.
+//
+// Host startup wiring TODO: `share::moderation::init_with_path` is NOT yet
+// called from `main.rs`. Until that lands, the handler returns a
+// `Moderation:NotInitialized` error envelope on every call. Renderer-side
+// tests use a mock for `share.moderationCheck` (the production runtime path
+// will work once the bundled-model startup wiring ships).
+
+/// Result frame payload emitted by `share.moderationCheck`. Mirrors
+/// `share::moderation::CheckResult` 1-to-1 over the WS boundary; the
+/// host wraps this in the standard `{ id, type, params }` envelope.
+///
+/// `unsafe_score` is the raw maximum unsafe-class confidence in `[0.0, 1.0]`
+/// — surfaced for INV-7.7.6's collapsible detail block (`code
+/// Moderation:ClientRejected · detector onnx-nudenet-v1 · confidence 0.XX`).
+/// `label` is the triggering NudeNet class name or `"safe"`. `rejected` is
+/// the precomputed `unsafe_score >= REJECTION_THRESHOLD (0.8)` per
+/// INV-7.7.3 — the renderer never reapplies the threshold.
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
+pub struct ModerationCheckResult {
+    pub unsafe_score: f32,
+    pub label: String,
+    pub rejected: bool,
+}
+
+async fn handle_moderation_check(id: &str, params: Value) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    #[derive(Deserialize)]
+    struct P {
+        image_base64: String,
+    }
+
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad share.moderationCheck params: {e}"))),
+    };
+
+    let bytes = match STANDARD.decode(&p.image_base64) {
+        Ok(b) => b,
+        Err(e) => return Some(bad_input(id, format!("invalid base64 image_base64: {e}"))),
+    };
+
+    // `share::moderation::check_image` runs the inner ONNX inference under
+    // the singleton mutex (per architectural invariant #24's documented
+    // ownership in `share::moderation`). Done on the WS task — the model
+    // load happens once at startup; per-call inference is bounded by the
+    // 50–150 ms NudeNet detector latency. If the upload pipeline ever
+    // batches multiple checks, the singleton's `Mutex` serializes them.
+    match super::moderation::check_image(&bytes) {
+        Ok(result) => {
+            let payload = ModerationCheckResult {
+                unsafe_score: result.unsafe_score,
+                label: result.label,
+                rejected: result.rejected,
+            };
+            Some(
+                json!({
+                    "id": id,
+                    "type": "share.moderationCheckResult",
+                    "params": payload,
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => {
+            // Surface `NotInitialized` and `LockPoisoned` as Admin-kind so
+            // the renderer treats them as host-config faults, not user-input
+            // errors. Inner moderation errors (bad image bytes, unexpected
+            // tensor shape) ride as Malformed.
+            let (code, kind, message) = match &e {
+                super::moderation::CheckError::NotInitialized => (
+                    "Moderation:NotInitialized",
+                    "Admin",
+                    "Moderation model not initialized; host startup did not load the bundled detector",
+                ),
+                super::moderation::CheckError::LockPoisoned => (
+                    "Moderation:LockPoisoned",
+                    "Admin",
+                    "Moderation model lock poisoned; host restart required",
+                ),
+                super::moderation::CheckError::Inner(_) => (
+                    "Moderation:InvalidImage",
+                    "Malformed",
+                    "Moderation inference failed for the provided image bytes",
+                ),
+            };
+            Some(
+                json!({
+                    "id": id,
+                    "type": "error",
+                    "error": {
+                        "code": code,
+                        "kind": kind,
+                        "detail": e.to_string(),
+                        "message": message,
+                    }
+                })
+                .to_string(),
+            )
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
