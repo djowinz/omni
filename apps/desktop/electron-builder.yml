@@ -1,6 +1,9 @@
 appId: com.omni.desktop
 productName: Omni
 extraResources:
+  # Bulk-copy the entire `apps/desktop/resources/` tree into the install root.
+  # This sweeps up `resources/moderation/nudenet.onnx` (NudeNet 320n v3.4
+  # detector — INV-7.7.1, spec §8.5) without needing an explicit entry.
   - from: 'resources/'
     to: '.'
 directories:
@@ -43,6 +46,14 @@ extraFiles:
     to: 'feather.ttf'
   - from: '../../crates/host/resources/feather.css'
     to: 'feather.css'
+  # ONNX Runtime DirectML EP runtime DLL — pyke's `download-binaries` build
+  # script (activated via the `moderation` crate's `ort` feature flags)
+  # symlinks this into target/release alongside omni-host.exe. See OWI-49 /
+  # Wave 0.2 ort POC report (`docs/superpowers/specs/upload-flow-redesign-mockups/notes/0.2-ort-msvc.md`).
+  # Win10 1903+ ships a system copy in System32 but we bundle the pinned
+  # version for determinism.
+  - from: '../../target/release/DirectML.dll'
+    to: 'DirectML.dll'
   # Admin elevation manifest
   - from: 'installer/Omni.exe.manifest'
     to: 'Omni.exe.manifest'

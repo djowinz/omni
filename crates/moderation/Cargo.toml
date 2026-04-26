@@ -1,0 +1,36 @@
+[package]
+name = "moderation"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# ort feature flags pinned to the working set from the Wave 0.2 POC
+# (`docs/superpowers/specs/upload-flow-redesign-mockups/notes/0.2-ort-msvc.md`):
+#  - `=2.0.0-rc.12`     exact pin to the version the POC validated
+#  - default-features=false drops `tracing` (we use our own) + `tls-native`
+#  - `std` + `ndarray`  required for tensor I/O
+#  - `download-binaries` only working build path on MSVC (`load-dynamic` is
+#                       broken in rc.12 — see POC §2)
+#  - `tls-rustls`       avoids native-tls/schannel pull-in for the build-script
+#                       CDN fetch
+#  - `copy-dylibs`      auto-copies pyke's pinned `DirectML.dll` into
+#                       `target/release/` so electron-builder can pick it up
+#  - `api-24`           matches the bundled ORT 1.24.2 ABI
+[dependencies]
+ort = { version = "=2.0.0-rc.12", default-features = false, features = [
+    "std",
+    "ndarray",
+    "download-binaries",
+    "tls-rustls",
+    "copy-dylibs",
+    "api-24",
+] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Match ort 2.0.0-rc.12's transitive ndarray pin so `Tensor::from_array` accepts
+# the same `Array4<f32>` we construct for inputs (ort's `OwnedTensorArrayData`
+# impl is bound to its own ndarray version).
+ndarray = "0.17"
+thiserror = "1"
+
+[dev-dependencies]
+# nothing extra; tests only need std + the crate's public API.
