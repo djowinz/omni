@@ -152,30 +152,45 @@ interface Manifest {
   tags?: string[];
   license?: string;
   omni_min_version: string;
-  resource_kinds?: Record<string, unknown>;
+  // OWI-59: WASM (`apps/worker/src/lib/wasm.ts`) returns this as a JS `Map`
+  // (serde-wasm-bindgen serializes Rust `BTreeMap` as `Map`). Tests and any
+  // future plain-JSON callsites pass `Record`. `isThemeOnly` handles both.
+  resource_kinds?: Record<string, unknown> | Map<string, unknown>;
   [k: string]: unknown;
 }
 
 /**
  * Classify a manifest as theme-only for rate-limit-bucket selection.
  *
- * Returns `true` ONLY when `resource_kinds` is a non-empty object whose every
- * key is `"theme"`. Missing / null / non-object / empty `resource_kinds`
- * returns `false` — the caller (host) is responsible for populating
- * `resource_kinds`; absence is NOT theme-only-by-default (would mis-bucket
- * non-theme bundles into the lighter quota).
+ * Returns `true` ONLY when `resource_kinds` is a non-empty container whose
+ * every key is `"theme"`. Missing / null / non-object / empty
+ * `resource_kinds` returns `false` — the caller (host) is responsible for
+ * populating `resource_kinds`; absence is NOT theme-only-by-default (would
+ * mis-bucket non-theme bundles into the lighter quota).
  *
  * Pre-2026-04-25 behavior was the inverse on the missing/empty branches and
  * silently biased every host that hadn't populated `resource_kinds` into the
  * theme bucket. The host fix in OWI-33 (Task A0.7) populates `resource_kinds`
  * from bundle contents so all bundles classify correctly.
  *
+ * Map vs Object (OWI-59 / Task A1.7): the WASM `unpackSignedBundle` returns
+ * a manifest whose `resource_kinds` is a JS `Map`, not a plain object —
+ * `serde-wasm-bindgen` (used by `apps/worker/src/lib/wasm.ts`) serializes
+ * Rust `BTreeMap<String, _>` as a `Map`. `Object.keys(map)` returns `[]`
+ * for any `Map`, so without explicit Map handling every real upload
+ * misclassified as not-theme-only and got billed against `upload_new_bundle`
+ * (3/day) instead of `upload_new` (5/day). Handle both shapes so test-time
+ * plain-object fixtures and runtime WASM Maps both classify correctly.
+ *
  * Exported for direct unit testing — see `apps/worker/test/upload-is-theme-only.test.ts`.
  */
 export function isThemeOnly(manifest: Manifest): boolean {
   const kinds = manifest.resource_kinds;
   if (!kinds || typeof kinds !== 'object') return false;
-  const keys = Object.keys(kinds);
+  const keys: string[] =
+    kinds instanceof Map
+      ? Array.from((kinds as Map<string, unknown>).keys())
+      : Object.keys(kinds as Record<string, unknown>);
   if (keys.length === 0) return false;
   return keys.every((k) => k === 'theme');
 }
