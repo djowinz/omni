@@ -4,6 +4,7 @@ import {
   useAuthorResolver,
   __resetAuthorCache,
   invalidateAuthor,
+  primeAuthor,
   TTL_MS,
 } from '../use-author-resolver';
 
@@ -107,6 +108,66 @@ describe('useAuthorResolver', () => {
     act(() => invalidateAuthor(PK));
     rerender();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+  });
+
+  it('surfaces non-404 errors via the error field', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 500 }));
+    const { result } = renderHook(() => useAuthorResolver(PK));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.data).toBeNull();
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.error?.message).toMatch(/500/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears error on successful refetch', async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      callCount++;
+      if (callCount === 1)
+        return Promise.resolve(new Response(null, { status: 500 }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            pubkey_hex: PK,
+            fingerprint_hex: 'abcdef012345',
+            display_name: 'starfire',
+            joined_at: 0,
+            total_uploads: 0,
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+    const { result, rerender } = renderHook(() => useAuthorResolver(PK));
+    await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+    act(() => invalidateAuthor(PK));
+    rerender();
+    await waitFor(() => {
+      expect(result.current.data?.display_name).toBe('starfire');
+      expect(result.current.error).toBeNull();
+    });
+  });
+
+  it('primeAuthor with null does NOT suppress subsequent fetch', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          pubkey_hex: PK,
+          fingerprint_hex: 'abcdef012345',
+          display_name: null,
+          joined_at: 0,
+          total_uploads: 7,
+        }),
+        { status: 200 },
+      ),
+    );
+    primeAuthor(PK, null); // Was: would have poisoned the cache
+    const { result } = renderHook(() => useAuthorResolver(PK));
+    await waitFor(() => expect(result.current.data?.total_uploads).toBe(7));
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // Real fetch fired despite null prime
   });
 
   it('expires after TTL', async () => {

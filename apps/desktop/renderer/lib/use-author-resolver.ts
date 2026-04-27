@@ -18,6 +18,7 @@ type Entry = {
   detail: AuthorDetail | null;
   fetched_at: number;
   inflight: Promise<AuthorDetail | null> | null;
+  error?: Error; // populated on non-404 fetch failure; cleared on next successful fetch
 };
 
 const cache = new Map<string, Entry>();
@@ -50,16 +51,21 @@ export function primeAuthor(
   pubkey_hex: string,
   display_name: string | null,
 ): void {
+  if (display_name === null) {
+    // Don't poison the cache with a "confirmed null" entry — the author MAY
+    // exist but just haven't set a name yet. Early-return so the next
+    // useAuthorResolver call still triggers a real /v1/author fetch for the
+    // full detail (fingerprint_hex, joined_at, total_uploads).
+    return;
+  }
   cache.set(pubkey_hex, {
-    detail: display_name
-      ? {
-          pubkey_hex,
-          fingerprint_hex: '',
-          display_name,
-          joined_at: 0,
-          total_uploads: 0,
-        }
-      : null,
+    detail: {
+      pubkey_hex,
+      fingerprint_hex: '',
+      display_name,
+      joined_at: 0,
+      total_uploads: 0,
+    },
     fetched_at: Date.now(),
     inflight: null,
   });
@@ -98,18 +104,22 @@ export function useAuthorResolver(pubkey_hex: string): {
           detail,
           fetched_at: Date.now(),
           inflight: null,
-        });
+        }); // no error field = cleared on successful refetch
         notify();
         return detail;
       })
-      .catch((err) => {
+      .catch((err): AuthorDetail | null => {
+        const errorObj = err instanceof Error ? err : new Error(String(err));
         cache.set(pubkey_hex, {
           detail: null,
           fetched_at: Date.now(),
           inflight: null,
+          error: errorObj,
         });
         notify();
-        throw err;
+        // Do NOT re-throw — no consumer awaits this Promise; re-throwing creates
+        // an unhandled rejection. Error is now surfaced via the entry.
+        return null;
       });
     entry = {
       detail: entry?.detail ?? null,
@@ -122,6 +132,6 @@ export function useAuthorResolver(pubkey_hex: string): {
   return {
     data: isFresh ? (entry?.detail ?? null) : null,
     loading: !!entry?.inflight && !isFresh,
-    error: null,
+    error: entry?.error ?? null,
   };
 }
