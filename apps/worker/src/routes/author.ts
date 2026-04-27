@@ -3,6 +3,7 @@ import type { AppEnv } from '../types';
 import { errorResponse, errorFromKind } from '../lib/errors';
 import { AuthError, verifyJws } from '../lib/auth';
 import { hexEncode, hexDecode } from '../lib/hex';
+import { validateDisplayName } from '../lib/display_name';
 
 /**
  * `GET /v1/author/:pubkey_hex` (public, no JWS) and
@@ -23,17 +24,12 @@ import { hexEncode, hexDecode } from '../lib/hex';
  * `authors.display_name`. The pubkey is taken from the JWS `kid` claim — the
  * route name "/me" reflects "the author identified by your JWS." Validation
  * mirrors §3.4 EXACTLY so host-side `identity.setDisplayName` and worker-side
- * upload `display_name` form field agree byte-for-byte.
- *
- * `validateDisplayName` is defined inline here per plan T4 step 4.7. T5
- * extracts it to `apps/worker/src/lib/display_name.ts` and refactors this
- * file to import. Until that lands, this is the single worker-side
- * implementation of the §3.4 rules.
+ * upload `display_name` form field agree byte-for-byte. The shared
+ * `validateDisplayName` helper at `apps/worker/src/lib/display_name.ts` is
+ * the single source of those rules per plan §T5 step 5.3.
  */
 
 const app = new Hono<AppEnv>();
-
-const DISPLAY_NAME_MAX = 32;
 
 /**
  * Hex-validate a string in-place. The Worker's `hex.ts` exports
@@ -48,49 +44,6 @@ function isValid64Hex(s: string): boolean {
     if (!isLowerHex) return false;
   }
   return true;
-}
-
-/**
- * Apply §3.4 rules to a display_name candidate. Returns either the
- * normalized accepted form (`{ ok }`) or a structured rejection
- * (`{ err }`) whose message is surfaced verbatim in the BadRequest
- * envelope so debuggability survives the wire.
- *
- * Steps (verbatim from §3.4):
- *   1. NFC normalize.
- *   2. Trim leading/trailing whitespace.
- *   3. Reject unless length (after NFC + trim) is in 1..=32.
- *   4. Reject any `\p{Cc}` (control) or `\p{Cs}` (surrogate) code point.
- *   5. Accept everything else (Unicode generously allowed; emoji legal).
- *   6. No banlist v1.
- *
- * Length is measured in UTF-16 code units (`String#length`) — the same
- * unit the wire-format consumer assumptions in §3.4 use ("32 chars after
- * trim"). Astral-plane code points count as 2 units, which is a stricter
- * bound than a pure code-point count; matches the cap chosen for `note`
- * in /v1/report (see `routes/report.ts`).
- */
-function validateDisplayName(raw: unknown): { ok: string } | { err: string } {
-  if (typeof raw !== 'string') return { err: 'display_name must be a string' };
-  const normalized = raw.normalize('NFC').trim();
-  if (normalized.length === 0 || normalized.length > DISPLAY_NAME_MAX) {
-    return { err: 'display_name must be 1-32 characters after trim' };
-  }
-  // Iterate code points (`for...of` on a string yields code points, handling
-  // surrogate pairs). `\p{Cc}` is U+0000..U+001F and U+007F..U+009F;
-  // `\p{Cs}` is U+D800..U+DFFF (paired surrogates can't appear in a
-  // well-formed UTF-16 string here, but unpaired ones could; reject them
-  // defensively).
-  for (const ch of normalized) {
-    const cp = ch.codePointAt(0)!;
-    if ((cp >= 0x00 && cp <= 0x1f) || (cp >= 0x7f && cp <= 0x9f)) {
-      return { err: 'display_name contains control characters' };
-    }
-    if (cp >= 0xd800 && cp <= 0xdfff) {
-      return { err: 'display_name contains surrogate code points' };
-    }
-  }
-  return { ok: normalized };
 }
 
 // ---------------------------------------------------------------------------

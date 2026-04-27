@@ -36,6 +36,7 @@ import { canonicalHash } from '../lib/canonical';
 import { sanitizeViaDO } from '../lib/sanitize';
 import { hexEncode } from '../lib/hex';
 import { makeDebugLog } from '../lib/debug-log';
+import { validateDisplayName } from '../lib/display_name';
 
 const app = new Hono<AppEnv>();
 
@@ -284,6 +285,58 @@ app.post('/', async (c) => {
     throw e;
   }
 
+  // Step 4b — optional `display_name` form field (plan §T5 / spec §4.3).
+  //
+  // The shared `parseMultipart` helper deliberately returns just bundle +
+  // thumbnail (multipart.ts is the contract surface for binary parts). To
+  // pull a string field without touching that contract, synthesize a second
+  // Request from the same buffered body and let workerd parse the form
+  // again. `body` is an ArrayBuffer, so this is just a header/body re-pair —
+  // no double-buffer of bytes. Workerd's FormData is built lazily.
+  let displayNameValue: string | null = null;
+  {
+    const formReq2 = new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body,
+    });
+    let form2: FormData;
+    try {
+      form2 = await formReq2.formData();
+    } catch (e) {
+      // The first parseMultipart call would have surfaced a structural
+      // failure already; if we land here, treat as malformed and bail.
+      debugLog(
+        `${tag} FAIL step 4b: re-parse for display_name: ${(e as Error)?.message ?? String(e)}`,
+      );
+      return errorFromKind(
+        'Malformed',
+        'BadRequest',
+        'multipart: failed to re-parse for display_name',
+      );
+    }
+    const raw = form2.get('display_name');
+    if (raw !== null) {
+      // FormData fields are either strings (text inputs) or File/Blob
+      // (binary parts). For `display_name` we accept only the text form;
+      // a binary blob is a client mistake — reject explicitly so the
+      // caller learns instead of silently dropping the value.
+      if (typeof raw !== 'string') {
+        return errorFromKind(
+          'Malformed',
+          'BadRequest',
+          'display_name multipart field must be a text part, not a file',
+        );
+      }
+      const v = validateDisplayName(raw);
+      if ('err' in v) {
+        debugLog(`${tag} FAIL step 4b: display_name rejected: ${v.err}`);
+        return errorFromKind('Malformed', 'BadRequest', v.err);
+      }
+      displayNameValue = v.ok;
+    }
+  }
+
   // Step 5 — manifest fast path
   debugLog(`${tag} step 5: loadWasm + unpackSignedBundle`);
   const { identity } = await loadWasm();
@@ -469,13 +522,19 @@ app.post('/', async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const kind = themeOnly ? 'theme' : 'bundle';
 
-  // Author upsert (first-seen).
+  // Author upsert (first-seen). Per spec §4.3 + plan §T5: optional
+  // `display_name` from the multipart body lands here. `COALESCE(excluded.
+  // display_name, authors.display_name)` realises Q2's C decision —
+  // absent on upload preserves prior name (excluded value is NULL); present
+  // overwrites. New-author insert binds the validated string (or NULL).
   await env.META.prepare(
-    `INSERT INTO authors (pubkey, created_at, total_uploads, is_new_creator, is_denied)
-     VALUES (?, ?, 1, 1, 0)
-     ON CONFLICT(pubkey) DO UPDATE SET total_uploads = total_uploads + 1`,
+    `INSERT INTO authors (pubkey, display_name, created_at, total_uploads, is_new_creator, is_denied)
+     VALUES (?, ?, ?, 1, 1, 0)
+     ON CONFLICT(pubkey) DO UPDATE SET
+       total_uploads = total_uploads + 1,
+       display_name  = COALESCE(excluded.display_name, authors.display_name)`,
   )
-    .bind(authorPubkeyBlob, now)
+    .bind(authorPubkeyBlob, displayNameValue, now)
     .run();
 
   // The D1 `signature` column is a legacy denormalization. The real content
