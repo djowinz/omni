@@ -2211,7 +2211,7 @@ mod tests {
         // Sidecar — the renderer keys the linked-artifact banner off this.
         let sidecar = PublishSidecar {
             artifact_id: "ov_test".to_string(),
-            author_pubkey_hex: hex::encode(ctx.identity.public_key().0),
+            author_pubkey_hex: hex::encode(ctx.identity.load().public_key().0),
             version: "1.0.0".to_string(),
             last_published_at: "2026-04-21T00:00:00Z".to_string(),
         };

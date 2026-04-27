@@ -199,7 +199,11 @@ pub async fn pack_only_with_progress(
 ) -> Result<PackResult, UploadError> {
     let files_raw: BTreeMap<String, Vec<u8>> = match req.kind {
         ArtifactKind::Theme => read_theme(&req.source_path).await?,
-        ArtifactKind::Bundle => walk_bundle(&req.source_path).await?,
+        ArtifactKind::Bundle => {
+            let mut files = walk_bundle(&req.source_path).await?;
+            supplement_with_workspace_themes(&mut files, &req.source_path).await;
+            files
+        }
     };
     let uncompressed_size: u64 = files_raw.values().map(|v| v.len() as u64).sum();
 
@@ -698,6 +702,151 @@ async fn read_theme(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadErro
     Ok(map)
 }
 
+/// BAND-AID for the themes-as-directories migration.
+///
+/// Existing overlays reference themes by bare filename
+/// (`<theme src="marathon.css" />`) but the file lives at
+/// `<workspace>/themes/marathon.css`, NOT inside the overlay's directory.
+/// `walk_bundle` only walks the overlay dir, so without this supplement the
+/// dep_resolver records `MissingRef { path: "marathon.css" }` and the upload
+/// fails for every existing overlay in the wild.
+///
+/// This helper has two responsibilities, both required for sanitize +
+/// dep_resolver to agree on the file shape:
+///
+/// 1. **Insert the theme at its workspace path** (`themes/<name>`).
+///    `omni-sanitize::handlers::dispatch_for_path` classifies files by
+///    `dir`+`extensions` from the manifest's `resource_kinds`. The `theme`
+///    kind ships with `dir: "themes"`, so a bare `marathon.css` would dispatch
+///    to `<unrecognized>` and fail the whole bundle. Inserting at
+///    `themes/marathon.css` matches the declared dir.
+///
+/// 2. **Rewrite the overlay's bare ref** to the workspace path.
+///    `dep_resolver` resolves `<theme src=>` values verbatim against the file
+///    map (see `dep_resolver.rs` ## "Path semantics"). After step 1 the file
+///    lives at `themes/marathon.css` but the overlay still says
+///    `<theme src="marathon.css" />`, so the resolver would report
+///    `MissingRef { path: "marathon.css" }`. Rewriting the attribute keeps
+///    both sides consistent.
+///
+/// Failures (file missing, IO error) are silently skipped — `dep_resolver`
+/// will still emit a `MissingRef` violation, which is the right user-facing
+/// signal. We don't want this band-aid to fail the upload itself.
+///
+/// TODO(themes-as-directories): replace with the workspace-aware walker
+/// from the asset-explorer plan once shipped. The new model stores themes
+/// at `themes/<name>/<name>.css` with their own `images/` and `fonts/`
+/// subdirectories; the upload pipeline will walk the referenced theme
+/// directory in full and preserve the `themes/<name>/...` path structure
+/// in the bundle. The editor migration will rewrite existing overlays once
+/// at startup so this band-aid (and the in-place attribute substitution)
+/// can disappear. See `docs/superpowers/plans/2026-04-26-themes-as-directories.md`.
+async fn supplement_with_workspace_themes(
+    files: &mut BTreeMap<String, Vec<u8>>,
+    overlay_source: &Path,
+) {
+    let Some(overlay_bytes) = files.get("overlay.omni").cloned() else {
+        return;
+    };
+    // Workspace root = source_path's grandparent: <data_dir>/overlays/<name>.
+    let Some(themes_dir) = overlay_source
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|root| root.join("themes"))
+    else {
+        return;
+    };
+    let bare_refs = scan_bare_theme_refs(&overlay_bytes);
+    if bare_refs.is_empty() {
+        return;
+    }
+    let mut rewritten = overlay_bytes.clone();
+    let mut any_added = false;
+    for name in bare_refs {
+        let workspace_key = format!("themes/{name}");
+        // If either the workspace-path key OR the bare key is already in the
+        // map (overlay-local theme + bare ref), skip — don't shadow user
+        // content. The overlay-local bare-key case still needs the attribute
+        // rewrite because sanitize would otherwise fail on the bare path, but
+        // that case is exotic and the proper themes-as-directories flow will
+        // delete this whole band-aid anyway.
+        if files.contains_key(&workspace_key) || files.contains_key(&name) {
+            continue;
+        }
+        let candidate = themes_dir.join(&name);
+        let Ok(bytes) = tokio::fs::read(&candidate).await else {
+            continue;
+        };
+        files.insert(workspace_key.clone(), bytes);
+        rewritten = rewrite_bare_theme_ref(&rewritten, &name, &workspace_key);
+        any_added = true;
+    }
+    if any_added {
+        files.insert("overlay.omni".to_string(), rewritten);
+    }
+}
+
+/// Substring rewrite of a single bare `<theme src>` reference inside
+/// overlay.omni bytes. Replaces both `src="X"` and `src='X'` forms.
+///
+/// Safe enough for the band-aid because:
+///   - `scan_bare_theme_refs` already filtered to `*.css` bare names, which
+///     would not appear in `<font src=>` (font files end `.ttf`/`.otf`/`.woff2`).
+///   - The strict overlay sanitizer rejects `@import` and stray `url()` in
+///     non-CSS contexts, so the only place a `src="<bare>.css"` substring
+///     appears is inside a `<theme>` tag.
+///
+/// If a future overlay shape ever embeds the same substring elsewhere, this
+/// band-aid breaks loudly (the sanitize pass would catch the mismatch); the
+/// proper themes-as-directories pipeline removes the need for any rewrite.
+fn rewrite_bare_theme_ref(overlay: &[u8], from_name: &str, to_path: &str) -> Vec<u8> {
+    let s = String::from_utf8_lossy(overlay);
+    s.replace(
+        &format!("src=\"{from_name}\""),
+        &format!("src=\"{to_path}\""),
+    )
+    .replace(
+        &format!("src='{from_name}'"),
+        &format!("src='{to_path}'"),
+    )
+    .into_bytes()
+}
+
+/// Permissive scan of overlay.omni for `<theme src="X" />` refs where X is a
+/// bare filename (no `/`) ending in `.css`. Used by
+/// [`supplement_with_workspace_themes`].
+fn scan_bare_theme_refs(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().trim_text(false);
+    reader.config_mut().expand_empty_elements = false;
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Err(_) | Ok(Event::Eof) => break,
+            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e))
+                if e.name().as_ref() == b"theme" =>
+            {
+                if let Some(src) = e
+                    .attributes()
+                    .flatten()
+                    .find(|a| a.key.as_ref() == b"src")
+                    .and_then(|a| String::from_utf8(a.value.into_owned()).ok())
+                {
+                    if !src.contains('/') && src.ends_with(".css") {
+                        out.push(src);
+                    }
+                }
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
 async fn walk_bundle(root: &Path) -> Result<BTreeMap<String, Vec<u8>>, UploadError> {
     let root = root.to_path_buf();
     tokio::task::spawn_blocking(move || {
@@ -923,6 +1072,189 @@ mod tests {
         );
         let back: UploadStatus = serde_json::from_str("\"unchanged\"").unwrap();
         assert_eq!(back, UploadStatus::Unchanged);
+    }
+
+    #[test]
+    fn scan_bare_theme_refs_finds_self_closing_and_bare() {
+        let omni = br#"<widget>
+            <theme src="marathon.css" />
+            <theme src="themes/dark.css" />
+            <theme src="other.css"></theme>
+            <theme src="not-css.png" />
+        </widget>"#;
+        let refs = scan_bare_theme_refs(omni);
+        // Only bare *.css refs: marathon.css + other.css.
+        // themes/dark.css has a slash → already an explicit workspace path,
+        // not bare. not-css.png isn't a CSS file.
+        assert_eq!(refs, vec!["marathon.css".to_string(), "other.css".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn supplement_pulls_workspace_theme_and_rewrites_overlay_ref() {
+        // Simulate the user's actual workspace layout:
+        //   <data_dir>/overlays/marathon/overlay.omni  (refs "marathon.css")
+        //   <data_dir>/themes/marathon.css             (the file)
+        // After supplement, the file map must contain `themes/marathon.css`
+        // (so sanitize classifies it as `theme` kind via the `themes/` dir
+        // declaration in resource_kinds) AND the overlay XML must reference
+        // `themes/marathon.css` (so dep_resolver's verbatim path lookup
+        // resolves correctly).
+        let workspace = tempfile::tempdir().expect("tempdir");
+        let overlay_dir = workspace.path().join("overlays").join("marathon");
+        std::fs::create_dir_all(&overlay_dir).expect("mkdir overlay");
+        std::fs::write(
+            overlay_dir.join("overlay.omni"),
+            br#"<widget><theme src="marathon.css" /></widget>"#,
+        )
+        .expect("write overlay");
+        let themes_dir = workspace.path().join("themes");
+        std::fs::create_dir_all(&themes_dir).expect("mkdir themes");
+        std::fs::write(themes_dir.join("marathon.css"), b":root{--x:1}")
+            .expect("write theme");
+
+        let mut files = walk_bundle(&overlay_dir).await.expect("walk");
+        assert!(!files.contains_key("themes/marathon.css"));
+        supplement_with_workspace_themes(&mut files, &overlay_dir).await;
+        // (1) Theme inserted at workspace path, NOT bare path.
+        assert_eq!(
+            files.get("themes/marathon.css").map(|b| b.as_slice()),
+            Some(b":root{--x:1}".as_ref()),
+            "theme must be inserted at themes/<name> so sanitize classifies it as `theme`"
+        );
+        assert!(
+            !files.contains_key("marathon.css"),
+            "must NOT insert at bare key — would trigger sanitize <unrecognized>"
+        );
+        // (2) Overlay XML rewritten to point at the workspace path.
+        let overlay_after = files.get("overlay.omni").expect("overlay still present");
+        let s = std::str::from_utf8(overlay_after).expect("utf8");
+        assert!(
+            s.contains(r#"src="themes/marathon.css""#),
+            "overlay must be rewritten to themes/marathon.css; got: {s}"
+        );
+        assert!(
+            !s.contains(r#"src="marathon.css""#),
+            "overlay's bare ref must be replaced; got: {s}"
+        );
+    }
+
+    #[tokio::test]
+    async fn supplement_handles_single_quoted_attribute() {
+        // Same as above but `src='...'` instead of `src="..."`.
+        let workspace = tempfile::tempdir().expect("tempdir");
+        let overlay_dir = workspace.path().join("overlays").join("marathon");
+        std::fs::create_dir_all(&overlay_dir).expect("mkdir overlay");
+        std::fs::write(
+            overlay_dir.join("overlay.omni"),
+            b"<widget><theme src='marathon.css' /></widget>",
+        )
+        .expect("write overlay");
+        let themes_dir = workspace.path().join("themes");
+        std::fs::create_dir_all(&themes_dir).expect("mkdir themes");
+        std::fs::write(themes_dir.join("marathon.css"), b":root{}")
+            .expect("write theme");
+
+        let mut files = walk_bundle(&overlay_dir).await.expect("walk");
+        supplement_with_workspace_themes(&mut files, &overlay_dir).await;
+        assert!(files.contains_key("themes/marathon.css"));
+        let s = std::str::from_utf8(files.get("overlay.omni").unwrap()).unwrap();
+        assert!(s.contains("src='themes/marathon.css'"), "got: {s}");
+    }
+
+    #[tokio::test]
+    async fn supplement_skips_when_theme_missing_from_workspace() {
+        // Bare ref points at a non-existent workspace theme → no insertion,
+        // overlay XML left intact. dep_resolver will surface the user-facing
+        // MissingRef on the original bare path.
+        let workspace = tempfile::tempdir().expect("tempdir");
+        let overlay_dir = workspace.path().join("overlays").join("marathon");
+        std::fs::create_dir_all(&overlay_dir).expect("mkdir overlay");
+        std::fs::write(
+            overlay_dir.join("overlay.omni"),
+            br#"<widget><theme src="ghost.css" /></widget>"#,
+        )
+        .expect("write overlay");
+
+        let mut files = walk_bundle(&overlay_dir).await.expect("walk");
+        let overlay_before = files.get("overlay.omni").cloned().unwrap();
+        supplement_with_workspace_themes(&mut files, &overlay_dir).await;
+        assert!(!files.contains_key("themes/ghost.css"));
+        assert!(!files.contains_key("ghost.css"));
+        assert_eq!(
+            files.get("overlay.omni").unwrap(),
+            &overlay_before,
+            "overlay must not be rewritten when workspace theme is absent"
+        );
+    }
+
+    #[tokio::test]
+    async fn supplement_does_not_overwrite_existing_overlay_local_theme() {
+        // If the overlay-local file map already has the workspace-path key
+        // (e.g. an overlay-local themes/marathon.css), the supplement must
+        // not overwrite it nor rewrite the overlay reference.
+        let workspace = tempfile::tempdir().expect("tempdir");
+        let overlay_dir = workspace.path().join("overlays").join("marathon");
+        std::fs::create_dir_all(&overlay_dir).expect("mkdir overlay");
+        // Overlay references via workspace path already.
+        std::fs::write(
+            overlay_dir.join("overlay.omni"),
+            br#"<widget><theme src="themes/marathon.css" /></widget>"#,
+        )
+        .expect("write overlay");
+        // Overlay-local themes/marathon.css.
+        std::fs::create_dir_all(overlay_dir.join("themes"))
+            .expect("mkdir overlay-local themes");
+        std::fs::write(
+            overlay_dir.join("themes").join("marathon.css"),
+            b"/* overlay-local */",
+        )
+        .expect("write overlay-local theme");
+        // And a different workspace-level theme that should NOT win.
+        let themes_dir = workspace.path().join("themes");
+        std::fs::create_dir_all(&themes_dir).expect("mkdir themes");
+        std::fs::write(themes_dir.join("marathon.css"), b"/* workspace */")
+            .expect("write workspace theme");
+
+        let mut files = walk_bundle(&overlay_dir).await.expect("walk");
+        supplement_with_workspace_themes(&mut files, &overlay_dir).await;
+        assert_eq!(
+            files.get("themes/marathon.css").map(|b| b.as_slice()),
+            Some(b"/* overlay-local */".as_ref()),
+            "overlay-local themes/marathon.css wins; supplement must not overwrite"
+        );
+        // Note: this overlay's ref was never bare (it's `themes/marathon.css`),
+        // so scan_bare_theme_refs returns empty and nothing is rewritten anyway.
+    }
+
+    #[tokio::test]
+    async fn supplement_inserts_at_themes_dir_for_sanitize_classification() {
+        // Regression: inserting at the bare path made the file dispatch to
+        // `<unrecognized>` because the `theme` kind ships with `dir: "themes"`.
+        // This test pins the workspace path so the sanitize integration stays
+        // happy.
+        let workspace = tempfile::tempdir().expect("tempdir");
+        let overlay_dir = workspace.path().join("overlays").join("o");
+        std::fs::create_dir_all(&overlay_dir).expect("mkdir overlay");
+        std::fs::write(
+            overlay_dir.join("overlay.omni"),
+            br#"<widget><theme src="t.css" /></widget>"#,
+        )
+        .expect("write");
+        let themes_dir = workspace.path().join("themes");
+        std::fs::create_dir_all(&themes_dir).expect("mkdir");
+        std::fs::write(themes_dir.join("t.css"), b":root{}").expect("write");
+
+        let mut files = walk_bundle(&overlay_dir).await.expect("walk");
+        supplement_with_workspace_themes(&mut files, &overlay_dir).await;
+        let keys: Vec<&str> = files.keys().map(String::as_str).collect();
+        assert!(
+            keys.contains(&"themes/t.css"),
+            "must use themes/<name> to satisfy sanitize handler dispatch (got {keys:?})"
+        );
+        assert!(
+            !keys.contains(&"t.css"),
+            "must NOT insert at bare path — sanitize would emit <unrecognized> (got {keys:?})"
+        );
     }
 
     #[tokio::test]
