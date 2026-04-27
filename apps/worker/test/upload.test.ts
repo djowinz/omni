@@ -21,6 +21,7 @@ import * as ed from '@noble/ed25519';
 import type { Env } from '../src/env';
 import { loadWasm } from '../src/lib/wasm';
 import { signJws } from './helpers/signer';
+import { uploadFixture } from './utils.test';
 
 declare module 'cloudflare:test' {
   interface ProvidedEnv extends Env {}
@@ -431,5 +432,86 @@ describe('POST /v1/upload — rate limited', () => {
     expect(res.status).toBe(429);
     const j = (await res.json()) as { error: { code: string } };
     expect(j.error.code).toBe('RATE_LIMITED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/upload — optional `display_name` multipart field (plan §T5)
+// ---------------------------------------------------------------------------
+//
+// Covers the COALESCE upsert decided in spec §4.3 + Q2's C decision:
+//   - field absent → excluded.display_name = NULL → COALESCE keeps prior value
+//   - field present + valid → excluded.display_name overwrites
+//   - field present + invalid → 400 (don't silently drop a malformed name)
+//
+// Uses `uploadFixture` from utils.test.ts so multipart construction and
+// JWS signing stay in one place across upload-touching suites.
+
+describe('POST /v1/upload — optional display_name', () => {
+  it('upserts authors.display_name when present in upload body', async () => {
+    const result = await uploadFixture({ displayName: 'starfire' });
+    expect(result.status, await result.response.clone().text()).toBe(200);
+
+    const row = await env.META.prepare('SELECT display_name FROM authors WHERE pubkey = ?')
+      .bind(result.pubkey)
+      .first<{ display_name: string }>();
+    expect(row?.display_name).toBe('starfire');
+  });
+
+  it('preserves prior authors.display_name when absent on upload', async () => {
+    // Use a distinct seed so this test's identity is independent from the
+    // happy-path identity (no name-conflict on shared `manifest.name`).
+    const seed = new Uint8Array(32).fill(0xab);
+    const pub = await ed.getPublicKeyAsync(seed);
+
+    // Seed prior name for this identity. Must happen AFTER beforeEach's
+    // DELETE FROM authors so the row survives into the upload assertion.
+    await env.META.prepare(
+      'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)',
+    )
+      .bind(pub, 'oldname', 1_714_000_000)
+      .run();
+
+    const result = await uploadFixture({ seed, displayName: undefined });
+    expect(result.status, await result.response.clone().text()).toBe(200);
+
+    const row = await env.META.prepare('SELECT display_name FROM authors WHERE pubkey = ?')
+      .bind(pub)
+      .first<{ display_name: string }>();
+    expect(row?.display_name).toBe('oldname'); // unchanged
+  });
+
+  it('overwrites prior authors.display_name when a new name is sent', async () => {
+    const seed = new Uint8Array(32).fill(0xcd);
+    const pub = await ed.getPublicKeyAsync(seed);
+    await env.META.prepare(
+      'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)',
+    )
+      .bind(pub, 'oldname', 1_714_000_000)
+      .run();
+
+    const result = await uploadFixture({ seed, displayName: 'newname' });
+    expect(result.status, await result.response.clone().text()).toBe(200);
+
+    const row = await env.META.prepare('SELECT display_name FROM authors WHERE pubkey = ?')
+      .bind(pub)
+      .first<{ display_name: string }>();
+    expect(row?.display_name).toBe('newname');
+  });
+
+  it('rejects upload with display_name longer than 32 chars (after trim)', async () => {
+    const result = await uploadFixture({ displayName: 'x'.repeat(33) });
+    expect(result.status).toBe(400);
+  });
+
+  it('rejects upload with display_name containing control characters', async () => {
+    // U+0000 NUL is in \p{Cc} — must reject per spec §3.4 step 4.
+    const result = await uploadFixture({ displayName: 'star\x00fire' });
+    expect(result.status).toBe(400);
+  });
+
+  it('rejects upload with empty (whitespace-only) display_name', async () => {
+    const result = await uploadFixture({ displayName: '   ' });
+    expect(result.status).toBe(400);
   });
 });
