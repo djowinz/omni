@@ -151,15 +151,29 @@ pub async fn install(
     // TOFU recording before filesystem work — keeps the registry's "first-seen"
     // timestamp consistent with what gets installed (no half-committed entries
     // if sanitize/stage fails downstream).
+    //
+    // Per 2026-04-26 identity-completion-and-display-name spec §3.5: resolve the
+    // AUTHOR's display_name from the worker (NOT the bundle's manifest.name —
+    // that's the artifact's name, which the pre-spec bug confused with the
+    // author's identity label). Worker offline / 404 / network error → store
+    // `None` rather than a wrong label. Better to label nothing than to label
+    // wrong; downstream UIs already render `<8-hex slice>` when display_name
+    // is absent.
+    //
+    // `bundle_name` (the manifest's `name`) remains the workspace-key + the
+    // `InstalledEntry::display_name` field — that's the artifact's label, used
+    // for registry keys and on-disk folder names. The TOFU registry separately
+    // stores the AUTHOR's label resolved from the worker.
     let author_pubkey = *signed.author_pubkey();
-    let display_name = signed.manifest().name.clone();
+    let bundle_name = signed.manifest().name.clone();
+    let author_display_name = client
+        .get_author(&author_pubkey.to_hex())
+        .await
+        .ok()
+        .and_then(|d| d.display_name);
     let tofu_result = tofu
-        .check_or_record(&author_pubkey, Some(display_name.as_str()))
+        .check_or_record(&author_pubkey, author_display_name.as_deref())
         .map_err(identity_to_install_error)?;
-    // TOFU mismatch handling intentionally absent — the DisplayNameMismatch
-    // variant was removed in identity-completion spec §2 (non-coherent under
-    // non-unique display_names). T11 replaces this entire display_name-population
-    // path with worker-resolver lookup.
 
     sanitize_stage_and_commit(
         &signed,
@@ -181,11 +195,11 @@ pub async fn install(
         installed_version: signed.manifest().version.clone(),
         omni_min_version: signed.manifest().omni_min_version.clone(),
         installed_path: req.target_path.clone(),
-        display_name: display_name.clone(),
+        display_name: bundle_name.clone(),
     };
     let key = match registry_kind {
-        RegistryKind::Themes => display_name.clone(),
-        RegistryKind::Bundles => format!("{}-{}", &author_pubkey.to_hex()[..8], display_name),
+        RegistryKind::Themes => bundle_name.clone(),
+        RegistryKind::Bundles => format!("{}-{}", &author_pubkey.to_hex()[..8], bundle_name),
     };
     registry.upsert(key, entry);
     registry
