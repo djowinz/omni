@@ -233,6 +233,52 @@ describe('PUT /v1/author/me', () => {
     expect(res.status).toBe(400);
   });
 
+  // Regression — T4 quality review I1 carry-forward: validateDisplayName must
+  // measure length in Unicode CODE POINTS (matching the host Rust validator's
+  // s.chars().count()), NOT UTF-16 code units. An astral-plane emoji like 😀
+  // (U+1F600) counts as 1 code point but 2 UTF-16 code units. Pre-fix, mixing
+  // ASCII + emoji at the 32-cap boundary was accepted by Rust and rejected by
+  // the worker. Below: 24 code points (15 'a' + 9 '😀') = 33 UTF-16 units.
+  it('accepts 24-code-point input that has 33 UTF-16 code units (emoji boundary)', async () => {
+    const value = 'a'.repeat(15) + '😀'.repeat(9);
+    expect([...value].length).toBe(24); // 24 code points (≤32, accept)
+    expect(value.length).toBe(33); // 33 UTF-16 units (pre-fix would reject)
+
+    const bodyStr = JSON.stringify({ display_name: value });
+    const jws = await signJws({ method: 'PUT', path: '/v1/author/me', body: bodyStr });
+    const res = await SELF.fetch('https://example.com/v1/author/me', {
+      method: 'PUT',
+      headers: {
+        ...STD_HEADERS,
+        Authorization: `Omni-JWS ${jws}`,
+        'Content-Type': 'application/json',
+      },
+      body: bodyStr,
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { display_name: string };
+    expect(body.display_name).toBe(value);
+  });
+
+  it('rejects 33-code-point input regardless of unit choice', async () => {
+    // 'a'.repeat(33) is 33 code points AND 33 UTF-16 units; both old + new
+    // implementations reject. Locks in that the cap is enforced at 32.
+    const value = 'a'.repeat(33);
+    expect([...value].length).toBe(33);
+    const bodyStr = JSON.stringify({ display_name: value });
+    const jws = await signJws({ method: 'PUT', path: '/v1/author/me', body: bodyStr });
+    const res = await SELF.fetch('https://example.com/v1/author/me', {
+      method: 'PUT',
+      headers: {
+        ...STD_HEADERS,
+        Authorization: `Omni-JWS ${jws}`,
+        'Content-Type': 'application/json',
+      },
+      body: bodyStr,
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects control characters (NUL byte) with 400', async () => {
     // U+0000 is in \p{Cc} - must reject per spec section 3.4 step 4.
     const bodyStr = JSON.stringify({ display_name: 'star\x00fire' });

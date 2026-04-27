@@ -18,11 +18,14 @@
  *   5. Accept everything else (Unicode generously allowed; emoji legal).
  *   6. No banlist v1.
  *
- * Length is measured in UTF-16 code units (`String#length`) — the same
- * unit the spec's "32 chars after trim" wording assumes. Astral-plane
- * code points count as 2 units, which is a stricter bound than a pure
- * code-point count; matches the cap chosen for `note` in /v1/report
- * (see `routes/report.ts`).
+ * Length is measured in **Unicode code points** (NFC scalar values), NOT
+ * UTF-16 code units, so the worker matches the host-side Rust validator
+ * (`s.chars().count()`). An astral-plane emoji like 😀 (U+1F600) counts
+ * as 1 code point, not 2 UTF-16 code units. Spread-into-array
+ * (`[...normalized].length`) iterates the string by code points via the
+ * String iterator protocol, giving the correct count. This pin matches
+ * spec §3.4 (revised 2026-04-27 after T4 quality review I1 caught the
+ * implicit unit drift between worker and host validators).
  */
 
 const DISPLAY_NAME_MAX = 32;
@@ -36,7 +39,11 @@ const DISPLAY_NAME_MAX = 32;
 export function validateDisplayName(raw: unknown): { ok: string } | { err: string } {
   if (typeof raw !== 'string') return { err: 'display_name must be a string' };
   const normalized = raw.normalize('NFC').trim();
-  if (normalized.length === 0 || normalized.length > DISPLAY_NAME_MAX) {
+  // Code-point length, matching host Rust `s.chars().count()`. The spread
+  // operator drives the String iterator protocol, which yields one entry
+  // per Unicode scalar value (handling surrogate pairs correctly).
+  const codePointLength = [...normalized].length;
+  if (codePointLength === 0 || codePointLength > DISPLAY_NAME_MAX) {
     return { err: 'display_name must be 1-32 characters after trim' };
   }
   // Iterate code points (`for...of` on a string yields code points, handling

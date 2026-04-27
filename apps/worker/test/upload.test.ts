@@ -514,4 +514,33 @@ describe('POST /v1/upload — optional display_name', () => {
     const result = await uploadFixture({ displayName: '   ' });
     expect(result.status).toBe(400);
   });
+
+  // Regression — T4 quality review I1 carry-forward: validateDisplayName must
+  // measure length in Unicode CODE POINTS (matching the host Rust validator's
+  // s.chars().count()), NOT UTF-16 code units. An astral-plane emoji like 😀
+  // (U+1F600) counts as 1 code point but 2 UTF-16 code units. Pre-fix, mixing
+  // ASCII + emoji at the 32-cap boundary was accepted by Rust and rejected by
+  // the worker. Below: 24 code points (15 'a' + 9 '😀') = 33 UTF-16 units.
+  it('accepts 24-code-point display_name with 33 UTF-16 code units (emoji boundary)', async () => {
+    const value = 'a'.repeat(15) + '😀'.repeat(9);
+    expect([...value].length).toBe(24); // 24 code points (≤32, accept)
+    expect(value.length).toBe(33); // 33 UTF-16 units (pre-fix would reject)
+
+    const result = await uploadFixture({ displayName: value });
+    expect(result.status, await result.response.clone().text()).toBe(200);
+
+    const row = await env.META.prepare('SELECT display_name FROM authors WHERE pubkey = ?')
+      .bind(result.pubkey)
+      .first<{ display_name: string }>();
+    expect(row?.display_name).toBe(value);
+  });
+
+  it('rejects 33-code-point display_name regardless of unit choice', async () => {
+    // 'a'.repeat(33) is 33 code points AND 33 UTF-16 units; both old + new
+    // implementations reject. Locks in that the cap is enforced at 32.
+    const value = 'a'.repeat(33);
+    expect([...value].length).toBe(33);
+    const result = await uploadFixture({ displayName: value });
+    expect(result.status).toBe(400);
+  });
 });

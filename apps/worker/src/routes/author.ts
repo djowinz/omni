@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
-import { errorResponse, errorFromKind } from '../lib/errors';
+import { errorFromKind } from '../lib/errors';
 import { AuthError, verifyJws } from '../lib/auth';
 import { hexEncode, hexDecode } from '../lib/hex';
 import { validateDisplayName } from '../lib/display_name';
@@ -65,10 +65,7 @@ app.get('/:pubkey_hex', async (c) => {
     .first<{ display_name: string | null; created_at: number; total_uploads: number }>();
 
   if (!row) {
-    return errorResponse(404, 'NOT_FOUND', 'no such author', {
-      kind: 'Malformed',
-      detail: 'NotFound',
-    });
+    return errorFromKind('Malformed', 'NotFound', 'no such author');
   }
 
   // fingerprint_hex = first 6 bytes of SHA-256(pubkey), rendered lowercase
