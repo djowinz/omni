@@ -207,6 +207,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@omni/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
       hono:
         specifier: ^4.6.0
         version: 4.12.14
