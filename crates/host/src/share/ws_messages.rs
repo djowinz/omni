@@ -23,6 +23,7 @@ use super::handlers::{
     self, install_outcome_to_result_frame, install_progress_to_contract_frame, map_preview_error,
     ErrorPayload,
 };
+use super::identity_metadata::IdentityMetadata;
 use super::install::{self, InstallProgress, InstallRequest};
 use super::preview::{PreviewSlot, ThemeSwap};
 use super::progress::{error_envelope, pump_to_ws};
@@ -149,6 +150,45 @@ impl ShareContext {
             }
         }
     }
+
+    /// On-disk path for the persistent `identity-metadata.json` file
+    /// (`backed_up`, `display_name`, rotation timestamps). Lives at
+    /// `<data_dir>/identity-metadata.json`.
+    ///
+    /// Production: `data_dir` is `%APPDATA%\Omni\` (resolved by
+    /// [`crate::config::data_dir`]) so this resolves to
+    /// `%APPDATA%\Omni\identity-metadata.json` per spec §3.1.
+    /// Tests: `test-harness::factories::build_share_context(tmp.path())`
+    /// supplies a temp directory, so the metadata file is rooted there
+    /// and never collides with a real user profile.
+    ///
+    /// Added by the 2026-04-26 identity-completion-and-display-name spec
+    /// (Task 10) — the metadata path was previously read directly from
+    /// `APPDATA` inside each handler, which broke under the test
+    /// factory's `tempdir` data root. Routing through `data_dir` keeps
+    /// production wiring identical (`config::data_dir() == APPDATA\Omni`)
+    /// while giving tests proper isolation.
+    pub fn identity_metadata_path(&self) -> PathBuf {
+        self.data_dir.join("identity-metadata.json")
+    }
+
+    /// On-disk path for the active signing key file. Mirrors
+    /// [`Self::identity_metadata_path`]'s rationale: production resolves
+    /// to `%APPDATA%\Omni\identity.key` (matching the fallback at
+    /// `crates/host/src/main.rs::resolve_identity_path`); tests get a
+    /// `tempdir`-rooted path.
+    ///
+    /// Added by the 2026-04-26 identity-completion-and-display-name spec
+    /// (Task 10) for use by `handle_identity_import` /
+    /// `handle_identity_rotate` so the rotation/import primitives have a
+    /// stable, test-isolatable target. Note: the production `OMNI_IDENTITY_PATH`
+    /// env override applies only at host startup (`build_share_ctx`); the
+    /// rotate/import path uses this method's `data_dir`-relative result so
+    /// runtime rotations always land in the same directory the loader
+    /// looks at on next startup.
+    pub fn identity_key_path(&self) -> PathBuf {
+        self.data_dir.join("identity.key")
+    }
 }
 
 fn bad_input(id: &str, msg: impl Into<String>) -> String {
@@ -210,6 +250,8 @@ where
         "identity.backup" => handle_identity_backup(&id, params, ctx).await,
         "identity.import" => handle_identity_import(&id, params, ctx).await,
         "identity.rotate" => handle_identity_rotate(&id, params, ctx).await,
+        "identity.markBackedUp" => handle_identity_mark_backed_up(&id, params, ctx).await,
+        "identity.setDisplayName" => handle_identity_set_display_name(&id, params, ctx).await,
         "config.vocab" => handle_config_vocab(&id, ctx).await,
         "config.limits" => handle_config_limits(&id, ctx).await,
         "report.submit" => handle_report(&id, params, ctx).await,
@@ -483,48 +525,42 @@ async fn handle_delete(id: &str, params: Value, ctx: &ShareContext) -> Option<St
     }
 }
 
+/// `identity.show` — return the full identity envelope per
+/// `ws-explorer.md` §`identity.show` (extended by the 2026-04-26
+/// identity-completion-and-display-name spec §5):
+/// pubkey + fingerprint (hex/words/emoji) + `display_name` + `backed_up`
+/// + `last_backed_up_at` + `last_rotated_at` + `last_backup_path`.
+///
+/// All persisted fields come from
+/// [`IdentityMetadata::load_or_default`], which auto-tripwires on a
+/// pubkey mismatch (e.g. user manually replaced `identity.key` out of
+/// band) by resetting the metadata to defaults so a stale `backed_up:
+/// true` never leaks into a different key's `identity.show` answer.
 async fn handle_identity_show(id: &str, ctx: &ShareContext) -> Option<String> {
-    let pk_bytes = ctx.identity.load().public_key().0;
-    let pk_hex = hex::encode(pk_bytes);
-    // Full fingerprint rendering (hex/words/emoji) is owned by sub-spec #006's
-    // surface. Until that API surfaces here, return the pubkey + empty-field
-    // envelope so the editor can render "not yet implemented" without crashing.
-    //
-    // `backed_up` drives the share-hub first-publish gate: the editor blocks a
-    // user's first upload until they save an encrypted backup of their signing
-    // key. True persistence of that flag is a #006 follow-up (requires tracking
-    // successful identity.backup invocations); until then we report `false`,
-    // which is the safe default — UX treats false as "needs backup" and gates
-    // the first publish accordingly (umbrella risk #10 accepted).
+    let identity = ctx.identity.load();
+    let pk = identity.public_key();
+    let pk_hex = pk.to_hex();
+    let fp = pk.fingerprint();
+
+    let meta = IdentityMetadata::load_or_default(&ctx.identity_metadata_path(), &pk_hex);
+
     Some(
         json!({
             "id": id, "type": "identity.showResult",
             "params": {
                 "pubkey_hex": pk_hex,
-                "fingerprint_hex": "",
-                "fingerprint_words": Vec::<String>::new(),
-                "fingerprint_emoji": Vec::<String>::new(),
+                "fingerprint_hex": fp.to_hex(),
+                "fingerprint_words": fp.to_words(),
+                "fingerprint_emoji": fp.to_emoji(),
+                // Host doesn't yet track key-creation timestamps;
+                // shipping `0` matches the prior behavior and the
+                // contract permits the field as a Unix-seconds u64.
                 "created_at": 0,
-                "backed_up": false
-            }
-        })
-        .to_string(),
-    )
-}
-
-/// Identity management (backup/import/rotate) is owned by a sub-spec #006
-/// follow-up. Until then the WS surface returns a structured error envelope
-/// instead of canned empty payloads.
-fn identity_not_implemented(id: &str) -> Option<String> {
-    Some(
-        json!({
-            "id": id,
-            "type": "error",
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "kind": "Admin",
-                "detail": null,
-                "message": "Identity management handled by sub-spec #006 follow-up",
+                "display_name": meta.display_name,
+                "backed_up": meta.backed_up,
+                "last_backed_up_at": meta.last_backed_up_at,
+                "last_rotated_at": meta.last_rotated_at,
+                "last_backup_path": meta.last_backup_path,
             }
         })
         .to_string(),
@@ -561,12 +597,389 @@ async fn handle_identity_backup(id: &str, params: Value, ctx: &ShareContext) -> 
     }
 }
 
-async fn handle_identity_import(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
-    identity_not_implemented(id)
+/// `identity.import` — restore an Ed25519 keypair from an encrypted
+/// `.omniid` backup blob, swap the active identity, and reset the
+/// per-key `IdentityMetadata` so stale `backed_up`/`display_name` from
+/// the prior key never carry across.
+///
+/// Params: `{ encrypted_bytes_b64, passphrase, overwrite_existing }`.
+/// Result: `{ pubkey_hex, fingerprint_hex }` (matches existing contract
+/// at `ws-explorer.md` §`identity.import`).
+///
+/// Overwrite-protection: when `overwrite_existing == false` AND the
+/// on-disk `identity.key` already corresponds to a different pubkey,
+/// returns a structured `error.code = "identity_already_exists"`
+/// envelope so the editor can prompt the user before clobbering.
+/// Re-importing the same key (matching pubkey) is always a no-op —
+/// no error, no overwrite required.
+///
+/// On success: atomically writes the imported key to
+/// [`ShareContext::identity_key_path`], `ctx.identity.store(...)` swaps
+/// the active keypair (lock-free; in-flight signers observe the new
+/// key on next `.load()`), metadata is reset to defaults seeded with
+/// the new pubkey, and a best-effort `GET /v1/author/<new_pubkey>`
+/// seeds `display_name` if the worker has one. Worker unreachable →
+/// metadata stays with `display_name: None`; the next upload's
+/// COALESCE upsert will catch the worker up if the user later sets a
+/// name.
+async fn handle_identity_import(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    #[derive(Deserialize)]
+    struct P {
+        encrypted_bytes_b64: String,
+        passphrase: String,
+        #[serde(default)]
+        overwrite_existing: bool,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad identity.import params: {e}"))),
+    };
+    let bytes = match STANDARD.decode(&p.encrypted_bytes_b64) {
+        Ok(b) => b,
+        Err(e) => return Some(bad_input(id, format!("base64 decode failed: {e}"))),
+    };
+
+    // Decrypt-only first so we can validate the pubkey before deciding
+    // whether to allow overwriting an existing on-disk identity. This
+    // pre-check avoids a confusing "passphrase wrong but we wrote the
+    // file anyway" flow.
+    let decrypted = match Keypair::import_encrypted(&bytes, &p.passphrase) {
+        Ok(k) => k,
+        Err(e) => return Some(bad_input(id, format!("import failed: {e}"))),
+    };
+    let new_pk = decrypted.public_key();
+    let new_pk_hex = new_pk.to_hex();
+    let new_fp_hex = new_pk.fingerprint().to_hex();
+
+    // Overwrite-protection: refuse if a different identity is already
+    // on disk and the caller did not opt in. Re-importing the same key
+    // is a no-op (we still rewrite the on-disk file as a self-heal in
+    // case it was corrupted, but no error).
+    let identity_path = ctx.identity_key_path();
+    if !p.overwrite_existing {
+        let active_pk_hex = ctx.identity.load().public_key().to_hex();
+        if active_pk_hex != new_pk_hex {
+            return Some(
+                json!({
+                    "id": id,
+                    "type": "error",
+                    "error": {
+                        "code": "identity_already_exists",
+                        "kind": "Admin",
+                        "detail": null,
+                        "message": "an identity already exists for this host; pass overwrite_existing=true to replace it",
+                    }
+                })
+                .to_string(),
+            );
+        }
+    }
+
+    // Atomic disk swap. `import_encrypted_and_write` re-runs decrypt
+    // (small Argon2 cost; the second pass keeps the identity-crate
+    // public surface tight per architectural invariant #1) and writes
+    // the OMNI-IDv1 envelope with user-only ACL. On failure the
+    // existing file at `identity_path` is left untouched.
+    let new_kp = match Keypair::import_encrypted_and_write(&bytes, &p.passphrase, &identity_path) {
+        Ok(kp) => kp,
+        Err(e) => return Some(bad_input(id, format!("import disk write failed: {e}"))),
+    };
+
+    // Reset metadata for the imported pubkey. Tripwire on
+    // `load_or_default` would do this anyway on next read, but
+    // persisting the reset now lets the editor immediately see clean
+    // `backed_up: false` etc. without a second handler round-trip.
+    let mut new_meta = IdentityMetadata {
+        pubkey_hex: new_pk_hex.clone(),
+        ..Default::default()
+    };
+
+    // Best-effort: seed `display_name` from the worker if it knows the
+    // imported author. 404 → no display name yet, leave None;
+    // network/transport failures → also leave None and let the user
+    // re-set explicitly via `identity.setDisplayName`.
+    if let Ok(detail) = ctx.client.get_author(&new_pk_hex).await {
+        new_meta.display_name = detail.display_name;
+    }
+    if let Err(e) = IdentityMetadata::save(&ctx.identity_metadata_path(), &new_meta) {
+        tracing::warn!(error = %e, "identity-metadata save failed after import");
+    }
+
+    // Swap the active keypair AFTER disk + metadata are durable. This
+    // ordering matters: an in-flight signer that reads the slot
+    // post-swap must see a key whose seed already lives at
+    // `identity_path` so a host crash between swap and the next
+    // request still recovers the correct identity on restart.
+    ctx.identity.store(Arc::new(new_kp));
+
+    Some(
+        json!({
+            "id": id,
+            "type": "identity.importResult",
+            "params": { "pubkey_hex": new_pk_hex, "fingerprint_hex": new_fp_hex }
+        })
+        .to_string(),
+    )
 }
 
-async fn handle_identity_rotate(id: &str, _params: Value, _ctx: &ShareContext) -> Option<String> {
-    identity_not_implemented(id)
+/// `identity.rotate` — generate a fresh signing keypair, atomically
+/// write it to `identity.key`, swap the active slot, carry the prior
+/// `display_name` forward, and clear backup-state. Returns `{ pubkey_hex,
+/// fingerprint_hex }` per `ws-explorer.md` §`identity.rotate`.
+///
+/// Spec §3.3 contract — `display_name` is **carried** (intent: same
+/// human, new key); `backed_up` is **cleared** (intent: the user must
+/// back up the new key before it's safe to publish), and
+/// `last_rotated_at` is set so the editor can surface "you rotated
+/// recently — confirm your backup". `last_backup_path` is also cleared
+/// so a "show me my last backup" affordance never points at a file
+/// that no longer corresponds to the active key.
+///
+/// The carried `display_name` is then fanned out best-effort via
+/// `PUT /v1/author/me { display_name }` so the worker's authors table
+/// pre-seeds for the new pubkey before the user's first publish under
+/// the rotated identity. If the worker is unreachable the next upload
+/// will COALESCE the same name; no synchronous failure on offline.
+async fn handle_identity_rotate(id: &str, _params: Value, ctx: &ShareContext) -> Option<String> {
+    let identity_path = ctx.identity_key_path();
+
+    // Capture the prior display_name BEFORE swapping the keypair so we
+    // read the metadata file under the current (pre-rotate) pubkey.
+    let old_pk_hex = ctx.identity.load().public_key().to_hex();
+    let old_meta = IdentityMetadata::load_or_default(&ctx.identity_metadata_path(), &old_pk_hex);
+    let carried_display_name = old_meta.display_name.clone();
+
+    let new_kp = match Keypair::generate_and_write(&identity_path) {
+        Ok(kp) => kp,
+        Err(e) => return Some(bad_input(id, format!("rotate failed: {e}"))),
+    };
+    let new_pk = new_kp.public_key();
+    let new_pk_hex = new_pk.to_hex();
+    let new_fp_hex = new_pk.fingerprint().to_hex();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let new_meta = IdentityMetadata {
+        pubkey_hex: new_pk_hex.clone(),
+        display_name: carried_display_name.clone(),
+        backed_up: false,
+        last_backed_up_at: None,
+        last_rotated_at: Some(now),
+        last_backup_path: None,
+    };
+    if let Err(e) = IdentityMetadata::save(&ctx.identity_metadata_path(), &new_meta) {
+        tracing::warn!(error = %e, "identity-metadata save failed after rotate");
+    }
+
+    // Swap the active keypair AFTER metadata persists (same ordering
+    // as `handle_identity_import`).
+    ctx.identity.store(Arc::new(new_kp));
+
+    // Best-effort fan-out of the carried display_name. The PUT signs
+    // with the **post-swap** keypair (the worker derives the target
+    // pubkey from the JWS `kid`), so the row inserted on the worker
+    // side is keyed to the new pubkey. Spawn detached so a slow worker
+    // doesn't block the rotate result frame.
+    if let Some(name) = carried_display_name {
+        let client = ctx.client.clone();
+        tokio::spawn(async move {
+            if let Err(e) = client.set_display_name(&name).await {
+                tracing::warn!(error = %e, "post-rotate set_display_name failed; will retry on next upload");
+            }
+        });
+    }
+
+    Some(
+        json!({
+            "id": id,
+            "type": "identity.rotateResult",
+            "params": { "pubkey_hex": new_pk_hex, "fingerprint_hex": new_fp_hex }
+        })
+        .to_string(),
+    )
+}
+
+/// `identity.markBackedUp` — record that the user has saved an
+/// encrypted backup of the active key to `path` at `timestamp` (Unix
+/// seconds). Persists into [`IdentityMetadata`] without touching the
+/// keypair.
+///
+/// Validation:
+/// - `path` must be non-empty (worker doesn't see this; it's a local
+///   hint for the editor's "open last backup" affordance)
+/// - `timestamp` must be within ±86_400 seconds of the host's `now`
+///   so a clock-skewed editor or a malicious caller can't backdate /
+///   forward-date the backup record. Implementation symmetric: we
+///   compute `|timestamp - now|` and reject when > 1 day.
+///
+/// Returns `{ ok: true }` on success, structured error envelope on
+/// validation failure (mirrors how the editor surfaces other
+/// validation rejections).
+async fn handle_identity_mark_backed_up(
+    id: &str,
+    params: Value,
+    ctx: &ShareContext,
+) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        path: String,
+        timestamp: u64,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad identity.markBackedUp params: {e}"))),
+    };
+    if p.path.is_empty() {
+        return Some(bad_input(id, "path must not be empty"));
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let drift = p.timestamp.abs_diff(now);
+    if drift > 86_400 {
+        return Some(bad_input(
+            id,
+            "timestamp must be within ±1 day of host time",
+        ));
+    }
+
+    let pk_hex = ctx.identity.load().public_key().to_hex();
+    let path = ctx.identity_metadata_path();
+    let mut meta = IdentityMetadata::load_or_default(&path, &pk_hex);
+    meta.backed_up = true;
+    meta.last_backed_up_at = Some(p.timestamp);
+    meta.last_backup_path = Some(p.path);
+    if let Err(e) = IdentityMetadata::save(&path, &meta) {
+        return Some(bad_input(id, format!("metadata persist failed: {e}")));
+    }
+
+    Some(
+        json!({
+            "id": id,
+            "type": "identity.markBackedUpResult",
+            "params": { "ok": true }
+        })
+        .to_string(),
+    )
+}
+
+/// Validate a `display_name` candidate per spec §3.4 (pinned 2026-04-27):
+/// 1. NFC-normalize via `unicode-normalization`
+/// 2. Trim leading/trailing whitespace
+/// 3. Length **in Unicode code points** (NFC scalar values), not UTF-16
+///    code units, must be in `1..=32`. The worker counterpart measures
+///    `[...normalized].length` which iterates JS code points; matching
+///    via `chars().count()` keeps the boundary byte-for-byte aligned.
+/// 4. Reject control characters (`\p{Cc}`)
+/// 5. Reject surrogate code points (U+D800..U+DFFF) — Rust's `char` type
+///    by construction cannot hold a surrogate, but we keep an explicit
+///    range check so the failure-reason wording matches the worker for
+///    the unrealistic case where a future input path can carry
+///    surrogates as separate scalars.
+///
+/// Returns the trimmed, NFC-normalized name on success. The error is a
+/// `&'static str` so callers can build the structured error envelope
+/// with the exact wording from this function.
+fn validate_display_name(raw: &str) -> Result<String, &'static str> {
+    use unicode_normalization::UnicodeNormalization;
+    let normalized: String = raw.nfc().collect();
+    let trimmed = normalized.trim().to_string();
+    let cp_count = trimmed.chars().count();
+    if cp_count == 0 || cp_count > 32 {
+        return Err("display_name must be 1-32 characters after trim");
+    }
+    for ch in trimmed.chars() {
+        if ch.is_control() {
+            return Err("display_name contains control characters");
+        }
+        let cp = ch as u32;
+        if (0xD800..=0xDFFF).contains(&cp) {
+            return Err("display_name contains surrogate code points");
+        }
+    }
+    Ok(trimmed)
+}
+
+/// `identity.setDisplayName` — set or update the active author's
+/// display name. Validates per [`validate_display_name`] (spec §3.4),
+/// persists the normalized form to `IdentityMetadata`, and fires
+/// `PUT /v1/author/me` best-effort. Returns
+/// `{ display_name, pubkey_hex }` on success.
+///
+/// On validation failure: structured error envelope with
+/// `code = "invalid_display_name"`, `kind = "Malformed"`, and the
+/// specific reason in `message`.
+///
+/// Worker fan-out is non-blocking semantically (we wait for the
+/// response so the user sees a synchronous success/failure), but a
+/// worker error does NOT roll back the local persist — the spec §3.3
+/// "the next upload's COALESCE will catch up" semantics apply.
+async fn handle_identity_set_display_name(
+    id: &str,
+    params: Value,
+    ctx: &ShareContext,
+) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        display_name: String,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad identity.setDisplayName params: {e}"))),
+    };
+    let normalized = match validate_display_name(&p.display_name) {
+        Ok(n) => n,
+        Err(reason) => {
+            return Some(
+                json!({
+                    "id": id,
+                    "type": "error",
+                    "error": {
+                        "code": "invalid_display_name",
+                        "kind": "Malformed",
+                        "detail": null,
+                        "message": reason,
+                    }
+                })
+                .to_string(),
+            )
+        }
+    };
+
+    // Persist locally first so a worker failure doesn't desync the UI
+    // — the editor can re-trigger `identity.show` and observe the new
+    // name even if the worker round-trip was lost.
+    let pk_hex = ctx.identity.load().public_key().to_hex();
+    let path = ctx.identity_metadata_path();
+    let mut meta = IdentityMetadata::load_or_default(&path, &pk_hex);
+    meta.display_name = Some(normalized.clone());
+    if let Err(e) = IdentityMetadata::save(&path, &meta) {
+        tracing::warn!(error = %e, "identity-metadata save failed in setDisplayName");
+    }
+
+    // Fire to worker. Errors are logged but not surfaced — the user
+    // already sees their name persisted locally; the next upload's
+    // COALESCE upsert will sync to the worker if this round-trip
+    // failed.
+    if let Err(e) = ctx.client.set_display_name(&normalized).await {
+        tracing::warn!(error = %e, "set_display_name worker call failed; local persist kept");
+    }
+
+    Some(
+        json!({
+            "id": id,
+            "type": "identity.setDisplayNameResult",
+            "params": { "display_name": normalized, "pubkey_hex": pk_hex }
+        })
+        .to_string(),
+    )
 }
 
 async fn handle_config_vocab(id: &str, ctx: &ShareContext) -> Option<String> {

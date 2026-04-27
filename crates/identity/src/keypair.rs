@@ -202,6 +202,51 @@ impl Keypair {
         Ok(kp)
     }
 
+    /// Decrypt an `.omniid` backup blob and atomically write the recovered
+    /// keypair to `path` in the on-disk `identity.key` (OMNI-IDv1) format,
+    /// applying the user-only Windows ACL. Used by the host's
+    /// `identity.import` WS handler — composes
+    /// [`Keypair::import_encrypted`] (which only decrypts) with the same
+    /// atomic-write + ACL pattern that [`Keypair::generate_and_write`] uses
+    /// so the imported key persists across host restarts.
+    ///
+    /// Integration-discovered fix (architectural invariant #23 / writing-
+    /// lessons §C7): the 2026-04-26 identity-completion-and-display-name
+    /// spec §2 only declared `Keypair::generate_and_write` as the new
+    /// public surface, but the host's `handle_identity_import`
+    /// (T10 of that plan) must also write the imported key to disk
+    /// using the OMNI-IDv1 envelope built by the crate-private
+    /// `format::encode_identity_key`. Adding a thin import-and-write
+    /// helper here keeps that envelope encapsulated inside the identity
+    /// crate (per architectural invariant #1: single signing authority)
+    /// instead of forcing the host to reach into `format::*` /
+    /// `atomic::*` directly.
+    ///
+    /// Errors mirror [`Keypair::import_encrypted`] (`BadMagic`,
+    /// `BadPassphrase`, `Corrupt`, `UnsupportedVersion`, `Crypto`) plus
+    /// `Io` if the atomic write or ACL apply fails. On error the
+    /// on-disk file at `path` is left untouched (the underlying
+    /// `atomic::atomic_write` writes to a sibling tempfile and renames
+    /// only on success).
+    pub fn import_encrypted_and_write(
+        bytes: &[u8],
+        passphrase: &str,
+        path: &Path,
+    ) -> Result<Self, IdentityError> {
+        let kp = Self::import_encrypted(bytes, passphrase)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let seed = kp.seed();
+        let enc = crate::format::encode_identity_key(&seed);
+        crate::atomic::atomic_write(path, &enc)?;
+        #[cfg(windows)]
+        {
+            crate::acl::set_user_only(path)?;
+        }
+        Ok(kp)
+    }
+
     pub fn export_encrypted(&self, passphrase: &str) -> Result<Vec<u8>, IdentityError> {
         use argon2::{Algorithm, Argon2, Params, Version};
         use chacha20poly1305::{

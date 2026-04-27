@@ -57,6 +57,12 @@ tempfile = "3"
 # `.store(new_kp)` atomically retargets every signer (HTTP-JWS) without
 # tearing in-flight requests. See `crates/host/src/share/client.rs`.
 arc-swap = "1"
+# unicode-normalization: NFC normalization of `display_name` strings in the
+# `identity.setDisplayName` WS handler. Spec §3.4 requires NFC + 1..=32
+# code points + control/surrogate rejection; the normalize step delegates
+# to this crate so the host validator and worker validator agree
+# byte-for-byte at the wire boundary.
+unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 semver = { version = "1", features = ["serde"] }
