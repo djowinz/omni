@@ -20,6 +20,7 @@
 //!                            + overwrite_existing=false rejects mismatched key
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -31,7 +32,7 @@ use omni_host::share::ws_messages::{dispatch, ShareContext};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use url::Url;
-use wiremock::matchers::{method, path, path_regex};
+use wiremock::matchers::{body_json, method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ---- harness -----------------------------------------------------------
@@ -334,12 +335,19 @@ async fn set_display_name_accepts_emoji() {
     // Astral-plane emoji is 1 code point per spec §3.4 (pinned 2026-04-27);
     // 32 emoji must pass the validator.
     let server = MockServer::start().await;
+    // body_json + .expect(1): asserts the astral-plane emoji is preserved
+    // verbatim through the wire (no UTF-16 truncation, no surrogate
+    // splitting). Without `.expect(1)` an unmatched body would 404 and
+    // the test would still pass because local persist runs first.
+    let valid_input: String = "😀".repeat(32);
     Mock::given(method("PUT"))
         .and(path("/v1/author/me"))
+        .and(body_json(json!({ "display_name": valid_input })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "pubkey_hex": "x".repeat(64),
-            "display_name": "😀".repeat(32),
+            "display_name": valid_input,
         })))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -349,7 +357,7 @@ async fn set_display_name_accepts_emoji() {
         json!({
             "id": "req-sdn-6",
             "type": "identity.setDisplayName",
-            "params": { "display_name": "😀".repeat(32) }
+            "params": { "display_name": valid_input }
         }),
     )
     .await;
@@ -358,7 +366,7 @@ async fn set_display_name_accepts_emoji() {
         "32 astral-plane emoji should pass: each is 1 code point"
     );
 
-    // 33 emoji must fail.
+    // 33 emoji must fail validation locally (no wire call).
     let parsed_long = dispatch_one(
         &ctx,
         json!({
@@ -369,21 +377,29 @@ async fn set_display_name_accepts_emoji() {
     )
     .await;
     assert_eq!(parsed_long["type"], "error");
+    // Verification fires when `server` drops: the mock MUST have been
+    // hit exactly once (the 32-emoji input); the 33-emoji input is
+    // rejected before the worker PUT, so it does not contribute.
 }
 
 // ==== identity.rotate ===================================================
 
 #[tokio::test]
 async fn rotate_carries_display_name_and_clears_backup_state() {
-    // Mock worker for the post-rotate set_display_name PUT — body is
-    // best-effort fire-and-forget; we accept any success.
+    // Mock worker for the post-rotate set_display_name PUT — body shape
+    // is asserted via body_json + .expect(1) so a regression in how
+    // rotate carries the display_name forward (e.g., dropping NFC,
+    // truncating, or sending under a different key) hard-fails the test
+    // when the MockServer drops.
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
         .and(path("/v1/author/me"))
+        .and(body_json(json!({ "display_name": "djowinz" })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "pubkey_hex": "00".repeat(32),  // not validated by handler
             "display_name": "djowinz",
         })))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -436,6 +452,12 @@ async fn rotate_carries_display_name_and_clears_backup_state() {
         meta_post.last_rotated_at.is_some(),
         "last_rotated_at must be set"
     );
+
+    // The post-rotate set_display_name PUT runs in `tokio::spawn`
+    // (handler returns the rotateResult before the network call lands).
+    // Give the background task a chance to fire so the wiremock `expect(1)`
+    // verification (on `server` drop at end of scope) sees the request.
+    tokio::time::sleep(Duration::from_millis(200)).await;
 }
 
 #[tokio::test]
@@ -651,8 +673,6 @@ async fn import_rejects_bad_base64() {
 /// where a refactor changes `set_display_name`'s body keys silently.
 #[tokio::test]
 async fn set_display_name_emits_expected_put_body() {
-    use wiremock::matchers::body_json;
-
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
         .and(path("/v1/author/me"))
@@ -661,6 +681,14 @@ async fn set_display_name_emits_expected_put_body() {
             "pubkey_hex": "ab".repeat(32),
             "display_name": "wired",
         })))
+        // `.expect(1)` is the load-bearing assertion here: without it
+        // an unmatched mock would return a default 404 and the handler
+        // would STILL surface `identity.setDisplayNameResult` because
+        // local persist runs before the worker PUT (per spec ordering).
+        // With `.expect(1)`, wiremock verifies on `MockServer` drop
+        // that the PUT actually fired with the expected body shape and
+        // hard-fails the test if a refactor drifts the body keys.
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -674,15 +702,8 @@ async fn set_display_name_emits_expected_put_body() {
         }),
     )
     .await;
-    // If the body shape didn't match, wiremock would have responded
-    // 404 (no matching mock) and the handler's set_display_name call
-    // would have surfaced as a worker error — but we'd still get the
-    // setDisplayNameResult frame because local persist always happens.
-    // The crisper assertion: the result is the success type.
     assert_eq!(parsed["type"], "identity.setDisplayNameResult");
-    // (The wiremock unmatched-request log is also surfaced on test
-    // failure — if a future refactor breaks the wire shape the test
-    // fails because no mock matches and the worker returns 404.)
+    // Verification fires when `server` drops at the end of this scope.
 }
 
 // ==== ArcSwap retargeting — keypair swap reaches client signers =========
