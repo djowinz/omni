@@ -150,14 +150,36 @@ async fn rotation_carries_display_name_seeds_worker_clears_backup() {
 
     // Capture every PUT body so we can prove the rotation seed used
     // the carried display_name + the NEW pubkey's signing key.
+    //
+    // The post-rotate set_display_name PUT runs in `tokio::spawn` (see
+    // `handle_identity_rotate` — the seed is detached). To avoid a
+    // race between the test thread and the spawned task we wire a
+    // `tokio::sync::oneshot` through the wiremock callback: the first
+    // PUT fires the sender; the test awaits the receiver (with a
+    // generous timeout) instead of sleeping. Replaces the previous
+    // `tokio::time::sleep(Duration::from_millis(250))` which could
+    // miss the call on a cold-cache or contended CI runner.
     let put_seen: Arc<std::sync::Mutex<Vec<Vec<u8>>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (put_tx, put_rx) = tokio::sync::oneshot::channel::<()>();
+    let put_tx = Arc::new(std::sync::Mutex::new(Some(put_tx)));
     {
         let put_seen = Arc::clone(&put_seen);
+        let put_tx = Arc::clone(&put_tx);
         Mock::given(method("PUT"))
             .and(path("/v1/author/me"))
             .respond_with(move |req: &Request| {
                 put_seen.lock().unwrap().push(req.body.clone());
+                // Signal the test that the PUT landed. Idempotent —
+                // only the first call sends; subsequent PUTs are
+                // no-ops on the channel side. Lock is std::sync (not
+                // tokio::sync) and scoped to a non-await section so
+                // there's no clippy::await_holding_lock concern.
+                if let Ok(mut guard) = put_tx.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(());
+                    }
+                }
                 ResponseTemplate::new(200).set_body_json(json!({
                     "pubkey_hex": "x".repeat(64),
                     "display_name": "djowinz",
@@ -237,11 +259,20 @@ async fn rotation_carries_display_name_seeds_worker_clears_backup() {
         "rotate must set last_rotated_at"
     );
 
-    // The post-rotate set_display_name PUT runs in `tokio::spawn`;
-    // give it a beat to land before inspecting the captured bodies.
+    // Wait for the background PUT to actually land (instead of racing
+    // a fixed-duration sleep). The wiremock callback fires the
+    // oneshot on first receipt; this `recv().await` returns as soon
+    // as the spawned `set_display_name` request hits the mock. The
+    // 5s timeout is generous enough to survive cold-cache CI runners
+    // but tight enough to surface real regressions (the spawned task
+    // never firing).
+    tokio::time::timeout(Duration::from_secs(5), put_rx)
+        .await
+        .expect("background PUT did not fire within 5s")
+        .expect("oneshot sender was dropped before signaling");
+
     // Scope the MutexGuard inside its own block so it's released
     // before any subsequent `.await` (clippy::await_holding_lock).
-    tokio::time::sleep(Duration::from_millis(250)).await;
     {
         let bodies = put_seen.lock().unwrap();
         assert!(
@@ -423,10 +454,14 @@ async fn display_name_end_to_end_set_then_get() {
         "setDisplayName persists to local IdentityMetadata"
     );
 
-    // 3. Worker PUT fired with the expected body. Scope the
-    //    MutexGuard inside its own block so it's released BEFORE
-    //    the next `.await` (clippy::await_holding_lock).
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // 3. Worker PUT fired with the expected body. No sleep needed —
+    //    handle_identity_set_display_name awaits the worker PUT inline
+    //    before returning, so by the time `dispatch` resolves the
+    //    wiremock has already captured the body. Unlike rotate (which
+    //    spawns the PUT detached), setDisplayName is fully synchronous
+    //    from the test's POV. Scope the MutexGuard inside its own
+    //    block so it's released BEFORE the next `.await`
+    //    (clippy::await_holding_lock).
     {
         let bodies = put_bodies.lock().unwrap();
         assert!(
@@ -495,12 +530,17 @@ async fn stale_metadata_tripwire_resets_on_load() {
     assert_eq!(show["params"]["last_backed_up_at"], Value::Null);
     assert_eq!(show["params"]["last_backup_path"], Value::Null);
 
-    // The reset persisted: a fresh load against the same path returns
-    // the cleared shape (NOT the original "ghost"/"stale.omniid"
-    // values). If persistence were broken, the old bytes would still
-    // be on disk and this read would resurrect them.
-    let on_disk = IdentityMetadata::load_or_default(&meta_path, &current_pk_hex);
-    assert_eq!(on_disk.pubkey_hex, current_pk_hex);
+    // Bypass IdentityMetadata::load_or_default — that's the function
+    // under test. Read the raw JSON from disk to confirm the tripwire
+    // reset actually persisted, not just that load_or_default returns
+    // the fresh shape in-memory (a silently-failing save would still
+    // produce a passing assertion through load_or_default).
+    let raw = std::fs::read_to_string(&meta_path).expect("metadata persisted");
+    let on_disk: IdentityMetadata = serde_json::from_str(&raw).expect("parses");
+    assert_eq!(
+        on_disk.pubkey_hex, current_pk_hex,
+        "tripwire reset persisted to disk"
+    );
     assert_eq!(on_disk.display_name, None);
     assert!(!on_disk.backed_up);
     assert_eq!(on_disk.last_backed_up_at, None);
