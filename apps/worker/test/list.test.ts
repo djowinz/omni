@@ -294,6 +294,72 @@ describe('GET /v1/list — malformed cursor', () => {
   });
 });
 
+describe('GET /v1/list — author_display_name JOIN (spec §4.4 / OWI-79)', () => {
+  // Per identity-completion-and-display-name spec §4.4: list responses embed
+  // `author_display_name` resolved via LEFT JOIN authors. Renderer no longer
+  // needs N+1 lookups per grid row; cards can render `<name>#<8-hex>` from
+  // the list payload alone.
+  it('includes author_display_name when authors row has one set', async () => {
+    await resetD1();
+    const pubkey = new Uint8Array(32).fill(0x11);
+    await env.META.prepare(
+      'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)',
+    )
+      .bind(pubkey, 'starfire', 1_714_000_000)
+      .run();
+    await seed([
+      {
+        id: 'cool',
+        authorPub: pubkey,
+        name: 'cool-overlay',
+        kind: 'theme',
+        tags: [],
+        installs: 0,
+        createdAt: 1_714_000_000,
+      },
+    ]);
+
+    const res = await SELF.fetch('https://worker.test/v1/list');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ artifact_id: string; author_display_name: string | null }>;
+    };
+    const row = body.items.find((a) => a.artifact_id === 'cool');
+    expect(row).toBeDefined();
+    expect(row!.author_display_name).toBe('starfire');
+  });
+
+  it('returns null author_display_name when authors row has display_name = NULL', async () => {
+    await resetD1();
+    const pubkey = new Uint8Array(32).fill(0x22);
+    await env.META.prepare(
+      'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, NULL, ?)',
+    )
+      .bind(pubkey, 1_714_000_000)
+      .run();
+    await seed([
+      {
+        id: 'nameless',
+        authorPub: pubkey,
+        name: 'nameless-overlay',
+        kind: 'theme',
+        tags: [],
+        installs: 0,
+        createdAt: 1_714_000_000,
+      },
+    ]);
+
+    const res = await SELF.fetch('https://worker.test/v1/list');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ artifact_id: string; author_display_name: string | null }>;
+    };
+    const row = body.items.find((a) => a.artifact_id === 'nameless');
+    expect(row).toBeDefined();
+    expect(row!.author_display_name).toBeNull();
+  });
+});
+
 describe('GET /v1/list — author_pubkey filter (#015 T1)', () => {
   // 64-hex encodings of the AUTHOR_A (0xaa * 32) and AUTHOR_B (0xbb * 32)
   // Uint8Arrays used in the shared DATASET above. Reusing the pre-seeded

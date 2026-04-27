@@ -223,6 +223,37 @@ describe('GET /v1/artifact/:id — moderator JWS', () => {
   });
 });
 
+describe('GET /v1/artifact/:id — author_display_name JOIN (spec §4.4 / OWI-79)', () => {
+  // Per identity-completion-and-display-name spec §4.4: artifact-detail
+  // responses embed `author_display_name` via LEFT JOIN authors. The renderer
+  // can render `<name>#<8-hex>` without a follow-up /v1/author/* fetch.
+  it('includes author_display_name when authors row has one set', async () => {
+    await env.META.prepare(
+      `INSERT OR REPLACE INTO authors (pubkey, display_name, created_at)
+       VALUES (?, ?, 1000)`,
+    )
+      .bind(AUTHOR_PUB, 'starfire')
+      .run();
+    await seedArtifact({ id: 'artA', authorPub: AUTHOR_PUB });
+    const res = await SELF.fetch('https://worker.test/v1/artifact/artA');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { author_display_name: string | null };
+    expect(body.author_display_name).toBe('starfire');
+  });
+
+  it('returns null author_display_name when authors row has display_name = NULL', async () => {
+    // seedArtifact's INSERT OR IGNORE leaves display_name NULL by default
+    // because the helper only sets pubkey + created_at. (`AUTHOR_PUB` was
+    // not previously upserted in this test, so the seedArtifact insert is the
+    // first authors row for this pubkey and inherits the NULL default.)
+    await seedArtifact({ id: 'artB', authorPub: AUTHOR_PUB });
+    const res = await SELF.fetch('https://worker.test/v1/artifact/artB');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { author_display_name: string | null };
+    expect(body.author_display_name).toBeNull();
+  });
+});
+
 describe('GET /v1/artifact/:id — tombstoned status', () => {
   it('status=tombstoned when is_removed=1', async () => {
     await seedArtifact({ id: 'art1', authorPub: AUTHOR_PUB });

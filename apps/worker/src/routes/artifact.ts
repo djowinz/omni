@@ -47,6 +47,10 @@ interface ArtifactFullRow {
   report_count: number;
   is_removed: number;
   is_featured: number;
+  // LEFT JOIN authors per identity-completion-and-display-name spec §4.4
+  // (OWI-79). NULL when no authors row exists for the pubkey OR display_name
+  // is NULL on the row.
+  author_display_name: string | null;
 }
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -76,12 +80,22 @@ function deriveStatus(row: ArtifactFullRow): 'live' | 'tombstoned' | 'moderation
 }
 
 async function loadArtifact(env: AppEnv['Bindings'], id: string): Promise<ArtifactFullRow | null> {
+  // LEFT JOIN authors per identity-completion-and-display-name spec §4.4
+  // (OWI-79): the artifact-detail response embeds `author_display_name` so
+  // the renderer can render `<name>#<8-hex>` without a follow-up
+  // /v1/author/* fetch. Column refs use `artifacts.` prefixes because `id`
+  // and `created_at` collide with the authors table.
   return env.META.prepare(
-    `SELECT id, author_pubkey, name, kind, content_hash, thumbnail_hash,
-            description, tags, license, version, omni_min_version, signature,
-            created_at, updated_at, install_count, report_count, is_removed,
-            is_featured
-     FROM artifacts WHERE id = ?`,
+    `SELECT artifacts.id, artifacts.author_pubkey, artifacts.name, artifacts.kind,
+            artifacts.content_hash, artifacts.thumbnail_hash,
+            artifacts.description, artifacts.tags, artifacts.license,
+            artifacts.version, artifacts.omni_min_version, artifacts.signature,
+            artifacts.created_at, artifacts.updated_at, artifacts.install_count,
+            artifacts.report_count, artifacts.is_removed, artifacts.is_featured,
+            authors.display_name AS author_display_name
+     FROM artifacts
+     LEFT JOIN authors ON authors.pubkey = artifacts.author_pubkey
+     WHERE artifacts.id = ?`,
   )
     .bind(id)
     .first<ArtifactFullRow>();
@@ -115,6 +129,7 @@ function artifactResponse(
     thumbnail_url: `/v1/thumbnail/${row.thumbnail_hash}`,
     author_pubkey: pubHex,
     author_fingerprint_hex: pubHex.slice(0, 12),
+    author_display_name: row.author_display_name ?? null,
     installs: row.install_count,
     created_at: row.created_at,
     updated_at: row.updated_at,

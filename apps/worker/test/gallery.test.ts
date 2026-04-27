@@ -166,6 +166,58 @@ describe('GET /v1/me/gallery — excludes tombstoned', () => {
   });
 });
 
+describe('GET /v1/me/gallery — author_display_name JOIN (spec §4.4 / OWI-79)', () => {
+  // Per identity-completion-and-display-name spec §4.4: gallery responses embed
+  // `author_display_name` via LEFT JOIN authors so the caller's own gallery
+  // grid renders without N+1 lookups.
+  it('includes author_display_name when caller has set one', async () => {
+    await env.META.prepare(
+      `INSERT OR REPLACE INTO authors (pubkey, display_name, created_at)
+       VALUES (?, ?, ?)`,
+    )
+      .bind(A_PUB, 'starfire', 1000)
+      .run();
+    await seedArtifact({ id: 'g1', authorPub: A_PUB, name: 'gallery-one', updatedAt: 2000 });
+
+    const jws = await signGet({
+      path: '/v1/me/gallery',
+      seed: A_SEED,
+      pubkey: A_PUB,
+      df: A_DF,
+    });
+    const res = await SELF.fetch('https://worker.test/v1/me/gallery', {
+      headers: { Authorization: `Omni-JWS ${jws}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ artifact_id: string; author_display_name: string | null }>;
+    };
+    expect(body.items.length).toBe(1);
+    expect(body.items[0]!.author_display_name).toBe('starfire');
+  });
+
+  it('returns null author_display_name when authors row has display_name = NULL', async () => {
+    // seedArtifact's INSERT OR IGNORE leaves display_name NULL by default.
+    await seedArtifact({ id: 'g2', authorPub: A_PUB, name: 'gallery-two', updatedAt: 3000 });
+
+    const jws = await signGet({
+      path: '/v1/me/gallery',
+      seed: A_SEED,
+      pubkey: A_PUB,
+      df: A_DF,
+    });
+    const res = await SELF.fetch('https://worker.test/v1/me/gallery', {
+      headers: { Authorization: `Omni-JWS ${jws}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ artifact_id: string; author_display_name: string | null }>;
+    };
+    expect(body.items.length).toBe(1);
+    expect(body.items[0]!.author_display_name).toBeNull();
+  });
+});
+
 describe('GET /v1/me/gallery — ordering', () => {
   it('orders by updated_at DESC', async () => {
     await seedArtifact({ id: 'older', authorPub: A_PUB, name: 'older', updatedAt: 1000 });
