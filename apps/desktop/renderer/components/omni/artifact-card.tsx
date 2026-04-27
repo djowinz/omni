@@ -59,15 +59,32 @@ function artifactName(artifact: CachedArtifactDetail | ArtifactDetail): string {
 
 /** Derive a human-readable author label from available fields. */
 function authorDisplay(artifact: CachedArtifactDetail | ArtifactDetail): string {
-  // Per identity-completion-and-display-name spec (2026-04-26):
-  // Presentation handle is `<display_name>#<8-hex>`. The 8-hex is the
-  // canonical disambiguator (always shown — it's the trust anchor); the
-  // name is the friendly prefix sourced from `author_display_name` on the
-  // list/gallery/artifact response, or null when the worker has nothing
-  // for the author.
+  // Per identity-completion-and-display-name spec (2026-04-26) + OWI-91
+  // (host relay extension): the presentation handle is
+  // `<display_name>#<8-hex>`. The 8-hex is the canonical disambiguator
+  // (always shown — it's the trust anchor); the name is the friendly
+  // prefix sourced from `author_display_name` on the list/gallery/artifact
+  // response, or null when the worker has nothing for the author.
+  //
+  // Both `CachedArtifactDetail` and `ArtifactDetail` declare
+  // `author_display_name: string | null` as a required field (post-OWI-91
+  // — Zod uses `.nullable()` not `.nullable().optional()`), so TypeScript
+  // narrows the union directly without any cast.
   const slice = artifact.author_pubkey.slice(0, 8);
-  const detail = artifact as ArtifactDetail & CachedArtifactDetail;
-  const name = detail.author_display_name?.trim();
+  const raw = artifact.author_display_name;
+  const name = raw?.trim();
+  // Worker contract (spec §3.4) guarantees `display_name` is NFC-normalized
+  // and trimmed before persistence — a non-null value that trims to empty
+  // signals a worker contract violation. Surface it as a console.warn so a
+  // dev exercising the path notices, but fall back to the slice-only
+  // handle so the UI keeps rendering instead of crashing.
+  if (raw !== null && raw !== undefined && raw.length > 0 && name === '') {
+    console.warn(
+      '[authorDisplay] author_display_name was non-null but trimmed to empty;' +
+        ' worker contract violation (spec §3.4 requires NFC + trim before' +
+        ` persistence). pubkey_hex slice=${slice} value=${JSON.stringify(raw)}`,
+    );
+  }
   return name ? `${name}#${slice}` : `#${slice}`;
 }
 

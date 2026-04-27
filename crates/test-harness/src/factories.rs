@@ -166,6 +166,9 @@ pub fn sample_list_row() -> CachedArtifactDetail {
         tags: vec!["dark".to_string()],
         installs: 0,
         created_at: 1_700_000_000,
+        // OWI-91: worker JOIN projects authors.display_name onto list rows.
+        // None mirrors a row whose authors entry has display_name = NULL.
+        author_display_name: None,
     }
 }
 

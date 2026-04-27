@@ -17,6 +17,7 @@ const FIXTURE_ITEM: CachedArtifactDetail = {
   thumbnail_url: 'https://x/t',
   created_at: 0,
   updated_at: 1700000000,
+  author_display_name: null,
 };
 
 const SECOND_PAGE: CachedArtifactDetail = { ...FIXTURE_ITEM, artifact_id: 'art-2', name: 'Demo 2' };

@@ -87,6 +87,11 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         author_fingerprint_hex: artifact.author_fingerprint_hex,
         created_at: artifact.created_at,
         updated_at: artifact.updated_at,
+        // OWI-91: forward the author_display_name from the ArtifactDetail
+        // into the cached preview entry so the preview-banner author chip
+        // matches the detail-card handle (single source of truth — both
+        // schemas now declare this field).
+        author_display_name: artifact.author_display_name,
       });
     } catch (err) {
       toast.error(err as Parameters<typeof toast.error>[0]);

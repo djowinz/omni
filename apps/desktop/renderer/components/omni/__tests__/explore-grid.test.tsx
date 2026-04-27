@@ -20,6 +20,7 @@ const fixture = (n: number): CachedArtifactDetail[] =>
     thumbnail_url: `https://x/${i}/t`,
     created_at: 0,
     updated_at: 1700000000 + i,
+    author_display_name: null,
   }));
 
 describe('ExploreGrid', () => {

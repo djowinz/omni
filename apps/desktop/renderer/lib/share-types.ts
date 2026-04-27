@@ -117,16 +117,19 @@ export const CachedArtifactDetailSchema = z.object({
   created_at: z.number().int().default(0),
   updated_at: z.number().int(),
   // Author display name (resolved from authors.display_name on the worker).
-  // Per identity-completion-and-display-name spec §6 (OWI-79/OWI-82): the
-  // worker's /v1/list response embeds this so the renderer can render
-  // `<display_name>#<8-hex>` from list payloads alone — no per-row
-  // /v1/author/* fetch on grid scrolls. Null when no authors row exists for
-  // the pubkey OR the row's display_name is NULL. The Rust source
-  // (crates/host/src/share/cache.rs CachedArtifactDetail) does NOT yet
-  // declare this field; the host relays the worker JSON through and the
-  // renderer reads it locally — adding this to the Rust struct + types-test
-  // is deferred to a follow-up.
-  author_display_name: z.string().nullable().optional(),
+  // Per identity-completion-and-display-name spec §6 (OWI-79/OWI-82) +
+  // OWI-91 (host relay extension): the worker's /v1/list response embeds
+  // this so the renderer can render `<display_name>#<8-hex>` from list
+  // payloads alone — no per-row /v1/author/* fetch on grid scrolls. Null
+  // when no authors row exists for the pubkey OR the row's display_name is
+  // NULL. The Rust source (crates/host/src/share/cache.rs
+  // CachedArtifactDetail) declares this as `Option<String>`, which ts-rs
+  // emits as `string | null` (NOT `string | null | undefined`). This Zod
+  // schema must therefore use `.nullable()` only — adding `.optional()`
+  // would broaden the inferred output to `string | null | undefined`,
+  // which would not extend the generated Rust shape and break the
+  // bidirectional types-test in share-types.types-test.ts.
+  author_display_name: z.string().nullable(),
 });
 export type CachedArtifactDetail = z.infer<typeof CachedArtifactDetailSchema>;
 
@@ -151,15 +154,18 @@ export const ArtifactDetailSchema = z.object({
   updated_at: z.number().int().default(0),
   status: z.string(),
   // Author display name (resolved from authors.display_name on the worker).
-  // Per identity-completion-and-display-name spec §6 (OWI-79/OWI-82): the
-  // worker's /v1/artifact/:id response embeds this so the renderer can
-  // render `<display_name>#<8-hex>` without a follow-up /v1/author/* fetch.
-  // Null when no authors row exists for the pubkey OR display_name is NULL.
-  // The Rust source (crates/host/src/share/client.rs ArtifactDetail) does
-  // NOT yet declare this field; the host relays the worker JSON through
-  // and the renderer reads it locally — adding this to the Rust struct is
-  // deferred to a follow-up.
-  author_display_name: z.string().nullable().optional(),
+  // Per identity-completion-and-display-name spec §6 (OWI-79/OWI-82) +
+  // OWI-91 (host relay extension): the worker's /v1/artifact/:id response
+  // embeds this so the renderer can render `<display_name>#<8-hex>`
+  // without a follow-up /v1/author/* fetch. Null when no authors row
+  // exists for the pubkey OR display_name is NULL. The Rust source
+  // (crates/host/src/share/client.rs ArtifactDetail) declares this as
+  // `Option<String>`. ArtifactDetail is NOT exported via ts-rs (the
+  // struct does not derive ts_rs::TS), so this Zod schema is the
+  // authoritative TS oracle for the field — keep it `.nullable()` only
+  // (no `.optional()`) so the renderer's parse output never silently
+  // strips the field.
+  author_display_name: z.string().nullable(),
 });
 export type ArtifactDetail = z.infer<typeof ArtifactDetailSchema>;
 

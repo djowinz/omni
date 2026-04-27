@@ -20,6 +20,7 @@ const FIXTURE: ArtifactDetail = {
   created_at: 0,
   updated_at: 0,
   status: 'published',
+  author_display_name: null,
 };
 
 // Dynamically import PreviewContextProvider after vi.resetModules() so the

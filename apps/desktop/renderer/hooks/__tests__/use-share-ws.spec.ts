@@ -13,6 +13,14 @@ describe('useShareWs — send() happy path', () => {
   });
 
   it('resolves with the Zod-validated response when sendMessage returns a valid listResult frame', async () => {
+    // The wire frame as sent by the host. Fields with #[serde(default)] on
+    // the Rust struct (author_fingerprint_hex, tags, installs, created_at,
+    // r2_url) plus `author_display_name: Option<String>` (OWI-91) are
+    // included in the post-Zod-parse output as either their defaults or
+    // `null`. Pre-populating them here keeps the deepEqual assertion
+    // honest — the previous shape that omitted them passed only because
+    // Zod silently injected defaults during parse, masking what the host
+    // actually emits.
     const validFrame = {
       id: 'req-1',
       type: 'explorer.listResult',
@@ -21,15 +29,16 @@ describe('useShareWs — send() happy path', () => {
           artifact_id: 'art-abc',
           content_hash: 'sha256-abc',
           author_pubkey: 'pk-abc',
+          author_fingerprint_hex: '',
           name: 'Neon Theme',
           kind: 'theme',
           tags: [],
-          author_fingerprint_hex: '',
-          created_at: 0,
           installs: 0,
           r2_url: 'https://r2.example.com/art-abc',
           thumbnail_url: 'https://r2.example.com/art-abc/thumb.png',
+          created_at: 0,
           updated_at: 1700000000,
+          author_display_name: null,
         },
       ],
       next_cursor: null,

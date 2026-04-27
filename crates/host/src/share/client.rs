@@ -110,6 +110,24 @@ pub struct ArtifactDetail {
     #[serde(default)]
     pub updated_at: i64,
     pub status: String,
+    /// Author display name (LEFT JOIN projection from `authors.display_name`).
+    ///
+    /// Per identity-completion-and-display-name spec §6 + OWI-91 (post-T9
+    /// follow-up): the worker's `/v1/artifact/:id` response embeds this so
+    /// the renderer can render `<display_name>#<8-hex>` without a
+    /// follow-up `/v1/author/*` fetch. `None` when no `authors` row exists
+    /// for the pubkey OR `display_name` is NULL.
+    ///
+    /// Without this field on the host-side struct, serde silently drops it
+    /// during the relay-side deserialize/re-serialize cycle in
+    /// `handle_get` (`ws_messages.rs`), and the renderer falls back to
+    /// `#<8-hex>` only — defeating T6/T9. Note: this struct is NOT exported
+    /// via `ts-rs` (no `#[derive(ts_rs::TS)]`), so adding this field does
+    /// not regenerate any `packages/shared-types/src/generated/*.ts` file.
+    /// The renderer's `ArtifactDetailSchema` Zod schema mirrors this shape
+    /// independently.
+    #[serde(default)]
+    pub author_display_name: Option<String>,
 }
 
 /// Public author metadata as returned by `GET /v1/author/:pubkey_hex`
@@ -482,6 +500,11 @@ impl ShareClient {
             tags: Vec::new(),
             installs: 0,
             created_at: body.created_at,
+            // author_display_name is not returned by POST /v1/upload — the
+            // worker JOIN fills it on subsequent /v1/list reads. Cache
+            // entries seeded from upload remain `None` until merged-out by
+            // the next list refresh.
+            author_display_name: None,
         };
         self.cache
             .insert((author_pubkey_hex, body.artifact_id.clone()), detail)
@@ -1094,6 +1117,10 @@ mod tests {
             "created_at": 1_700_000_000_i64,
             "updated_at": 1_700_001_000_i64,
             "status": "live",
+            // OWI-91: worker's /v1/artifact/:id response carries this when an
+            // authors row exists; null otherwise. Pinned in the canned body
+            // so the deserialize round-trip exercises the field.
+            "author_display_name": "alice",
         })
     }
 
