@@ -58,14 +58,16 @@ const LAST_PUBLISHED_AT = '2026-04-18T18:12:44Z';
 /** Identity bootstrap — already backed up so the publish gate doesn't open. */
 const IDENTITY_RESULT = {
   type: 'identity.showResult',
-  params: {
-    pubkey_hex: 'cc'.repeat(32),
-    fingerprint_hex: '',
-    fingerprint_emoji: [],
-    fingerprint_words: [],
-    created_at: 0,
-    backed_up: true,
-  },
+  pubkey_hex: 'cc'.repeat(32),
+  fingerprint_hex: '',
+  fingerprint_emoji: [],
+  fingerprint_words: [],
+  created_at: 0,
+  backed_up: true,
+  display_name: null,
+  last_backed_up_at: null,
+  last_rotated_at: null,
+  last_backup_path: null,
 };
 
 /** config.vocab — Step 2 Review's tag chips read this; keep deterministic. */

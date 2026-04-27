@@ -31,14 +31,16 @@ describe('useMyUploads', () => {
         return {
           id: 'r1',
           type: 'identity.showResult',
-          params: {
-            pubkey_hex: 'aa'.repeat(32),
-            fingerprint_hex: '',
-            fingerprint_emoji: [],
-            fingerprint_words: [],
-            created_at: 0,
-            backed_up: false,
-          },
+          pubkey_hex: 'aa'.repeat(32),
+          fingerprint_hex: '',
+          fingerprint_emoji: [],
+          fingerprint_words: [],
+          created_at: 0,
+          backed_up: false,
+          display_name: null,
+          last_backed_up_at: null,
+          last_rotated_at: null,
+          last_backup_path: null,
         };
       }
       // explorer.list

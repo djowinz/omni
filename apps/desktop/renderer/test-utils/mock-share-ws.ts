@@ -61,9 +61,21 @@ const DEFAULT_NOOP_ERROR_RESPONSE = {
  * `import('../use-share-ws')` so the hook reads the stubbed globals on first
  * load. The hook caches `window.omni!` lookups inside its closures, so
  * stubbing late produces undefined-reference errors.
+ *
+ * @param options.defaultResponse — Override the default response returned by
+ *   `sendShareMessage`. Defaults to `DEFAULT_NOOP_ERROR_RESPONSE` (a benign
+ *   D-004-J error envelope used for wire-shape tests that only inspect the
+ *   outgoing call). Pass a success frame object when the test also needs to
+ *   assert the response path (e.g. context provider mount tests).
  */
-export function installShareIpcSpy(): ShareIpcSpy {
-  const sendSpy = vi.fn().mockResolvedValue(DEFAULT_NOOP_ERROR_RESPONSE);
+export function installShareIpcSpy(
+  options: { defaultResponse?: unknown } = {},
+): ShareIpcSpy {
+  const response =
+    options.defaultResponse !== undefined
+      ? options.defaultResponse
+      : DEFAULT_NOOP_ERROR_RESPONSE;
+  const sendSpy = vi.fn().mockResolvedValue(response);
   const onShareEventSpy = vi.fn().mockReturnValue(() => {});
   vi.stubGlobal('omni', {
     sendShareMessage: sendSpy,

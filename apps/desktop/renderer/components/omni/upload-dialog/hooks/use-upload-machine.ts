@@ -584,7 +584,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       try {
         const resp = await ws.send('identity.show', {});
         if (!cancelled && stateRef.current.currentPubkey === null) {
-          dispatch({ type: 'SET_CURRENT_PUBKEY', pubkey: resp.params.pubkey_hex });
+          dispatch({ type: 'SET_CURRENT_PUBKEY', pubkey: resp.pubkey_hex });
         }
       } catch {
         /* fresh install / stub — leave currentPubkey null */
@@ -750,7 +750,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     }
     try {
       const identity = await ws.send('identity.show', {});
-      if (!identity.params.backed_up) {
+      if (!identity.backed_up) {
         // Pause; resolveBackupGate() resumes after the dialog resolves.
         dispatch({ type: 'BACKUP_GATE', open: true });
         return;
