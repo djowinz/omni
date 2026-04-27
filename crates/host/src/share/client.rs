@@ -112,6 +112,48 @@ pub struct ArtifactDetail {
     pub status: String,
 }
 
+/// Public author metadata as returned by `GET /v1/author/:pubkey_hex`
+/// (worker-api §`/v1/author/*`, added by the identity-completion-and-display-name
+/// spec §4.2).
+///
+/// Distinct from any author-shaped row embedded in list/gallery/artifact
+/// responses — those carry only the `author_display_name` LEFT-JOIN
+/// projection. This type is the full public-profile shape: pubkey,
+/// fingerprint, display_name (nullable until `setDisplayName`), join
+/// timestamp, total upload count.
+///
+/// **Shared-types coordination:** the canonical TypeScript shape lives at
+/// `packages/shared-types/src/index.ts` as a hand-rolled `interface
+/// AuthorDetail` (introduced by Task 4 of the same plan). This Rust struct
+/// mirrors that contract independently — we deliberately do NOT export
+/// it via `ts-rs` because doing so would emit a generated file that
+/// conflicts with the hand-rolled barrel entry. Renderer consumers
+/// (`useAuthorResolver`, Task 8) import from `@omni/shared-types`; the
+/// Rust source of truth here is host-internal.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AuthorDetail {
+    pub pubkey_hex: String,
+    pub fingerprint_hex: String,
+    /// `None` until the author calls `identity.setDisplayName` (or
+    /// uploads a bundle with `display_name`). Worker emits JSON `null`
+    /// in that state.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    pub joined_at: u64,
+    pub total_uploads: u64,
+}
+
+/// Server response for `PUT /v1/author/me`. The worker echoes the
+/// (post-validation, NFC-normalized) `display_name` it persisted, plus
+/// the kid-derived pubkey for receipt — the host can store both into
+/// `IdentityMetadata` so the renderer can flush its author-resolver
+/// cache without a follow-up round-trip.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SetDisplayNameResult {
+    pub pubkey_hex: String,
+    pub display_name: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PatchEdit {
     pub manifest: Option<serde_json::Value>,
@@ -501,6 +543,75 @@ impl ShareClient {
         detail.r2_url = self.absolutize_url(&detail.r2_url);
         detail.thumbnail_url = self.absolutize_url(&detail.thumbnail_url);
         Ok(detail)
+    }
+
+    /// `GET /v1/author/:pubkey_hex` — public author profile lookup.
+    ///
+    /// Public endpoint; **no JWS** (the worker route validates `pubkey_hex`
+    /// is 64-hex and reads from the `authors` table without auth). Used by
+    /// the renderer's `useAuthorResolver` hook (Task 8) and by
+    /// `install.rs`'s TOFU-display-name fix (spec §3.5) to resolve the
+    /// uploader's display name without leaking the local identity.
+    ///
+    /// 404 from the worker maps to `UploadError::ServerReject { status:
+    /// 404, kind: WorkerErrorKind::Malformed, code: "NOT_FOUND", .. }` via
+    /// [`Self::decode_error`] — consumers that want "missing author = OK,
+    /// just no display_name" should pattern-match on
+    /// `Err(UploadError::ServerReject { status: 404, .. })` and treat it
+    /// as `None`. Transport / parse failures surface as `Network` /
+    /// `BadInput` per the existing client error model.
+    pub async fn get_author(&self, pubkey_hex: &str) -> Result<AuthorDetail, UploadError> {
+        let path = format!("/v1/author/{pubkey_hex}");
+        let url = self.url(&path);
+        let resp = self
+            .send_with_retry(self.http.get(url))
+            .await?;
+        if !resp.status().is_success() {
+            return Err(Self::decode_error(resp).await);
+        }
+        resp.json::<AuthorDetail>().await.map_err(UploadError::Network)
+    }
+
+    /// `PUT /v1/author/me` — set or update the current author's display
+    /// name on the worker.
+    ///
+    /// JWS-authenticated (worker derives the target pubkey from the
+    /// envelope's `kid` claim — there is no per-pubkey path, the user can
+    /// only mutate their own row). Body is a single-field JSON object;
+    /// the worker re-runs the §3.4 validation (NFC + trim + 1-32 code
+    /// points + control/surrogate rejection) before persisting.
+    ///
+    /// On success the worker echoes the persisted (post-validation, NFC
+    /// form) display name; the host writes it into `IdentityMetadata` so
+    /// the renderer cache can be flushed by pubkey.
+    ///
+    /// Validation rejection (400) surfaces as
+    /// `UploadError::ServerReject { kind: WorkerErrorKind::Malformed, .. }`;
+    /// the `code` and `message` carry the specific reason for editor
+    /// display.
+    pub async fn set_display_name(
+        &self,
+        display_name: &str,
+    ) -> Result<SetDisplayNameResult, UploadError> {
+        let path = "/v1/author/me";
+        let body = serde_json::to_vec(&serde_json::json!({ "display_name": display_name }))
+            .map_err(|e| UploadError::BadInput {
+                msg: "set_display_name body serialization failed".into(),
+                source: Some(Box::new(e)),
+            })?;
+        let builder = self
+            .http
+            .put(self.url(path))
+            .header("Content-Type", "application/json")
+            .body(body.clone());
+        let builder = self.sign(&Method::PUT, path, "", &body, builder)?;
+        let resp = self.send_with_retry(builder).await?;
+        if !resp.status().is_success() {
+            return Err(Self::decode_error(resp).await);
+        }
+        resp.json::<SetDisplayNameResult>()
+            .await
+            .map_err(UploadError::Network)
     }
 
     pub async fn patch(&self, id: &str, edit: PatchEdit) -> Result<UploadResult, UploadError> {
