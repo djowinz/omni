@@ -27,7 +27,7 @@ export function useMyUploads(): MyUploadsState {
       try {
         const resp = await send('identity.show', {});
         if (!alive) return;
-        setIdentityPubkey(resp.params.pubkey_hex);
+        setIdentityPubkey(resp.pubkey_hex);
       } catch {
         if (!alive) return;
         setIdentityPubkey(null);

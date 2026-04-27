@@ -64,14 +64,16 @@ const sendShareMessage = vi.fn(async (msg: { id: string; type: string; params: u
       return {
         id: msg.id,
         type: 'identity.showResult',
-        params: {
-          pubkey_hex: '00'.repeat(32),
-          fingerprint_hex: '',
-          fingerprint_emoji: [],
-          fingerprint_words: [],
-          created_at: 0,
-          backed_up: true,
-        },
+        pubkey_hex: '00'.repeat(32),
+        fingerprint_hex: '',
+        fingerprint_emoji: [],
+        fingerprint_words: [],
+        created_at: 0,
+        backed_up: true,
+        display_name: null,
+        last_backed_up_at: null,
+        last_rotated_at: null,
+        last_backup_path: null,
       };
     case 'workspace.listPublishables':
       return {
@@ -270,14 +272,16 @@ describe('useUploadMachine — double-POST guard (T-A2.2 / OWI-42, §8.9)', () =
           return {
             id: msg.id,
             type: 'identity.showResult',
-            params: {
-              pubkey_hex: '00'.repeat(32),
-              fingerprint_hex: '',
-              fingerprint_emoji: [],
-              fingerprint_words: [],
-              created_at: 0,
-              backed_up: true,
-            },
+            pubkey_hex: '00'.repeat(32),
+            fingerprint_hex: '',
+            fingerprint_emoji: [],
+            fingerprint_words: [],
+            created_at: 0,
+            backed_up: true,
+            display_name: null,
+            last_backed_up_at: null,
+            last_rotated_at: null,
+            last_backup_path: null,
           };
         }
         if (msg.type === 'workspace.listPublishables') {
