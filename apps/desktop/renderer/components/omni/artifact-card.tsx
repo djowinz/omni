@@ -59,16 +59,16 @@ function artifactName(artifact: CachedArtifactDetail | ArtifactDetail): string {
 
 /** Derive a human-readable author label from available fields. */
 function authorDisplay(artifact: CachedArtifactDetail | ArtifactDetail): string {
-  // ArtifactDetail carries a manifest; check for `author` or `author_name` inside it.
-  const detail = artifact as ArtifactDetail;
-  if (detail.manifest) {
-    const fromManifest =
-      manifestString(detail.manifest as Record<string, unknown>, 'author') ??
-      manifestString(detail.manifest as Record<string, unknown>, 'author_name');
-    if (fromManifest) return fromManifest;
-  }
-  // Fall back to the truncated pubkey (first 8 hex chars).
-  return artifact.author_pubkey.slice(0, 8) + '…';
+  // Per identity-completion-and-display-name spec (2026-04-26):
+  // Presentation handle is `<display_name>#<8-hex>`. The 8-hex is the
+  // canonical disambiguator (always shown — it's the trust anchor); the
+  // name is the friendly prefix sourced from `author_display_name` on the
+  // list/gallery/artifact response, or null when the worker has nothing
+  // for the author.
+  const slice = artifact.author_pubkey.slice(0, 8);
+  const detail = artifact as ArtifactDetail & CachedArtifactDetail;
+  const name = detail.author_display_name?.trim();
+  return name ? `${name}#${slice}` : `#${slice}`;
 }
 
 function GridCard(props: ArtifactCardProps) {
