@@ -31,7 +31,6 @@ function makeEntry(overrides: {
 // that doesn't structurally satisfy `(...args: unknown[]) => unknown` due to
 // parameter-variance rules. The runtime side just forwards the call, so we
 // type the parameter as `any` here and let each test site narrow as it needs.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function stubShareWs(sendShareMessage: any) {
   vi.stubGlobal('omni', {
     sendMessage: vi.fn(),

@@ -50,8 +50,8 @@ export function applyPreviewDiff(container: HTMLElement, diff: PreviewDiff): voi
 // — divergence would mean the editor preview displays different values than
 // the actual overlay.
 
-const CLASS_RE = /^[a-zA-Z0-9_\-\s]*$/;
-const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_\-]*$/;
+const CLASS_RE = /^[a-zA-Z0-9_\s-]*$/;
+const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 
 function parsePrecision(raw: string | null): number {
   const n = parseInt(raw ?? '0', 10);
