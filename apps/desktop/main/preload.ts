@@ -42,9 +42,17 @@ contextBridge.exposeInMainWorld('omni', {
     };
   },
 
-  // Preview incremental updates
+  // Preview incremental updates. `values` is the raw sensor map (e.g.
+  // {"cpu.usage": 9, "ram.percent": 44}) consumed by the renderer's
+  // data-sensor span updater — mirrors Ultralight bootstrap's
+  // __omni_update(values). `diff` is the per-element class/text/attr diff
+  // for everything else. Both are optional in practice (host may emit only
+  // one or the other), so callers must treat each independently.
   onPreviewUpdate: (
-    callback: (data: { diff: Record<string, { c?: string; t?: string }> }) => void,
+    callback: (data: {
+      diff?: Record<string, { c?: string; t?: string; a?: Record<string, string> }>;
+      values?: Record<string, number>;
+    }) => void,
   ) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('preview-update', handler);

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { useBackend } from '@/hooks/use-backend';
-import { applyPreviewDiff, type PreviewDiff } from '@/lib/preview-updater';
+import {
+  applyPreviewDiff,
+  applyPreviewValues,
+  type PreviewDiff,
+  type PreviewValues,
+} from '@/lib/preview-updater';
 import { useSensorData } from '@/hooks/use-sensor-data';
 import { SensorReadout } from './sensor-readout';
 import { Monitor } from 'lucide-react';
@@ -49,12 +54,21 @@ ${data.css}
     doc.close();
   }, []);
 
-  // Handle preview.update — incremental diff applied to iframe document
-  const handlePreviewUpdate = useCallback((data: { diff: PreviewDiff }) => {
-    const body = iframeRef.current?.contentDocument?.body;
-    if (!body) return;
-    applyPreviewDiff(body, data.diff);
-  }, []);
+  // Handle preview.update — incremental diff + raw sensor values applied to
+  // the iframe document. `values` updates [data-sensor] spans (mirrors
+  // Ultralight bootstrap's __omni_update). `diff` updates per-element class /
+  // text / attribute changes for everything richer (chart points, conditional
+  // classes, function-call interpolations). Both are optional in the wire
+  // payload — the host emits whichever apply this tick.
+  const handlePreviewUpdate = useCallback(
+    (data: { diff?: PreviewDiff; values?: PreviewValues }) => {
+      const body = iframeRef.current?.contentDocument?.body;
+      if (!body) return;
+      if (data.values) applyPreviewValues(body, data.values);
+      if (data.diff) applyPreviewDiff(body, data.diff);
+    },
+    [],
+  );
 
   // Register IPC listeners
   useEffect(() => {
