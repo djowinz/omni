@@ -770,9 +770,7 @@ export type PublishablesEntry = z.infer<typeof PublishablesEntrySchema>;
 export const WorkspaceListPublishablesParamsSchema = z.object({
   kind: z.enum(['overlay', 'theme']).optional(),
 });
-export type WorkspaceListPublishablesParams = z.infer<
-  typeof WorkspaceListPublishablesParamsSchema
->;
+export type WorkspaceListPublishablesParams = z.infer<typeof WorkspaceListPublishablesParamsSchema>;
 
 // Oracle: spec §8.8 + INV-7.1.10
 // Shipped: crates/host/src/share/ws_messages.rs handle_list_publishables() —
@@ -784,9 +782,7 @@ export const WorkspaceListPublishablesResultSchema = z.object({
     entries: z.array(PublishablesEntrySchema),
   }),
 });
-export type WorkspaceListPublishablesResult = z.infer<
-  typeof WorkspaceListPublishablesResultSchema
->;
+export type WorkspaceListPublishablesResult = z.infer<typeof WorkspaceListPublishablesResultSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type-level request + subscription registries

@@ -43,9 +43,7 @@ app.use('*', async (c, next) => {
   const seq = ++__reqSeq;
   const url = new URL(c.req.url);
   const ua = c.req.header('User-Agent') ?? '?';
-  debugLog(
-    `[req #${seq}] ${c.req.method} ${url.pathname}${url.search} ua=${ua.slice(0, 60)}`,
-  );
+  debugLog(`[req #${seq}] ${c.req.method} ${url.pathname}${url.search} ua=${ua.slice(0, 60)}`);
   await next();
   debugLog(`[req #${seq}] ${c.req.method} ${url.pathname} → ${c.res.status}`);
 });

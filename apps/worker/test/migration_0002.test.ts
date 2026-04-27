@@ -48,13 +48,15 @@ describe('migration 0002 — drop authors.display_name UNIQUE', () => {
     const seedNow = 1714000000;
     await env.META.prepare(
       'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)',
-    ).bind(new Uint8Array([1, 2, 3]), 'starfire', seedNow).run();
+    )
+      .bind(new Uint8Array([1, 2, 3]), 'starfire', seedNow)
+      .run();
 
     // Sanity — current schema must reject duplicate.
     await expect(
-      env.META.prepare(
-        'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)',
-      ).bind(new Uint8Array([4, 5, 6]), 'starfire', seedNow).run(),
+      env.META.prepare('INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)')
+        .bind(new Uint8Array([4, 5, 6]), 'starfire', seedNow)
+        .run(),
     ).rejects.toThrow();
 
     // Apply migration 0002.
@@ -63,17 +65,21 @@ describe('migration 0002 — drop authors.display_name UNIQUE', () => {
     // Post-migration: duplicate display_name now allowed.
     await env.META.prepare(
       'INSERT INTO authors (pubkey, display_name, created_at) VALUES (?, ?, ?)',
-    ).bind(new Uint8Array([4, 5, 6]), 'starfire', seedNow).run();
+    )
+      .bind(new Uint8Array([4, 5, 6]), 'starfire', seedNow)
+      .run();
 
-    const rows = await env.META.prepare(
-      'SELECT COUNT(*) as n FROM authors WHERE display_name = ?',
-    ).bind('starfire').first<{ n: number }>();
+    const rows = await env.META.prepare('SELECT COUNT(*) as n FROM authors WHERE display_name = ?')
+      .bind('starfire')
+      .first<{ n: number }>();
     expect(rows?.n).toBe(2);
 
     // And the original row survived the migration.
     const original = await env.META.prepare(
       'SELECT pubkey FROM authors WHERE display_name = ? ORDER BY created_at LIMIT 1',
-    ).bind('starfire').first<{ pubkey: ArrayBuffer }>();
+    )
+      .bind('starfire')
+      .first<{ pubkey: ArrayBuffer }>();
     expect(new Uint8Array(original!.pubkey)[0]).toBe(1);
   });
 });

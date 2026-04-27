@@ -24,9 +24,7 @@ const _dpiScaleManual: _DpiScaleManual = true;
 
 // Confirm OmniFile carries the optional dpi_scale field with the expected
 // type. ts-rs emits Rust `Option<T>` as `T | null`.
-type _OmniFileHasDpiScale = OmniFile extends { dpi_scale: DpiScale | null }
-  ? true
-  : never;
+type _OmniFileHasDpiScale = OmniFile extends { dpi_scale: DpiScale | null } ? true : never;
 
 const _omniFileHasDpiScale: _OmniFileHasDpiScale = true;
 

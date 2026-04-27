@@ -225,9 +225,7 @@ app.get('/', async (c) => {
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const items = page.map(rowToItem);
-  debugLog(
-    `${tag} serialized ${items.length} items${hasMore ? ' + next_cursor' : ''}`,
-  );
+  debugLog(`${tag} serialized ${items.length} items${hasMore ? ' + next_cursor' : ''}`);
 
   const body: { items: ListItem[]; next_cursor?: string } = { items };
   if (hasMore) {

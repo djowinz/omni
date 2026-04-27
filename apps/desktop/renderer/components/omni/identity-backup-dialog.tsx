@@ -169,7 +169,9 @@ export function IdentityBackupDialog({
         error?: { message?: string; detail?: string };
       };
       if (response.type === 'error') {
-        throw new Error(response.error?.message ?? response.error?.detail ?? 'identity.backup failed');
+        throw new Error(
+          response.error?.message ?? response.error?.detail ?? 'identity.backup failed',
+        );
       }
       const b64 = response.params?.encrypted_bytes_b64;
       if (typeof b64 !== 'string') {

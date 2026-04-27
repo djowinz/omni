@@ -122,12 +122,7 @@ function applyTarget(el: Element, target: string, formatted: string): void {
   }
 }
 
-function applyThresholds(
-  el: Element,
-  raw: number,
-  warn: number | null,
-  crit: number | null,
-): void {
+function applyThresholds(el: Element, raw: number, warn: number | null, crit: number | null): void {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return;
   const critOn = crit !== null && raw >= crit;
   const warnOn = !critOn && warn !== null && raw >= warn;

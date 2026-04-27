@@ -1,4 +1,14 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, protocol, dialog, net } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain,
+  protocol,
+  dialog,
+  net,
+} from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import { pathToFileURL } from 'url';

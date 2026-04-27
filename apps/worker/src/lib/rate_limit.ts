@@ -223,9 +223,7 @@ export async function checkAndIncrement(
   const dfShort = df_hex.slice(0, 10);
   const pkShort = pubkey_hex ? pubkey_hex.slice(0, 10) : '(none)';
 
-  debugLog(
-    `[rate_limit] check action=${action} df=${dfShort}… pk=${pkShort}…`,
-  );
+  debugLog(`[rate_limit] check action=${action} df=${dfShort}… pk=${pkShort}…`);
 
   // --- Denylist: permanent deny until revoked. ---
   const [denyDev, denyPub] = await Promise.all([

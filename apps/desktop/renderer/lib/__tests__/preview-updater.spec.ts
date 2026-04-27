@@ -214,9 +214,9 @@ describe('applyPreviewValues — sensor span updates', () => {
       '<polyline data-sensor="cpu.usage" data-sensor-target="attr:stroke-width" data-sensor-format="raw">--</polyline>',
     );
     applyPreviewValues(container, { 'cpu.usage': 3 });
-    expect(
-      container.querySelector('[data-sensor="cpu.usage"]')!.getAttribute('stroke-width'),
-    ).toBe('3');
+    expect(container.querySelector('[data-sensor="cpu.usage"]')!.getAttribute('stroke-width')).toBe(
+      '3',
+    );
   });
 
   it('writes to CSS variable when target=style-var:<name>', () => {
