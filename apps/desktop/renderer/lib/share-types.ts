@@ -577,30 +577,39 @@ export type IdentityShowParams = z.infer<typeof IdentityShowParamsSchema>;
 // Oracle: contracts/ws-explorer.md §identity.show result
 // Shipped: crates/host/src/share/ws_messages.rs handle_identity_show()
 //
-// #016 expanded the response to a flat frame (no nested `params` wrapper):
-// identity fields are top-level fields on the frame alongside `id` and `type`.
 // fingerprint_emoji and fingerprint_words allow empty arrays — the shipped
 // handler returns Vec::new() for both until sub-spec #006 follow-up lands.
 // created_at is 0 until #006 (shipped handler hard-codes 0).
-// backed_up drives the #015 first-publish gate. Always `false` until #006 wires
-// real persistence of a successful identity.backup; UX treats false as "needs
-// backup" and gates first publish accordingly (umbrella risk #10 accepted).
-// display_name / last_backed_up_at / last_rotated_at / last_backup_path added
-// by #016 (shipped: crates/host/src/share/ws_messages.rs handle_identity_show).
-export const IdentityShowResponseSchema = z.object({
-  id: z.string(),
-  type: z.literal('identity.showResult'),
-  pubkey_hex: z.string(),
-  fingerprint_hex: z.string(),
-  fingerprint_emoji: z.array(z.string()), // allows [] — #006 follow-up
-  fingerprint_words: z.array(z.string()), // allows [] — #006 follow-up
-  created_at: z.number().int(), // 0 until #006 follow-up
-  backed_up: z.boolean(), // false until #006 persists backup events
-  display_name: z.string().nullable(),
-  last_backed_up_at: z.number().int().nullable(),
-  last_rotated_at: z.number().int().nullable(),
-  last_backup_path: z.string().nullable(),
-});
+// backed_up drives the #015 first-publish gate. False until the user backs up.
+// display_name / last_backed_up_at / last_rotated_at / last_backup_path were
+// added by identity-completion-and-display-name (shipped:
+// crates/host/src/share/ws_messages.rs handle_identity_show, line ~539).
+//
+// Wire shape: the host emits identity fields nested under `params` per the
+// existing share-WS envelope convention (verified against the Rust json! macro
+// in handle_identity_show). The schema below validates the nested wire shape
+// and `.transform()`s it to a flat output object so consumers (IdentityContext,
+// use-my-uploads, use-upload-machine) read `resp.pubkey_hex` directly without
+// `.params.` indirection. Keeping the transform here lets every consumer use
+// the flat ergonomic shape without breaking the host contract.
+export const IdentityShowResponseSchema = z
+  .object({
+    id: z.string(),
+    type: z.literal('identity.showResult'),
+    params: z.object({
+      pubkey_hex: z.string(),
+      fingerprint_hex: z.string(),
+      fingerprint_emoji: z.array(z.string()), // allows [] — #006 follow-up
+      fingerprint_words: z.array(z.string()), // allows [] — #006 follow-up
+      created_at: z.number().int(), // 0 until #006 follow-up
+      backed_up: z.boolean(),
+      display_name: z.string().nullable(),
+      last_backed_up_at: z.number().int().nullable(),
+      last_rotated_at: z.number().int().nullable(),
+      last_backup_path: z.string().nullable(),
+    }),
+  })
+  .transform(({ id, type, params }) => ({ id, type, ...params }));
 export type IdentityShowResponse = z.infer<typeof IdentityShowResponseSchema>;
 
 // ── identity.backup ─────────────────────────────────────────────────────────

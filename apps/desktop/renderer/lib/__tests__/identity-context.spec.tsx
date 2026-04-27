@@ -8,23 +8,29 @@ import { IdentityContextProvider, useIdentity } from '../identity-context';
 const FRESH_INSTALL_RESPONSE = {
   id: 'ignored',
   type: 'identity.showResult',
-  pubkey_hex: 'a'.repeat(64),
-  fingerprint_hex: 'a'.repeat(12),
-  fingerprint_words: ['apple', 'banana', 'cobra'] as const,
-  fingerprint_emoji: ['🦊', '🌲', '🚀', '🧊', '🌙', '⚡'] as const,
-  created_at: 1700000000,
-  display_name: null,
-  backed_up: false,
-  last_backed_up_at: null,
-  last_rotated_at: null,
-  last_backup_path: null,
+  params: {
+    pubkey_hex: 'a'.repeat(64),
+    fingerprint_hex: 'a'.repeat(12),
+    fingerprint_words: ['apple', 'banana', 'cobra'] as const,
+    fingerprint_emoji: ['🦊', '🌲', '🚀', '🧊', '🌙', '⚡'] as const,
+    created_at: 1700000000,
+    display_name: null,
+    backed_up: false,
+    last_backed_up_at: null,
+    last_rotated_at: null,
+    last_backup_path: null,
+  },
 };
 
 const POPULATED_RESPONSE = {
-  ...FRESH_INSTALL_RESPONSE,
-  display_name: 'starfire',
-  backed_up: true,
-  last_backed_up_at: 1700000000,
+  id: FRESH_INSTALL_RESPONSE.id,
+  type: FRESH_INSTALL_RESPONSE.type,
+  params: {
+    ...FRESH_INSTALL_RESPONSE.params,
+    display_name: 'starfire',
+    backed_up: true,
+    last_backed_up_at: 1700000000,
+  },
 };
 
 const wrapper = ({ children }: { children: ReactNode }) => (
