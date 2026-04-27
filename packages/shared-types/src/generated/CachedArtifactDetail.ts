@@ -43,4 +43,24 @@ installs: number,
  * detail-fetch fills it from the worker's created_at field.
  * `#[ts(type = "number")]` keeps emitted TS as `number` (not `bigint`).
  */
-created_at: number, };
+created_at: number, 
+/**
+ * Author display name (LEFT JOIN projection from `authors.display_name`).
+ *
+ * Per identity-completion-and-display-name spec §6 + OWI-91 (post-T9
+ * follow-up): the worker's `/v1/list`, `/v1/me/gallery`, and
+ * `/v1/artifact/:id` responses embed this field so the renderer can
+ * render the canonical handle `<display_name>#<8-hex>` from a single
+ * payload — no per-row `/v1/author/*` fetch on grid scrolls. `None`
+ * when no `authors` row exists for the pubkey OR the row's
+ * `display_name` is NULL.
+ *
+ * Without this field on the host-side struct, serde silently drops it
+ * during the relay-side deserialize/re-serialize cycle in
+ * `handle_list`/`handle_get` (`ws_messages.rs`), and the renderer's
+ * grid card falls back to the `#<8-hex>`-only format for every
+ * artifact — making T6 (worker JOIN) + T9 (renderer authorDisplay
+ * rewrite) functionally inert in production. The post-upload cache
+ * path leaves this `None` (the worker fills it on the next read).
+ */
+author_display_name: string | null, };

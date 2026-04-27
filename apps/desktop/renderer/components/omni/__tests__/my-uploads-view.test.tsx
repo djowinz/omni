@@ -19,6 +19,7 @@ const FIXTURE: CachedArtifactDetail = {
   thumbnail_url: 'https://x/t',
   created_at: 0,
   updated_at: 1700000000,
+  author_display_name: null,
 };
 
 function Wrap({ children }: { children: ReactNode }) {

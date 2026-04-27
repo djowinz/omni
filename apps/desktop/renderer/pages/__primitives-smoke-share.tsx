@@ -31,6 +31,7 @@ const SAMPLE_ARTIFACT: CachedArtifactDetail = {
   thumbnail_url: 'https://example.invalid/v1/thumb/4a2e9b1c3d7e8f0a',
   created_at: 0,
   updated_at: 1_700_000_000,
+  author_display_name: null,
 };
 
 function PreviewControls() {

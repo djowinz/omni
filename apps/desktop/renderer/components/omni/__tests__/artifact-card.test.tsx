@@ -1,5 +1,5 @@
 /// <reference types="@testing-library/jest-dom/vitest" />
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -112,6 +112,47 @@ describe('authorDisplay handle format', () => {
       />,
     );
     expect(screen.getByText(/by #eab4d12c/)).toBeInTheDocument();
+  });
+
+  it('console.warn fires when display_name is non-null but trims to empty (OWI-91)', () => {
+    // Worker contract violation guard: spec §3.4 requires NFC + trim before
+    // persistence, so a non-null display_name that trims to empty is a bug.
+    // Surface it via console.warn (don't crash — fall back to slice-only).
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(
+      <ArtifactCard
+        variant="grid"
+        artifact={makeArtifact({
+          author_pubkey: longPubkey,
+          author_display_name: '   ',
+        })}
+      />,
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[authorDisplay]'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('eab4d12c'));
+    // Still falls back to slice-only — render did not crash.
+    expect(screen.getByText(/by #eab4d12c/)).toBeInTheDocument();
+
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn when display_name is null (no contract violation)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(
+      <ArtifactCard
+        variant="grid"
+        artifact={makeArtifact({
+          author_pubkey: longPubkey,
+          author_display_name: null,
+        })}
+      />,
+    );
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
 
