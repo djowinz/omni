@@ -25,6 +25,10 @@ interface GalleryRow {
   created_at: number;
   updated_at: number;
   is_removed: number;
+  // LEFT JOIN authors per identity-completion-and-display-name spec §4.4
+  // (OWI-79). Always the caller's own display_name (gallery is scoped to the
+  // JWS kid pubkey); NULL until the caller has set one.
+  author_display_name: string | null;
 }
 
 function parseTags(raw: string | null): string[] {
@@ -53,12 +57,22 @@ app.get('/', async (c) => {
 
   const pubHex = hexEncode(authed.pubkey);
 
+  // LEFT JOIN authors per identity-completion-and-display-name spec §4.4
+  // (OWI-79): gallery is scoped to the JWS kid pubkey, so the JOIN always
+  // resolves to the caller's own authors row (or NULL display_name if they
+  // haven't called identity.setDisplayName yet). The column refs use
+  // `artifacts.` prefixes because `id` and `created_at` collide with the
+  // authors table columns (authors has its own pubkey PK + created_at).
   const { results } = await env.META.prepare(
-    `SELECT id, name, kind, tags, content_hash, thumbnail_hash,
-            install_count, created_at, updated_at, is_removed
+    `SELECT artifacts.id, artifacts.name, artifacts.kind, artifacts.tags,
+            artifacts.content_hash, artifacts.thumbnail_hash,
+            artifacts.install_count, artifacts.created_at, artifacts.updated_at,
+            artifacts.is_removed,
+            authors.display_name AS author_display_name
      FROM artifacts
-     WHERE author_pubkey = ? AND is_removed = 0
-     ORDER BY updated_at DESC`,
+     LEFT JOIN authors ON authors.pubkey = artifacts.author_pubkey
+     WHERE artifacts.author_pubkey = ? AND artifacts.is_removed = 0
+     ORDER BY artifacts.updated_at DESC`,
   )
     .bind(authed.pubkey)
     .all<GalleryRow>();
@@ -73,6 +87,7 @@ app.get('/', async (c) => {
     created_at: row.created_at,
     author_pubkey: pubHex,
     author_fingerprint_hex: pubHex.slice(0, 12),
+    author_display_name: row.author_display_name ?? null,
     thumbnail_url: `/v1/thumbnail/${row.thumbnail_hash}`,
     content_hash: row.content_hash,
   }));
