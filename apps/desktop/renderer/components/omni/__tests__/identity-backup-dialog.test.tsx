@@ -65,7 +65,7 @@ describe('IdentityBackupDialog', () => {
     await waitFor(() => expect(submit).toBeEnabled());
   });
 
-  it('on WS success calls onSuccess with saveBackup path and closes dialog', async () => {
+  it('on WS success calls onSuccess with saveBackup path; parent owns the close (no auto onOpenChange(false))', async () => {
     // Host returns `{ id, type: 'identity.backupResult', params: { encrypted_bytes_b64 } }`
     // over the share:ws-message channel. The dialog must reach into params,
     // not the response root, and route via sendShareMessage not sendMessage.
@@ -114,7 +114,12 @@ describe('IdentityBackupDialog', () => {
     const bytesArg = saveBackup.mock.calls[0][0];
     expect(bytesArg).toBeInstanceOf(Uint8Array);
     expect(Array.from(bytesArg)).toEqual([0x61, 0x62, 0x63]);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // Contract: dialog must NOT auto-close after onSuccess. Parent is
+    // responsible for closing (e.g., upload-dialog/index.tsx closes via
+    // resolveBackupGate → dispatch BACKUP_GATE open=false). Calling both
+    // onSuccess AND onOpenChange(false) caused a duplicate publish — see
+    // identity-backup-dialog.tsx for the full rationale.
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it('on host error envelope surfaces message and does NOT leak detail', async () => {

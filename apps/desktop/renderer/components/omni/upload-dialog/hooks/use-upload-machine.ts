@@ -130,6 +130,8 @@ export interface UploadMachineActions {
   reset: () => void;
   /** Step 3 — re-run the full Packing pipeline (Retry button). */
   retryPack: () => Promise<void>;
+  /** Step 4 — re-fire the upload.publish/upload.update call after a failure. */
+  retryPublish: () => Promise<void>;
   /** Step 4 recovery — fold AuthorNameConflict into an upload.update with bump=patch. */
   linkAndUpdate: (existingArtifactId: string) => Promise<void>;
   /** Step 4 recovery — bounce back to Step 2 with the Name field for a rename. */
@@ -833,6 +835,13 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     await runPack();
   }, [runPack]);
 
+  const retryPublish = useCallback(async () => {
+    // Re-fire the same publish path (with backup-gate) that the Continue
+    // button used. PUBLISH_START clears the prior error envelope so the
+    // Step 4 spinner re-renders immediately.
+    await publishWithGate();
+  }, [publishWithGate]);
+
   const linkAndUpdate = useCallback(
     async (existingArtifactId: string) => {
       // Mirror the legacy recovery flow: the user is linking the artifact to
@@ -872,6 +881,15 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
 
   const resolveBackupGate = useCallback(
     async (dismissed: boolean) => {
+      // Idempotency guard. The IdentityBackupDialog used to fire BOTH
+      // `onSuccess` and `onOpenChange(false)` on a successful backup, which
+      // landed two `resolveBackupGate(...)` calls ~3ms apart and double-fired
+      // doPublish — burning the daily upload quota and producing a 429 cascade.
+      // identity-backup-dialog.tsx no longer auto-closes after onSuccess, but
+      // this ref-backed guard prevents any future caller (or future Dialog
+      // refactor) from re-introducing the same race. First call wins; the
+      // second is swallowed.
+      if (backupGateDismissedRef.current) return;
       backupGateDismissedRef.current = true;
       dispatch({ type: 'BACKUP_GATE', open: false });
       // Whether the user backed up successfully or explicitly dismissed,
@@ -892,6 +910,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       back,
       reset,
       retryPack,
+      retryPublish,
       linkAndUpdate,
       renameAndPublishNew,
       resolveBackupGate,
@@ -904,6 +923,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       back,
       reset,
       retryPack,
+      retryPublish,
       linkAndUpdate,
       renameAndPublishNew,
       resolveBackupGate,

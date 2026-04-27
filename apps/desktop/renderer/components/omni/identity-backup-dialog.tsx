@@ -177,9 +177,18 @@ export function IdentityBackupDialog({
       }
       const bytes = base64ToBytes(b64);
       const path = await (saveBackup ?? defaultSaveBackup)(bytes);
-      onSuccess(path);
       reset();
-      onOpenChange(false);
+      // Parent owns the close transition. We deliberately do NOT call
+      // `onOpenChange(false)` here — calling both onSuccess AND
+      // onOpenChange(false) caused a double-publish in the upload flow:
+      // the upload-dialog wires both to `resolveBackupGate(...)`, so a
+      // single successful backup fired `doPublish()` twice ~3ms apart,
+      // which burned the daily upload quota and surfaced as a 429 cascade.
+      // Both call sites (upload-dialog/index.tsx and __primitives-smoke.tsx)
+      // close the dialog from inside their own onSuccess callback, so
+      // dropping the redundant call is a no-op for them and a fix for
+      // anyone who wires onOpenChange to a side-effect.
+      onSuccess(path);
     } catch (err) {
       const mapped = toUserFacing(err);
 

@@ -112,11 +112,9 @@ export function UploadDialog({
       return;
     }
     if (state.step === 'upload' && state.uploadState === 'error') {
-      // Retry — re-fire the publish via the recovery action that already
-      // exists for the AuthorNameConflict card. Calling `linkAndUpdate`
-      // would force update mode; instead we go back to packing and let
-      // the user click Publish again.
-      actions.back();
+      // Retry — re-fire the publish in place (don't bounce back to Step 3).
+      // INV-7.4.5: Retry stays on Step 4 and re-runs upload.publish/upload.update.
+      void actions.retryPublish();
       return;
     }
     void actions.next();
