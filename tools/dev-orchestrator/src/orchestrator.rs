@@ -172,10 +172,27 @@ fn preflight() -> anyhow::Result<()> {
 }
 
 fn spawn_wrangler(admin_pubkey_hex: &str) -> std::io::Result<Child> {
+    // `wrangler dev` (without `--env dev`) reads the top-level `[vars]` block
+    // in apps/worker/wrangler.toml, NOT `[env.dev.vars]`. Anything we want
+    // dev-only must be injected here via `--var` so it overrides the prod
+    // defaults baked into the top-level block.
+    //
+    // OMNI_DEBUG=1 turns on the per-isolate access log + per-route entry
+    // breadcrumbs (apps/worker/src/index.ts middleware + makeDebugLog calls
+    // across routes). Always-on in dev so loop bugs ("frontend hammering the
+    // worker") surface in the wrangler stdout without an env-var dance.
     let admin_var = format!("OMNI_ADMIN_PUBKEYS:{admin_pubkey_hex}");
     shell::tokio_cmd(
         "pnpm",
-        ["exec", "wrangler", "dev", "--var", admin_var.as_str()],
+        [
+            "exec",
+            "wrangler",
+            "dev",
+            "--var",
+            admin_var.as_str(),
+            "--var",
+            "OMNI_DEBUG:1",
+        ],
     )
     .current_dir(WORKER_DIR)
     .stdout(Stdio::piped())
