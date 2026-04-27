@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IdentityBackupDialog } from '../identity-backup-dialog';
+import { installShareIpcSpy } from '../../../test-utils/mock-share-ws';
 
 // The dialog references `useBackend()` for future migration of `identity.backup`
 // into BackendApi. Today it calls `window.omni.sendShareMessage` directly
@@ -167,5 +168,118 @@ describe('IdentityBackupDialog', () => {
     expect(document.body.textContent ?? '').not.toContain(sentinelDetail);
 
     errSpy.mockRestore();
+  });
+});
+
+describe('IdentityBackupDialog — blocking-before-upload mode', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('renders the amber callout when mode=blocking-before-upload', () => {
+    render(
+      <IdentityBackupDialog
+        open
+        mode="blocking-before-upload"
+        onOpenChange={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/why this blocks your first upload/i)).toBeInTheDocument();
+  });
+
+  it('renders the [Skip and publish anyway] link when onSkip is provided', () => {
+    render(
+      <IdentityBackupDialog
+        open
+        mode="blocking-before-upload"
+        onSkip={vi.fn()}
+        onOpenChange={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /skip and publish anyway/i })).toBeInTheDocument();
+  });
+});
+
+describe('IdentityBackupDialog — import mode', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('renders file picker + passphrase + overwrite checkbox', () => {
+    render(
+      <IdentityBackupDialog open mode="import" onOpenChange={vi.fn()} onSuccess={vi.fn()} />,
+    );
+    expect(screen.getByText(/import existing identity/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/overwrite existing identity/i)).toBeInTheDocument();
+  });
+
+  it('disables overwrite checkbox when lockOverwrite=true', () => {
+    render(
+      <IdentityBackupDialog
+        open
+        mode="import"
+        lockOverwrite
+        onOpenChange={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText(/overwrite existing identity/i)).toBeDisabled();
+    expect(screen.getByLabelText(/overwrite existing identity/i)).toBeChecked();
+  });
+});
+
+describe('IdentityBackupDialog — markBackedUp wire shape (per feedback_wire_shape_tests.md)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('dispatches identity.markBackedUp with { path, timestamp } after save', async () => {
+    const { sendSpy } = installShareIpcSpy();
+
+    // First call: identity.backup → returns backup result
+    sendSpy.mockResolvedValueOnce({
+      id: 'ignored',
+      type: 'identity.backupResult',
+      params: { encrypted_bytes_b64: 'AAAA' },
+    });
+    // Second call: identity.markBackedUp → returns ok
+    sendSpy.mockResolvedValueOnce({
+      id: 'ignored',
+      type: 'identity.markBackedUpResult',
+      params: { ok: true },
+    });
+
+    const onSuccess = vi.fn();
+    const saveBackup = async () => 'C:/Users/me/identity.omniid';
+    render(
+      <IdentityBackupDialog
+        open
+        mode="blocking-before-upload"
+        onOpenChange={vi.fn()}
+        onSuccess={onSuccess}
+        saveBackup={saveBackup}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText(/^passphrase$/i), 'correct horse battery!');
+    await userEvent.type(screen.getByLabelText(/confirm passphrase/i), 'correct horse battery!');
+    await userEvent.click(screen.getByRole('button', { name: /save backup/i }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('C:/Users/me/identity.omniid'));
+
+    const calls = sendSpy.mock.calls.map((c) => c[0] as Record<string, unknown>);
+    const markCall = calls.find((c) => c.type === 'identity.markBackedUp') as
+      | { params?: { path?: unknown; timestamp?: unknown } }
+      | undefined;
+    expect(markCall).toBeDefined();
+    expect(markCall!.params!.path).toBe('C:/Users/me/identity.omniid');
+    expect(typeof markCall!.params!.timestamp).toBe('number');
+    expect(
+      Math.abs((markCall!.params!.timestamp as number) - Math.floor(Date.now() / 1000)),
+    ).toBeLessThan(5);
   });
 });
