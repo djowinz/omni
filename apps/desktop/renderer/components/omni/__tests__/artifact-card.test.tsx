@@ -101,18 +101,10 @@ describe('authorDisplay handle format', () => {
     expect(screen.getByText(/by #eab4d12c/)).toBeInTheDocument();
   });
 
-  it('renders #<8-hex> alone when display_name is whitespace-only', () => {
-    render(
-      <ArtifactCard
-        variant="grid"
-        artifact={makeArtifact({
-          author_pubkey: longPubkey,
-          author_display_name: '   ',
-        })}
-      />,
-    );
-    expect(screen.getByText(/by #eab4d12c/)).toBeInTheDocument();
-  });
+  // The whitespace-only input case is covered exclusively by the warn test
+  // below (OWI-91): it asserts both the rendering fallback AND the
+  // console.warn worker-contract-violation breadcrumb. A separate
+  // rendering-only test would re-trigger the warn and emit stderr noise.
 
   it('console.warn fires when display_name is non-null but trims to empty (OWI-91)', () => {
     // Worker contract violation guard: spec §3.4 requires NFC + trim before

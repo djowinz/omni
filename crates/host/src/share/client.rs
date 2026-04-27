@@ -1143,6 +1143,13 @@ mod tests {
         assert_eq!(got.created_at, 1_700_000_000);
         assert_eq!(got.updated_at, 1_700_001_000);
         assert_eq!(got.author_fingerprint_hex, "aa11bb22cc33");
+        // OWI-91 regression guard: lock in the deserialize round-trip for
+        // `author_display_name`. ArtifactDetail does NOT carry
+        // `#[serde(deny_unknown_fields)]`, so a future refactor that drops
+        // this field from the struct would silently pass the mock setup
+        // (worker JSON parsed, field discarded) — only an explicit
+        // assert_eq! catches it. Pins the renderer's authorDisplay path.
+        assert_eq!(got.author_display_name.as_deref(), Some("alice"));
         // `manifest` is a verbatim JSON subtree per worker-api §4.4.
         assert_eq!(got.manifest["name"], "demo");
     }
