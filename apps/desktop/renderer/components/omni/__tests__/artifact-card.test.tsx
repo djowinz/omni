@@ -10,10 +10,13 @@ import type { ArtifactDetail } from '@/lib/share-types';
 // ── Fixture ──────────────────────────────────────────────────────────────────
 //
 // Uses only fields that exist in share-types.ts ArtifactDetail.
-// manifest carries author_name, description, version, license, and tags so the
-// detail variant can surface them.
+// manifest carries description, version, license, and tags so the detail
+// variant can surface them. Author label is sourced from
+// `author_display_name` per identity-completion-and-display-name spec §6
+// (OWI-82) — manifest-author fallback is dead per T1 (manifest does not
+// carry author info; the JWS envelope's kid claim is the author identity).
 //
-const fixture: ArtifactDetail = {
+const baseFixture: ArtifactDetail = {
   artifact_id: 'art-001',
   kind: 'theme',
   content_hash: 'aabbccdd',
@@ -21,6 +24,7 @@ const fixture: ArtifactDetail = {
   thumbnail_url: 'https://cdn.example.com/thumb-001.png',
   author_pubkey: 'deadbeef12345678',
   author_fingerprint_hex: 'a1b2c3d4e5f6',
+  author_display_name: 'alice',
   installs: 42,
   reports: 0,
   created_at: 1_700_000_000,
@@ -28,13 +32,19 @@ const fixture: ArtifactDetail = {
   status: 'published',
   manifest: {
     name: 'Midnight Blue',
-    author_name: 'alice',
     description: 'A dark blue overlay theme.',
     version: '1.2.3',
     license: 'MIT',
     tags: ['dark', 'blue'],
   },
 };
+
+/** Build an ArtifactDetail fixture, allowing per-test overrides. */
+function makeArtifact(overrides: Partial<ArtifactDetail> = {}): ArtifactDetail {
+  return { ...baseFixture, ...overrides };
+}
+
+const fixture = baseFixture;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -44,7 +54,9 @@ describe('ArtifactCard — grid variant', () => {
 
     expect(screen.getByTestId('artifact-card-grid')).toBeInTheDocument();
     expect(screen.getByText('Midnight Blue')).toBeInTheDocument();
-    expect(screen.getByText(/by alice/i)).toBeInTheDocument();
+    // Per identity-completion spec §6: handle is `<display_name>#<8-hex>`
+    // where 8-hex is the leading pubkey slice (canonical disambiguator).
+    expect(screen.getByText(/by alice#deadbeef/i)).toBeInTheDocument();
     const img = screen.getByRole('img', { name: /midnight blue/i });
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', fixture.thumbnail_url);
@@ -54,6 +66,52 @@ describe('ArtifactCard — grid variant', () => {
     render(<ArtifactCard variant="grid" artifact={fixture} installed />);
 
     expect(screen.getByText(/installed/i)).toBeInTheDocument();
+  });
+});
+
+describe('authorDisplay handle format', () => {
+  // Per identity-completion-and-display-name spec §6 (OWI-82). The pubkey
+  // slice is ALWAYS rendered (it's the trust anchor — visible at all times);
+  // the display_name is the optional friendly prefix.
+  const longPubkey = 'eab4d12c0123456789abcdef'.padEnd(64, '0');
+
+  it('renders <display_name>#<8-hex> when name present', () => {
+    render(
+      <ArtifactCard
+        variant="grid"
+        artifact={makeArtifact({
+          author_pubkey: longPubkey,
+          author_display_name: 'starfire',
+        })}
+      />,
+    );
+    expect(screen.getByText(/by starfire#eab4d12c/)).toBeInTheDocument();
+  });
+
+  it('renders #<8-hex> alone when display_name is null', () => {
+    render(
+      <ArtifactCard
+        variant="grid"
+        artifact={makeArtifact({
+          author_pubkey: longPubkey,
+          author_display_name: null,
+        })}
+      />,
+    );
+    expect(screen.getByText(/by #eab4d12c/)).toBeInTheDocument();
+  });
+
+  it('renders #<8-hex> alone when display_name is whitespace-only', () => {
+    render(
+      <ArtifactCard
+        variant="grid"
+        artifact={makeArtifact({
+          author_pubkey: longPubkey,
+          author_display_name: '   ',
+        })}
+      />,
+    );
+    expect(screen.getByText(/by #eab4d12c/)).toBeInTheDocument();
   });
 });
 
