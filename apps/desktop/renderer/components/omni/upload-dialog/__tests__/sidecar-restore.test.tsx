@@ -58,16 +58,18 @@ const OVERLAY_ENTRY = {
 
 const IDENTITY_RESULT = {
   type: 'identity.showResult',
-  pubkey_hex: PUBKEY_HEX,
-  fingerprint_hex: '',
-  fingerprint_emoji: [],
-  fingerprint_words: [],
-  created_at: 0,
-  backed_up: true,
-  display_name: null,
-  last_backed_up_at: null,
-  last_rotated_at: null,
-  last_backup_path: null,
+  params: {
+    pubkey_hex: PUBKEY_HEX,
+    fingerprint_hex: '',
+    fingerprint_emoji: [],
+    fingerprint_words: [],
+    created_at: 0,
+    backed_up: true,
+    display_name: null,
+    last_backed_up_at: null,
+    last_rotated_at: null,
+    last_backup_path: null,
+  },
 };
 
 const LIST_RESULT = {

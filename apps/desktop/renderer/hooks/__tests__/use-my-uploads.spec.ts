@@ -28,6 +28,9 @@ describe('useMyUploads', () => {
   it('fetches own pubkey via identity.show then calls explorer.list with author_pubkey', async () => {
     const send = vi.fn(async (type: string, _params: unknown) => {
       if (type === 'identity.show') {
+        // The real useShareWs applies the IdentityShowResponseSchema transform,
+        // which flattens the nested params into the top level, so the mock must
+        // return the transformed (flat) shape that the consumer code expects.
         return {
           id: 'r1',
           type: 'identity.showResult',
