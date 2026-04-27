@@ -13,12 +13,14 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { errorFromKind } from '../lib/errors';
+import { makeDebugLog } from '../lib/debug-log';
 
 const app = new Hono<AppEnv>();
 
 app.get('/:hash', async (c) => {
   const env = c.env;
   const hash = c.req.param('hash');
+  makeDebugLog(env)(`[thumbnail] GET /v1/thumbnail/${hash.slice(0, 12)}…`);
 
   // Basic shape check — thumbnail hashes are 64-char lowercase hex.
   if (!/^[0-9a-f]{64}$/.test(hash)) {

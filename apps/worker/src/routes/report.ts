@@ -4,6 +4,7 @@ import { errorResponse, errorFromKind } from '../lib/errors';
 import { AuthError, verifyJws } from '../lib/auth';
 import { checkAndIncrement } from '../lib/rate_limit';
 import { hexEncode } from '../lib/hex';
+import { makeDebugLog } from '../lib/debug-log';
 
 /**
  * `POST /v1/report` — abuse-report intake (plan #008 W3T13, contract §4.7).
@@ -29,6 +30,7 @@ interface ReportBody {
 }
 
 app.post('/', async (c) => {
+  makeDebugLog(c.env)(`[report] POST /v1/report`);
   // Buffer body exactly once — workerd streams are single-read and verifyJws
   // needs the bytes for the body_sha256 claim check.
   const bodyBuf = await c.req.arrayBuffer();

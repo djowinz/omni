@@ -10,6 +10,7 @@ import type { AppEnv } from '../types';
 import { errorFromKind } from '../lib/errors';
 import { verifyJws, AuthError } from '../lib/auth';
 import { hexEncode } from '../lib/hex';
+import { makeDebugLog } from '../lib/debug-log';
 
 const app = new Hono<AppEnv>();
 
@@ -40,6 +41,7 @@ function parseTags(raw: string | null): string[] {
 app.get('/', async (c) => {
   const env = c.env;
   const req = c.req.raw;
+  makeDebugLog(env)(`[gallery] GET /v1/me/gallery`);
 
   let authed;
   try {

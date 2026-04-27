@@ -24,6 +24,7 @@ import { parseMultipart, MultipartError } from '../lib/multipart';
 import { loadWasm } from '../lib/wasm';
 import { hexEncode } from '../lib/hex';
 import { b64urlDecode, b64urlEncodeJson } from '../lib/base64url';
+import { makeDebugLog } from '../lib/debug-log';
 
 const app = new Hono<AppEnv>();
 
@@ -130,6 +131,8 @@ function artifactResponse(
 app.get('/:id', async (c) => {
   const env = c.env;
   const id = c.req.param('id');
+  const debugLog = makeDebugLog(env);
+  debugLog(`[artifact] GET /v1/artifact/${id}`);
   const row = await loadArtifact(env, id);
   if (!row) return errorFromKind('Malformed', 'NotFound', 'artifact not found');
 
@@ -185,6 +188,8 @@ app.get('/:id', async (c) => {
 app.patch('/:id', async (c) => {
   const env = c.env;
   const id = c.req.param('id');
+  const debugLog = makeDebugLog(env);
+  debugLog(`[artifact] PATCH /v1/artifact/${id}`);
   const body = await c.req.raw.arrayBuffer();
 
   // 1. Auth.
@@ -333,6 +338,8 @@ app.patch('/:id', async (c) => {
 app.delete('/:id', async (c) => {
   const env = c.env;
   const id = c.req.param('id');
+  const debugLog = makeDebugLog(env);
+  debugLog(`[artifact] DELETE /v1/artifact/${id}`);
 
   // DELETE has an empty body; JWS binds over the empty-string body hash.
   let authed;

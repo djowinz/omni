@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from './types';
 import { errorResponse } from './lib/errors';
+import { makeDebugLog } from './lib/debug-log';
 import admin from './routes/admin';
 import artifact from './routes/artifact';
 import config from './routes/config';
@@ -16,6 +17,38 @@ export { BundleProcessor } from './do/bundle_processor';
 const app = new Hono<AppEnv>();
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Per-isolate request counter used by the top-level access log. Surviving
+ * across requests within a single Worker isolate makes runaway-loop bugs
+ * obvious: a healthy session prints `#1, #2, #3` over seconds; a stuck
+ * frontend polling loop prints `#42, #43, #44…` in milliseconds against the
+ * same path. Resets on cold start, which is fine — the absolute number isn't
+ * meaningful, only the cadence and the (path, method) tuple are.
+ */
+let __reqSeq = 0;
+
+/**
+ * Top-level access log (gated by `OMNI_DEBUG=1`). Logs every incoming
+ * request before any route runs so a continuously-firing client surfaces
+ * regardless of which sub-route it hits. Diagnostic for "the frontend is
+ * hammering the worker" — count + path tells you exactly which hook/effect
+ * is the culprit.
+ */
+app.use('*', async (c, next) => {
+  // `c.env` is undefined when tests call `app.request()` directly without
+  // a Miniflare runtime; pass an empty object so makeDebugLog no-ops cleanly
+  // instead of throwing on `env.OMNI_DEBUG` access.
+  const debugLog = makeDebugLog(c.env ?? {});
+  const seq = ++__reqSeq;
+  const url = new URL(c.req.url);
+  const ua = c.req.header('User-Agent') ?? '?';
+  debugLog(
+    `[req #${seq}] ${c.req.method} ${url.pathname}${url.search} ua=${ua.slice(0, 60)}`,
+  );
+  await next();
+  debugLog(`[req #${seq}] ${c.req.method} ${url.pathname} → ${c.res.status}`);
+});
 
 /**
  * Global client-version gate (plan #008 W4T14, contract §2).

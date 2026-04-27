@@ -21,6 +21,7 @@ import { verifyJws, AuthError } from '../lib/auth';
 import { checkAndIncrement } from '../lib/rate_limit';
 import { loadWasm } from '../lib/wasm';
 import { hexEncode } from '../lib/hex';
+import { makeDebugLog } from '../lib/debug-log';
 
 const app = new Hono<AppEnv>();
 
@@ -28,6 +29,8 @@ app.get('/:id', async (c) => {
   const env = c.env;
   const req = c.req.raw;
   const id = c.req.param('id');
+  const debugLog = makeDebugLog(env);
+  debugLog(`[download] GET /v1/download/${id}`);
 
   // 1. Lookup
   const row = await env.META.prepare(

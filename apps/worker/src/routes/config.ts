@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { errorResponse } from '../lib/errors';
+import { makeDebugLog } from '../lib/debug-log';
 import type { KVNamespace } from '@cloudflare/workers-types';
 
 /**
@@ -80,6 +81,7 @@ async function readLimits(kv: KVNamespace): Promise<LimitsPublic | null> {
 const app = new Hono<AppEnv>();
 
 app.get('/vocab', async (c) => {
+  makeDebugLog(c.env)(`[config] GET /v1/config/vocab`);
   const value = await readVocab(c.env.STATE);
   if (value === null) {
     return errorResponse(500, 'SERVER_ERROR', 'config:vocab not seeded', {
@@ -96,6 +98,7 @@ app.get('/vocab', async (c) => {
 });
 
 app.get('/limits', async (c) => {
+  makeDebugLog(c.env)(`[config] GET /v1/config/limits`);
   const value = await readLimits(c.env.STATE);
   if (value === null) {
     return errorResponse(500, 'SERVER_ERROR', 'config:limits not seeded', {

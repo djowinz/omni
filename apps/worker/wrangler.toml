@@ -44,6 +44,11 @@ OMNI_DEBUG = ""
 [env.dev.vars]
 OMNI_THEMES_ENV = "dev"
 OMNI_THEMES_RATE_LIMIT_SCALE = "10"
+# OMNI_DEBUG is NOT set here — `make dev-worker-seeded` runs
+# `wrangler dev` without `--env dev`, so this block is unreachable from the
+# orchestrator path. The dev-orchestrator (tools/dev-orchestrator/src/orchestrator.rs)
+# injects `--var OMNI_DEBUG:1` so the access log surfaces in dev. Keep this
+# inline note so future contributors know not to "fix" the structure here.
 
 [[rules]]
 type = "CompiledWasm"
