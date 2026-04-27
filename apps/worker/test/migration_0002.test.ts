@@ -5,7 +5,7 @@ import { env } from 'cloudflare:test';
 // migration SQL via Vite's `?raw` asset transform at build time. Same
 // pattern used by `canonical_parity.test.ts`. TypeScript doesn't know
 // about the `?raw` suffix without an ambient declaration; the
-// @ts-expect-error pins the suppression to these two lines.
+// ts-expect-error directive below pins the suppression to those two lines.
 // @ts-expect-error — `?raw` is a Vite import suffix handled at transform time.
 import migration0001Sql from '../migrations/0001_initial_schema.sql?raw';
 // @ts-expect-error — `?raw` is a Vite import suffix handled at transform time.

@@ -49,13 +49,14 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 const SEED = hexToBytes(SEED_HEX);
 
-// Minimal valid overlay: the sanitize handler requires a <overlay>-rooted
-// XML document (see crates/sanitize/src/handlers/overlay.rs). The W1T3
-// on-disk fixture uses an HTML-doctype variant that is NEVER put through the
-// full sanitize pipeline in existing tests — we need a real overlay payload
-// here so the theme-only happy-path actually reaches a 200 response.
+// Minimal valid overlay: the sanitize handler accepts a multi-root XML
+// document with `<widget>` at top (see crates/sanitize/src/handlers/overlay.rs,
+// commit 217476c3). The W1T3 on-disk fixture uses an HTML-doctype variant
+// that is NEVER put through the full sanitize pipeline in existing tests —
+// we need a real overlay payload here so the theme-only happy-path actually
+// reaches a 200 response.
 const OVERLAY_BYTES = new TextEncoder().encode(
-  '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
+  '<widget><template><div data-sensor="cpu.usage"/></template></widget>',
 );
 const THEME_CSS_BYTES = new TextEncoder().encode(
   '/* test */\nbody { background: #111; color: #eee; }\n',

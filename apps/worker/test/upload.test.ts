@@ -51,7 +51,7 @@ const PUBKEY = hexToBytes(PUBKEY_HEX);
 const DF = hexToBytes(DF_HEX);
 
 const OVERLAY_BYTES = new TextEncoder().encode(
-  '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
+  '<widget><template><div data-sensor="cpu.usage"/></template></widget>',
 );
 const THEME_CSS_BYTES = new TextEncoder().encode(
   '/* omni test */\nbody { background: #111; color: #eee; }\n',
@@ -300,7 +300,7 @@ describe('POST /v1/upload — name conflict', () => {
     const r2 = await uploadReq(second);
     expect(r2.status).toBe(409);
     const body = (await r2.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('CONFLICT');
+    expect(body.error.code).toBe('AuthorNameConflict');
   });
 });
 

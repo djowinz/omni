@@ -42,7 +42,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 const SEED = hexToBytes(SEED_HEX);
 
 const OVERLAY_BYTES = new TextEncoder().encode(
-  '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
+  '<widget><template><div data-sensor="cpu.usage"/></template></widget>',
 );
 const THEME_CSS_BYTES = new TextEncoder().encode('/* test */\nbody { background: #111; }\n');
 

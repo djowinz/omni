@@ -75,7 +75,7 @@ const DF = hexToBytes(DF_HEX);
 
 // Match fixtures.json "theme-only" entry — tiny overlay + one CSS theme.
 const OVERLAY_BYTES = new TextEncoder().encode(
-  '<overlay><template><div data-sensor="cpu.usage"/></template></overlay>',
+  '<widget><template><div data-sensor="cpu.usage"/></template></widget>',
 );
 const THEME_CSS_BYTES = new TextEncoder().encode(
   '/* omni e2e */\nbody { background: #111; color: #eee; }\n',
