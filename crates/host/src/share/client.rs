@@ -646,8 +646,25 @@ impl ShareClient {
         builder: RequestBuilder,
     ) -> Result<reqwest::Response, UploadError> {
         use backon::BackoffBuilder;
-        // Transient = network error (connect/timeout/request) OR HTTP 429 / 5xx response.
-        // Spec §9: "429 with Retry-After, 5xx, connection reset" retry through backon.
+        // Retry policy:
+        //   * Network errors (connect/timeout/request) → retry through backon.
+        //   * HTTP 429 → retry through backon (Retry-After is honored downstream
+        //     by `decode_error` once the budget exhausts).
+        //   * HTTP 5xx → DO NOT retry. Server errors are typically deterministic
+        //     bugs on the worker side, and retrying compounds the problem by
+        //     consuming rate-limit tokens (every retry counts against the
+        //     per-endpoint quota), causing a 500 → 429 → 429 → 429 cascade that
+        //     locks the user out without ever surfacing the original error.
+        //     Surface the 5xx body immediately so the user (and the worker
+        //     operator) can see what actually went wrong. The backoff budget
+        //     stays available for genuine transient failures.
+        //
+        // Spec §9 originally said "429 with Retry-After, 5xx, connection reset"
+        // should retry; the 5xx clause was too aggressive in practice — see
+        // the upload-flow incident where a single worker 500 + retries hit the
+        // upload rate-limit ceiling within 100ms. The themes-as-directories
+        // plan tracks a proper retry-policy revision (per-endpoint, idempotency
+        // keys for POSTs); until then, no 5xx retry.
         let mut backoff = self.retry_policy.build();
         loop {
             let b = builder.try_clone().ok_or_else(|| UploadError::BadInput {
@@ -657,15 +674,33 @@ impl ShareClient {
             match b.send().await {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    let transient = status == 429 || (500..=599).contains(&status);
-                    if !transient {
+                    if status == 429 {
+                        match backoff.next() {
+                            Some(delay) => {
+                                tokio::time::sleep(delay).await;
+                                continue;
+                            }
+                            None => return Ok(resp),
+                        }
+                    }
+                    if (500..=599).contains(&status) {
+                        // Log the body for diagnosis before surfacing it. We
+                        // can't read the body twice, so peek by buffering the
+                        // bytes and re-wrapping them into a fresh response —
+                        // but `reqwest::Response` isn't trivially reconstructable.
+                        // Instead, emit a tracing warn with status only and
+                        // let `decode_error` (the caller) parse the body. The
+                        // body content WILL appear in the returned UploadError
+                        // (status + structured detail or text).
+                        let url = resp.url().clone();
+                        tracing::warn!(
+                            url = %url,
+                            status,
+                            "worker returned 5xx; surfacing body without retry (see UploadError detail)"
+                        );
                         return Ok(resp);
                     }
-                    match backoff.next() {
-                        Some(delay) => tokio::time::sleep(delay).await,
-                        // Budget exhausted — surface the structured error from body.
-                        None => return Ok(resp),
-                    }
+                    return Ok(resp);
                 }
                 Err(e) => {
                     let transient = e.is_connect() || e.is_timeout() || e.is_request();
@@ -741,8 +776,15 @@ impl ShareClient {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<u64>().ok())
             .map(Duration::from_secs);
-        let body = resp.json::<ErrorBody>().await.ok();
-        let (code, message, kind_str, detail, retry_after) = match body {
+        // Read the body once as bytes so we can both attempt JSON parsing AND
+        // fall back to raw text. Workers that 500 from an unhandled exception
+        // emit a non-JSON stack trace; before this fallback the user just saw
+        // "HTTP 500" with no detail.
+        let body_bytes = resp.bytes().await.ok();
+        let body_json = body_bytes
+            .as_ref()
+            .and_then(|b| serde_json::from_slice::<ErrorBody>(b).ok());
+        let (code, message, kind_str, detail, retry_after) = match body_json {
             Some(b) => (
                 b.error.code,
                 b.error.message,
@@ -755,13 +797,35 @@ impl ShareClient {
                     .map(Duration::from_secs)
                     .or(header_retry_after),
             ),
-            None => (
-                "UNKNOWN".into(),
-                format!("HTTP {status}"),
-                default_kind_for_status(status).into(),
-                None,
-                header_retry_after,
-            ),
+            None => {
+                // Non-JSON body (worker exception text, gateway HTML, etc.).
+                // Surface the first 512 chars as `detail` so the user can see
+                // what the server actually said.
+                let body_text = body_bytes
+                    .as_ref()
+                    .and_then(|b| std::str::from_utf8(b).ok())
+                    .unwrap_or("")
+                    .trim();
+                let detail: Option<String> = if body_text.is_empty() {
+                    None
+                } else {
+                    Some(body_text.chars().take(512).collect())
+                };
+                if let Some(d) = &detail {
+                    tracing::warn!(
+                        status,
+                        body = %d,
+                        "worker returned non-JSON error body; surfacing raw text as detail"
+                    );
+                }
+                (
+                    "UNKNOWN".into(),
+                    format!("HTTP {status}"),
+                    default_kind_for_status(status).into(),
+                    detail,
+                    header_retry_after,
+                )
+            }
         };
         let kind = kind_str.parse().unwrap_or(WorkerErrorKind::Io);
         UploadError::ServerReject {
