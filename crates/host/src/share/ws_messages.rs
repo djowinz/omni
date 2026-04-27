@@ -1168,7 +1168,12 @@ async fn handle_moderation_check(id: &str, params: Value) -> Option<String> {
 
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
-        Err(e) => return Some(bad_input(id, format!("bad share.moderationCheck params: {e}"))),
+        Err(e) => {
+            return Some(bad_input(
+                id,
+                format!("bad share.moderationCheck params: {e}"),
+            ))
+        }
     };
 
     let bytes = match STANDARD.decode(&p.image_base64) {
@@ -1352,11 +1357,7 @@ fn overlay_widget_count(overlay_dir: &std::path::Path) -> Option<u32> {
     parsed.map(|f| f.widgets.len() as u32)
 }
 
-async fn handle_list_publishables(
-    id: &str,
-    params: Value,
-    ctx: &ShareContext,
-) -> Option<String> {
+async fn handle_list_publishables(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
     /// Optional `kind` filter ("overlay" | "theme"); omit / null returns both.
     /// Unknown values are treated as "no filter" rather than a hard error so a
     /// renderer that drifts ahead of the host still gets data instead of an
@@ -1415,9 +1416,7 @@ async fn handle_list_publishables(
                 None => format!("{}.preview.png", filename),
             };
             let preview_path = themes_dir.join(&preview_filename);
-            let sidecar = read_theme_sidecar(&themes_dir, &filename)
-                .ok()
-                .flatten();
+            let sidecar = read_theme_sidecar(&themes_dir, &filename).ok().flatten();
             let modified_at = iso_mtime_of(&css_path);
             // Display name: theme filename without `.css` extension. Matches
             // INV-7.1.10's "Modified YYYY-MM-DD" (themes have no widget count

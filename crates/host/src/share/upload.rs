@@ -291,7 +291,12 @@ pub async fn pack_only_with_progress(
             }
         }
     };
-    emit_stage(progress, PackStage::ContentSafety, StageStatus::Passed, None);
+    emit_stage(
+        progress,
+        PackStage::ContentSafety,
+        StageStatus::Passed,
+        None,
+    );
     // Asset stage piggybacks on the same sanitize call (image re-decode +
     // font ttf check live inside `sanitize_bundle`). If we got here,
     // sanitize succeeded → Asset trivially passes.
@@ -805,10 +810,7 @@ fn rewrite_bare_theme_ref(overlay: &[u8], from_name: &str, to_path: &str) -> Vec
         &format!("src=\"{from_name}\""),
         &format!("src=\"{to_path}\""),
     )
-    .replace(
-        &format!("src='{from_name}'"),
-        &format!("src='{to_path}'"),
-    )
+    .replace(&format!("src='{from_name}'"), &format!("src='{to_path}'"))
     .into_bytes()
 }
 
@@ -826,9 +828,7 @@ fn scan_bare_theme_refs(bytes: &[u8]) -> Vec<String> {
     loop {
         match reader.read_event_into(&mut buf) {
             Err(_) | Ok(Event::Eof) => break,
-            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e))
-                if e.name().as_ref() == b"theme" =>
-            {
+            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) if e.name().as_ref() == b"theme" => {
                 if let Some(src) = e
                     .attributes()
                     .flatten()
@@ -1086,7 +1086,10 @@ mod tests {
         // Only bare *.css refs: marathon.css + other.css.
         // themes/dark.css has a slash → already an explicit workspace path,
         // not bare. not-css.png isn't a CSS file.
-        assert_eq!(refs, vec!["marathon.css".to_string(), "other.css".to_string()]);
+        assert_eq!(
+            refs,
+            vec!["marathon.css".to_string(), "other.css".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -1109,8 +1112,7 @@ mod tests {
         .expect("write overlay");
         let themes_dir = workspace.path().join("themes");
         std::fs::create_dir_all(&themes_dir).expect("mkdir themes");
-        std::fs::write(themes_dir.join("marathon.css"), b":root{--x:1}")
-            .expect("write theme");
+        std::fs::write(themes_dir.join("marathon.css"), b":root{--x:1}").expect("write theme");
 
         let mut files = walk_bundle(&overlay_dir).await.expect("walk");
         assert!(!files.contains_key("themes/marathon.css"));
@@ -1151,8 +1153,7 @@ mod tests {
         .expect("write overlay");
         let themes_dir = workspace.path().join("themes");
         std::fs::create_dir_all(&themes_dir).expect("mkdir themes");
-        std::fs::write(themes_dir.join("marathon.css"), b":root{}")
-            .expect("write theme");
+        std::fs::write(themes_dir.join("marathon.css"), b":root{}").expect("write theme");
 
         let mut files = walk_bundle(&overlay_dir).await.expect("walk");
         supplement_with_workspace_themes(&mut files, &overlay_dir).await;
@@ -1202,8 +1203,7 @@ mod tests {
         )
         .expect("write overlay");
         // Overlay-local themes/marathon.css.
-        std::fs::create_dir_all(overlay_dir.join("themes"))
-            .expect("mkdir overlay-local themes");
+        std::fs::create_dir_all(overlay_dir.join("themes")).expect("mkdir overlay-local themes");
         std::fs::write(
             overlay_dir.join("themes").join("marathon.css"),
             b"/* overlay-local */",

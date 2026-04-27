@@ -70,7 +70,11 @@ fn write_creates_parent_dir() {
     // Defensive: index_path() points at %APPDATA%/Omni/, which may not exist
     // on a fresh-install host. write() must mkdir its parent.
     let dir = tempdir().expect("tempdir");
-    let p = dir.path().join("nested").join("dir").join("publish-index.json");
+    let p = dir
+        .path()
+        .join("nested")
+        .join("dir")
+        .join("publish-index.json");
     let idx = PublishIndex::default();
     write(&p, &idx).expect("write must mkdir parent");
     assert!(p.exists());

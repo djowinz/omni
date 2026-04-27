@@ -64,9 +64,7 @@ pub const THEME_PREVIEW_SUFFIX: &str = ".preview.png";
 /// is just "a thing that may fail." If a future caller needs richer
 /// downcasting, surface the underlying [`crate::share::thumbnail::ThumbnailError`]
 /// directly.
-pub fn render_overlay_preview(
-    overlay_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn render_overlay_preview(overlay_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let png_bytes = thumbnail::bundle::generate_for_workspace_overlay(overlay_dir)?;
     std::fs::write(overlay_dir.join(OVERLAY_PREVIEW_FILENAME), png_bytes)?;
     Ok(())

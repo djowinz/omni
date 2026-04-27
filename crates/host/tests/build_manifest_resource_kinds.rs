@@ -54,7 +54,10 @@ fn populates_resource_kinds_for_overlay_bundle() {
         .resource_kinds
         .as_ref()
         .expect("resource_kinds populated");
-    assert!(kinds.contains_key("overlay"), "missing overlay; got {kinds:?}");
+    assert!(
+        kinds.contains_key("overlay"),
+        "missing overlay; got {kinds:?}"
+    );
     assert!(kinds.contains_key("theme"), "missing theme; got {kinds:?}");
     assert!(kinds.contains_key("font"), "missing font; got {kinds:?}");
     assert!(kinds.contains_key("image"), "missing image; got {kinds:?}");

@@ -117,8 +117,7 @@ pub fn init_with_path(path: impl Into<PathBuf>) -> Result<(), ModerationError> {
     let path: PathBuf = path.into();
     MODEL.get_or_init(|| {
         Mutex::new(
-            NudeNetModel::load(&path)
-                .unwrap_or_else(|err| panic!("nudenet load failed: {err}")),
+            NudeNetModel::load(&path).unwrap_or_else(|err| panic!("nudenet load failed: {err}")),
         )
     });
     Ok(())

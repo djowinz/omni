@@ -60,7 +60,10 @@ fn tripwire_resets_on_pubkey_mismatch() {
 
     let current_pk_hex = "cu".repeat(32);
     let loaded = IdentityMetadata::load_or_default(&path, &current_pk_hex);
-    assert_eq!(loaded.pubkey_hex, current_pk_hex, "tripwire reset to current");
+    assert_eq!(
+        loaded.pubkey_hex, current_pk_hex,
+        "tripwire reset to current"
+    );
     assert_eq!(loaded.display_name, None, "stale fields cleared");
     assert!(!loaded.backed_up);
     assert_eq!(loaded.last_backed_up_at, None);

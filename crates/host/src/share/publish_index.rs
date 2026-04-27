@@ -127,7 +127,12 @@ mod tests {
         idx.upsert(entry("marathon", "1.0.0"));
         idx.upsert(entry("marathon", "1.1.0"));
         assert_eq!(idx.entries.len(), 1);
-        assert_eq!(idx.lookup("ab", "overlay", "marathon").unwrap().last_version, "1.1.0");
+        assert_eq!(
+            idx.lookup("ab", "overlay", "marathon")
+                .unwrap()
+                .last_version,
+            "1.1.0"
+        );
     }
 
     #[test]

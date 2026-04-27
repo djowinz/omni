@@ -584,10 +584,7 @@ struct ConfigBlock {
 
 /// Parse a `<config>` block containing `<poll sensor=".." interval=".."/>` and/or
 /// `<dpi-scale value="auto|<float>"/>` entries.
-fn parse_config_block(
-    source: &str,
-    reader: &mut Reader<&[u8]>,
-) -> Result<ConfigBlock, ParseError> {
+fn parse_config_block(source: &str, reader: &mut Reader<&[u8]>) -> Result<ConfigBlock, ParseError> {
     let mut poll = HashMap::new();
     let mut dpi_scale: Option<DpiScale> = None;
 
@@ -614,9 +611,8 @@ fn parse_config_block(
                         reader.buffer_position() as usize,
                         "<dpi-scale> requires a 'value' attribute".to_string(),
                     );
-                    err.suggestion = Some(
-                        "expected `value=\"auto\"` or `value=\"<number>\"`".to_string(),
-                    );
+                    err.suggestion =
+                        Some("expected `value=\"auto\"` or `value=\"<number>\"`".to_string());
                     err
                 })?;
                 dpi_scale = Some(parse_dpi_scale_value(
@@ -642,11 +638,7 @@ fn parse_config_block(
 
 /// Parse the `value` attribute of `<dpi-scale>`. Accepts "auto" (case-
 /// insensitive) or a finite float in [0.5, 4.0].
-fn parse_dpi_scale_value(
-    s: &str,
-    source: &str,
-    offset: usize,
-) -> Result<DpiScale, ParseError> {
+fn parse_dpi_scale_value(s: &str, source: &str, offset: usize) -> Result<DpiScale, ParseError> {
     if s.eq_ignore_ascii_case("auto") {
         return Ok(DpiScale::Auto);
     }
@@ -1872,7 +1864,8 @@ mod tests {
 "#;
         let errs = parse_omni(src).expect_err("expected parse error");
         assert!(
-            errs.iter().any(|e| e.message.contains("requires a 'value'")),
+            errs.iter()
+                .any(|e| e.message.contains("requires a 'value'")),
             "got: {:?}",
             errs
         );

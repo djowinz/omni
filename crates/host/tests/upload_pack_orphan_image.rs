@@ -106,9 +106,7 @@ async fn pack_only_rejects_orphan_image_with_unused_file_violation() {
         .get("images/orphan.png")
         .copied()
         .unwrap_or_else(|| {
-            panic!(
-                "no violation for images/orphan.png; got violations: {violations:?}"
-            )
+            panic!("no violation for images/orphan.png; got violations: {violations:?}")
         });
     assert_eq!(
         kind, "unused-file",

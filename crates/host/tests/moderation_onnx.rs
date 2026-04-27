@@ -15,9 +15,7 @@
 
 use omni_host::share::moderation::{check_image, default_model_path, init_with_path};
 
-const CLEAN_GREY_PNG: &[u8] = include_bytes!(
-    "../../moderation/tests/fixtures/clean-grey.png"
-);
+const CLEAN_GREY_PNG: &[u8] = include_bytes!("../../moderation/tests/fixtures/clean-grey.png");
 
 /// Try to set up the singleton from the dev-layout model path. Returns
 /// `false` if the bundled model isn't present on this checkout (e.g. CI
@@ -61,7 +59,8 @@ fn check_image_returns_safe_score_for_clean_fixture() {
     assert!(
         result.unsafe_score < 0.8,
         "clean fixture score should be below INV-7.7.3 threshold: score={} label={}",
-        result.unsafe_score, result.label
+        result.unsafe_score,
+        result.label
     );
 }
 

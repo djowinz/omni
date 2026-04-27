@@ -37,7 +37,7 @@ use std::path::Path;
 use ndarray::Array4;
 use ort::{
     inputs,
-    session::{Session, builder::GraphOptimizationLevel},
+    session::{builder::GraphOptimizationLevel, Session},
     value::Tensor,
 };
 
@@ -102,7 +102,10 @@ pub struct ModerationResult {
 impl ModerationResult {
     /// Convenience constructor for the "no unsafe detection" case.
     pub fn safe() -> Self {
-        Self { unsafe_score: 0.0, label: "safe".to_string() }
+        Self {
+            unsafe_score: 0.0,
+            label: "safe".to_string(),
+        }
     }
 }
 
@@ -125,7 +128,10 @@ pub enum ModerationError {
     /// model file isn't a NudeNet-format detector. `expected` describes the
     /// shape pattern we wanted; `got` is the actual shape from the model.
     #[error("unexpected output tensor shape: expected {expected}, got {got:?}")]
-    UnexpectedShape { expected: &'static str, got: Vec<usize> },
+    UnexpectedShape {
+        expected: &'static str,
+        got: Vec<usize>,
+    },
 }
 
 /// Loaded NudeNet model. Cheap to construct once at host startup; expensive
@@ -185,9 +191,14 @@ impl NudeNetModel {
         // NudeNet has a single output. Consuming `into_iter()` gives us
         // `(name, DynValue)` — easier than name-based lookup which varies
         // between exporters.
-        let (_name, output_value) = outputs.into_iter().next().ok_or_else(|| {
-            ModerationError::UnexpectedShape { expected: "1 output tensor", got: vec![] }
-        })?;
+        let (_name, output_value) =
+            outputs
+                .into_iter()
+                .next()
+                .ok_or_else(|| ModerationError::UnexpectedShape {
+                    expected: "1 output tensor",
+                    got: vec![],
+                })?;
         let output = output_value.try_extract_array::<f32>()?;
 
         // Expected shape: [1, 4 + NUM_CLASSES, num_anchors]. NudeNet's 320n
@@ -301,6 +312,9 @@ mod tests {
         // 1x1 PNG. Tiny smoke that the decode path is wired.
         let png = include_bytes!("../tests/fixtures/clean-pixel.png");
         let arr = preprocess(png).expect("preprocess");
-        assert_eq!(arr.shape(), &[1, 3, INPUT_SIZE as usize, INPUT_SIZE as usize]);
+        assert_eq!(
+            arr.shape(),
+            &[1, 3, INPUT_SIZE as usize, INPUT_SIZE as usize]
+        );
     }
 }

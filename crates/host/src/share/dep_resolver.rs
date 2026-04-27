@@ -202,9 +202,7 @@ pub fn default_moderator(_path: &str, bytes: &[u8]) -> ModerationOutcome {
 /// model-not-loaded path decays to "no violation" so test runs without the
 /// bundled ONNX model still exercise the missing/unused logic. Production
 /// host startup loads the model before any pack call.
-pub fn resolve(
-    workspace_files: &BTreeMap<String, Vec<u8>>,
-) -> Result<ResolveResult, ResolveError> {
+pub fn resolve(workspace_files: &BTreeMap<String, Vec<u8>>) -> Result<ResolveResult, ResolveError> {
     resolve_with_moderation(workspace_files, &default_moderator)
 }
 
@@ -218,11 +216,12 @@ pub fn resolve_with_moderation(
     workspace_files: &BTreeMap<String, Vec<u8>>,
     moderator: &ImageModerator<'_>,
 ) -> Result<ResolveResult, ResolveError> {
-    let overlay_bytes = workspace_files
-        .get(OVERLAY_PATH)
-        .ok_or_else(|| ResolveError::MissingEntryOverlay {
-            entry: OVERLAY_PATH.to_string(),
-        })?;
+    let overlay_bytes =
+        workspace_files
+            .get(OVERLAY_PATH)
+            .ok_or_else(|| ResolveError::MissingEntryOverlay {
+                entry: OVERLAY_PATH.to_string(),
+            })?;
 
     // Step 1+2: parse overlay.omni and extract <theme src>, <font src>, and
     // any inline <style> bodies. The XML scan is permissive — it walks every
@@ -230,8 +229,8 @@ pub fn resolve_with_moderation(
     // place <theme src> inside <widget> while the strict format places it at
     // the top level. The strict structural gate runs later in
     // `omni-sanitize::handlers::overlay`.
-    let overlay_refs = extract_overlay_refs(overlay_bytes)
-        .map_err(ResolveError::InvalidOverlayXml)?;
+    let overlay_refs =
+        extract_overlay_refs(overlay_bytes).map_err(ResolveError::InvalidOverlayXml)?;
 
     // Resolved-refs ledger: deterministic insertion order via Vec, dedup via
     // a parallel BTreeSet. The bundle output starts with overlay.omni and
@@ -254,11 +253,10 @@ pub fn resolve_with_moderation(
         // sanitizer would later reject. Parse failures here surface as
         // `InvalidCss { path: "overlay.omni" }` so the renderer's error card
         // can point the user at the right file.
-        let css_str = std::str::from_utf8(style_body)
-            .map_err(|e| ResolveError::InvalidCss {
-                path: OVERLAY_PATH.to_string(),
-                detail: format!("utf8: {e}"),
-            })?;
+        let css_str = std::str::from_utf8(style_body).map_err(|e| ResolveError::InvalidCss {
+            path: OVERLAY_PATH.to_string(),
+            detail: format!("utf8: {e}"),
+        })?;
         StyleSheet::parse(css_str, ParserOptions::default()).map_err(|e| {
             ResolveError::InvalidCss {
                 path: OVERLAY_PATH.to_string(),
@@ -445,15 +443,17 @@ fn read_src_attr(e: &quick_xml::events::BytesStart) -> Option<String> {
 /// position). Mirrors `omni-sanitize::handlers::overlay::skip_to_close` but
 /// works against `Reader<&[u8]>` and is simpler since we don't track depth
 /// on nested same-name tags (CSS doesn't nest `<style>` inside `<style>`).
-fn consume_until_close(
-    reader: &mut Reader<&[u8]>,
-    tag: &[u8],
-) -> Result<u64, String> {
+fn consume_until_close(reader: &mut Reader<&[u8]>, tag: &[u8]) -> Result<u64, String> {
     let mut buf = Vec::new();
     loop {
         let before = reader.buffer_position();
         match reader.read_event_into(&mut buf) {
-            Err(e) => return Err(format!("xml parse inside <{}>: {e}", String::from_utf8_lossy(tag))),
+            Err(e) => {
+                return Err(format!(
+                    "xml parse inside <{}>: {e}",
+                    String::from_utf8_lossy(tag)
+                ))
+            }
             Ok(Event::Eof) => {
                 return Err(format!(
                     "unterminated <{}> body",
@@ -563,9 +563,7 @@ fn is_resource_path(path: &str) -> bool {
     if path == OVERLAY_PATH {
         return false;
     }
-    path.starts_with("images/")
-        || path.starts_with("fonts/")
-        || path.ends_with(".css")
+    path.starts_with("images/") || path.starts_with("fonts/") || path.ends_with(".css")
 }
 
 /// Whether a workspace path is an image candidate for the content-safety
@@ -600,9 +598,7 @@ fn scan_css_urls(src: &str) -> Vec<String> {
         let Some(end) = rest.find(')') else {
             break;
         };
-        let arg = rest[..end]
-            .trim()
-            .trim_matches(|c| c == '\'' || c == '"');
+        let arg = rest[..end].trim().trim_matches(|c| c == '\'' || c == '"');
         if !arg.is_empty() {
             out.push(arg.to_string());
         }
@@ -619,7 +615,10 @@ mod tests {
     fn scan_css_urls_handles_quotes_and_spaces() {
         let css = "a{background:url(\"images/a.png\")} b{background:url( 'images/b.png' )}";
         let urls = scan_css_urls(css);
-        assert_eq!(urls, vec!["images/a.png".to_string(), "images/b.png".to_string()]);
+        assert_eq!(
+            urls,
+            vec!["images/a.png".to_string(), "images/b.png".to_string()]
+        );
     }
 
     #[test]

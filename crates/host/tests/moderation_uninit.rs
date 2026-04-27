@@ -8,9 +8,7 @@
 
 use omni_host::share::moderation::{check_image, CheckError};
 
-const ONE_PIXEL_PNG: &[u8] = include_bytes!(
-    "../../moderation/tests/fixtures/clean-pixel.png"
-);
+const ONE_PIXEL_PNG: &[u8] = include_bytes!("../../moderation/tests/fixtures/clean-pixel.png");
 
 #[test]
 fn check_image_before_init_returns_not_initialized() {

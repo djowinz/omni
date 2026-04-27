@@ -59,8 +59,8 @@ fn recreate_view_across_scales_renders_cleanly() {
     }
     let _g = GLOBAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    let mut ul = UlRenderer::init(1920, 1080, None, &resources_dir())
-        .expect("init at None@1920x1080");
+    let mut ul =
+        UlRenderer::init(1920, 1080, None, &resources_dir()).expect("init at None@1920x1080");
     let tmp = TempDir::new().expect("tmpdir");
 
     // Phase 1: scale=None @ 1920x1080.

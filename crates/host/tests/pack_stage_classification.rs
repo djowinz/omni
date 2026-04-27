@@ -265,8 +265,7 @@ async fn at_import_in_theme_classifies_as_content_safety() {
 #[tokio::test]
 async fn truncated_png_classifies_as_asset() {
     let workspace = tempfile::tempdir().expect("tempdir");
-    std::fs::write(workspace.path().join("overlay.omni"), VALID_OVERLAY)
-        .expect("write overlay");
+    std::fs::write(workspace.path().join("overlay.omni"), VALID_OVERLAY).expect("write overlay");
     let images = workspace.path().join("images");
     std::fs::create_dir(&images).expect("mkdir images");
     std::fs::write(images.join("bad.png"), truncated_png()).expect("write truncated png");
@@ -286,8 +285,7 @@ async fn truncated_png_classifies_as_asset() {
 #[tokio::test]
 async fn bad_ttf_magic_classifies_as_asset() {
     let workspace = tempfile::tempdir().expect("tempdir");
-    std::fs::write(workspace.path().join("overlay.omni"), VALID_OVERLAY)
-        .expect("write overlay");
+    std::fs::write(workspace.path().join("overlay.omni"), VALID_OVERLAY).expect("write overlay");
     let fonts = workspace.path().join("fonts");
     std::fs::create_dir(&fonts).expect("mkdir fonts");
     std::fs::write(fonts.join("bad.ttf"), bad_ttf_bytes()).expect("write bad ttf");
@@ -336,8 +334,7 @@ async fn executable_magic_in_theme_classifies_as_schema() {
     // deny-list. `sanitize_theme` rejects with
     // `SanitizeError::RejectedExecutableMagic`, which the classifier maps
     // to `Schema` (non-Handler variant catch-all).
-    std::fs::write(tmp.path(), [0x4Du8, 0x5A, 0x00, 0x00, 0x00, 0x00])
-        .expect("write fake exe css");
+    std::fs::write(tmp.path(), [0x4Du8, 0x5A, 0x00, 0x00, 0x00, 0x00]).expect("write fake exe css");
 
     let frames = run_and_capture(theme_request(tmp.path(), "schema-exe-magic")).await;
     let failed = last_failed(&frames);

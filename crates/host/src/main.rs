@@ -700,8 +700,7 @@ fn run_host() {
     // short-circuit without reading host. `current_dpi_scale` is the
     // resolved f64 last passed to UlRenderer (or its `recreate_view`).
     // Spec: docs/superpowers/specs/2026-04-25-overlay-dpi-scale-design.md
-    let mut current_dpi_config: Option<omni_host::omni::types::DpiScale> =
-        host.omni_file.dpi_scale;
+    let mut current_dpi_config: Option<omni_host::omni::types::DpiScale> = host.omni_file.dpi_scale;
     let mut current_dpi_scale: Option<f64> =
         resolve_dpi_scale(current_dpi_config, scanner_instance.last_game_hwnd());
 
@@ -709,13 +708,20 @@ fn run_host() {
     // the current viewport size when the renderer has been resized at
     // least once, otherwise the startup primary-monitor fallback. Used at
     // every overlay-state mutator and the per-frame Auto tracker.
-    let recreate_dims =
-        |viewport_w: u32, viewport_h: u32| -> (u32, u32) {
-            (
-                if viewport_w > 0 { viewport_w } else { initial_w },
-                if viewport_h > 0 { viewport_h } else { initial_h },
-            )
-        };
+    let recreate_dims = |viewport_w: u32, viewport_h: u32| -> (u32, u32) {
+        (
+            if viewport_w > 0 {
+                viewport_w
+            } else {
+                initial_w
+            },
+            if viewport_h > 0 {
+                viewport_h
+            } else {
+                initial_h
+            },
+        )
+    };
 
     let mut ul = ul_renderer::UlRenderer::init(initial_w, initial_h, current_dpi_scale, &exe_dir)
         .expect("Failed to initialize Ultralight renderer");

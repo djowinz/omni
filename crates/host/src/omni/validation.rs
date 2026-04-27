@@ -187,8 +187,7 @@ pub fn validate_sensor_paths_with_hwinfo(
                 if let Some(fmt) = fmt_opt {
                     if !fmt.is_empty() && !KNOWN_FORMATS.contains(&fmt) {
                         let offset = text_offset + start;
-                        let (line, column) =
-                            super::parser::offset_to_line_col(omni_source, offset);
+                        let (line, column) = super::parser::offset_to_line_col(omni_source, offset);
                         warnings.push(ParseError {
                             message: format!(
                                 "unknown format \"{}\"; valid: {}",
@@ -382,7 +381,10 @@ mod tests {
 
     #[test]
     fn extract_bare_path_with_format() {
-        assert_eq!(extract_bare_path("cpu.usage|raw"), ("cpu.usage", Some("raw")));
+        assert_eq!(
+            extract_bare_path("cpu.usage|raw"),
+            ("cpu.usage", Some("raw"))
+        );
     }
 
     #[test]
@@ -404,10 +406,10 @@ mod tests {
         // Bare identifier with `(...)` is a function call — no `.` before paren.
         // extract_bare_path leaves it intact; the validator's earlier branch
         // skips function calls before this helper runs.
-        assert_eq!(extract_bare_path("chart_polyline(cpu.usage, 200, 60)"), (
-            "chart_polyline(cpu.usage, 200, 60)",
-            None,
-        ));
+        assert_eq!(
+            extract_bare_path("chart_polyline(cpu.usage, 200, 60)"),
+            ("chart_polyline(cpu.usage, 200, 60)", None,)
+        );
     }
 
     #[test]
@@ -479,7 +481,9 @@ mod tests {
         let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
         assert_eq!(warnings.len(), 1);
         assert!(
-            warnings[0].message.contains("unknown sensor path \"cpu.usag\""),
+            warnings[0]
+                .message
+                .contains("unknown sensor path \"cpu.usag\""),
             "warning should name the bare path (sans |raw), got: {}",
             warnings[0].message
         );

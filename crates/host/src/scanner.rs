@@ -315,8 +315,7 @@ impl Scanner {
                     if self.notified_no_window.insert(pid) {
                         info!(
                             pid,
-                            exe_name,
-                            "Pending overlay — no visible window yet (game directory)"
+                            exe_name, "Pending overlay — no visible window yet (game directory)"
                         );
                     }
                     continue;

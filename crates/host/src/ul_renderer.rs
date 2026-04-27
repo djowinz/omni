@@ -148,14 +148,15 @@ impl UlRenderer {
             // the view-config flag set (accelerated/transparent/initial-device-
             // scale) lives in exactly one place and can't drift between init
             // and recreation paths.
-            let (view, view_config) = match Self::try_create_view(renderer, width, height, device_scale) {
-                Some(pair) => pair,
-                None => {
-                    ultralight_sys::ulDestroyRenderer(renderer);
-                    ultralight_sys::ulDestroyConfig(config);
-                    return Err("Failed to create Ultralight view".into());
-                }
-            };
+            let (view, view_config) =
+                match Self::try_create_view(renderer, width, height, device_scale) {
+                    Some(pair) => pair,
+                    None => {
+                        ultralight_sys::ulDestroyRenderer(renderer);
+                        ultralight_sys::ulDestroyConfig(config);
+                        return Err("Failed to create Ultralight view".into());
+                    }
+                };
 
             info!(width, height, "Ultralight renderer initialized");
 

@@ -78,9 +78,7 @@ pub fn generate_for_theme(
 /// in the upload-dialog source picker. The hook caller (file.write
 /// integration in a downstream task) MUST swallow render failures so a
 /// malformed save never blocks the file-written response.
-pub fn generate_for_workspace_theme(
-    css_path: &std::path::Path,
-) -> Result<Vec<u8>, ThumbnailError> {
+pub fn generate_for_workspace_theme(css_path: &std::path::Path) -> Result<Vec<u8>, ThumbnailError> {
     let css_bytes = std::fs::read(css_path).map_err(ThumbnailError::Io)?;
     let config = ThumbnailConfig::default();
     generate_for_theme(&css_bytes, &config)

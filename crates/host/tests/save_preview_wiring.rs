@@ -130,18 +130,15 @@ fn css_outside_themes_does_not_trigger_theme_preview() {
     let overlay_dir = dir.path().join("overlays").join("test-overlay");
     fs::create_dir_all(&overlay_dir).expect("mkdir overlay dir");
 
-    let result = handle_write(
-        dir.path(),
-        "overlays/test-overlay/extra.css",
-        ":root {}",
-    );
+    let result = handle_write(dir.path(), "overlays/test-overlay/extra.css", ":root {}");
     assert_eq!(result["type"], "file.written");
 
     // No theme-preview sibling under themes/, no overlay-preview dotfile under
     // the overlay folder.
-    let stray_theme_preview = dir.path().join("themes").join(format!(
-        "extra.css{THEME_PREVIEW_SUFFIX}",
-    ));
+    let stray_theme_preview = dir
+        .path()
+        .join("themes")
+        .join(format!("extra.css{THEME_PREVIEW_SUFFIX}",));
     assert!(
         !stray_theme_preview.exists(),
         "writing a .css file outside themes/ must not write a theme preview",
@@ -158,11 +155,7 @@ fn overlay_save_path_with_invalid_traversal_is_rejected_before_hook() {
     // preview hook). Confirm the existing path-traversal guard still produces
     // an error response shape, with no preview side-effect on disk.
     let dir = make_data_dir();
-    let result = handle_write(
-        dir.path(),
-        "../escape/overlay.omni",
-        OVERLAY_XML,
-    );
+    let result = handle_write(dir.path(), "../escape/overlay.omni", OVERLAY_XML);
     assert_eq!(result["type"], "error");
     assert!(!preview_files_present(dir.path()));
 }

@@ -175,9 +175,8 @@ fn content_safety_skipped_outcome_does_not_violate() {
         vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
     );
 
-    let moderator = |_path: &str, _bytes: &[u8]| -> ModerationOutcome {
-        ModerationOutcome::Skipped
-    };
+    let moderator =
+        |_path: &str, _bytes: &[u8]| -> ModerationOutcome { ModerationOutcome::Skipped };
     let result = resolve_with_moderation(&workspace_files, &moderator)
         .expect("resolve must succeed when moderator skips");
 
@@ -228,17 +227,13 @@ fn transitive_theme_walk_with_cycle_guard() {
 
     let result = resolve(&workspace_files).expect("resolve must succeed without infinite loop");
     assert!(
-        result
-            .bundled_paths
-            .contains(&"images/a.png".to_string()),
+        result.bundled_paths.contains(&"images/a.png".to_string()),
         "transitive walk must discover images/a.png via theme.css; got {:?}",
         result.bundled_paths
     );
     // theme.css itself is bundled (it's a referenced theme file).
     assert!(
-        result
-            .bundled_paths
-            .contains(&"theme.css".to_string()),
+        result.bundled_paths.contains(&"theme.css".to_string()),
         "theme.css must be bundled as a referenced theme; got {:?}",
         result.bundled_paths
     );
