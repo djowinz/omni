@@ -644,6 +644,34 @@ fn parse_precision(body: &str) -> (&str, Option<usize>) {
     (body, None)
 }
 
+/// Split a placeholder body on `|` for an explicit format override.
+/// Returns `(lhs, Some(format_token))` when a pipe is present, otherwise
+/// `(body, None)`. The precision parser runs on `lhs`, so the canonical
+/// authoring order is `{path(N)|format}` — precision binds to the path,
+/// format applies to the resulting numeric value.
+fn parse_format_override(body: &str) -> (&str, Option<&str>) {
+    if let Some(pipe) = body.find('|') {
+        return (body[..pipe].trim(), Some(body[pipe + 1..].trim()));
+    }
+    (body, None)
+}
+
+/// Validate an author-supplied format token against the set understood by
+/// `bootstrap.js::formatValue` (and the renderer mirror in
+/// `apps/desktop/renderer/lib/preview-updater.ts::formatValue`). Unknown
+/// tokens return `None`; the caller treats that as a hard fail-loud signal
+/// (preserves the original `{...}` text).
+fn validate_format(token: &str) -> Option<&'static str> {
+    match token {
+        "raw" => Some("raw"),
+        "percent" => Some("percent"),
+        "bytes" => Some("bytes"),
+        "temperature" => Some("temperature"),
+        "frequency" => Some("frequency"),
+        _ => None,
+    }
+}
+
 /// Infer (format, default_precision) for a built-in sensor path.
 /// Returns `None` if the path is composite (e.g. `gpu.vram`) or unknown.
 fn infer_sensor_format(path: &str) -> Option<(&'static str, usize)> {
@@ -678,11 +706,22 @@ fn infer_sensor_format(path: &str) -> Option<(&'static str, usize)> {
     None
 }
 
-/// Parse `{sensor.path}` or `{sensor.path(N)}` body text into a list of
-/// segments suitable for lowering. Returns `None` if the text contains no
-/// recognizable sensor placeholders.
+/// Parse `{sensor.path}`, `{sensor.path(N)}`, `{sensor.path|format}`, or
+/// `{sensor.path(N)|format}` body text into a list of segments suitable for
+/// lowering. Returns `None` if the text contains no recognizable sensor
+/// placeholders.
 ///
-/// Segments are either literal text or an inferred sensor binding.
+/// Segments are either literal text or a sensor binding. When a `|format`
+/// override is supplied:
+///   - It overrides any inferred format (e.g. `{cpu.usage|raw}` → no `%`).
+///   - It allows lowering paths that `infer_sensor_format` would reject
+///     (e.g. `{gpu.vram|bytes}`), since the author has explicitly declared
+///     "this is a sensor, format it as X".
+///   - An *invalid* format token (not in `validate_format`) preserves the
+///     original `{...}` text — fail loud, don't silently fall back to inferred.
+///
+/// Precision MUST come before the pipe: `{path(2)|format}`. The reverse
+/// (`{path|format(2)}`) is treated as an unrecognized format and fails loud.
 fn lower_text_to_segments(text: &str) -> Option<Vec<TextSegment>> {
     let mut segments: Vec<TextSegment> = Vec::new();
     let mut buf = String::new();
@@ -705,8 +744,55 @@ fn lower_text_to_segments(text: &str) -> Option<Vec<TextSegment>> {
                 buf.push_str(&body);
                 continue;
             }
-            let (path, prec_override) = parse_precision(body.trim());
-            if let Some((fmt, default_prec)) = infer_sensor_format(path) {
+            // Split format override first, then parse precision on the path side.
+            let (lhs, fmt_token) = parse_format_override(body.trim());
+            let (path, prec_override) = parse_precision(lhs);
+
+            // Reject empty path — `{|raw}` is gibberish, fail loud.
+            let path_empty = path.is_empty();
+
+            // Resolve the override token (if any) to a validated format. An
+            // explicit-but-invalid token (e.g. `{cpu.usage|nonsense}`) is a
+            // hard failure: preserve the original text so the typo is visible.
+            let format_override = match fmt_token {
+                Some(tok) => match validate_format(tok) {
+                    Some(f) => Some(f),
+                    None => {
+                        buf.push('{');
+                        buf.push_str(&body);
+                        buf.push('}');
+                        continue;
+                    }
+                },
+                None => None,
+            };
+
+            // Effective (format, default_precision):
+            //   - explicit override wins; default precision = 0 since the
+            //     overridden format may have nothing to do with the path's
+            //     inferred conventions.
+            //   - otherwise use what `infer_sensor_format` returned.
+            //   - if neither yields a format (and no override), preserve
+            //     original text — same behaviour as before this change.
+            let inferred = if path_empty {
+                None
+            } else {
+                infer_sensor_format(path)
+            };
+            // Empty path is never a sensor binding, even if the author
+            // supplied a format token. `{|raw}` falls through to "preserve
+            // original text" rather than emitting a span with no path.
+            let resolved: Option<(&'static str, usize)> = if path_empty {
+                None
+            } else {
+                match (format_override, inferred) {
+                    (Some(f), _) => Some((f, 0)),
+                    (None, Some(p)) => Some(p),
+                    (None, None) => None,
+                }
+            };
+
+            if let Some((fmt, default_prec)) = resolved {
                 if !buf.is_empty() {
                     segments.push(TextSegment::Literal(std::mem::take(&mut buf)));
                 }
@@ -1041,6 +1127,106 @@ mod lower_tests {
         // un-lowered; we signal this by returning None so the old interpolation
         // path handles it.
         assert!(lower_text_to_segments("{gpu.vram}").is_none());
+    }
+
+    // ── Format-override syntax: `{path|format}` ─────────────────────────────
+
+    #[test]
+    fn format_override_replaces_inferred_percent_with_raw() {
+        // {cpu.usage|raw} — author opts out of the auto `%` suffix.
+        let segs = lower_text_to_segments("{cpu.usage|raw}").unwrap();
+        assert_eq!(segs.len(), 1);
+        match &segs[0] {
+            TextSegment::Sensor {
+                path,
+                format,
+                precision,
+            } => {
+                assert_eq!(path, "cpu.usage");
+                assert_eq!(*format, "raw");
+                assert_eq!(*precision, 0);
+            }
+            _ => panic!("expected sensor segment"),
+        }
+    }
+
+    #[test]
+    fn format_override_with_precision_before_pipe() {
+        // Canonical authoring order: precision binds to path, format applies
+        // to the resulting numeric value.
+        let segs = lower_text_to_segments("{cpu.usage(2)|raw}").unwrap();
+        match &segs[0] {
+            TextSegment::Sensor {
+                format, precision, ..
+            } => {
+                assert_eq!(*format, "raw");
+                assert_eq!(*precision, 2);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn format_override_lowers_otherwise_unsupported_path() {
+        // gpu.vram returns None from infer; with an explicit `|bytes`
+        // override the author forces lowering. This is intentional — opt-in
+        // sensor declaration for composite paths.
+        let segs = lower_text_to_segments("{gpu.vram|bytes}").unwrap();
+        match &segs[0] {
+            TextSegment::Sensor { path, format, .. } => {
+                assert_eq!(path, "gpu.vram");
+                assert_eq!(*format, "bytes");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn invalid_format_token_preserves_original_text() {
+        // {cpu.usage|nonsense} — unknown format must fail loud, not silently
+        // fall back to the inferred format. Returning None means the original
+        // `{...}` text is preserved for the old interpolation pipeline (which
+        // will also reject it, surfacing the typo to the author).
+        assert!(lower_text_to_segments("{cpu.usage|nonsense}").is_none());
+    }
+
+    #[test]
+    fn empty_path_with_format_override_is_not_lowered() {
+        // {|raw} has no sensor path to bind to. Don't emit a broken span;
+        // preserve the original text.
+        assert!(lower_text_to_segments("{|raw}").is_none());
+    }
+
+    #[test]
+    fn format_override_accepts_all_known_formats() {
+        for fmt in ["raw", "percent", "bytes", "temperature", "frequency"] {
+            let placeholder = format!("{{cpu.usage|{fmt}}}");
+            let segs = lower_text_to_segments(&placeholder)
+                .unwrap_or_else(|| panic!("expected lowering for {placeholder}"));
+            match &segs[0] {
+                TextSegment::Sensor { format, .. } => assert_eq!(*format, fmt),
+                _ => panic!("{placeholder} did not lower to a Sensor segment"),
+            }
+        }
+    }
+
+    #[test]
+    fn format_override_does_not_corrupt_surrounding_literals() {
+        // Round-trip a sentence with literal text on either side of the override.
+        let segs = lower_text_to_segments("CPU: {cpu.usage|raw} (raw)").unwrap();
+        assert_eq!(segs.len(), 3);
+        match &segs[0] {
+            TextSegment::Literal(s) => assert_eq!(s, "CPU: "),
+            _ => panic!(),
+        }
+        match &segs[1] {
+            TextSegment::Sensor { format, .. } => assert_eq!(*format, "raw"),
+            _ => panic!(),
+        }
+        match &segs[2] {
+            TextSegment::Literal(s) => assert_eq!(s, " (raw)"),
+            _ => panic!(),
+        }
     }
 }
 

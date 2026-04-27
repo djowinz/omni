@@ -99,6 +99,37 @@ pub fn suggest_sensor_path(unknown: &str) -> Option<String> {
     suggest(unknown, KNOWN_SENSOR_PATHS, 3).map(|s| format!("did you mean \"{}\"?", s))
 }
 
+/// Format tokens that survive `lower_text_to_segments`. Must stay in lockstep
+/// with `crates/host/src/omni/html_builder.rs::validate_format` (the runtime
+/// parser) and the JS mirrors in `bootstrap.js` + `preview-updater.ts`.
+/// Adding a new format = a coordinated edit in all four sites.
+const KNOWN_FORMATS: &[&str] = &["raw", "percent", "bytes", "temperature", "frequency"];
+
+/// Strip the `(N)` precision suffix and `|format` suffix from a placeholder
+/// body, returning the bare sensor path and the supplied format token (if any).
+///
+/// Mirrors the parsing order in `lower_text_to_segments`: split on `|` first
+/// (so `path|format` becomes `(path, Some(format))`), then strip `(N)` from
+/// the path side. The `(N)` strip only applies when the path before the `(`
+/// contains a `.` — bare identifiers like `chart_polyline(...)` are function
+/// calls that the caller handles separately.
+fn extract_bare_path(body: &str) -> (&str, Option<&str>) {
+    let (lhs, fmt) = match body.find('|') {
+        Some(pipe) => (body[..pipe].trim(), Some(body[pipe + 1..].trim())),
+        None => (body, None),
+    };
+    let bare = if let Some(paren) = lhs.find('(') {
+        if lhs.ends_with(')') && lhs[..paren].contains('.') {
+            lhs[..paren].trim()
+        } else {
+            lhs
+        }
+    } else {
+        lhs
+    };
+    (bare, fmt)
+}
+
 /// Validate sensor paths found in template text (inside {}).
 ///
 /// NOTE: Currently uses old ParseError format (message + offset). Task 3 will
@@ -135,19 +166,51 @@ pub fn validate_sensor_paths_with_hwinfo(
                 path.push(inner);
             }
             if found_close && !path.is_empty() {
-                let path = path.trim();
+                let raw = path.trim();
                 // Function-call interpolation (e.g. `chart_polyline(cpu.usage, 200, 60)`,
                 // `nice_tick(sensor, unit, i, n)`, `format_value(...)`). These are
                 // handled by the interpolation dispatcher at runtime — skip sensor-path
-                // validation. Sensor paths with a precision suffix (e.g. `cpu.usage(2)`)
-                // contain a `.` before the `(`, so we can distinguish them from
-                // function calls which use bare identifiers.
-                if let Some(paren_idx) = path.find('(') {
-                    if path.ends_with(')') && !path[..paren_idx].contains('.') {
+                // validation. Bare identifier with `(...)` is the function-call shape;
+                // sensor paths use `.` separators (`cpu.usage(2)`).
+                if let Some(paren_idx) = raw.find('(') {
+                    if raw.ends_with(')') && !raw[..paren_idx].contains('.') {
                         continue;
                     }
                 }
-                if path.starts_with("hwinfo.") {
+                // Strip `(N)` precision and `|format` so we validate the bare path.
+                // Without this, `{cpu.usage|raw}` and `{cpu.usage(2)}` both falsely
+                // tripped the "unknown sensor path" warning.
+                let (bare_path, fmt_opt) = extract_bare_path(raw);
+
+                // Validate the format token (if supplied) against the known set —
+                // surface bad overrides with a clearer message than "unknown sensor".
+                if let Some(fmt) = fmt_opt {
+                    if !fmt.is_empty() && !KNOWN_FORMATS.contains(&fmt) {
+                        let offset = text_offset + start;
+                        let (line, column) =
+                            super::parser::offset_to_line_col(omni_source, offset);
+                        warnings.push(ParseError {
+                            message: format!(
+                                "unknown format \"{}\"; valid: {}",
+                                fmt,
+                                KNOWN_FORMATS.join(", ")
+                            ),
+                            severity: super::parser::Severity::Warning,
+                            line,
+                            column,
+                            suggestion: None,
+                        });
+                    }
+                }
+
+                // Empty bare path (e.g. `{|raw}`) — runtime preserves the original
+                // text. Skip path validation rather than emit a confusing "unknown
+                // sensor path \"\"" warning.
+                if bare_path.is_empty() {
+                    continue;
+                }
+
+                if bare_path.starts_with("hwinfo.") {
                     if !hwinfo_connected && !hwinfo_warned {
                         hwinfo_warned = true;
                         let offset = text_offset + start;
@@ -164,11 +227,11 @@ pub fn validate_sensor_paths_with_hwinfo(
                     }
                     continue;
                 }
-                if parse_sensor_path(path).is_none() {
-                    let suggestion = suggest_sensor_path(path);
+                if parse_sensor_path(bare_path).is_none() {
+                    let suggestion = suggest_sensor_path(bare_path);
                     let msg = match suggestion {
-                        Some(ref s) => format!("unknown sensor path \"{}\"; {}", path, s),
-                        None => format!("unknown sensor path \"{}\"", path),
+                        Some(ref s) => format!("unknown sensor path \"{}\"; {}", bare_path, s),
+                        None => format!("unknown sensor path \"{}\"", bare_path),
                     };
                     let offset = text_offset + start;
                     let (line, column) = super::parser::offset_to_line_col(omni_source, offset);
@@ -308,5 +371,135 @@ mod tests {
         let text = "{hwinfo.cpu.core_0_temp} / {hwinfo.gpu.vrm_temp}";
         let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, false);
         assert_eq!(warnings.len(), 1); // Only one warning, not two
+    }
+
+    // ── extract_bare_path ──────────────────────────────────────────────────
+
+    #[test]
+    fn extract_bare_path_plain() {
+        assert_eq!(extract_bare_path("cpu.usage"), ("cpu.usage", None));
+    }
+
+    #[test]
+    fn extract_bare_path_with_format() {
+        assert_eq!(extract_bare_path("cpu.usage|raw"), ("cpu.usage", Some("raw")));
+    }
+
+    #[test]
+    fn extract_bare_path_with_precision() {
+        assert_eq!(extract_bare_path("cpu.usage(2)"), ("cpu.usage", None));
+    }
+
+    #[test]
+    fn extract_bare_path_with_precision_and_format() {
+        // Precision binds to the path side; format applies to the result.
+        assert_eq!(
+            extract_bare_path("cpu.usage(2)|raw"),
+            ("cpu.usage", Some("raw"))
+        );
+    }
+
+    #[test]
+    fn extract_bare_path_function_call_unchanged() {
+        // Bare identifier with `(...)` is a function call — no `.` before paren.
+        // extract_bare_path leaves it intact; the validator's earlier branch
+        // skips function calls before this helper runs.
+        assert_eq!(extract_bare_path("chart_polyline(cpu.usage, 200, 60)"), (
+            "chart_polyline(cpu.usage, 200, 60)",
+            None,
+        ));
+    }
+
+    #[test]
+    fn extract_bare_path_empty_path_with_format() {
+        assert_eq!(extract_bare_path("|raw"), ("", Some("raw")));
+    }
+
+    // ── Format-override syntax: validator must not flag valid paths ─────────
+
+    #[test]
+    fn format_override_does_not_trigger_unknown_path_warning() {
+        // The original bug: {cpu.usage|raw} produced "unknown sensor path
+        // \"cpu.usage|raw\"" because parse_sensor_path was called on the raw body.
+        let text = "{cpu.usage|raw}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn precision_override_does_not_trigger_unknown_path_warning() {
+        // Same class of bug for precision overrides. Pre-fix, this also
+        // tripped the validator since cpu.usage(2) wasn't a known path.
+        let text = "{cpu.usage(2)}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn precision_and_format_combined_does_not_warn() {
+        let text = "{cpu.usage(2)|raw}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn unknown_format_token_is_flagged() {
+        let text = "{cpu.usage|nonsense}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].message.contains("unknown format"),
+            "expected an 'unknown format' warning, got: {}",
+            warnings[0].message
+        );
+        assert!(
+            warnings[0].message.contains("nonsense"),
+            "warning should name the bad token, got: {}",
+            warnings[0].message
+        );
+    }
+
+    #[test]
+    fn typo_in_path_with_format_override_still_suggests_correction() {
+        // Bare path is wrong; format is fine. Should produce ONE warning
+        // about the path, with the typo-corrected suggestion.
+        let text = "{cpu.usag|raw}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].message.contains("unknown sensor path \"cpu.usag\""),
+            "warning should name the bare path (sans |raw), got: {}",
+            warnings[0].message
+        );
+        assert!(
+            warnings[0].message.contains("cpu.usage"),
+            "should suggest the corrected path, got: {}",
+            warnings[0].message
+        );
+    }
+
+    #[test]
+    fn empty_path_with_format_override_is_silently_skipped() {
+        // {|raw} — runtime preserves original text; validator should not
+        // emit a confusing "unknown sensor path \"\"" warning.
+        let text = "{|raw}";
+        let warnings = validate_sensor_paths_with_hwinfo(text, text, 0, true);
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings for empty path, got: {:?}",
+            warnings
+        );
     }
 }

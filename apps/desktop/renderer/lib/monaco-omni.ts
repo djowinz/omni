@@ -363,8 +363,8 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
         // XML comments
         [/<!--/, 'comment.xml', '@xmlComment'],
 
-        // Sensor interpolation
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        // Sensor placeholder — matches {path}, {path(N)}, {path|format}, {path(N)|format}.
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*(\([0-9]+\))?(\|[a-zA-Z]+)?\}/, 'omni.variable'],
 
         // Class bindings class:name
         [/(class:)([a-zA-Z][a-zA-Z0-9-]*)/, ['omni.class-binding', 'omni.class-binding-attr']],
@@ -412,14 +412,16 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
 
       // Double-quoted attribute value (with variable support)
       attrValueDQ: [
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        // Sensor placeholder — matches {path}, {path(N)}, {path|format}, {path(N)|format}.
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*(\([0-9]+\))?(\|[a-zA-Z]+)?\}/, 'omni.variable'],
         [/[^"{}]+/, 'attribute.value'],
         [/"/, { token: 'attribute.value', next: '@pop' }],
       ],
 
       // Single-quoted attribute value
       attrValueSQ: [
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        // Sensor placeholder — matches {path}, {path(N)}, {path|format}, {path(N)|format}.
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*(\([0-9]+\))?(\|[a-zA-Z]+)?\}/, 'omni.variable'],
         [/[^'{}]+/, 'attribute.value'],
         [/'/, { token: 'attribute.value', next: '@pop' }],
       ],
@@ -437,7 +439,8 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
           ['tag.open', 'tag.open', 'tag', { token: 'tag.close', next: '@pop' }],
         ],
         [/\/\*/, 'comment.css', '@cssComment'],
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        // Sensor placeholder — matches {path}, {path(N)}, {path|format}, {path(N)|format}.
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*(\([0-9]+\))?(\|[a-zA-Z]+)?\}/, 'omni.variable'],
         [/:root\b/, 'css.selector.pseudo'],
         [/\.[a-zA-Z][a-zA-Z0-9_-]*/, 'css.selector.class'],
         [/#[a-zA-Z][a-zA-Z0-9_-]*/, 'css.selector.id'],
@@ -456,7 +459,8 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
           ['tag.open', 'tag.open', 'tag', { token: 'tag.close', next: '@popall' }],
         ],
         [/\/\*/, 'comment.css', '@cssComment'],
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        // Sensor placeholder — matches {path}, {path(N)}, {path|format}, {path(N)|format}.
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*(\([0-9]+\))?(\|[a-zA-Z]+)?\}/, 'omni.variable'],
         [/--[a-zA-Z][a-zA-Z0-9-]*(?=\s*:)/, 'css.custom-property'],
         [/[a-zA-Z-]+(?=\s*:)/, 'css.property'],
         [/:/, 'css.colon', '@cssValue'],
@@ -471,7 +475,8 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
           /(<)(\/)(style)(>)/,
           ['tag.open', 'tag.open', 'tag', { token: 'tag.close', next: '@popall' }],
         ],
-        [/\{[a-zA-Z][a-zA-Z0-9._-]*\}/, 'omni.variable'],
+        // Sensor placeholder — matches {path}, {path(N)}, {path|format}, {path(N)|format}.
+        [/\{[a-zA-Z][a-zA-Z0-9._-]*(\([0-9]+\))?(\|[a-zA-Z]+)?\}/, 'omni.variable'],
         [/!important\b/, 'css.value.important'],
         [/(var)(\()/, ['css.function', 'css.paren'], '@cssVarArgs'],
         [
@@ -650,22 +655,54 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
     { path: 'frame-time.01pct', detail: '0.1% low frame time (ms)', category: 'Frame' },
   ];
 
+  // Format tokens recognized by html_builder.rs::validate_format. Keep in
+  // sync with that function and with bootstrap.js / preview-updater.ts.
+  const formatItems: Array<{ token: string; detail: string }> = [
+    { token: 'raw', detail: 'No suffix — print the number as-is' },
+    { token: 'percent', detail: 'Append %; rescale 0..1 floats to 0..100' },
+    { token: 'bytes', detail: 'Auto unit (B/KB/MB/GB/TB)' },
+    { token: 'temperature', detail: 'Append °C' },
+    { token: 'frequency', detail: 'Auto unit (Hz/kHz/MHz/GHz)' },
+  ];
+
   monaco.languages.registerCompletionItemProvider('omni', {
-    triggerCharacters: ['{', '.', '-'],
+    // `|` triggers format suggestions inside an open `{...`.
+    triggerCharacters: ['{', '.', '-', '|'],
     provideCompletionItems(model, position): languages.CompletionList {
       const lineContent = model.getLineContent(position.lineNumber);
       const textBefore = lineContent.substring(0, position.column - 1);
 
-      // Context 1: Inside {…} interpolation braces
+      // Context 1: Inside {…} interpolation braces.
       const lastOpen = textBefore.lastIndexOf('{');
       if (lastOpen >= 0) {
         const between = textBefore.substring(lastOpen + 1);
         if (!between.includes('}')) {
+          // Sub-context 1a: cursor is past a `|` inside the placeholder —
+          // suggest format tokens, scoped so accepting only replaces the
+          // partial format identifier (not the whole `{path|...`).
+          const pipeIdx = between.lastIndexOf('|');
+          if (pipeIdx >= 0) {
+            const range = {
+              startLineNumber: position.lineNumber,
+              // +2 = +1 for `{` itself, +1 to land AFTER the pipe character.
+              startColumn: lastOpen + pipeIdx + 2 + 1,
+              endLineNumber: position.lineNumber,
+              endColumn: position.column,
+            };
+            return { suggestions: makeFormatSuggestions(range) };
+          }
+
+          // Sub-context 1b: cursor is inside the path part. Suggest sensor
+          // paths, but cap the range at the first `(` so a precision
+          // override `(N)` already typed isn't clobbered when the user
+          // accepts a longer path name.
+          const parenIdx = between.indexOf('(');
+          const endCol = parenIdx >= 0 ? lastOpen + parenIdx + 2 : position.column;
           const range = {
             startLineNumber: position.lineNumber,
             startColumn: lastOpen + 2,
             endLineNumber: position.lineNumber,
-            endColumn: position.column,
+            endColumn: endCol,
           };
           return { suggestions: makeSensorSuggestions(range) };
         }
@@ -706,6 +743,23 @@ export function registerOmniLanguage(monaco: typeof monacoEditor) {
       detail: s.detail,
       documentation: `${s.category} sensor — use as {${s.path}}`,
       insertText: s.path,
+      range,
+      sortText: String(i).padStart(3, '0'),
+    }));
+  }
+
+  function makeFormatSuggestions(range: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  }): languages.CompletionItem[] {
+    return formatItems.map((f, i) => ({
+      label: f.token,
+      kind: monaco.languages.CompletionItemKind.EnumMember,
+      detail: f.detail,
+      documentation: `Override the inferred format (e.g. {cpu.usage|${f.token}})`,
+      insertText: f.token,
       range,
       sortText: String(i).padStart(3, '0'),
     }));
