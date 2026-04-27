@@ -50,3 +50,22 @@ export type { PublishSidecar } from './generated/PublishSidecar';
 // the renderer Zod schema in `apps/desktop/renderer/lib/share-types.ts`; the
 // sidecar types-test there enforces bidirectional assignability.
 export type { ModerationCheckResult } from './generated/ModerationCheckResult';
+
+// --- Worker wire types (apps/worker) ---
+//
+// `AuthorDetail` is the response shape of `GET /v1/author/:pubkey_hex`
+// (also mirrored by the response of `PUT /v1/author/me`). The
+// authoritative oracle is the Zod schema at
+// `apps/worker/src/types.ts::AuthorDetailSchema`; the sidecar
+// `apps/worker/src/types/AuthorDetail.types-test.ts` `satisfies`-binds
+// this shape to the schema so any drift is a compile error under
+// `pnpm --filter worker typecheck`.
+//
+// Authoritative spec: 2026-04-26-identity-completion-and-display-name §4.2.
+export interface AuthorDetail {
+  pubkey_hex: string;
+  fingerprint_hex: string;
+  display_name: string | null;
+  joined_at: number;
+  total_uploads: number;
+}

@@ -20,6 +20,7 @@
     "pretest": "node scripts/build-wasm.mjs && node test/fixtures/generate.mjs"
   },
   "dependencies": {
+    "@omni/shared-types": "workspace:*",
     "hono": "^4.6.0"
   },
   "devDependencies": {

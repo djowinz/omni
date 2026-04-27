@@ -4,6 +4,7 @@ import { errorResponse } from './lib/errors';
 import { makeDebugLog } from './lib/debug-log';
 import admin from './routes/admin';
 import artifact from './routes/artifact';
+import author from './routes/author';
 import config from './routes/config';
 import download from './routes/download';
 import gallery from './routes/gallery';
@@ -88,6 +89,7 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+app.route('/v1/author', author);
 app.route('/v1/upload', upload);
 app.route('/v1/download', download);
 app.route('/v1/thumbnail', thumbnail);
