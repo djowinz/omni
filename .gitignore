@@ -59,3 +59,7 @@ apps/worker/seed/dev-fixtures/
 # Old (deleted) paths — prevent accidental resurrection
 /default/
 /services/
+
+# Playwright e2e run artifacts
+apps/desktop/test-results/
+apps/desktop/playwright-report/
