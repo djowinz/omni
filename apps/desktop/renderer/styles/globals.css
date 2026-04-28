@@ -1127,3 +1127,11 @@
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+@keyframes identity-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 217, 255, 0); }
+  50% { box-shadow: 0 0 0 2px #00d9ff, 0 0 24px rgba(0, 217, 255, 0.4); }
+}
+.identity-pulse {
+  animation: identity-pulse 2s ease-in-out;
+}
