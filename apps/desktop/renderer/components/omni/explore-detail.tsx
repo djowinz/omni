@@ -9,15 +9,35 @@
  * Kebab: Copy artifact ID and Copy share link are fully wired in all tabs.
  * Check for update (Installed tab only) is a stub until #016 wires the
  * local install registry.
+ *
+ * P15 (OWI-106): The Install middle slot is now a real { idle | in-flight |
+ * error } state machine. On success, toasts and resets. On tofu='mismatch',
+ * opens TofuMismatchDialog (re-dispatches with trust_new_pubkey=true on
+ * confirm). On error, renders InlineError with retry.
+ *
+ * NOTE: The host's explorer.installResult schema carries a `tofu` discriminator
+ * ('first_install' | 'matched' | 'mismatch') but does NOT yet emit
+ * `previously_seen` or `incoming` fingerprint fields — those are a host-side
+ * gap. The TofuMismatchDialog branch is wired but will not fire until the host
+ * adds those fields. Tracked as a follow-up.
+ *
+ * NOTE: Live progress events (explorer.installProgress subscription) are
+ * deferred to a follow-up. The InstallProgress bar animates statically at
+ * phase='download' during the flight for now.
  */
 
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { ArtifactCard, type ArtifactCardActionSlots } from './artifact-card';
+import { InstallProgress, type InstallPhase } from './install-progress';
+import { TofuMismatchDialog, type TofuFingerprint } from './tofu-mismatch-dialog';
+import { InlineError } from './inline-error';
 import { useExploreDetail } from '../../hooks/use-explore-detail';
 import { usePreview } from '../../lib/preview-context';
 import { useShareWs } from '../../hooks/use-share-ws';
 import { toast } from '../../lib/toast';
+import { mapErrorToUserMessage, type OmniError } from '../../lib/map-error-to-user-message';
 import {
   actionLabelsFor,
   kebabLabelsFor,
@@ -30,10 +50,22 @@ export interface ExploreDetailProps {
   tab: ExploreTab;
 }
 
+type InstallState =
+  | { kind: 'idle' }
+  | { kind: 'in-flight'; phase: InstallPhase; done: number; total: number }
+  | { kind: 'error'; message: string };
+
 export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   const { artifact, loading } = useExploreDetail(selectedId);
   const { setPreview } = usePreview();
   const { send } = useShareWs();
+
+  const [installState, setInstallState] = useState<InstallState>({ kind: 'idle' });
+  const [tofuOpen, setTofuOpen] = useState(false);
+  const [tofuPair, setTofuPair] = useState<{
+    previously: TofuFingerprint;
+    incoming: TofuFingerprint;
+  } | null>(null);
 
   if (selectedId === null) {
     return (
@@ -65,6 +97,34 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   }
 
   const labels = actionLabelsFor(tab);
+
+  const handleInstall = async (trustNewPubkey = false) => {
+    setInstallState({ kind: 'in-flight', phase: 'download', done: 0, total: 4 });
+    try {
+      const params: { artifact_id: string; trust_new_pubkey?: boolean } = {
+        artifact_id: artifact.artifact_id,
+      };
+      if (trustNewPubkey) params.trust_new_pubkey = true;
+      const result = (await send('explorer.install', params as Parameters<typeof send<'explorer.install'>>[1])) as unknown as {
+        tofu?: 'ok' | 'mismatch';
+        previously_seen?: TofuFingerprint;
+        incoming?: TofuFingerprint;
+      };
+      if (result.tofu === 'mismatch' && result.previously_seen && result.incoming) {
+        setTofuPair({ previously: result.previously_seen, incoming: result.incoming });
+        setTofuOpen(true);
+        setInstallState({ kind: 'idle' });
+        return;
+      }
+      setInstallState({ kind: 'idle' });
+      toast.success(`Installed ${typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id}`);
+    } catch (err) {
+      setInstallState({
+        kind: 'error',
+        message: mapErrorToUserMessage(err as OmniError).text,
+      });
+    }
+  };
 
   const handlePreview = async () => {
     try {
@@ -123,15 +183,33 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
           {labels.left}
         </Button>
       ),
-    middle: (
-      <Button
-        variant={labels.middle === 'Install' ? 'default' : 'destructive'}
-        size="sm"
-        onClick={stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')}
-      >
-        {labels.middle}
-      </Button>
-    ),
+    middle:
+      labels.middle === 'Install' ? (
+        installState.kind === 'idle' ? (
+          <Button variant="default" size="sm" onClick={() => void handleInstall(false)}>
+            Install
+          </Button>
+        ) : installState.kind === 'in-flight' ? (
+          <InstallProgress
+            phase={installState.phase}
+            done={installState.done}
+            total={installState.total}
+          />
+        ) : (
+          <InlineError
+            message={installState.message}
+            onRetry={() => void handleInstall(false)}
+          />
+        )
+      ) : (
+        <Button
+          variant={labels.middle === 'Delete' ? 'destructive' : 'default'}
+          size="sm"
+          onClick={stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')}
+        >
+          {labels.middle}
+        </Button>
+      ),
     right: (
       <Button
         variant="secondary"
@@ -158,11 +236,31 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   );
 
   return (
-    <ArtifactCard
-      variant="detail"
-      artifact={artifact}
-      actionSlots={actionSlots}
-      kebabMenuItems={kebabItems}
-    />
+    <>
+      <ArtifactCard
+        variant="detail"
+        artifact={artifact}
+        actionSlots={actionSlots}
+        kebabMenuItems={kebabItems}
+      />
+      {tofuPair && (
+        <TofuMismatchDialog
+          open={tofuOpen}
+          onOpenChange={setTofuOpen}
+          artifactName={
+            typeof artifact.manifest.name === 'string'
+              ? artifact.manifest.name
+              : artifact.artifact_id
+          }
+          previously={tofuPair.previously}
+          incoming={tofuPair.incoming}
+          onCancel={() => setTofuOpen(false)}
+          onTrustNew={() => {
+            setTofuOpen(false);
+            void handleInstall(true);
+          }}
+        />
+      )}
+    </>
   );
 }

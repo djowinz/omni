@@ -102,13 +102,17 @@ describe('ExploreDetail', () => {
     expect(screen.getByText('Fork')).toBeInTheDocument();
   });
 
-  it('clicking Install emits a "coming soon" toast (not yet wired)', async () => {
-    const toastInfoSpy = vi.fn();
+  it('clicking Install dispatches explorer.install and shows success toast', async () => {
+    const sendSpy = vi.fn().mockResolvedValue({ tofu: 'first_install' });
+    const toastSuccessSpy = vi.fn();
     vi.doMock('../../../lib/toast', () => ({
-      toast: { info: toastInfoSpy, success: vi.fn(), error: vi.fn() },
+      toast: { info: vi.fn(), success: toastSuccessSpy, error: vi.fn() },
     }));
     vi.doMock('../../../hooks/use-explore-detail', () => ({
       useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
+    }));
+    vi.doMock('../../../hooks/use-share-ws', () => ({
+      useShareWs: () => ({ send: sendSpy }),
     }));
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
@@ -119,6 +123,39 @@ describe('ExploreDetail', () => {
       </Wrap>,
     );
     await user.click(screen.getByText('Install'));
-    expect(toastInfoSpy).toHaveBeenCalledWith(expect.stringMatching(/sub-spec #016/i));
+    expect(sendSpy).toHaveBeenCalledWith('explorer.install', { artifact_id: 'art-1' });
+    await vi.waitFor(() => {
+      expect(toastSuccessSpy).toHaveBeenCalledWith(expect.stringMatching(/installed/i));
+    });
+  });
+
+  it('clicking Install shows InlineError on failure', async () => {
+    const sendSpy = vi.fn().mockRejectedValue({
+      code: 'IO_FAIL',
+      kind: 'Io',
+      message: 'network error',
+    });
+    vi.doMock('../../../lib/toast', () => ({
+      toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
+    }));
+    vi.doMock('../../../hooks/use-explore-detail', () => ({
+      useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
+    }));
+    vi.doMock('../../../hooks/use-share-ws', () => ({
+      useShareWs: () => ({ send: sendSpy }),
+    }));
+    const Wrap = await loadWrap();
+    const { ExploreDetail } = await import('../explore-detail');
+    const user = userEvent.setup();
+    render(
+      <Wrap>
+        <ExploreDetail selectedId="art-1" tab="discover" />
+      </Wrap>,
+    );
+    await user.click(screen.getByText('Install'));
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+    expect(screen.getByText('network error')).toBeInTheDocument();
   });
 });
