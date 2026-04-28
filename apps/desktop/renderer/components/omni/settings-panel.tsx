@@ -11,6 +11,11 @@ import { KeybindRecorder } from './keybind-recorder';
 import { ProcessListDialog } from './process-list-dialog';
 import { GameDirectoriesDialog } from './game-directories-dialog';
 import { HwInfoSensorsDialog } from './hwinfo-sensors-dialog';
+import { IdentitySection } from './identity-section';
+import { IdentityBackupDialog } from './identity-backup-dialog';
+import { RotateConfirmDialog } from './rotate-confirm-dialog';
+import { useIdentity } from '../../lib/identity-context';
+import { toast } from '../../lib/toast';
 
 const backend = new BackendApi();
 
@@ -21,6 +26,10 @@ export function SettingsPanel() {
   const [includeOpen, setIncludeOpen] = useState(false);
   const [directoriesOpen, setDirectoriesOpen] = useState(false);
   const [hwinfoOpen, setHwinfoOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const { identity } = useIdentity();
   const [openAtLogin, setOpenAtLogin] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
@@ -156,6 +165,18 @@ export function SettingsPanel() {
               </div>
             </section>
 
+            <IdentitySection
+              onBackup={() => setBackupOpen(true)}
+              onImport={() => setImportOpen(true)}
+              onRotate={() => setRotateOpen(true)}
+              onCopyPubkey={async () => {
+                if (identity?.pubkey_hex) {
+                  await navigator.clipboard.writeText(identity.pubkey_hex);
+                  toast.success('Public key copied.');
+                }
+              }}
+            />
+
             {/* Integrations Section */}
             <section>
               <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[#52525B] mb-3">
@@ -269,6 +290,26 @@ export function SettingsPanel() {
         onUpdate={(directories) => updateConfig({ game_directories: directories })}
       />
       <HwInfoSensorsDialog open={hwinfoOpen} onOpenChange={setHwinfoOpen} />
+      <IdentityBackupDialog
+        open={backupOpen}
+        onOpenChange={setBackupOpen}
+        mode="settings"
+        onSuccess={() => setBackupOpen(false)}
+      />
+      <IdentityBackupDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        mode="import"
+        onSuccess={() => setImportOpen(false)}
+      />
+      <RotateConfirmDialog
+        open={rotateOpen}
+        onOpenChange={setRotateOpen}
+        onBackupNow={() => {
+          setRotateOpen(false);
+          setBackupOpen(true);
+        }}
+      />
     </>
   );
 }
