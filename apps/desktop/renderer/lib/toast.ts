@@ -3,7 +3,7 @@
 // the toast library can be swapped in one file. `error()` always routes
 // through `mapErrorToUserMessage` — no branching on `code` in the wrapper.
 
-import { toast as sonnerToast } from 'sonner';
+import { toast as sonnerToast, type ExternalToast } from 'sonner';
 import { mapErrorToUserMessage, type OmniError } from './map-error-to-user-message';
 
 export const toast = {
@@ -18,4 +18,5 @@ export const toast = {
     });
   },
   info: (text: string) => sonnerToast.info(text),
+  warning: (text: string, options?: ExternalToast) => sonnerToast.warning(text, options),
 };
