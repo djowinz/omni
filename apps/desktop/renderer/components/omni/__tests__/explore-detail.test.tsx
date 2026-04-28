@@ -23,6 +23,39 @@ const FIXTURE: ArtifactDetail = {
   author_display_name: null,
 };
 
+// Stub out useOmniState + useIdentity — ExploreDetail now calls both.
+// Called before loadWrap() so that vi.resetModules() doesn't evict the stubs
+// before the dynamic import of ExploreDetail resolves.
+function stubNewHooks(overrides: { overlays?: { name: string; content: string | null }[] } = {}) {
+  vi.doMock('../../../hooks/use-omni-state', () => ({
+    useOmniState: () => ({
+      state: { overlays: overrides.overlays ?? [] },
+      dispatch: vi.fn(),
+    }),
+  }));
+  vi.doMock('../../../lib/identity-context', () => ({
+    useIdentity: () => ({
+      identity: {
+        pubkey_hex: 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+        display_name: 'Tester',
+        fingerprint_hex: '',
+        fingerprint_words: [],
+        fingerprint_emoji: [],
+        created_at: 0,
+        backed_up: false,
+        last_backed_up_at: null,
+        last_rotated_at: null,
+        last_backup_path: null,
+      },
+      loading: false,
+      is_fresh_install: false,
+      first_run_handled: false,
+      refresh: vi.fn(),
+      markFirstRunHandled: vi.fn(),
+    }),
+  }));
+}
+
 // Dynamically import PreviewContextProvider after vi.resetModules() so the
 // provider + the usePreview() call inside ExploreDetail bind to the SAME
 // Context object (vi.resetModules invalidates the module cache, so a statically
@@ -46,6 +79,7 @@ describe('ExploreDetail', () => {
     vi.doMock('../../../hooks/use-explore-detail', () => ({
       useExploreDetail: () => ({ artifact: null, loading: false, error: null }),
     }));
+    stubNewHooks();
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
     render(
@@ -60,6 +94,7 @@ describe('ExploreDetail', () => {
     vi.doMock('../../../hooks/use-explore-detail', () => ({
       useExploreDetail: () => ({ artifact: null, loading: true, error: null }),
     }));
+    stubNewHooks();
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
     render(
@@ -74,6 +109,7 @@ describe('ExploreDetail', () => {
     vi.doMock('../../../hooks/use-explore-detail', () => ({
       useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
     }));
+    stubNewHooks();
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
     render(
@@ -90,6 +126,7 @@ describe('ExploreDetail', () => {
     vi.doMock('../../../hooks/use-explore-detail', () => ({
       useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
     }));
+    stubNewHooks();
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
     render(
@@ -114,6 +151,7 @@ describe('ExploreDetail', () => {
     vi.doMock('../../../hooks/use-share-ws', () => ({
       useShareWs: () => ({ send: sendSpy }),
     }));
+    stubNewHooks();
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
     const user = userEvent.setup();
@@ -144,6 +182,7 @@ describe('ExploreDetail', () => {
     vi.doMock('../../../hooks/use-share-ws', () => ({
       useShareWs: () => ({ send: sendSpy }),
     }));
+    stubNewHooks();
     const Wrap = await loadWrap();
     const { ExploreDetail } = await import('../explore-detail');
     const user = userEvent.setup();

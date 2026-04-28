@@ -24,18 +24,32 @@
  * NOTE: Live progress events (explorer.installProgress subscription) are
  * deferred to a follow-up. The InstallProgress bar animates statically at
  * phase='download' during the flight for now.
+ *
+ * P16 (OWI-107): Fork right slot now opens ForkDialog instead of stub toast.
+ * On submit, dispatches explorer.fork (artifact_id + target_name — the shipped
+ * ExplorerForkParams schema is flat; the spec's discriminated source union is
+ * not in the Rust handler yet, tracked as a host-side follow-up). On success:
+ * closes dialog + SELECT_OVERLAY → target_name + SET_ACTIVE_PANEL →
+ * 'components' + toast. NOTE: SET_ACTIVE_OVERLAY does not exist in the reducer;
+ * SELECT_OVERLAY is used instead.
+ *
+ * existingNames is derived from state.overlays (array) — useOmniState has no
+ * workspaces map; the overlays array serves as the collision list.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { ArtifactCard, type ArtifactCardActionSlots } from './artifact-card';
 import { InstallProgress, type InstallPhase } from './install-progress';
 import { TofuMismatchDialog, type TofuFingerprint } from './tofu-mismatch-dialog';
+import { ForkDialog } from './fork-dialog';
 import { InlineError } from './inline-error';
 import { useExploreDetail } from '../../hooks/use-explore-detail';
 import { usePreview } from '../../lib/preview-context';
 import { useShareWs } from '../../hooks/use-share-ws';
+import { useOmniState } from '../../hooks/use-omni-state';
+import { useIdentity } from '../../lib/identity-context';
 import { toast } from '../../lib/toast';
 import { mapErrorToUserMessage, type OmniError } from '../../lib/map-error-to-user-message';
 import {
@@ -59,6 +73,8 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   const { artifact, loading } = useExploreDetail(selectedId);
   const { setPreview } = usePreview();
   const { send } = useShareWs();
+  const { state: omniState, dispatch } = useOmniState();
+  const { identity } = useIdentity();
 
   const [installState, setInstallState] = useState<InstallState>({ kind: 'idle' });
   const [tofuOpen, setTofuOpen] = useState(false);
@@ -66,6 +82,17 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     previously: TofuFingerprint;
     incoming: TofuFingerprint;
   } | null>(null);
+  const [forkOpen, setForkOpen] = useState(false);
+
+  const existingNames = useMemo(
+    () => omniState.overlays.map((o) => o.name),
+    [omniState.overlays],
+  );
+  const selfHandle = identity
+    ? identity.display_name
+      ? `${identity.display_name}#${identity.pubkey_hex.slice(0, 8)}`
+      : `#${identity.pubkey_hex.slice(0, 8)}`
+    : '';
 
   if (selectedId === null) {
     return (
@@ -172,6 +199,34 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     toast.success('Share link copied.');
   };
 
+  // Mirrors authorDisplay() from artifact-card.tsx (not exported).
+  // `<display_name>#<8-hex>` when display name is present; `#<8-hex>` otherwise.
+  const artifactAuthorDisplay = (() => {
+    const slice = artifact.author_pubkey.slice(0, 8);
+    const raw = artifact.author_display_name;
+    const name = raw?.trim();
+    return name ? `${name}#${slice}` : `#${slice}`;
+  })();
+
+  const artifactName =
+    typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id;
+
+  const handleFork = async ({ target_name }: { target_name: string }) => {
+    try {
+      await send('explorer.fork', {
+        artifact_id: artifact.artifact_id,
+        target_name,
+      });
+      setForkOpen(false);
+      dispatch({ type: 'SELECT_OVERLAY', payload: target_name });
+      dispatch({ type: 'SET_ACTIVE_PANEL', payload: 'components' });
+      toast.success(`Forked to overlays/${target_name} — ready to edit`);
+    } catch (err) {
+      setForkOpen(false);
+      toast.error(err as Parameters<typeof toast.error>[0]);
+    }
+  };
+
   const actionSlots: ArtifactCardActionSlots = {
     left:
       labels.left === 'Preview' ? (
@@ -210,15 +265,20 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
           {labels.middle}
         </Button>
       ),
-    right: (
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={stubSubSpec(labels.right === 'Update' ? '#015' : '#016')}
-      >
-        {labels.right}
-      </Button>
-    ),
+    right:
+      labels.right === 'Fork' ? (
+        <Button variant="secondary" size="sm" onClick={() => setForkOpen(true)}>
+          Fork
+        </Button>
+      ) : (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={stubSubSpec(labels.right === 'Update' ? '#015' : '#016')}
+        >
+          {labels.right}
+        </Button>
+      ),
   };
 
   const kebabLabels = kebabLabelsFor(tab);
@@ -261,6 +321,20 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
           }}
         />
       )}
+      <ForkDialog
+        open={forkOpen}
+        onOpenChange={setForkOpen}
+        sourceKind={tab === 'discover' ? 'remote' : 'local'}
+        origin={{
+          name: artifactName,
+          author_handle: artifactAuthorDisplay,
+        }}
+        defaultName={`${artifactName}-fork`}
+        selfHandle={selfHandle}
+        existingNames={existingNames}
+        onCancel={() => setForkOpen(false)}
+        onFork={({ target_name }) => void handleFork({ target_name })}
+      />
     </>
   );
 }
