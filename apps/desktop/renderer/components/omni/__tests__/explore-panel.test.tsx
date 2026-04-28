@@ -58,6 +58,25 @@ describe('ExplorePanel', () => {
     vi.doMock('../../../hooks/use-config-vocab', () => ({
       useConfigVocab: () => ({ tags: [], version: 0, loading: false, error: null }),
     }));
+    // ExploreDetail now calls useOmniState (existingNames for ForkDialog) +
+    // useIdentity (selfHandle for ForkDialog). Stub both so tests that render
+    // ExploreDetail don't require OmniProvider / IdentityContextProvider.
+    vi.doMock('../../../hooks/use-omni-state', () => ({
+      useOmniState: () => ({
+        state: { overlays: [] },
+        dispatch: vi.fn(),
+      }),
+    }));
+    vi.doMock('../../../lib/identity-context', () => ({
+      useIdentity: () => ({
+        identity: null,
+        loading: false,
+        is_fresh_install: false,
+        first_run_handled: false,
+        refresh: vi.fn(),
+        markFirstRunHandled: vi.fn(),
+      }),
+    }));
     // UploadDialog's source picker loads the workspace via useWorkspaceList,
     // which now calls the `workspace.listPublishables` Share-WS RPC (replaced
     // file.list in upload-flow-redesign Wave A0). Stub the `window.omni`
