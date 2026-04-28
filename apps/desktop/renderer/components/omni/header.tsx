@@ -29,8 +29,10 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { CreateOverlayDialog } from './create-overlay-dialog';
 import { GameAssignmentsDialog } from './game-assignments-dialog';
+import { IdentityChip } from './identity-chip';
 
 export function Header() {
   const {
@@ -44,6 +46,7 @@ export function Header() {
   } = useOmniState();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [gamesDialogOpen, setGamesDialogOpen] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const unsub = window.omni?.onUpdateReady?.((version: string, releaseDate: string) => {
@@ -262,9 +265,35 @@ export function Header() {
             </div>
           )}
 
-          {/* Window controls */}
+          {/* Identity chip — sits between the workspace controls and the window
+              controls. Click navigates to Settings → Identity section + fires
+              the cyan ring+glow animation per spec T6. */}
           <div
             className="flex items-center gap-1.5 ml-2"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <IdentityChip
+              onNavigateToSettings={() => {
+                dispatch({ type: 'SET_ACTIVE_PANEL', payload: 'settings' });
+                if (router.pathname === '/logs') {
+                  void router.push('/home');
+                }
+                setTimeout(() => {
+                  const el = document.getElementById('identity-section');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('identity-pulse');
+                    window.setTimeout(() => el.classList.remove('identity-pulse'), 2000);
+                  }
+                }, 50);
+              }}
+            />
+            <div className="mx-1 h-6 w-px bg-[#27272A]" />
+          </div>
+
+          {/* Window controls */}
+          <div
+            className="flex items-center gap-1.5"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <button
