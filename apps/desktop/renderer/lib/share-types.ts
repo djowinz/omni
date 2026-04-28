@@ -677,6 +677,27 @@ export const IdentityRotateResultSchema = z.object({
 });
 export type IdentityRotateResult = z.infer<typeof IdentityRotateResultSchema>;
 
+// ── identity.setDisplayName ─────────────────────────────────────────────────
+
+// Oracle: contracts/ws-explorer.md §identity.setDisplayName params
+// Shipped: crates/host/src/share/ws_messages.rs handle_identity_set_display_name()
+export const IdentitySetDisplayNameParamsSchema = z.object({
+  display_name: z.string(),
+});
+export type IdentitySetDisplayNameParams = z.infer<typeof IdentitySetDisplayNameParamsSchema>;
+
+// Oracle: contracts/ws-explorer.md §identity.setDisplayName result
+// Shipped: crates/host/src/share/ws_messages.rs handle_identity_set_display_name()
+export const IdentitySetDisplayNameResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('identity.setDisplayNameResult'),
+  params: z.object({
+    display_name: z.string().nullable(),
+    pubkey_hex: z.string(),
+  }),
+});
+export type IdentitySetDisplayNameResult = z.infer<typeof IdentitySetDisplayNameResultSchema>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // report.* request params + response shapes
 // ─────────────────────────────────────────────────────────────────────────────
@@ -896,6 +917,10 @@ export interface ShareRequestMap {
     params: IdentityRotateParams;
     result: IdentityRotateResult;
   };
+  'identity.setDisplayName': {
+    params: IdentitySetDisplayNameParams;
+    result: IdentitySetDisplayNameResult;
+  };
   'report.submit': {
     params: ReportSubmitParams;
     result: ReportSubmitResult;
@@ -957,6 +982,7 @@ export const ShareResponseSchemas = {
   'identity.backupResult': IdentityBackupResultSchema,
   'identity.importResult': IdentityImportResultSchema,
   'identity.rotateResult': IdentityRotateResultSchema,
+  'identity.setDisplayNameResult': IdentitySetDisplayNameResultSchema,
   'report.submitResult': ReportSubmitResultSchema,
   'config.vocabResult': ConfigVocabResultSchema,
   'config.limitsResult': ConfigLimitsResultSchema,
