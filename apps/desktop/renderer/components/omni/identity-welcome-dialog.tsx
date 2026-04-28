@@ -16,20 +16,21 @@ export function IdentityWelcomeDialog({ open, onSetUpNew, onImport }: IdentityWe
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <div className="px-7 pt-7 text-center">
+          {/* Use the same brand asset header.tsx uses (omni://resources/omni-logo.png),
+              not a generic Lucide icon. The blur halo behind the asset matches
+              the header's gradient pulse. */}
           <div className="relative mx-auto mb-4 h-12 w-12">
             <div
               aria-hidden
               className="absolute inset-0 rounded-[10px] opacity-55 blur-[14px]"
               style={{ background: 'linear-gradient(135deg,#00D9FF 0%,#A855F7 100%)' }}
             />
-            <div
-              className="relative flex h-12 w-12 items-center justify-center rounded-[10px]"
-              style={{ background: 'linear-gradient(135deg,#00D9FF 0%,#A855F7 100%)' }}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d0d0f" strokeWidth="2.5">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
-            </div>
+            <img
+              src="omni://resources/omni-logo.png"
+              alt="Omni"
+              className="relative h-12 w-12 rounded-[10px] pointer-events-none select-none"
+              draggable={false}
+            />
           </div>
           <DialogTitle className="text-[20px] font-semibold text-[#fafafa]">
             Welcome to Omni

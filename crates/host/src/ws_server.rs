@@ -626,6 +626,14 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             | Some("identity.backup")
             | Some("identity.import")
             | Some("identity.rotate")
+            // identity-completion-and-display-name shipped the dispatch arms
+            // in `share::ws_messages::dispatch` but the routing gate here was
+            // not updated, so `identity.markBackedUp` and `identity.setDisplayName`
+            // fell through to `handle_message` and returned the
+            // "Unknown WebSocket message type" error to the renderer. Adding
+            // them here completes the routing.
+            | Some("identity.markBackedUp")
+            | Some("identity.setDisplayName")
             | Some("config.vocab")
             | Some("config.limits")
             | Some("report.submit")
@@ -644,6 +652,16 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             // arm the message would fall through to `handle_message`, which
             // doesn't know the type.
             | Some("workspace.listPublishables")
+            // upload-flow-redesign Wave B1 — Preview Image ONNX gate
+            // (INV-7.7.2 site #1). Paired with
+            // `share::ws_messages::handle_moderation_check`. Note the
+            // `share.` prefix is unusual — every other share arm uses a
+            // bare module prefix (`upload.*`, `identity.*`, `explorer.*`).
+            // Without this arm the renderer's `ws.send('share.moderationCheck')`
+            // hangs forever because the fallback "unknown type" reply at
+            // `handle_message` omits the request `id`, so the IPC promise
+            // never correlates back.
+            | Some("share.moderationCheck")
     )
 }
 
@@ -808,6 +826,42 @@ mod tests {
             assert_eq!(
                 resp["error"]["code"], "service_unavailable",
                 "{msg_type} wrong code"
+            );
+        }
+    }
+
+    #[test]
+    fn share_message_gate_recognizes_all_inner_dispatcher_arms() {
+        // Regression for upload-flow-redesign Wave B1: `share.moderationCheck`
+        // was added to the inner dispatcher (`share::ws_messages::dispatch`)
+        // but missed from `is_share_message_type`'s allowlist. The outer router
+        // then routed it to `handle_message`'s unknown-fallback, which replies
+        // without the request `id`, hanging the renderer's IPC promise.
+        // This test enumerates every arm in `share::ws_messages::dispatch` —
+        // when adding a new share RPC, add it here AND to the gate.
+        for ty in [
+            "upload.pack",
+            "upload.publish",
+            "upload.update",
+            "upload.delete",
+            "identity.show",
+            "identity.backup",
+            "identity.import",
+            "identity.rotate",
+            "config.vocab",
+            "config.limits",
+            "report.submit",
+            "explorer.install",
+            "explorer.preview",
+            "explorer.cancelPreview",
+            "explorer.list",
+            "explorer.get",
+            "workspace.listPublishables",
+            "share.moderationCheck",
+        ] {
+            assert!(
+                is_share_message_type(Some(ty)),
+                "{ty} is dispatched in share::ws_messages but missing from is_share_message_type allowlist"
             );
         }
     }

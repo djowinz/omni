@@ -25,6 +25,33 @@ export interface IdentityContextValue {
 
 const IdentityContext = createContext<IdentityContextValue | null>(null);
 
+// localStorage key persists the user's "I've seen the welcome dialog" choice
+// across app restarts. Without this the IdentityWelcomeDialog re-fires every
+// launch because the host always returns the fresh-install signature
+// (display_name=null + backed_up=false + last_*_at=null) for any user who
+// hasn't yet set a name / backed up / rotated. We don't want to gate the
+// welcome on the user setting a display name — they're allowed to skip it.
+const FIRST_RUN_STORAGE_KEY = 'omni.identity.first_run_handled';
+
+function loadFirstRunHandled(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(FIRST_RUN_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function persistFirstRunHandled(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(FIRST_RUN_STORAGE_KEY, 'true');
+  } catch {
+    // Storage may be unavailable (private browsing, quota); fall back to
+    // session-only behaviour — user sees the dialog once per session worst case.
+  }
+}
+
 function isFreshInstall(snap: IdentitySnapshot, handled: boolean): boolean {
   return (
     !handled &&
@@ -39,7 +66,7 @@ export function IdentityContextProvider({ children }: { children: ReactNode }) {
   const { send } = useShareWs();
   const [identity, setIdentity] = useState<IdentitySnapshot | null>(null);
   const [loading, setLoading] = useState(true);
-  const [first_run_handled, setFirstRunHandled] = useState(false);
+  const [first_run_handled, setFirstRunHandled] = useState<boolean>(() => loadFirstRunHandled());
 
   const fetchIdentity = useCallback(async () => {
     setLoading(true);
@@ -66,7 +93,10 @@ export function IdentityContextProvider({ children }: { children: ReactNode }) {
       is_fresh_install: identity ? isFreshInstall(identity, first_run_handled) : false,
       first_run_handled,
       refresh: fetchIdentity,
-      markFirstRunHandled: () => setFirstRunHandled(true),
+      markFirstRunHandled: () => {
+        persistFirstRunHandled();
+        setFirstRunHandled(true);
+      },
     }),
     [identity, loading, first_run_handled, fetchIdentity],
   );
