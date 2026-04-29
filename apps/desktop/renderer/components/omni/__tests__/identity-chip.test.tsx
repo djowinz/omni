@@ -55,7 +55,24 @@ describe('IdentityChip', () => {
     await waitFor(() => expect(screen.getByLabelText(/not backed up/i)).toBeInTheDocument());
   });
 
-  it('renders neutral dot when fresh install (no rotation, no backup history)', async () => {
+  it('renders amber dot when display_name is set but !backed_up (user has interacted)', async () => {
+    installShareIpcSpy({
+      defaultResponse: {
+        ...POPULATED,
+        params: {
+          ...POPULATED.params,
+          display_name: 'starfire',
+          backed_up: false,
+          last_backed_up_at: null,
+          last_rotated_at: null,
+        },
+      },
+    });
+    wrap();
+    await waitFor(() => expect(screen.getByLabelText(/not backed up/i)).toBeInTheDocument());
+  });
+
+  it('renders neutral dot ONLY when fresh install (no name, no rotation, no backup)', async () => {
     installShareIpcSpy({
       defaultResponse: {
         ...POPULATED,
@@ -84,6 +101,24 @@ describe('IdentityChip', () => {
     wrap();
     await waitFor(() => screen.getByText(/starfire/));
     expect(screen.queryByText(/3a7c9f2ba8b1/)).not.toBeInTheDocument();
+  });
+
+  it('hover reveals tooltip with display_name + 8-hex slice + backup status + click hint', async () => {
+    installShareIpcSpy({ defaultResponse: POPULATED });
+    wrap();
+    await waitFor(() => screen.getByText(/starfire/));
+    const button = screen.getByRole('button', { name: /your identity/i });
+    await userEvent.hover(button);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('Display name');
+    expect(tooltip).toHaveTextContent('starfire');
+    expect(tooltip).toHaveTextContent('Fingerprint');
+    expect(tooltip).toHaveTextContent('3a7c9f2b');
+    expect(tooltip).toHaveTextContent('Backup');
+    expect(tooltip).toHaveTextContent(/Backed up/);
+    expect(tooltip).toHaveTextContent(/Click to manage/);
+    await userEvent.unhover(button);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 
   it('click triggers onNavigateToSettings', async () => {

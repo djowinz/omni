@@ -29,7 +29,7 @@ export function SettingsPanel() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [rotateOpen, setRotateOpen] = useState(false);
-  const { identity } = useIdentity();
+  const { identity, refresh: refreshIdentity } = useIdentity();
   const [openAtLogin, setOpenAtLogin] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
@@ -294,13 +294,23 @@ export function SettingsPanel() {
         open={backupOpen}
         onOpenChange={setBackupOpen}
         mode="settings"
-        onSuccess={() => setBackupOpen(false)}
+        onSuccess={() => {
+          setBackupOpen(false);
+          // Refresh identity-context so backed_up flips and the chip turns
+          // green. Without this the host has updated identity-metadata.json
+          // (via identity.markBackedUp) but the renderer's cached snapshot
+          // stays stale until the next mount.
+          void refreshIdentity();
+        }}
       />
       <IdentityBackupDialog
         open={importOpen}
         onOpenChange={setImportOpen}
         mode="import"
-        onSuccess={() => setImportOpen(false)}
+        onSuccess={() => {
+          setImportOpen(false);
+          void refreshIdentity();
+        }}
       />
       <RotateConfirmDialog
         open={rotateOpen}
