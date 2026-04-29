@@ -19,10 +19,15 @@ import { IdentityWelcomeDialog } from '../components/omni/identity-welcome-dialo
 import { IdentityBackupDialog } from '../components/omni/identity-backup-dialog';
 
 function IdentityGate({ children }: { children: ReactNode }) {
-  const { identity, loading, is_fresh_install, markFirstRunHandled, refresh } = useIdentity();
+  const { identity, is_fresh_install, markFirstRunHandled, refresh } = useIdentity();
   const [importOpen, setImportOpen] = useState(false);
 
-  if (loading || identity === null) return <SplashLoader />;
+  // Only splash on the FIRST resolve (when identity is still null). Subsequent
+  // refresh() calls (e.g. after identity.setDisplayName) re-flip context's
+  // `loading` to true momentarily — gating on `loading` here would unmount the
+  // entire app shell and show a full-screen black SplashLoader during what
+  // should be a tiny in-place re-render.
+  if (identity === null) return <SplashLoader />;
 
   return (
     <>
