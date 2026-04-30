@@ -566,34 +566,47 @@ fn run_host() {
     // Initialize the moderation singleton (OWI-73) before the WS server starts
     // accepting connections. Both `share.moderationCheck` (renderer-initiated;
     // INV-7.7.2 site #1) and the pack-time `share::dep_resolver` content-safety
-    // path (INV-7.7.2 site #2) require the cached NudeNet `Session` to be
-    // loaded; otherwise every check returns `CheckError::NotInitialized`.
+    // path (INV-7.7.2 site #2) require the cached NSFW classifier `Session` to
+    // be loaded; otherwise every check returns `CheckError::NotInitialized`.
     //
-    // Degraded-mode policy: if the bundled `nudenet.onnx` is missing (dev
-    // builds without the model staged, or a corrupted install), log + warn and
-    // allow startup to continue. The renderer's WS handler already surfaces a
-    // structured `Moderation:NotInitialized` error, and `dep_resolver`'s
-    // wrapper degrades to `Skipped` outcomes (see `share::dep_resolver` module
-    // doc). Blocking startup would punish dev contributors building without
-    // the model far more than it would harden the upload pipeline. Production
-    // installers ship the model under `resources/moderation/`, so the warn
-    // path should fire only in dev or on broken installs.
-    match omni_host::share::moderation::default_model_path() {
-        Some(path) => {
-            if let Err(e) = omni_host::share::moderation::init_with_path(&path) {
-                tracing::error!(
-                    error = %e,
-                    path = %path.display(),
-                    "moderation init failed; uploads will degrade to skipped content-safety checks"
-                );
-            } else {
-                tracing::info!(path = %path.display(), "moderation initialized");
+    // Degraded-mode policy: if the bundled NSFW classifier model is missing
+    // (dev builds without the model staged, or a corrupted install), log +
+    // warn and allow startup to continue. The renderer's WS handler already
+    // surfaces a structured `Moderation:NotInitialized` error, and
+    // `dep_resolver`'s wrapper degrades to `Skipped` outcomes (see
+    // `share::dep_resolver` module doc). Blocking startup would punish dev
+    // contributors building without the model far more than it would harden
+    // the upload pipeline. Production installers ship the model under
+    // `resources/moderation/`, so the warn path should fire only in dev or on
+    // broken installs.
+    {
+        let paths = omni_host::share::moderation::default_model_paths();
+        match (&paths.nudenet, &paths.falconsai) {
+            (None, None) => tracing::warn!(
+                "no moderation models found in installed or dev layout; moderation disabled (custom-image upload will return NotInitialized; pack-time content-safety will Skip)"
+            ),
+            _ => {
+                if let Err(e) = omni_host::share::moderation::init_with_paths(
+                    paths.nudenet.as_deref(),
+                    paths.falconsai.as_deref(),
+                ) {
+                    tracing::error!(
+                        error = %e,
+                        "moderation init failed; uploads will degrade to skipped content-safety checks"
+                    );
+                } else {
+                    if let Some(p) = &paths.nudenet {
+                        tracing::info!(path = %p.display(), "moderation: nudenet loaded");
+                    } else {
+                        tracing::warn!("moderation: nudenet model missing — gate will rely on falconsai only");
+                    }
+                    if let Some(p) = &paths.falconsai {
+                        tracing::info!(path = %p.display(), "moderation: falconsai loaded");
+                    } else {
+                        tracing::warn!("moderation: falconsai model missing — gate will rely on nudenet only");
+                    }
+                }
             }
-        }
-        None => {
-            tracing::warn!(
-                "nudenet.onnx not found in installed or dev layout; moderation disabled (custom-image upload will return NotInitialized; pack-time content-safety will Skip)"
-            );
         }
     }
 

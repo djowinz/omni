@@ -90,6 +90,19 @@ jobs:
       # the private repo's own CI. The main release pipeline trusts that
       # signal; no main-repo step required.
 
+      # Fetch the bundled moderation ONNX models (NudeNet + Falconsai). The
+      # files are gitignored — only the manifest at
+      # `crates/moderation/resources/MODELS.toml` is in the repo.
+      # electron-builder's `extraResources: resources/` step (later in the
+      # pipeline) needs them on disk to bundle into the installer.
+      - name: Cache moderation models
+        uses: actions/cache@v4
+        with:
+          path: crates/moderation/resources/*.onnx
+          key: moderation-models-${{ hashFiles('crates/moderation/resources/MODELS.toml') }}
+      - name: Fetch moderation models
+        run: cargo run --release -p fetch-models
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:

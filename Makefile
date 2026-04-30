@@ -4,6 +4,7 @@
 .PHONY: build test lint format clean \
         rust test-rust lint-rust format-rust clean-rust \
         node test-node lint-node format-node clean-node \
+        fetch-models \
         installer release release-notes \
         build-real-guard tree-guard tree-real-guard \
         dev dev-seed dev-reset dev-reset-identity dev-kill dev-admin \
@@ -35,6 +36,19 @@ format-rust:
 clean-rust:
 	cargo clean
 
+# --- Moderation models ---
+#
+# Download + verify the bundled NSFW classifier ONNX models (NudeNet +
+# Falconsai) referenced in `crates/moderation/resources/MODELS.toml`.
+# Idempotent — skips files already present and matching the manifest hash;
+# only the first run pays the ~96 MB download cost. Required before:
+#   - `cargo test -p moderation` / `-p host` (otherwise inference tests skip)
+#   - `cargo run -p host` (otherwise moderation gate degrades to NotInitialized)
+#   - `make installer` / `make release` (electron-builder needs the .onnx
+#     files on disk to bundle them via extraResources)
+fetch-models:
+	cargo run --release -p fetch-models
+
 # --- Node (pnpm workspace) ---
 node:
 	pnpm -r build
@@ -53,10 +67,17 @@ clean-node:
 	rm -rf node_modules
 
 # --- Desktop installer pipeline (wraps existing scripts) ---
-installer:
+#
+# Both targets depend on `fetch-models` because electron-builder packages the
+# moderation .onnx files into the installer via `extraResources`. Without the
+# files on disk at packaging time the installer ships a broken moderation
+# pipeline (host starts but every check returns Moderation:NotInitialized).
+# `fetch-models` is idempotent — when models are already present it costs
+# milliseconds, so making it a hard prerequisite is cheap.
+installer: fetch-models
 	./scripts/build-installer.sh
 
-release:
+release: fetch-models
 	./scripts/release.sh
 
 release-notes:

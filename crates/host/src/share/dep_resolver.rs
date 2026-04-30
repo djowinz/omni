@@ -17,14 +17,14 @@
 //! - `violations`: `MissingRef` for refs whose target isn't in
 //!   `workspace_files`, `UnusedFile` for files under `images/` / `fonts/` or
 //!   referenced theme.css paths that nothing references, `ContentSafety` for
-//!   bundled images the local NudeNet ONNX detector flags at or above
-//!   threshold `0.8` (INV-7.7.3).
+//!   bundled images the local NSFW classifier flags at or above the
+//!   `share::moderation::REJECTION_THRESHOLD` (currently `0.5`; INV-7.7.3).
 //!
 //! ## Content-safety injection point (Wave B1.4)
 //!
 //! Content-safety classification is parameterized via [`ImageModerator`] so
 //! production calls into [`crate::share::moderation::check_image`] and tests
-//! can inject deterministic outcomes without loading the ~12 MB ONNX model.
+//! can inject deterministic outcomes without loading the ~84 MB ONNX model.
 //! [`resolve`] is the production entry point and uses the real moderator
 //! gracefully (model-not-loaded ⇒ skip the check). [`resolve_with_moderation`]
 //! takes the closure explicitly for tests.
@@ -96,8 +96,9 @@ pub enum Violation {
     /// vector (spec §7.8.4); rejecting them keeps every shipped byte
     /// reachable from the overlay. INV-7.8.4 unused-files.
     UnusedFile { path: String },
-    /// Bundled image flagged by the local NudeNet ONNX detector at or above
-    /// the INV-7.7.3 threshold (`0.8`). `confidence` is the inner
+    /// Bundled image flagged by the local NSFW classifier at or above
+    /// `share::moderation::REJECTION_THRESHOLD` (currently `0.5`; INV-7.7.3).
+    /// `confidence` is the inner
     /// `unsafe_score` (range `[0.0, 1.0]`) so the renderer can render the
     /// `"flagged · conf 0.XX"` row reason without re-parsing a string.
     /// INV-7.7.2 site #2 + INV-7.8.4 content-safety.
@@ -147,7 +148,8 @@ pub enum ResolveError {
 pub enum ModerationOutcome {
     /// Inner check returned a sub-threshold score; not a violation.
     Safe { unsafe_score: f32 },
-    /// Inner check returned a score `>= 0.8` (INV-7.7.3); becomes a
+    /// Inner check returned a score `>= share::moderation::REJECTION_THRESHOLD`
+    /// (currently `0.4`; INV-7.7.3); becomes a
     /// `Violation::ContentSafety { confidence: unsafe_score }`.
     Rejected { unsafe_score: f32 },
     /// The inner moderator can't classify right now (model not loaded,
@@ -209,7 +211,7 @@ pub fn resolve(workspace_files: &BTreeMap<String, Vec<u8>>) -> Result<ResolveRes
 /// Variant of [`resolve`] that takes an explicit content-safety classifier.
 ///
 /// Tests inject a deterministic closure to drive `Violation::ContentSafety`
-/// without needing the ~12 MB NudeNet ONNX model file or a real NSFW
+/// without needing the ~84 MB NSFW classifier ONNX model file or a real NSFW
 /// fixture. Production calls [`resolve`] which delegates here with
 /// [`default_moderator`].
 pub fn resolve_with_moderation(

@@ -75,6 +75,7 @@ type State =
       size: number;
       label: string;
       confidence: number;
+      detector: string;
     };
 
 type ValidationReason =
@@ -256,7 +257,7 @@ export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPrevie
         });
         return;
       }
-      const { unsafe_score, label, rejected } = result.params;
+      const { unsafe_score, label, detector, rejected } = result.params;
       if (rejected) {
         setState({
           kind: 'moderation',
@@ -264,6 +265,7 @@ export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPrevie
           size: file.size,
           label,
           confidence: unsafe_score,
+          detector,
         });
         return;
       }
@@ -600,7 +602,7 @@ function ModerationView({
         style={{ background: '#0A0A0B', border: '1px solid #27272A' }}
       >
         code <span className="text-[#a1a1aa]">Moderation:ClientRejected</span> · detector{' '}
-        <span className="text-[#a1a1aa]">onnx-nudenet-v1</span> · confidence{' '}
+        <span className="text-[#a1a1aa]">{state.detector}</span> · confidence{' '}
         <span className="text-[#a1a1aa]">{state.confidence.toFixed(2)}</span>
         {state.label !== '' && (
           <>

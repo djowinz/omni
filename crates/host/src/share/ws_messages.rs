@@ -1546,27 +1546,32 @@ pub struct PackProgress {
 // Host startup wiring (OWI-73): `share::moderation::init_with_path` is called
 // once from `run_host()` in `main.rs` before the WS server starts accepting
 // connections, using the path resolved by `share::moderation::default_model_path()`.
-// Degraded mode: if the bundled `nudenet.onnx` is missing (dev builds without
-// the model staged), startup logs a warning and continues, and this handler
-// returns a `Moderation:NotInitialized` error envelope per request. Renderer-
-// side tests use a mock for `share.moderationCheck`; the production runtime
-// path is live in any installer build that ships the bundled model.
+// Degraded mode: if the bundled NSFW classifier model is missing (dev builds
+// without the model staged), startup logs a warning and continues, and this
+// handler returns a `Moderation:NotInitialized` error envelope per request.
+// Renderer-side tests use a mock for `share.moderationCheck`; the production
+// runtime path is live in any installer build that ships the bundled model.
 
 /// Result frame payload emitted by `share.moderationCheck`. Mirrors
 /// `share::moderation::CheckResult` 1-to-1 over the WS boundary; the
 /// host wraps this in the standard `{ id, type, params }` envelope.
 ///
-/// `unsafe_score` is the raw maximum unsafe-class confidence in `[0.0, 1.0]`
-/// — surfaced for INV-7.7.6's collapsible detail block (`code
-/// Moderation:ClientRejected · detector onnx-nudenet-v1 · confidence 0.XX`).
-/// `label` is the triggering NudeNet class name or `"safe"`. `rejected` is
-/// the precomputed `unsafe_score >= REJECTION_THRESHOLD (0.8)` per
+/// `unsafe_score` is the NSFW probability in `[0.0, 1.0]` — surfaced for
+/// INV-7.7.6's collapsible detail block (`code Moderation:ClientRejected ·
+/// detector onnx-falconsai-vit-v1 · confidence 0.XX`). `label` is `"nsfw"`
+/// when the classifier leans NSFW, `"safe"` otherwise. `rejected` is the
+/// precomputed `unsafe_score >= REJECTION_THRESHOLD (currently 0.5)` per
 /// INV-7.7.3 — the renderer never reapplies the threshold.
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[ts(export, export_to = "../../../packages/shared-types/src/generated/")]
 pub struct ModerationCheckResult {
     pub unsafe_score: f32,
     pub label: String,
+    /// Detector ID(s) that produced the reported result. Populated by
+    /// `share::moderation::CheckResult::detector` — single ID like
+    /// `"onnx-nudenet-v1"` when one model fired (or both passed); joined
+    /// `"a+b"` when both models rejected.
+    pub detector: String,
     pub rejected: bool,
 }
 
@@ -1598,13 +1603,14 @@ async fn handle_moderation_check(id: &str, params: Value) -> Option<String> {
     // the singleton mutex (per architectural invariant #24's documented
     // ownership in `share::moderation`). Done on the WS task — the model
     // load happens once at startup; per-call inference is bounded by the
-    // 50–150 ms NudeNet detector latency. If the upload pipeline ever
-    // batches multiple checks, the singleton's `Mutex` serializes them.
+    // 80–200 ms quantized ViT classifier latency. If the upload pipeline
+    // ever batches multiple checks, the singleton's `Mutex` serializes them.
     match super::moderation::check_image(&bytes) {
         Ok(result) => {
             let payload = ModerationCheckResult {
                 unsafe_score: result.unsafe_score,
                 label: result.label,
+                detector: result.detector,
                 rejected: result.rejected,
             };
             Some(

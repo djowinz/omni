@@ -13,6 +13,7 @@ members = [
     "crates/ultralight-sys",
     "tools/admin",
     "tools/dev-orchestrator",
+    "tools/fetch-models",
     "tools/integrity-hash",
 ]
 

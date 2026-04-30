@@ -143,6 +143,10 @@ interface ModerationOutcome {
   unsafe_score: number;
   label: string;
   rejected: boolean;
+  /** Defaults to `'onnx-falconsai-vit-v1'` so existing tests don't have to
+   *  thread it through; fixtures that exercise the dual-gate-rejection path
+   *  override with `'onnx-nudenet-v1+onnx-falconsai-vit-v1'`. */
+  detector?: string;
 }
 
 function stubModerationBridge(outcome: ModerationOutcome) {
@@ -153,7 +157,7 @@ function stubModerationBridge(outcome: ModerationOutcome) {
     return {
       id: msg.id,
       type: 'share.moderationCheckResult',
-      params: outcome,
+      params: { detector: 'onnx-falconsai-vit-v1', ...outcome },
     };
   });
   vi.stubGlobal('omni', {
@@ -298,7 +302,7 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
     // expanded label set doesn't churn the regex.
     const detail = screen.getByTestId('review-preview-image-moderation-detail');
     expect(detail).toHaveTextContent('Moderation:ClientRejected');
-    expect(detail).toHaveTextContent('onnx-nudenet-v1');
+    expect(detail).toHaveTextContent('onnx-falconsai-vit-v1');
     expect(detail).toHaveTextContent('0.93');
     // Critically: the rejected file is NEVER persisted to IDB.
     expect(setCustomPreviewMock).not.toHaveBeenCalled();

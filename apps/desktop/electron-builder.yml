@@ -1,11 +1,21 @@
 appId: com.omni.desktop
 productName: Omni
 extraResources:
-  # Bulk-copy the entire `apps/desktop/resources/` tree into the install root.
-  # This sweeps up `resources/moderation/nudenet.onnx` (NudeNet 320n v3.4
-  # detector — INV-7.7.1, spec §8.5) without needing an explicit entry.
+  # Electron-owned assets — installer icons (omni-logo.*), UI fonts (Geist,
+  # Monaspace), renderer icon font (feather.woff2). Bulk-copied into the
+  # install's `resources/` root.
   - from: 'resources/'
     to: '.'
+  # Moderation ONNX models (NudeNet + Falconsai). Live in the moderation
+  # crate's resources/ — they're loaded by `crates/moderation` (called from
+  # the Rust host), NOT by the Electron app. Mirrored here at install time
+  # so the host's `default_model_paths()` finds them at
+  # `<exe-dir>/resources/moderation/<filename>`. Same crate-owned-resources
+  # pattern as `crates/host/resources/feather.{ttf,css}` below.
+  - from: '../../crates/moderation/resources/nudenet.onnx'
+    to: 'moderation/nudenet.onnx'
+  - from: '../../crates/moderation/resources/nsfw_falconsai.onnx'
+    to: 'moderation/nsfw_falconsai.onnx'
 directories:
   output: dist
 files:

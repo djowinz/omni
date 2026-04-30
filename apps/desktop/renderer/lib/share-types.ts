@@ -511,19 +511,22 @@ export type UploadUpdateResult = z.infer<typeof UploadUpdateResultSchema>;
 //
 // Renderer-initiated single-image moderation gate (INV-7.7.2 site #1). The
 // renderer base64-encodes the user-uploaded Preview Image bytes and sends
-// them to the host; the host runs the bundled NudeNet ONNX detector via
-// `share::moderation::check_image` and returns the precomputed rejection
-// flag (INV-7.7.3 threshold = 0.8 applied host-side). The renderer never
-// reapplies the threshold — it switches into the amber rejection state on
-// `rejected: true` per INV-7.7.4/INV-7.7.5.
+// them to the host; the host runs both bundled classifiers (NudeNet +
+// Falconsai) via `share::moderation::check_image` and returns the OR-reduced
+// rejection flag (INV-7.7.3 thresholds applied host-side). The renderer
+// never reapplies the threshold — it switches into the amber rejection state
+// on `rejected: true` per INV-7.7.4/INV-7.7.5.
 //
-// `unsafe_score` + `label` are surfaced for INV-7.7.6's collapsible detail
-// block (`code Moderation:ClientRejected · detector onnx-nudenet-v1 ·
-// confidence 0.XX`). Sidecar types-test in `share-types.types-test.ts`
-// binds this Zod payload bidirectionally to `RustModerationCheckResult`.
+// `unsafe_score` + `label` + `detector` feed INV-7.7.6's collapsible detail
+// block (`code Moderation:ClientRejected · detector <id> · confidence 0.XX ·
+// label Y`). `detector` is the ID of the model that produced the reported
+// score; `"a+b"` (joined with `+`) when both models rejected. Sidecar
+// types-test in `share-types.types-test.ts` binds this Zod payload
+// bidirectionally to `RustModerationCheckResult`.
 export const ModerationCheckResultSchema = z.object({
   unsafe_score: z.number(),
   label: z.string(),
+  detector: z.string(),
   rejected: z.boolean(),
 });
 export type ModerationCheckResult = z.infer<typeof ModerationCheckResultSchema>;

@@ -16,6 +16,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-dev
+      # Cache the moderation ONNX models keyed on the manifest content, so the
+      # ~96 MB download only happens when the manifest changes. The fetcher
+      # itself is idempotent — when the cache restores files it detects them
+      # already-present-and-verified and exits in <1s.
+      - name: Cache moderation models
+        uses: actions/cache@v4
+        with:
+          path: crates/moderation/resources/*.onnx
+          key: moderation-models-${{ hashFiles('crates/moderation/resources/MODELS.toml') }}
+      - name: Fetch moderation models
+        run: cargo run --release -p fetch-models
       - name: cargo fmt
         run: cargo fmt --check
       - name: cargo clippy

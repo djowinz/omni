@@ -63,3 +63,12 @@ apps/worker/seed/dev-fixtures/
 # Playwright e2e run artifacts
 apps/desktop/test-results/
 apps/desktop/playwright-report/
+
+# Bundled moderation ONNX models — fetched via `cargo run -p fetch-models`
+# reading `crates/moderation/resources/MODELS.toml`. Never commit the model
+# blobs directly; the manifest pins URL + SHA-256 so every contributor + CI
+# run reproduces the same files without bloating git. Models live in the
+# moderation crate's resources/ because the moderation crate loads them;
+# the desktop installer mirrors them into its install resources via
+# electron-builder.yml.
+crates/moderation/resources/*.onnx

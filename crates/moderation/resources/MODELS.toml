@@ -1,0 +1,54 @@
+# Moderation model manifest — consumed by `tools/fetch-models`.
+#
+# Lives in `crates/moderation/resources/` because the moderation crate owns
+# these models (loads them, tests them, ships their wrappers). The desktop
+# installer mirrors the resolved files into the install's
+# `resources/moderation/` directory at packaging time via
+# `apps/desktop/electron-builder.yml`. End users get the models bundled in
+# the installer; only dev contributors and CI runners ever execute the
+# fetcher.
+#
+# Each entry below describes one bundled ONNX classifier:
+#   filename = on-disk name (relative to this manifest's directory)
+#   url      = HTTPS download URL
+#   sha256   = lowercase hex SHA-256 of the expected bytes (verified on download
+#              AND used to skip re-fetch when the file is already present)
+#   size     = expected file size in bytes (sanity check against URL serving an
+#              HTML 404 page or wrong file)
+#
+# When swapping a model:
+#   1. Update `url` to the new source
+#   2. Run the fetcher; it will fail with the new file's actual hash
+#   3. Paste that hash + new size into the manifest
+#   4. Bump the consumers in `crates/host/src/share/moderation.rs` if the
+#      filename or detector ID changes
+
+[nudenet]
+filename = "nudenet.onnx"
+# notAI-tech/NudeNet v3.4 320n detector — YOLO-style part-presence classifier
+# (EXPOSED_*/COVERED_* anatomy classes). Catches isolated/pixelated explicit
+# anatomy that whole-image classifiers structurally miss.
+#
+# URL: GitHub release-asset API endpoint. The user-facing
+# `https://github.com/notAI-tech/NudeNet/releases/download/v3.4-weights/320n.onnx`
+# requires authentication (returns a login redirect anonymously, despite the
+# repo being public — appears to be release-asset rate-limiting / abuse policy).
+# The API endpoint at `api.github.com/repos/.../releases/assets/<id>` works
+# without auth when called with `Accept: application/octet-stream` (the fetcher
+# sets this header automatically). Asset ID `176831997` corresponds to the
+# `320n.onnx` file in the `v3.4-weights` release. If the upstream file changes
+# (hash drift), the fetcher fails loudly — at that point either pin to a
+# re-uploaded release artifact you control (recommended for long-term
+# stability) or update the hash here after auditing the new file.
+url = "https://api.github.com/repos/notAI-tech/NudeNet/releases/assets/176831997"
+sha256 = "c15d8273adad2d0a92f014cc69ab2d6c311a06777a55545f2c4eb46f51911f0f"
+size = 12150158
+
+[falconsai]
+filename = "nsfw_falconsai.onnx"
+# Falconsai/nsfw_image_detection ViT-base/16 binary classifier (normal/nsfw).
+# Quantized variant from HuggingFace's official onnx-community conversion.
+# Catches "covered but suggestive" composition that part-detectors miss.
+url = "https://huggingface.co/onnx-community/nsfw_image_detection-ONNX/resolve/main/onnx/model_quantized.onnx"
+sha256 = "d9afb1e057104e6cc8616d174f0f6a8b8b0389c839eea7d5efa4bdf1a77efd27"
+size = 87333629

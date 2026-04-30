@@ -1,6 +1,6 @@
 //! NudeNet ONNX detector wrapper.
 //!
-//! Loads `apps/desktop/resources/moderation/nudenet.onnx` (the v3.4 320n
+//! Loads `crates/moderation/resources/nudenet.onnx` (the v3.4 320n
 //! detector — see crate-level doc) into an `ort::Session` and runs single-image
 //! inference. Output is collapsed to one [`ModerationResult`]: max confidence
 //! across all "exposed" classes plus the triggering label (or `"safe"` when no
@@ -41,6 +41,8 @@ use ort::{
     value::Tensor,
 };
 
+use crate::{ModerationError, ModerationResult};
+
 /// Square input dimension for the bundled 320n detector.
 pub const INPUT_SIZE: u32 = 320;
 
@@ -76,6 +78,12 @@ pub const CLASS_LABELS: [&str; 18] = [
 /// EXPOSED variants from [`CLASS_LABELS`]. Coverage classes (FACE_*, *_COVERED,
 /// FEET_EXPOSED, ARMPITS_EXPOSED, BELLY_EXPOSED) intentionally don't trigger —
 /// they're informational, not policy violations.
+///
+/// COVERED variants were tested in 2026-04-28 — produced inconsistent results
+/// (DoA Volleyball cover and Tifa-in-dress flagged as false positives, 2B/Nier
+/// missed as a false negative) because NudeNet's score is per-class detection
+/// confidence, not a measure of suggestiveness. Replaced by a whole-image
+/// NSFW classifier in `share::moderation` instead of expanding this list.
 pub const UNSAFE_CLASS_INDICES: [usize; 5] = [
     2,  // BUTTOCKS_EXPOSED
     3,  // FEMALE_BREAST_EXPOSED
@@ -84,55 +92,8 @@ pub const UNSAFE_CLASS_INDICES: [usize; 5] = [
     14, // MALE_GENITALIA_EXPOSED
 ];
 
-/// Result of a single moderation check.
-///
-/// `unsafe_score` is the maximum per-anchor confidence across the
-/// [`UNSAFE_CLASS_INDICES`] set. `label` is the corresponding class name from
-/// [`CLASS_LABELS`], or `"safe"` if no unsafe-class detection cleared
-/// [`DETECTION_THRESHOLD`].
-///
-/// Callers compare `unsafe_score` against their own threshold (INV-7.7.3 =
-/// 0.8 in the Omni upload pipeline).
-#[derive(Debug, Clone, PartialEq)]
-pub struct ModerationResult {
-    pub unsafe_score: f32,
-    pub label: String,
-}
-
-impl ModerationResult {
-    /// Convenience constructor for the "no unsafe detection" case.
-    pub fn safe() -> Self {
-        Self {
-            unsafe_score: 0.0,
-            label: "safe".to_string(),
-        }
-    }
-}
-
-/// Errors raised by [`NudeNetModel`].
-#[derive(Debug, thiserror::Error)]
-pub enum ModerationError {
-    /// ORT failure (model load, session run, tensor extraction).
-    #[error("ort: {0}")]
-    Ort(#[from] ort::Error),
-
-    /// Image decode/format failure.
-    #[error("image decode: {0}")]
-    Image(#[from] image::ImageError),
-
-    /// File I/O failure (reading model from disk).
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
-
-    /// Output tensor had an unexpected shape — usually means the bundled
-    /// model file isn't a NudeNet-format detector. `expected` describes the
-    /// shape pattern we wanted; `got` is the actual shape from the model.
-    #[error("unexpected output tensor shape: expected {expected}, got {got:?}")]
-    UnexpectedShape {
-        expected: &'static str,
-        got: Vec<usize>,
-    },
-}
+// `ModerationResult` and `ModerationError` are shared with `nsfw_classifier`
+// at crate root — see `lib.rs`.
 
 /// Loaded NudeNet model. Cheap to construct once at host startup; expensive
 /// to construct repeatedly. Holds an `ort::Session` whose lifetime is tied to

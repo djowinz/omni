@@ -5,11 +5,13 @@
  * `share::moderation::CheckResult` 1-to-1 over the WS boundary; the
  * host wraps this in the standard `{ id, type, params }` envelope.
  *
- * `unsafe_score` is the raw maximum unsafe-class confidence in `[0.0, 1.0]`
- * — surfaced for INV-7.7.6's collapsible detail block (`code
- * Moderation:ClientRejected · detector onnx-nudenet-v1 · confidence 0.XX`).
- * `label` is the triggering NudeNet class name or `"safe"`. `rejected` is
- * the precomputed `unsafe_score >= REJECTION_THRESHOLD (0.8)` per
- * INV-7.7.3 — the renderer never reapplies the threshold.
+ * `unsafe_score` is the NSFW probability in `[0.0, 1.0]` — surfaced for
+ * INV-7.7.6's collapsible detail block (`code Moderation:ClientRejected ·
+ * detector <detector> · confidence 0.XX`). `label` is `"nsfw"` when the
+ * classifier leans NSFW, `"safe"` otherwise (NudeNet returns its triggering
+ * class name when it fires). `detector` is the ID of the model whose result
+ * is reported; `"a+b"` when both models rejected. `rejected` is the
+ * precomputed OR-reduction across both models per INV-7.7.3 — the renderer
+ * never reapplies the threshold.
  */
-export type ModerationCheckResult = { unsafe_score: number, label: string, rejected: boolean, };
+export type ModerationCheckResult = { unsafe_score: number, label: string, detector: string, rejected: boolean, };
