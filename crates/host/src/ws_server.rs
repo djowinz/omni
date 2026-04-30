@@ -652,8 +652,14 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             // arm the message would fall through to `handle_message`, which
             // doesn't know the type.
             | Some("workspace.listPublishables")
-            // upload-flow-redesign Wave B1 — Preview Image ONNX gate
-            // (INV-7.7.2 site #1). Paired with
+            // #016 P8/P9 — identity write paths (mark a freshly-backed-up key
+            // as backed up; rename the local display name). Both routed
+            // through `dispatch_share_message` because they mutate
+            // `ShareContext::identity`.
+            | Some("identity.markBackedUp")
+            | Some("identity.setDisplayName")
+            // upload-flow-redesign Wave B1 — Preview Image dual-gate
+            // moderation (INV-7.7.2 site #1). Paired with
             // `share::ws_messages::handle_moderation_check`. Note the
             // `share.` prefix is unusual — every other share arm uses a
             // bare module prefix (`upload.*`, `identity.*`, `explorer.*`).
@@ -832,11 +838,14 @@ mod tests {
 
     #[test]
     fn share_message_gate_recognizes_all_inner_dispatcher_arms() {
-        // Regression for upload-flow-redesign Wave B1: `share.moderationCheck`
-        // was added to the inner dispatcher (`share::ws_messages::dispatch`)
-        // but missed from `is_share_message_type`'s allowlist. The outer router
-        // then routed it to `handle_message`'s unknown-fallback, which replies
-        // without the request `id`, hanging the renderer's IPC promise.
+        // Regression for two real silent-failure modes already observed:
+        //   - `share.moderationCheck` (Wave B1) was added to
+        //     `share::ws_messages::dispatch` but missed from the gate.
+        //     Renderer IPC hung forever because the unknown-fallback reply
+        //     omits the request `id`.
+        //   - `identity.markBackedUp` + `identity.setDisplayName` (#016
+        //     P8/P9) had the same gap — the inner dispatcher learned about
+        //     them but the gate did not.
         // This test enumerates every arm in `share::ws_messages::dispatch` —
         // when adding a new share RPC, add it here AND to the gate.
         for ty in [
@@ -848,6 +857,8 @@ mod tests {
             "identity.backup",
             "identity.import",
             "identity.rotate",
+            "identity.markBackedUp",
+            "identity.setDisplayName",
             "config.vocab",
             "config.limits",
             "report.submit",
