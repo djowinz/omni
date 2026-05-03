@@ -639,6 +639,31 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     };
   }, [prefilledPath, ws, open]);
 
+  // Seed Step 2 form fields from the sidecar when update mode resolves.
+  // The reducer's SELECT_ITEM action already flips `state.mode` to 'update'
+  // when the entry's `sidecar.author_pubkey_hex` matches `currentPubkey`;
+  // this effect closes the loop by populating the form so Step 2 doesn't
+  // render with DEFAULT_FORM blanks. INV-7.5.3.
+  //
+  // Side-effect-only — no dispatch. `form.reset(...)` re-initialises the
+  // react-hook-form values in one batch (cheaper than per-field setValue
+  // and avoids intermediate validation-trigger storms).
+  useEffect(() => {
+    if (state.mode !== 'update') return;
+    const entry = state.selected;
+    const sidecar = entry?.sidecar;
+    if (!entry || !sidecar) return;
+    form.reset({
+      name: entry.name,
+      description: sidecar.description ?? '',
+      tags: sidecar.tags ?? [],
+      license: sidecar.license ?? '',
+      customLicense: '',
+      bump: 'patch',
+      version: sidecar.version ?? '1.0.0',
+    });
+  }, [state.mode, state.selected, form]);
+
   // ── Pack execution ─────────────────────────────────────────────────────────
 
   const runPack = useCallback(async () => {

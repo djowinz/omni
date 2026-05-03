@@ -797,12 +797,20 @@ export type ConfigLimitsResult = z.infer<typeof ConfigLimitsResultSchema>;
 // On-disk shape of `.omni-publish.json`. The renderer's Step 1 source picker
 // reads `sidecar?.author_pubkey_hex` to decide whether to render the
 // "linked-artifact" banner (INV-7.1.13) and pivot Step 4 into update mode
-// (INV-7.5.*). All four fields are required in the on-disk shape.
+// (INV-7.5.*). The first four fields are required in the on-disk shape; the
+// trailing description/tags/license cache the manifest fields the upload
+// dialog's Step 2 form prefills from on update mode (INV-7.5.3). They use
+// `.default(...)` so sidecars written by older host versions (which lacked
+// these fields) still parse cleanly — matching the host's `serde(default)`
+// semantics on `crates/host/src/share/sidecar.rs::PublishSidecar`.
 export const PublishSidecarSchema = z.object({
   artifact_id: z.string(),
   author_pubkey_hex: z.string(),
   version: z.string(),
   last_published_at: z.string(),
+  description: z.string().default(''),
+  tags: z.array(z.string()).default([]),
+  license: z.string().default(''),
 });
 export type PublishSidecar = z.infer<typeof PublishSidecarSchema>;
 
