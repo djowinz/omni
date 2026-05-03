@@ -2627,11 +2627,17 @@ mod tests {
         // Drop a fake .omni-preview.png so has_preview flips to true.
         std::fs::write(overlay_dir.join(".omni-preview.png"), b"fake png").unwrap();
         // Sidecar — the renderer keys the linked-artifact banner off this.
+        // The description/tags/license fields were added in OWI-110 to support
+        // INV-7.5.3 Step 2 prefill; this test fixture leaves them empty since
+        // it asserts the linked-artifact banner contract, not prefill.
         let sidecar = PublishSidecar {
             artifact_id: "ov_test".to_string(),
             author_pubkey_hex: hex::encode(ctx.identity.load().public_key().0),
             version: "1.0.0".to_string(),
             last_published_at: "2026-04-21T00:00:00Z".to_string(),
+            description: String::new(),
+            tags: Vec::new(),
+            license: String::new(),
         };
         write_sidecar(&overlay_dir, &sidecar).unwrap();
 

@@ -12,6 +12,9 @@ fn sample() -> PublishSidecar {
         author_pubkey_hex: "abcdef0123".into(),
         version: "1.3.0".into(),
         last_published_at: "2026-04-18T18:12:44Z".into(),
+        description: "test desc".into(),
+        tags: vec!["a".into(), "b".into()],
+        license: "MIT".into(),
     }
 }
 
@@ -24,6 +27,16 @@ fn write_and_read_overlay_sidecar() {
     write_sidecar(&overlay_dir, &s).expect("write");
     let back = read_sidecar(&overlay_dir).expect("read");
     assert_eq!(back, Some(s));
+    // INV-7.5.3: the expanded fields must persist intact through the
+    // write→read roundtrip so the upload dialog can prefill Step 2 on update
+    // mode without a worker round-trip.
+    let back = read_sidecar(&overlay_dir).expect("read");
+    assert_eq!(back.as_ref().unwrap().description, "test desc");
+    assert_eq!(
+        back.as_ref().unwrap().tags,
+        vec!["a".to_string(), "b".to_string()]
+    );
+    assert_eq!(back.as_ref().unwrap().license, "MIT");
 }
 
 #[test]

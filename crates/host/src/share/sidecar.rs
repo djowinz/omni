@@ -48,6 +48,20 @@ pub struct PublishSidecar {
     pub author_pubkey_hex: String,
     pub version: String,
     pub last_published_at: String,
+    /// Last-published manifest description. Cached locally so the upload
+    /// dialog's Step 2 form (INV-7.5.3) can prefill on update mode without
+    /// a worker round-trip. `#[serde(default)]` keeps older sidecars
+    /// (written before this field existed) deserializing cleanly.
+    #[serde(default)]
+    pub description: String,
+    /// Last-published manifest tag list. Cached locally for INV-7.5.3
+    /// prefill. See `description` for the `serde(default)` rationale.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Last-published manifest license string (SPDX or free-form Custom).
+    /// Cached locally for INV-7.5.3 prefill. See `description`.
+    #[serde(default)]
+    pub license: String,
 }
 
 /// Filename used for overlay sidecars (dotfile so `walk_bundle` skips it).
@@ -128,6 +142,9 @@ mod tests {
             author_pubkey_hex: "abcd".into(),
             version: "1.3.0".into(),
             last_published_at: "2026-04-18T18:12:44Z".into(),
+            description: "marathon run HUD".into(),
+            tags: vec!["marathon".into(), "running".into()],
+            license: "MIT".into(),
         }
     }
 
@@ -173,5 +190,26 @@ mod tests {
         std::fs::write(overlay_dir.join(SIDECAR_FILENAME), b"not json").unwrap();
         let err = read_sidecar(&overlay_dir).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn deserializes_old_shape_sidecar_without_new_fields() {
+        // Sidecars written before the description/tags/license expansion must
+        // still load cleanly — `serde(default)` provides empty defaults.
+        let dir = tempdir().unwrap();
+        let overlay_dir = dir.path().join("overlays").join("legacy");
+        std::fs::create_dir_all(&overlay_dir).unwrap();
+        let old_shape = br#"{
+            "artifact_id": "ov_legacy",
+            "author_pubkey_hex": "abcd",
+            "version": "0.1.0",
+            "last_published_at": "2026-04-18T00:00:00Z"
+        }"#;
+        std::fs::write(overlay_dir.join(SIDECAR_FILENAME), old_shape).unwrap();
+        let back = read_sidecar(&overlay_dir).unwrap().expect("Some");
+        assert_eq!(back.artifact_id, "ov_legacy");
+        assert_eq!(back.description, "");
+        assert!(back.tags.is_empty());
+        assert_eq!(back.license, "");
     }
 }

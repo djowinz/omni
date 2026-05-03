@@ -23,4 +23,21 @@
  * here must keep `serde(default)` semantics for forward-compat with sidecars
  * written by older host versions.
  */
-export type PublishSidecar = { artifact_id: string, author_pubkey_hex: string, version: string, last_published_at: string, };
+export type PublishSidecar = { artifact_id: string, author_pubkey_hex: string, version: string, last_published_at: string, 
+/**
+ * Last-published manifest description. Cached locally so the upload
+ * dialog's Step 2 form (INV-7.5.3) can prefill on update mode without
+ * a worker round-trip. `#[serde(default)]` keeps older sidecars
+ * (written before this field existed) deserializing cleanly.
+ */
+description: string, 
+/**
+ * Last-published manifest tag list. Cached locally for INV-7.5.3
+ * prefill. See `description` for the `serde(default)` rationale.
+ */
+tags: Array<string>, 
+/**
+ * Last-published manifest license string (SPDX or free-form Custom).
+ * Cached locally for INV-7.5.3 prefill. See `description`.
+ */
+license: string, };
