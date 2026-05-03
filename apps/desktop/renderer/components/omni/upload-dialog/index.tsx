@@ -79,7 +79,7 @@ export function UploadDialog({
   onPublished,
   backupSaveBackup,
 }: UploadDialogProps) {
-  const { state, actions, form } = useUploadMachine({ prefilledPath, onPublished });
+  const { state, actions, form } = useUploadMachine({ prefilledPath, onPublished, open });
   const stepIdx = STEP_INDEX[state.step];
 
   // Reset on close — a partial upload session must not leak into the next

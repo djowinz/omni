@@ -505,6 +505,16 @@ export interface UseUploadMachineOptions {
   prefilledPath?: string | null;
   /** Fired on successful publish so consumers can refresh their own state. */
   onPublished?: (params: UploadPublishResult['params']) => void;
+  /**
+   * Whether the parent dialog is currently open. Threaded through so the
+   * prefilled-path effect can re-fire on reopen — without `open` in the
+   * dep array, closing+reopening with the same `prefilledPath` value
+   * (the editor's "Upload" button does this on every click for the
+   * active overlay) leaves the dialog stuck on Step 1 because React's
+   * effect dep comparison sees no change. INV-7.6.1 / regression
+   * `prefill-on-reopen.test.tsx`.
+   */
+  open?: boolean;
 }
 
 export interface UseUploadMachineResult {
@@ -515,7 +525,7 @@ export interface UseUploadMachineResult {
 }
 
 export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUploadMachineResult {
-  const { prefilledPath = null, onPublished } = options;
+  const { prefilledPath = null, onPublished, open = true } = options;
   const ws = useShareWs();
 
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
@@ -601,6 +611,12 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
   // value and the `selected` state is already populated, so this is a no-op.
   const prefilledHandledRef = useRef<string | null>(null);
   useEffect(() => {
+    // Bail when the dialog is closed — the parent's `open` prop drives
+    // mount lifecycle but the hook stays mounted, so we use `open` as the
+    // re-fire signal. Without this gate, the effect would still only run
+    // once per `prefilledPath` change because `prefilledHandledRef`
+    // short-circuits.
+    if (!open) return;
     if (!prefilledPath || prefilledHandledRef.current === prefilledPath) return;
     prefilledHandledRef.current = prefilledPath;
     let cancelled = false;
@@ -621,7 +637,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     return () => {
       cancelled = true;
     };
-  }, [prefilledPath, ws]);
+  }, [prefilledPath, ws, open]);
 
   // ── Pack execution ─────────────────────────────────────────────────────────
 
