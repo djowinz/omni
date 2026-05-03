@@ -529,20 +529,40 @@ where
             // Its return value carries the UploadResult we need for sidecar
             // persistence. JoinError or pump-cancellation → skip persist
             // (the publish succeeded server-side regardless).
-            if let Ok(Ok(upload_result)) = pump_result {
-                use super::publish_state::{persist_publish_state, PersistInputs};
-                persist_publish_state(&PersistInputs {
-                    data_dir: &ctx.data_dir,
-                    kind: persist_kind,
-                    workspace_path: &persist_workspace_path,
-                    pubkey_hex: &persist_pubkey_hex,
-                    artifact_id: &upload_result.artifact_id,
-                    version: &persist_version_str,
-                    description: &persist_description,
-                    tags: &persist_tags,
-                    license: &persist_license,
-                    index_path: None,
-                });
+            match pump_result {
+                Ok(Ok(upload_result)) => {
+                    use super::publish_state::{persist_publish_state, PersistInputs};
+                    persist_publish_state(&PersistInputs {
+                        data_dir: &ctx.data_dir,
+                        kind: persist_kind,
+                        workspace_path: &persist_workspace_path,
+                        pubkey_hex: &persist_pubkey_hex,
+                        artifact_id: &upload_result.artifact_id,
+                        version: &persist_version_str,
+                        description: &persist_description,
+                        tags: &persist_tags,
+                        license: &persist_license,
+                        index_path: None,
+                    });
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        error = %e,
+                        artifact_workspace_path = %persist_workspace_path,
+                        "publish succeeded server-side but pump returned UploadError; \
+                         skipping persist_publish_state — next dialog open will treat \
+                         this artifact as create-mode rather than update-mode"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        artifact_workspace_path = %persist_workspace_path,
+                        "publish succeeded server-side but pump task did not join cleanly \
+                         (panic or cancel); skipping persist_publish_state — next dialog \
+                         open will treat this artifact as create-mode rather than update-mode"
+                    );
+                }
             }
         }
     }

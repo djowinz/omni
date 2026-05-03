@@ -94,9 +94,14 @@ pub struct PersistInputs<'a> {
     /// Override for the publish-index file path. Production callers leave
     /// this `None` so the helper writes to the canonical
     /// `%APPDATA%\Omni\publish-index.json` via [`publish_index::index_path`].
-    /// Tests override with a `tempdir`-rooted path to avoid polluting the
-    /// real user's index file. Mirrors the established pattern in
-    /// `crates/host/tests/publish_index.rs` which always uses tempdirs.
+    /// Tests override with a `tempdir`-rooted path.
+    ///
+    /// Note: `crates/host/src/config.rs::data_dir` honors `$env:APPDATA`,
+    /// so an alternative test strategy is to set `$env:APPDATA` to a
+    /// tempdir and leave this `None`. We chose explicit override over
+    /// env-injection because it (a) keeps tests parallel-safe without
+    /// `serial_test`, and (b) makes the test/prod boundary visible at
+    /// each call site rather than hidden in process state.
     pub index_path: Option<&'a Path>,
 }
 
@@ -176,19 +181,13 @@ pub fn persist_publish_state(inputs: &PersistInputs<'_>) {
             .strip_prefix("overlays/")
             .unwrap_or(inputs.workspace_path)
             .to_string(),
-        ArtifactKind::Theme => inputs
-            .workspace_path
-            .strip_prefix("themes/")
-            .unwrap_or(inputs.workspace_path)
-            .strip_suffix(".css")
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                inputs
-                    .workspace_path
-                    .strip_prefix("themes/")
-                    .unwrap_or(inputs.workspace_path)
-                    .to_string()
-            }),
+        ArtifactKind::Theme => {
+            let stem = inputs
+                .workspace_path
+                .strip_prefix("themes/")
+                .unwrap_or(inputs.workspace_path);
+            stem.strip_suffix(".css").unwrap_or(stem).to_string()
+        }
     };
     idx.upsert(PublishIndexEntry {
         pubkey_hex: inputs.pubkey_hex.to_string(),
