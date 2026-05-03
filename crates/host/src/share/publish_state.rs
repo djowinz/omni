@@ -28,7 +28,7 @@
 //!   directory; index = workspace-global silent-restore source after
 //!   sidecar deletion).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::share::publish_index::{self, PublishIndexEntry};
 use crate::share::sidecar::{self, PublishSidecar};
@@ -91,6 +91,13 @@ pub struct PersistInputs<'a> {
     pub description: &'a str,
     pub tags: &'a [String],
     pub license: &'a str,
+    /// Override for the publish-index file path. Production callers leave
+    /// this `None` so the helper writes to the canonical
+    /// `%APPDATA%\Omni\publish-index.json` via [`publish_index::index_path`].
+    /// Tests override with a `tempdir`-rooted path to avoid polluting the
+    /// real user's index file. Mirrors the established pattern in
+    /// `crates/host/tests/publish_index.rs` which always uses tempdirs.
+    pub index_path: Option<&'a Path>,
 }
 
 /// Write the per-artifact sidecar AND upsert the workspace-global publish
@@ -148,7 +155,10 @@ pub fn persist_publish_state(inputs: &PersistInputs<'_>) {
     }
 
     // Workspace-global publish-index: silent-restore source per §8.2.
-    let index_path = publish_index::index_path();
+    let index_path: PathBuf = match inputs.index_path {
+        Some(p) => p.to_path_buf(),
+        None => publish_index::index_path(),
+    };
     let mut idx = match publish_index::read(&index_path) {
         Ok(i) => i,
         Err(e) => {
@@ -209,6 +219,7 @@ mod tests {
         workspace_path: &'a str,
         kind: ArtifactKind,
         tags: &'a [String],
+        index_path: &'a Path,
     ) -> PersistInputs<'a> {
         PersistInputs {
             data_dir,
@@ -220,6 +231,7 @@ mod tests {
             description: "test desc",
             tags,
             license: "MIT",
+            index_path: Some(index_path),
         }
     }
 
@@ -229,11 +241,13 @@ mod tests {
         let overlay_dir = tmp.path().join("overlays").join("marathon");
         std::fs::create_dir_all(&overlay_dir).unwrap();
         let tags = vec!["tag1".to_string()];
+        let index_path = tmp.path().join("publish-index.json");
         persist_publish_state(&inputs(
             tmp.path(),
             "overlays/marathon",
             ArtifactKind::Bundle,
             &tags,
+            &index_path,
         ));
         let sidecar = sidecar::read_sidecar(&overlay_dir).unwrap().expect("Some");
         assert_eq!(sidecar.artifact_id, "ov_test");
@@ -243,6 +257,10 @@ mod tests {
         assert_eq!(sidecar.tags, vec!["tag1".to_string()]);
         assert_eq!(sidecar.license, "MIT");
         assert!(!sidecar.last_published_at.is_empty());
+        // Index also written to the override path.
+        let idx = publish_index::read(&index_path).unwrap();
+        assert_eq!(idx.entries.len(), 1);
+        assert_eq!(idx.entries[0].name, "marathon");
     }
 
     #[test]
@@ -251,11 +269,13 @@ mod tests {
         let themes_dir = tmp.path().join("themes");
         std::fs::create_dir_all(&themes_dir).unwrap();
         let tags = vec!["tag1".to_string()];
+        let index_path = tmp.path().join("publish-index.json");
         persist_publish_state(&inputs(
             tmp.path(),
             "themes/synth.css",
             ArtifactKind::Theme,
             &tags,
+            &index_path,
         ));
         let sidecar = sidecar::read_theme_sidecar(&themes_dir, "synth.css")
             .unwrap()
@@ -270,11 +290,13 @@ mod tests {
         // sidecar::write_sidecar already mkdirs.
         let tmp = tempdir().unwrap();
         let tags = vec!["tag1".to_string()];
+        let index_path = tmp.path().join("publish-index.json");
         persist_publish_state(&inputs(
             tmp.path(),
             "overlays/fresh",
             ArtifactKind::Bundle,
             &tags,
+            &index_path,
         ));
         assert!(tmp
             .path()

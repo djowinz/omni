@@ -28,6 +28,7 @@ fn publish_writes_sidecar_with_full_manifest_fields() {
     std::fs::create_dir_all(&overlay_dir).expect("mkdir");
 
     let tags = vec!["marathon".to_string(), "running".to_string()];
+    let index_path = tmp.path().join("publish-index.json");
     persist_publish_state(&PersistInputs {
         data_dir: tmp.path(),
         kind: ArtifactKind::Bundle,
@@ -38,6 +39,7 @@ fn publish_writes_sidecar_with_full_manifest_fields() {
         description: "marathon HUD with splits",
         tags: &tags,
         license: "MIT",
+        index_path: Some(&index_path),
     });
 
     let sidecar = read_sidecar(&overlay_dir).expect("read").expect("Some");
@@ -65,6 +67,7 @@ fn publish_overwrites_existing_sidecar_on_update() {
     let overlay_dir = tmp.path().join("overlays").join("marathon-hud");
     std::fs::create_dir_all(&overlay_dir).expect("mkdir");
     let empty: Vec<String> = Vec::new();
+    let index_path = tmp.path().join("publish-index.json");
     persist_publish_state(&PersistInputs {
         data_dir: tmp.path(),
         kind: ArtifactKind::Bundle,
@@ -75,6 +78,7 @@ fn publish_overwrites_existing_sidecar_on_update() {
         description: "first",
         tags: &empty,
         license: "MIT",
+        index_path: Some(&index_path),
     });
     let new_tags = vec!["new".to_string()];
     persist_publish_state(&PersistInputs {
@@ -87,10 +91,41 @@ fn publish_overwrites_existing_sidecar_on_update() {
         description: "second",
         tags: &new_tags,
         license: "Apache-2.0",
+        index_path: Some(&index_path),
     });
     let sidecar = read_sidecar(&overlay_dir).expect("read").expect("Some");
     assert_eq!(sidecar.artifact_id, "ov_second");
     assert_eq!(sidecar.version, "1.1.0");
     assert_eq!(sidecar.license, "Apache-2.0");
     assert_eq!(sidecar.tags, vec!["new".to_string()]);
+}
+
+#[test]
+fn publish_upserts_publish_index_row_at_overridden_path() {
+    let tmp = tempdir().expect("tempdir");
+    let overlay_dir = tmp.path().join("overlays").join("marathon-hud");
+    std::fs::create_dir_all(&overlay_dir).expect("mkdir");
+    let index_path = tmp.path().join("publish-index.json");
+
+    persist_publish_state(&PersistInputs {
+        data_dir: tmp.path(),
+        kind: ArtifactKind::Bundle,
+        workspace_path: "overlays/marathon-hud",
+        pubkey_hex: "abcd",
+        artifact_id: "ov_first",
+        version: "1.0.0",
+        description: "",
+        tags: &[],
+        license: "MIT",
+        index_path: Some(&index_path),
+    });
+
+    let idx = omni_host::share::publish_index::read(&index_path).expect("read");
+    assert_eq!(idx.entries.len(), 1);
+    let row = &idx.entries[0];
+    assert_eq!(row.pubkey_hex, "abcd");
+    assert_eq!(row.kind, "overlay");
+    assert_eq!(row.name, "marathon-hud");
+    assert_eq!(row.artifact_id, "ov_first");
+    assert_eq!(row.last_version, "1.0.0");
 }

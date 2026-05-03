@@ -541,6 +541,7 @@ where
                     description: &persist_description,
                     tags: &persist_tags,
                     license: &persist_license,
+                    index_path: None,
                 });
             }
         }
