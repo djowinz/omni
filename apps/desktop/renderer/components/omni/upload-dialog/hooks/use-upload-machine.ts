@@ -648,11 +648,28 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
   // Side-effect-only — no dispatch. `form.reset(...)` re-initialises the
   // react-hook-form values in one batch (cheaper than per-field setValue
   // and avoids intermediate validation-trigger storms).
+  //
+  // Subscribe to the form's dirty flag at render time. react-hook-form's
+  // `formState` is a Proxy whose properties only become reactive when
+  // read during render — reading `form.formState.isDirty` inside an
+  // effect alone returns the stale initial value (`false`) because the
+  // Proxy never gets a subscription notice. Destructuring here at the
+  // hook's top level registers the subscription, so the value is
+  // up-to-date when the prefill effect below reads it.
+  const { isDirty } = form.formState;
   useEffect(() => {
     if (state.mode !== 'update') return;
     const entry = state.selected;
     const sidecar = entry?.sidecar;
     if (!entry || !sidecar) return;
+    // Don't clobber values the user has already touched. Mode-flips driven
+    // by late-arriving identity (`SET_CURRENT_PUBKEY`) or by the
+    // `linkAndUpdate` recovery flow (which dispatches SELECT_ITEM with a
+    // synthetic entry mid-publish) re-trigger this effect with a fresh
+    // entry reference; without this guard, `form.reset(...)` would
+    // overwrite the user's Step 2 input. INV-7.5.3 specifies prefill on
+    // first entry into update mode, not unconditional re-prefill.
+    if (isDirty) return;
     form.reset({
       name: entry.name,
       description: sidecar.description ?? '',
@@ -662,7 +679,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       bump: 'patch',
       version: sidecar.version ?? '1.0.0',
     });
-  }, [state.mode, state.selected, form]);
+  }, [state.mode, state.selected, form, isDirty]);
 
   // ── Pack execution ─────────────────────────────────────────────────────────
 

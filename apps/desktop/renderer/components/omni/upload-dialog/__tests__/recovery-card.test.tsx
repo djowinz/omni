@@ -78,6 +78,11 @@ const VOCAB_RESULT = {
   params: { tags: ['dark', 'minimal'], version: 1 },
 };
 
+/** User-typed values the regression test pushes into Step 2 before Publish. */
+const USER_TYPED_NAME = 'My Custom Name';
+const USER_TYPED_DESCRIPTION = 'A bespoke description the user typed.';
+const USER_TYPED_TAG = 'dark';
+
 /** workspace.listPublishables — one overlay matching the test's prefilled path. */
 const WORKSPACE_PATH = 'overlays/full-telemetry';
 const ARTIFACT_NAME = 'Full Telemetry';
@@ -212,11 +217,26 @@ function packFrame(
 }
 
 /**
+ * Step 2 form values to type before clicking Publish. Defaults match the
+ * minimal "fill the required Name field" flow the original recovery-card
+ * tests use; the C1 regression test overrides every field to non-default
+ * values so it can assert they survive the linkAndUpdate recovery path.
+ */
+interface Step2Inputs {
+  name?: string;
+  description?: string;
+  /** Tag chip slugs to click (must exist in `VOCAB_RESULT.params.tags`). */
+  tags?: string[];
+}
+
+/**
  * Walks the dialog from open → Step 4 with the AuthorNameConflict error
  * already surfaced. Returns the bridge spies so the caller can assert
  * follow-up sends (e.g. the upload.update call after Link-and-update).
  */
-async function renderDialogAtRecoveryCard(): Promise<MockBridge> {
+async function renderDialogAtRecoveryCard(
+  step2: Step2Inputs = {},
+): Promise<MockBridge> {
   const bridge = stubOmniBridge();
   // IdentityBackupDialog (mounted unconditionally by UploadDialog) calls
   // useBackend(); stub it to a no-op so it doesn't crash on a missing IPC
@@ -231,8 +251,21 @@ async function renderDialogAtRecoveryCard(): Promise<MockBridge> {
 
   // Fill in the Name field (Step 2's only required field).
   fireEvent.change(screen.getByTestId('upload-name'), {
-    target: { value: ARTIFACT_NAME },
+    target: { value: step2.name ?? ARTIFACT_NAME },
   });
+
+  // Optional Step 2 fields — the C1 regression test fills these to assert
+  // they survive the linkAndUpdate recovery path.
+  if (step2.description !== undefined) {
+    fireEvent.change(screen.getByTestId('upload-description'), {
+      target: { value: step2.description },
+    });
+  }
+  if (step2.tags) {
+    for (const tag of step2.tags) {
+      fireEvent.click(screen.getByTestId(`review-tag-badge-${tag}`));
+    }
+  }
 
   // Click Continue → advances into Step 3 (Packing) and fires upload.pack.
   await act(async () => {
@@ -337,6 +370,58 @@ describe('UploadDialog — AuthorNameConflict recovery card (INV-7.6.3)', () => 
     };
     expect(updateMsg.type).toBe('upload.update');
     expect(updateMsg.params.artifact_id).toBe(EXISTING_ARTIFACT_ID);
+  });
+
+  it('Link-and-update preserves user-typed Step 2 values (Issue C1 regression)', async () => {
+    // Issue C1: the prefill effect that seeds Step 2 form fields when update
+    // mode resolves used to re-fire whenever `state.mode` or `state.selected`
+    // changed. The linkAndUpdate recovery flow dispatches SELECT_ITEM with a
+    // synthetic entry mid-publish (which flips mode → 'update'); without an
+    // `isDirty` guard on the prefill effect, that dispatch caused
+    // `form.reset(...)` to clobber the user's already-typed Name /
+    // Description / Tags / License BEFORE doPublish() built the upload
+    // params — so upload.update was sent with the synthetic entry's name
+    // and empty fields. The fix in use-upload-machine.ts gates the effect
+    // on `form.formState.isDirty`. This test pins that contract.
+    const bridge = await renderDialogAtRecoveryCard({
+      name: USER_TYPED_NAME,
+      description: USER_TYPED_DESCRIPTION,
+      tags: [USER_TYPED_TAG],
+    });
+
+    const callsBeforeClick = bridge.sendShareMessage.mock.calls.length;
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('publish-recovery-link-and-update'));
+    });
+
+    await waitFor(() => {
+      expect(bridge.sendShareMessage.mock.calls.length).toBeGreaterThan(callsBeforeClick);
+    });
+
+    const updateCalls = bridge.sendShareMessage.mock.calls.filter(
+      (args) => (args[0] as { type: string }).type === 'upload.update',
+    );
+    expect(updateCalls).toHaveLength(1);
+    const updateMsg = updateCalls[0][0] as {
+      type: string;
+      params: {
+        artifact_id: string;
+        name: string;
+        description?: string;
+        tags?: string[];
+      };
+    };
+    // The artifact_id still comes from the recovery-card detail blob.
+    expect(updateMsg.params.artifact_id).toBe(EXISTING_ARTIFACT_ID);
+    // The user's typed values must NOT be clobbered by the synthetic entry's
+    // SELECT_ITEM dispatch. Without the isDirty guard these would be:
+    //   name === ARTIFACT_NAME ('Full Telemetry')
+    //   description === ''
+    //   tags === []
+    expect(updateMsg.params.name).toBe(USER_TYPED_NAME);
+    expect(updateMsg.params.description).toBe(USER_TYPED_DESCRIPTION);
+    expect(updateMsg.params.tags).toEqual([USER_TYPED_TAG]);
   });
 
   it('Rename-and-publish-new click navigates the dialog back to Step 2 (Details)', async () => {
