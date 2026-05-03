@@ -412,6 +412,11 @@ where
             return;
         }
     };
+    // Capture the raw tag-string list BEFORE the `Tag::new` parse below
+    // moves it. Sidecar persistence (§8.1) caches the user-supplied tag
+    // strings verbatim — round-tripping through `Tag::Display` would lose
+    // any future per-tag presentation that the format type might add.
+    let persist_tags: Vec<String> = p.tags.clone().unwrap_or_default();
     // Parse tags via the Tag::new gate so format errors surface as BadInput, not as
     // silent empty-string fallbacks. Vec<String> → Vec<Tag>.
     let tags: Vec<Tag> = match p
@@ -460,6 +465,18 @@ where
         },
         None => ctx.current_version.clone(),
     };
+    // Capture every remaining field we need for sidecar persistence
+    // BEFORE `req` is moved into `upload(...)`. The post-success
+    // persistence (§8.1 + §8.2) needs description/tags/license/version +
+    // workspace_path + kind + pubkey; reading them off `req` after the
+    // move would be a borrow-checker error. (`persist_tags` is captured
+    // earlier — see the comment above the `Tag::new` parse.)
+    let persist_workspace_path = p.workspace_path.clone();
+    let persist_description = p.description.clone().unwrap_or_default();
+    let persist_license = p.license.clone().unwrap_or_default();
+    let persist_version_str = p.version.clone().unwrap_or_default();
+    let persist_kind = parse_kind(p.kind.as_deref());
+    let persist_pubkey_hex = ctx.identity.load().public_key().to_hex();
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
         source_path: resolve_workspace_path(&ctx.data_dir, &p.workspace_path),
@@ -501,9 +518,32 @@ where
     // semantics.
     let identity = ctx.identity.load_full();
     let res = upload(req, ctx.guard.clone(), identity, ctx.client.clone(), tx).await;
-    let _ = pump.await;
-    if let Err(e) = res {
-        send_fn(error_envelope(id, &e).to_string());
+    let pump_result = pump.await;
+
+    match res {
+        Err(e) => {
+            send_fn(error_envelope(id, &e).to_string());
+        }
+        Ok(_) => {
+            // The pump consumed the channel and emitted *Result via send_fn.
+            // Its return value carries the UploadResult we need for sidecar
+            // persistence. JoinError or pump-cancellation → skip persist
+            // (the publish succeeded server-side regardless).
+            if let Ok(Ok(upload_result)) = pump_result {
+                use super::publish_state::{persist_publish_state, PersistInputs};
+                persist_publish_state(&PersistInputs {
+                    data_dir: &ctx.data_dir,
+                    kind: persist_kind,
+                    workspace_path: &persist_workspace_path,
+                    pubkey_hex: &persist_pubkey_hex,
+                    artifact_id: &upload_result.artifact_id,
+                    version: &persist_version_str,
+                    description: &persist_description,
+                    tags: &persist_tags,
+                    license: &persist_license,
+                });
+            }
+        }
     }
 }
 

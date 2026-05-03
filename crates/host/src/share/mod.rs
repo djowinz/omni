@@ -40,6 +40,7 @@ pub mod preview;
 pub mod preview_impl;
 pub mod progress;
 pub mod publish_index;
+pub mod publish_state;
 pub mod registry;
 pub mod save_preview;
 pub mod sidecar;
