@@ -11,7 +11,6 @@ import PolicyDisclosure from '@/components/omni/policy-disclosure';
 import { PreviewBanner } from '@/components/omni/preview-banner';
 import { ExploreSidebar } from '@/components/omni/explore-sidebar';
 import { ExploreEmptyState } from '@/components/omni/explore-empty-state';
-import { ExploreDetail } from '@/components/omni/explore-detail';
 import { PreviewContextProvider, usePreview } from '@/lib/preview-context';
 import { useShareWs } from '@/hooks/use-share-ws';
 import { POLICY_ALLOWED, POLICY_NOT_ALLOWED } from '@/lib/policy';
@@ -86,37 +85,35 @@ export default function PrimitivesSmokeShare() {
         </header>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">ArtifactCard — grid variant</h2>
+          <h2 className="text-lg font-semibold">ArtifactCard — grid (no hover overlay)</h2>
           <div className="grid grid-cols-3 gap-4">
-            <ArtifactCard variant="grid" artifact={SAMPLE_ARTIFACT} />
-            <ArtifactCard variant="grid" artifact={SAMPLE_ARTIFACT} installed />
-            <ArtifactCard
-              variant="grid"
-              artifact={{ ...SAMPLE_ARTIFACT, kind: 'theme', name: 'Midnight Mono' }}
-            />
+            <ArtifactCard artifact={SAMPLE_ARTIFACT} />
+            <ArtifactCard artifact={SAMPLE_ARTIFACT} installed />
+            <ArtifactCard artifact={{ ...SAMPLE_ARTIFACT, kind: 'theme', name: 'Midnight Mono' }} />
           </div>
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">ArtifactCard — detail variant</h2>
-          <ArtifactCard
-            variant="detail"
-            artifact={SAMPLE_ARTIFACT}
-            actionSlots={{
-              left: (
-                <Button type="button" variant="outline">
-                  Preview
-                </Button>
-              ),
-              middle: <Button type="button">Install</Button>,
-              right: (
-                <Button type="button" variant="outline">
-                  Fork
-                </Button>
-              ),
-            }}
-            kebabMenuItems={null}
-          />
+          <h2 className="text-lg font-semibold">ArtifactCard — grid (with hover overlay)</h2>
+          <p className="text-sm text-muted-foreground">
+            Hover over a card to reveal Preview + Install actions over the thumbnail. Buttons stop
+            propagation so they don&apos;t also fire <code>onClick</code>.
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            <ArtifactCard
+              artifact={SAMPLE_ARTIFACT}
+              onClick={() => console.log('[smoke] card click')}
+              onPreview={() => console.log('[smoke] preview click')}
+              onInstall={() => console.log('[smoke] install click')}
+            />
+            <ArtifactCard
+              artifact={{ ...SAMPLE_ARTIFACT, kind: 'theme', name: 'Midnight Mono' }}
+              onClick={() => console.log('[smoke] card click')}
+              onPreview={() => console.log('[smoke] preview click')}
+              onInstall={() => console.log('[smoke] install click')}
+              data-selected="true"
+            />
+          </div>
         </section>
 
         <section className="space-y-3">
@@ -154,13 +151,14 @@ export default function PrimitivesSmokeShare() {
         </section>
 
         <section className="space-y-3 border-t border-zinc-800 pt-6">
-          <h2 className="text-lg font-semibold">Wave 3b — Explore primitives</h2>
+          <h2 className="text-lg font-semibold">Explore primitives</h2>
           <p className="text-sm text-muted-foreground">
-            Sidebar, empty-state, and detail pane rendered standalone. Grid + full ExplorePanel need
-            live <code>useShareWs</code> data, exercised via the Explore tab in dev-mode smoke.
+            Sidebar + empty-state rendered standalone. Grid + ExploreDetail need live{' '}
+            <code>useShareWs</code> data and a selected artifact, exercised via the Explore tab in
+            dev-mode smoke.
           </p>
           <div
-            className="grid grid-cols-3 gap-4 rounded-md border border-zinc-800 bg-[#0D0D0F]"
+            className="grid grid-cols-2 gap-4 rounded-md border border-zinc-800 bg-[#0D0D0F]"
             style={{ height: 360 }}
           >
             <ExploreSidebar />
@@ -168,7 +166,6 @@ export default function PrimitivesSmokeShare() {
               label="Sample empty state"
               hint="This renders when a sub-tab has no content yet."
             />
-            <ExploreDetail selectedId={null} tab="discover" />
           </div>
         </section>
       </div>

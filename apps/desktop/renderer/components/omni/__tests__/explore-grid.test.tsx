@@ -32,7 +32,9 @@ vi.mock('../../../hooks/use-explore-filters', () => ({
   }),
 }));
 
-const fixture = {
+import type { CachedArtifactDetail } from '../../../lib/share-types';
+
+const fixture: CachedArtifactDetail = {
   artifact_id: 'a1',
   content_hash: '',
   author_pubkey: 'aa'.repeat(32),
@@ -46,7 +48,7 @@ const fixture = {
   created_at: 0,
   updated_at: 0,
   author_display_name: null,
-} as const;
+};
 
 beforeEach(() => {
   mockQ = '';
