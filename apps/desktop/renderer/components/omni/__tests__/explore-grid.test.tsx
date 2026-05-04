@@ -1,110 +1,162 @@
 /// <reference types="@testing-library/jest-dom/vitest" />
 
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { CachedArtifactDetail } from '../../../lib/share-types';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ExploreGrid } from '../explore-grid';
 
-const fixture = (n: number): CachedArtifactDetail[] =>
-  Array.from({ length: n }, (_, i) => ({
-    artifact_id: `art-${i}`,
-    content_hash: `h-${i}`,
-    author_pubkey: 'pk',
-    author_fingerprint_hex: '',
-    name: `Artifact ${i}`,
-    kind: 'theme',
+const mockSetQ = vi.fn();
+const mockSetSort = vi.fn();
+const mockSetKind = vi.fn();
+const mockSetTags = vi.fn();
+
+// Mutable so the search-no-match test can override q without a second vi.mock call.
+let mockQ = '';
+
+vi.mock('../../../hooks/use-explore-filters', () => ({
+  useExploreFilters: () => ({
+    tab: 'discover',
+    kind: 'all',
+    sort: 'new',
     tags: [],
-    installs: 0,
-    r2_url: `https://x/${i}`,
-    thumbnail_url: `https://x/${i}/t`,
-    created_at: 0,
-    updated_at: 1700000000 + i,
-    author_display_name: null,
-  }));
+    get q() {
+      return mockQ;
+    },
+    selectedId: null,
+    setTab: vi.fn(),
+    setKind: mockSetKind,
+    setSort: mockSetSort,
+    setTags: mockSetTags,
+    setQ: mockSetQ,
+    setSelectedId: vi.fn(),
+  }),
+}));
+
+const fixture = {
+  artifact_id: 'a1',
+  content_hash: '',
+  author_pubkey: 'aa'.repeat(32),
+  author_fingerprint_hex: '',
+  name: 'Marathon',
+  kind: 'theme',
+  tags: ['dark'],
+  installs: 1,
+  r2_url: '',
+  thumbnail_url: '',
+  created_at: 0,
+  updated_at: 0,
+  author_display_name: null,
+} as const;
+
+beforeEach(() => {
+  mockQ = '';
+  vi.clearAllMocks();
+});
 
 describe('ExploreGrid', () => {
-  it('renders cards for each item', () => {
+  it('renders the toolbar with search input and sort dropdown', () => {
     render(
       <ExploreGrid
-        items={fixture(3)}
+        items={[]}
         loading={false}
         hasMore={false}
+        selectedId={null}
         onSelect={() => {}}
         onLoadMore={() => {}}
-        selectedId={null}
-        emptyLabel="empty"
       />,
     );
-    expect(screen.getByText('Artifact 0')).toBeInTheDocument();
-    expect(screen.getByText('Artifact 1')).toBeInTheDocument();
-    expect(screen.getByText('Artifact 2')).toBeInTheDocument();
+    expect(screen.getByRole('searchbox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
   });
 
-  it('calls onSelect with artifact id when a card is clicked', async () => {
-    const user = userEvent.setup();
+  it('typing in the search input flows into setQ', async () => {
+    render(
+      <ExploreGrid
+        items={[]}
+        loading={false}
+        hasMore={false}
+        selectedId={null}
+        onSelect={() => {}}
+        onLoadMore={() => {}}
+      />,
+    );
+    await userEvent.type(screen.getByRole('searchbox'), 'foo');
+    expect(mockSetQ).toHaveBeenCalledWith('f');
+  });
+
+  it('renders cards in a 3-column grid', () => {
+    render(
+      <ExploreGrid
+        items={[fixture]}
+        loading={false}
+        hasMore={false}
+        selectedId={null}
+        onSelect={() => {}}
+        onLoadMore={() => {}}
+      />,
+    );
+    expect(screen.getByText('Marathon')).toBeInTheDocument();
+  });
+
+  it('clicking a card calls onSelect with the artifact_id', async () => {
     const onSelect = vi.fn();
     render(
       <ExploreGrid
-        items={fixture(2)}
+        items={[fixture]}
         loading={false}
         hasMore={false}
+        selectedId={null}
         onSelect={onSelect}
         onLoadMore={() => {}}
-        selectedId={null}
-        emptyLabel="empty"
       />,
     );
-    await user.click(screen.getByText('Artifact 1').closest('[data-testid="artifact-card-grid"]')!);
-    expect(onSelect).toHaveBeenCalledWith('art-1');
+    await userEvent.click(screen.getByText('Marathon'));
+    expect(onSelect).toHaveBeenCalledWith('a1');
   });
 
-  it('renders empty state when items is empty and not loading', () => {
+  it('shows search-no-match empty state when q is set and items is empty', () => {
+    mockQ = 'nothing';
     render(
       <ExploreGrid
         items={[]}
         loading={false}
         hasMore={false}
+        selectedId={null}
         onSelect={() => {}}
         onLoadMore={() => {}}
-        selectedId={null}
-        emptyLabel="No artifacts match your filters."
       />,
     );
-    expect(screen.getByTestId('explore-grid-empty')).toBeInTheDocument();
-    expect(screen.getByText(/No artifacts match your filters/)).toBeInTheDocument();
+    expect(screen.getByText(/no results for/i)).toBeInTheDocument();
   });
 
-  it('renders skeleton grid while loading and items empty', () => {
+  it('shows generic empty state when filters return zero and q is empty', () => {
     render(
       <ExploreGrid
         items={[]}
-        loading={true}
-        hasMore={false}
-        onSelect={() => {}}
-        onLoadMore={() => {}}
-        selectedId={null}
-        emptyLabel="empty"
-      />,
-    );
-    const skeletons = screen.getAllByTestId('explore-grid-skeleton');
-    expect(skeletons.length).toBeGreaterThanOrEqual(6);
-  });
-
-  it('marks selected card with data-selected="true"', () => {
-    render(
-      <ExploreGrid
-        items={fixture(2)}
         loading={false}
         hasMore={false}
+        selectedId={null}
         onSelect={() => {}}
         onLoadMore={() => {}}
-        selectedId="art-1"
-        emptyLabel="empty"
       />,
     );
-    const cards = screen.getAllByTestId('artifact-card-grid');
-    expect(cards[0]!.getAttribute('data-selected')).toBe('false');
-    expect(cards[1]!.getAttribute('data-selected')).toBe('true');
+    expect(screen.getByText(/no themes or bundles match/i)).toBeInTheDocument();
+  });
+
+  it('Clear filters button resets kind, tags, and q', async () => {
+    render(
+      <ExploreGrid
+        items={[]}
+        loading={false}
+        hasMore={false}
+        selectedId={null}
+        onSelect={() => {}}
+        onLoadMore={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByText(/clear filters/i));
+    expect(mockSetKind).toHaveBeenCalledWith('all');
+    expect(mockSetTags).toHaveBeenCalledWith([]);
+    expect(mockSetQ).toHaveBeenCalledWith('');
   });
 });

@@ -1,24 +1,24 @@
 /**
- * ExploreGrid — 3-column responsive grid of ArtifactCard items.
+ * ExploreGrid — grid panel with toolbar (search + sort) + virtualized 3-col card grid.
  *
- * Below 48 items, renders all cards as a simple flex wrap. At 48+, switches
- * to @tanstack/react-virtual row-virtualization (3 cards per row × 96px
- * estimated row height). The threshold matches design §2.3.
- *
- * Infinite scroll: a sentinel div at the bottom triggers onLoadMore when it
- * intersects the viewport. react-intersection-observer handles the
- * IntersectionObserver lifecycle.
+ * Per share-explorer-redesign spec §3.3:
+ *   - Toolbar h-10 above the existing virtualized grid.
+ *   - Grid keeps 3 columns always (does not reflow when detail pane closes).
+ *   - Cards get optional onPreview/onInstall handlers for hover overlay.
+ *   - Empty state branches on whether `q` is set vs empty.
  */
 
 import { useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useInView } from 'react-intersection-observer';
 import type { CachedArtifactDetail } from '../../lib/share-types';
+import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { ArtifactCard } from './artifact-card';
-import { ExploreEmptyState } from './explore-empty-state';
+import { SearchInput } from './search-input';
+import { SortDropdown } from './sort-dropdown';
 
 const VIRTUALIZE_THRESHOLD = 48;
-const ROW_HEIGHT_PX = 220;
+const ROW_HEIGHT_PX = 240;
 const COLS_PER_ROW = 3;
 
 export interface ExploreGridProps {
@@ -27,9 +27,9 @@ export interface ExploreGridProps {
   hasMore: boolean;
   selectedId: string | null;
   onSelect: (artifactId: string) => void;
+  onPreview?: (artifact: CachedArtifactDetail) => void;
+  onInstall?: (artifact: CachedArtifactDetail) => void;
   onLoadMore: () => void;
-  emptyLabel: string;
-  emptyHint?: string;
 }
 
 export function ExploreGrid({
@@ -38,33 +38,104 @@ export function ExploreGrid({
   hasMore,
   selectedId,
   onSelect,
+  onPreview,
+  onInstall,
   onLoadMore,
-  emptyLabel,
-  emptyHint,
 }: ExploreGridProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const { ref: sentinelRef, inView } = useInView({
-    root: scrollRef.current,
-    threshold: 0.1,
-  });
+  const { q, sort, setQ, setSort, setKind, setTags } = useExploreFilters();
 
-  // Fire the load-more request from an effect so we don't trigger an update
-  // during another component's render. `onLoadMore` is also guarded by an
-  // in-flight flag in the hook, but keeping this out of the render body
-  // avoids React's "setState during render" warning.
+  const clearFilters = () => {
+    setKind('all');
+    setTags([]);
+    setQ('');
+  };
+
+  return (
+    <div className="flex h-full flex-col bg-[#0D0D0F]">
+      {/* Toolbar */}
+      <div className="flex h-10 flex-shrink-0 items-center gap-3 border-b border-[#27272A] bg-[#18181B] px-4">
+        <SearchInput value={q} onChange={setQ} />
+        <div className="ml-auto">
+          <SortDropdown value={sort} onChange={setSort} />
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-hidden">
+        <GridBody
+          items={items}
+          loading={loading}
+          hasMore={hasMore}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onPreview={onPreview}
+          onInstall={onInstall}
+          onLoadMore={onLoadMore}
+          q={q}
+          onClearFilters={clearFilters}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface GridBodyProps {
+  items: CachedArtifactDetail[];
+  loading: boolean;
+  hasMore: boolean;
+  selectedId: string | null;
+  onSelect: (artifactId: string) => void;
+  onPreview?: (artifact: CachedArtifactDetail) => void;
+  onInstall?: (artifact: CachedArtifactDetail) => void;
+  onLoadMore: () => void;
+  q: string;
+  onClearFilters: () => void;
+}
+
+function GridBody({
+  items,
+  loading,
+  hasMore,
+  selectedId,
+  onSelect,
+  onPreview,
+  onInstall,
+  onLoadMore,
+  q,
+  onClearFilters,
+}: GridBodyProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const { ref: sentinelRef, inView } = useInView({ root: scrollRef.current, threshold: 0.1 });
+
   useEffect(() => {
-    if (inView && hasMore && !loading) {
-      onLoadMore();
-    }
+    if (inView && hasMore && !loading) onLoadMore();
   }, [inView, hasMore, loading, onLoadMore]);
 
   if (!loading && items.length === 0) {
-    return <ExploreEmptyState label={emptyLabel} hint={emptyHint} />;
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-center">
+        <div className="flex flex-col gap-2 text-xs text-zinc-500">
+          {q.length > 0 ? (
+            <p>
+              No results for <span className="font-medium text-[#A1A1AA]">"{q}"</span>.
+            </p>
+          ) : (
+            <p>No themes or bundles match these filters.</p>
+          )}
+          <button
+            onClick={onClearFilters}
+            className="text-[11px] text-[#00D9FF] hover:underline"
+          >
+            Clear filters
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (loading && items.length === 0) {
     return (
-      <div className="grid h-full grid-cols-3 gap-3 p-4 content-start">
+      <div className="grid grid-cols-3 content-start gap-3 p-4">
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
@@ -76,28 +147,27 @@ export function ExploreGrid({
     );
   }
 
-  // Below threshold: plain flex wrap — no virtualization overhead.
   if (items.length < VIRTUALIZE_THRESHOLD) {
     return (
       <div ref={scrollRef} data-testid="explore-grid" className="h-full overflow-y-auto p-4">
-        <div className="grid grid-cols-3 gap-3 content-start">
+        <div className="grid grid-cols-3 content-start gap-3.5">
           {items.map((item) => (
             <ArtifactCard
               key={item.artifact_id}
               artifact={item}
               onClick={() => onSelect(item.artifact_id)}
+              onPreview={onPreview ? () => onPreview(item) : undefined}
+              onInstall={onInstall ? () => onInstall(item) : undefined}
               data-selected={selectedId === item.artifact_id ? 'true' : 'false'}
             />
           ))}
         </div>
-        {hasMore ? (
-          <div ref={sentinelRef} data-testid="explore-grid-sentinel" className="h-8" />
-        ) : null}
+        {hasMore && <div ref={sentinelRef} data-testid="explore-grid-sentinel" className="h-8" />}
       </div>
     );
   }
 
-  // Virtualized path (hit at 48+ items): group into rows of 3.
+  // Virtualized path
   const rows: CachedArtifactDetail[][] = [];
   for (let i = 0; i < items.length; i += COLS_PER_ROW) {
     rows.push(items.slice(i, i + COLS_PER_ROW));
@@ -108,6 +178,8 @@ export function ExploreGrid({
       rows={rows}
       selectedId={selectedId}
       onSelect={onSelect}
+      onPreview={onPreview}
+      onInstall={onInstall}
       hasMore={hasMore}
       sentinelRef={sentinelRef}
     />
@@ -118,11 +190,21 @@ interface VirtualGridProps {
   rows: CachedArtifactDetail[][];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onPreview?: (artifact: CachedArtifactDetail) => void;
+  onInstall?: (artifact: CachedArtifactDetail) => void;
   hasMore: boolean;
   sentinelRef: (node: Element | null) => void;
 }
 
-function VirtualGrid({ rows, selectedId, onSelect, hasMore, sentinelRef }: VirtualGridProps) {
+function VirtualGrid({
+  rows,
+  selectedId,
+  onSelect,
+  onPreview,
+  onInstall,
+  hasMore,
+  sentinelRef,
+}: VirtualGridProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
 
   const rowVirtualizer = useVirtualizer({
@@ -148,13 +230,15 @@ function VirtualGrid({ rows, selectedId, onSelect, hasMore, sentinelRef }: Virtu
                 height: ROW_HEIGHT_PX,
                 transform: `translateY(${virtualRow.start}px)`,
               }}
-              className="grid grid-cols-3 gap-3 pb-3"
+              className="grid grid-cols-3 gap-3.5 pb-3.5"
             >
               {row.map((item) => (
                 <ArtifactCard
                   key={item.artifact_id}
                   artifact={item}
                   onClick={() => onSelect(item.artifact_id)}
+                  onPreview={onPreview ? () => onPreview(item) : undefined}
+                  onInstall={onInstall ? () => onInstall(item) : undefined}
                   data-selected={selectedId === item.artifact_id ? 'true' : 'false'}
                 />
               ))}
@@ -162,9 +246,7 @@ function VirtualGrid({ rows, selectedId, onSelect, hasMore, sentinelRef }: Virtu
           );
         })}
       </div>
-      {hasMore ? (
-        <div ref={sentinelRef} data-testid="explore-grid-sentinel" className="h-8" />
-      ) : null}
+      {hasMore && <div ref={sentinelRef} data-testid="explore-grid-sentinel" className="h-8" />}
     </div>
   );
 }
