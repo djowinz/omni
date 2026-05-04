@@ -238,10 +238,10 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
               <KindIcon className="h-[18px] w-[18px]" aria-hidden />
             </div>
             <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-[15px] font-semibold leading-tight text-[#FAFAFA]">
+              <span className="truncate text-base font-semibold leading-tight text-[#FAFAFA]">
                 {name}
               </span>
-              <span className="text-[11px] leading-tight text-[#71717A]">{kindLabel}</span>
+              <span className="text-[13px] leading-tight text-[#71717A]">{kindLabel}</span>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -291,19 +291,19 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
             </div>
 
             {description && (
-              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[#A1A1AA]">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#A1A1AA]">
                 {description}
               </p>
             )}
 
             {/* Author chip */}
-            <div className="flex items-center gap-2.5 rounded-lg border border-[#27272A] bg-[#27272A]/40 p-2.5">
-              <div className="h-8 w-8 flex-shrink-0 rounded-full bg-gradient-to-br from-[#00D9FF] to-[#A855F7]" />
+            <div className="flex items-center gap-3 rounded-lg border border-[#27272A] bg-[#27272A]/40 p-3">
+              <div className="h-9 w-9 flex-shrink-0 rounded-full bg-gradient-to-br from-[#00D9FF] to-[#A855F7]" />
               <div className="flex min-w-0 flex-col">
-                <span className="truncate text-[13px] font-medium text-[#FAFAFA]">
+                <span className="truncate text-sm font-medium text-[#FAFAFA]">
                   {authorName ?? 'Unknown'}
                 </span>
-                <span className="truncate font-mono text-[11px] text-[#71717A]">
+                <span className="truncate font-mono text-[13px] text-[#71717A]">
                   #{authorSlice}
                 </span>
               </div>
@@ -320,16 +320,16 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
             {/* Tags */}
             {tags.length > 0 && (
               <div>
-                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
+                <h4 className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
                   Tags
                 </h4>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {tags.map((tag) => (
                     <span
                       key={tag}
-                      className="flex items-center gap-1 rounded-md border border-[#3F3F46] bg-[#27272A] px-2.5 py-1 text-[11px] text-[#D4D4D8]"
+                      className="flex items-center gap-1.5 rounded-md border border-[#3F3F46] bg-[#27272A] px-3 py-1 text-[13px] text-[#D4D4D8]"
                     >
-                      <TagIcon className="h-2.5 w-2.5" aria-hidden />
+                      <TagIcon className="h-3 w-3" aria-hidden />
                       {tag}
                     </span>
                   ))}
@@ -441,12 +441,12 @@ function Stat({
   mono?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-[#27272A] bg-[#27272A]/40 p-2.5">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em] text-[#71717A]">
-        <Icon className="h-2.5 w-2.5" aria-hidden />
+    <div className="flex flex-col gap-1.5 rounded-lg border border-[#27272A] bg-[#27272A]/40 p-3">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.06em] text-[#71717A]">
+        <Icon className="h-3 w-3" aria-hidden />
         {label}
       </div>
-      <div className={cn('text-[15px] font-semibold text-[#FAFAFA]', mono && 'font-mono')}>
+      <div className={cn('text-base font-semibold text-[#FAFAFA]', mono && 'font-mono')}>
         {value}
       </div>
     </div>

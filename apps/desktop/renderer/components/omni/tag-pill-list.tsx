@@ -21,12 +21,12 @@ export interface TagPillListProps {
 export function TagPillList({ tags, selected, onToggle, loading = false }: TagPillListProps) {
   if (loading) {
     return (
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {Array.from({ length: 6 }).map((_, i) => (
           <span
             key={i}
             data-testid="tag-pill-skeleton"
-            className="h-[22px] w-16 animate-pulse rounded-md bg-[#27272A]"
+            className="h-[28px] w-16 animate-pulse rounded-md bg-[#27272A]"
           />
         ))}
       </div>
@@ -34,11 +34,11 @@ export function TagPillList({ tags, selected, onToggle, loading = false }: TagPi
   }
 
   if (tags.length === 0) {
-    return <div className="text-xs text-zinc-500">No tags available.</div>;
+    return <div className="text-sm text-zinc-500">No tags available.</div>;
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-2">
       {tags.map((tag) => {
         const isSelected = selected.includes(tag);
         return (
@@ -48,7 +48,7 @@ export function TagPillList({ tags, selected, onToggle, loading = false }: TagPi
             aria-pressed={isSelected}
             onClick={() => onToggle(tag)}
             className={cn(
-              'rounded-md border px-2.5 py-1 text-[11px] transition-colors',
+              'rounded-md border px-3 py-1 text-[13px] transition-colors',
               isSelected
                 ? 'border-[#00D9FF]/40 bg-[#00D9FF]/[0.10] text-[#00D9FF]'
                 : 'border-[#3F3F46] bg-[#27272A] text-[#D4D4D8] hover:border-[#52525B]',

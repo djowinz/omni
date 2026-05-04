@@ -46,7 +46,7 @@ export function ExploreSidebar() {
   return (
     <aside
       data-testid="explore-sidebar"
-      className="flex w-[260px] flex-shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#27272A] bg-[#141416] p-3"
+      className="flex w-[260px] flex-shrink-0 flex-col gap-5 overflow-y-auto border-r border-[#27272A] bg-[#141416] p-3.5"
     >
       {/* Tab nav */}
       <nav className="flex flex-col gap-0.5">
@@ -59,13 +59,13 @@ export function ExploreSidebar() {
               data-testid={`explore-sidebar-tab-${t.id}`}
               onClick={() => setTab(t.id)}
               className={cn(
-                'flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-left text-[13px] transition-colors',
+                'flex items-center gap-3 rounded-md border px-3.5 py-2.5 text-left text-sm transition-colors',
                 active
                   ? 'border-[#00D9FF]/25 bg-[#00D9FF]/[0.08] text-[#00D9FF]'
                   : 'border-transparent text-[#A1A1AA] hover:bg-[#27272A]/50',
               )}
             >
-              <Icon className="h-3.5 w-3.5" aria-hidden />
+              <Icon className="h-4 w-4" aria-hidden />
               {t.label}
             </button>
           );
@@ -74,7 +74,7 @@ export function ExploreSidebar() {
 
       {/* Type filter */}
       <section>
-        <h3 className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
+        <h3 className="mb-2 px-3.5 text-[11px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
           Type
         </h3>
         <div className="flex flex-col gap-px">
@@ -86,7 +86,7 @@ export function ExploreSidebar() {
                 data-testid={`explore-sidebar-kind-${k.value}`}
                 onClick={() => setKind(k.value)}
                 className={cn(
-                  'flex items-center rounded-md border px-3 py-2 text-left text-[13px] transition-colors',
+                  'flex items-center rounded-md border px-3.5 py-2 text-left text-sm transition-colors',
                   active
                     ? 'border-[#00D9FF]/25 bg-[#00D9FF]/[0.08] text-[#00D9FF]'
                     : 'border-transparent text-[#A1A1AA] hover:bg-[#27272A]/50',
@@ -101,7 +101,7 @@ export function ExploreSidebar() {
 
       {/* Tags */}
       <section>
-        <h3 className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
+        <h3 className="mb-2.5 px-3.5 text-[11px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
           Tags
         </h3>
         <div className="px-1">

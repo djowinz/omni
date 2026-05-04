@@ -112,11 +112,11 @@ export function ArtifactCard(props: ArtifactCardProps) {
         {/* Kind badge */}
         <span
           className={cn(
-            'absolute right-2 top-2 flex items-center gap-1 rounded-md border bg-black/60 px-2 py-0.5 text-[10px] text-[#D4D4D8]',
+            'absolute right-2 top-2 flex items-center gap-1.5 rounded-md border bg-black/60 px-2 py-1 text-xs text-[#D4D4D8]',
             kindColor,
           )}
         >
-          <KindIcon className="h-2.5 w-2.5" aria-hidden />
+          <KindIcon className="h-3 w-3" aria-hidden />
           {kindLabel}
         </span>
         {/* Hover overlay (only when handlers are provided) */}
@@ -129,26 +129,26 @@ export function ArtifactCard(props: ArtifactCardProps) {
       </div>
 
       {/* Metadata footer */}
-      <div className="flex flex-col gap-1.5 px-3 py-2.5">
-        <div className="flex items-center justify-between">
-          <p className="truncate text-[13px] font-medium text-[#FAFAFA]">{name}</p>
+      <div className="flex flex-col gap-2 px-3.5 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-sm font-medium text-[#FAFAFA]">{name}</p>
           {installCount !== null && (
-            <span className="flex items-center gap-1 text-[11px] text-[#71717A]">
-              <Download className="h-2.5 w-2.5" aria-hidden />
+            <span className="flex flex-shrink-0 items-center gap-1 text-[13px] text-[#71717A]">
+              <Download className="h-3.5 w-3.5" aria-hidden />
               {installCount.toLocaleString()}
             </span>
           )}
         </div>
-        <p className="text-[11px] text-[#71717A]">
+        <p className="text-[13px] text-[#71717A]">
           by {author.split('#')[0] || ''}
           <span className="text-[#52525B]">#{author.split('#')[1] || ''}</span>
         </p>
         {tags.length > 0 && (
-          <div className="mt-0.5 flex flex-wrap gap-1">
+          <div className="mt-0.5 flex flex-wrap gap-1.5">
             {tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-md border border-[#3F3F46] bg-[#27272A] px-2 py-0.5 text-[10px] text-[#A1A1AA]"
+                className="rounded-md border border-[#3F3F46] bg-[#27272A] px-2 py-0.5 text-xs text-[#A1A1AA]"
               >
                 {tag}
               </span>
