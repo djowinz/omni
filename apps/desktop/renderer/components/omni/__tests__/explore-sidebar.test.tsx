@@ -1,84 +1,75 @@
-/// <reference types="@testing-library/jest-dom/vitest" />
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
-import { NuqsTestingAdapter } from 'nuqs/adapters/testing';
+import { describe, expect, it, vi } from 'vitest';
+import { ExploreSidebar } from '../explore-sidebar';
 
-function Wrap({ children, sp = '' }: { children: ReactNode; sp?: string }) {
-  return <NuqsTestingAdapter searchParams={sp}>{children}</NuqsTestingAdapter>;
-}
+// Mock the filters + vocab hooks (existing test pattern in this directory)
+const mockSetTab = vi.fn();
+const mockSetKind = vi.fn();
+const mockSetTags = vi.fn();
 
-const defaultVocab = {
-  tags: ['dark', 'minimal', 'gaming'],
-  version: 1,
-  loading: false,
-  error: null,
-};
+vi.mock('../../../hooks/use-explore-filters', () => ({
+  useExploreFilters: () => ({
+    tab: 'discover',
+    kind: 'all',
+    sort: 'new',
+    tags: [],
+    q: '',
+    selectedId: null,
+    setTab: mockSetTab,
+    setKind: mockSetKind,
+    setSort: vi.fn(),
+    setTags: mockSetTags,
+    setQ: vi.fn(),
+    setSelectedId: vi.fn(),
+  }),
+}));
+
+vi.mock('../../../hooks/use-config-vocab', () => ({
+  useConfigVocab: () => ({ tags: ['dark', 'gaming', 'minimal'], loading: false }),
+}));
 
 describe('ExploreSidebar', () => {
-  beforeEach(() => {
-    vi.resetModules();
+  it('renders three tabs (Discover, Installed, My Uploads)', () => {
+    render(<ExploreSidebar />);
+    expect(screen.getByText('Discover')).toBeInTheDocument();
+    expect(screen.getByText('Installed')).toBeInTheDocument();
+    expect(screen.getByText('My Uploads')).toBeInTheDocument();
   });
 
-  it('renders Kind / Sort / Tags sections', async () => {
-    vi.doMock('../../../hooks/use-config-vocab', () => ({
-      useConfigVocab: () => defaultVocab,
-    }));
-    const { ExploreSidebar } = await import('../explore-sidebar');
-    render(
-      <Wrap>
-        <ExploreSidebar />
-      </Wrap>,
-    );
-    expect(screen.getByTestId('explore-sidebar')).toBeInTheDocument();
-    expect(screen.getByText(/Kind/i)).toBeInTheDocument();
-    expect(screen.getByText(/Sort/i)).toBeInTheDocument();
-    expect(screen.getByText(/Tags/i)).toBeInTheDocument();
+  it('clicking a tab calls setTab', async () => {
+    render(<ExploreSidebar />);
+    await userEvent.click(screen.getByTestId('explore-sidebar-tab-installed'));
+    expect(mockSetTab).toHaveBeenCalledWith('installed');
   });
 
-  it('renders the 3 vocab tags from useConfigVocab', async () => {
-    vi.doMock('../../../hooks/use-config-vocab', () => ({
-      useConfigVocab: () => defaultVocab,
-    }));
-    const { ExploreSidebar } = await import('../explore-sidebar');
-    render(
-      <Wrap>
-        <ExploreSidebar />
-      </Wrap>,
-    );
-    expect(screen.getByText('dark')).toBeInTheDocument();
-    expect(screen.getByText('minimal')).toBeInTheDocument();
-    expect(screen.getByText('gaming')).toBeInTheDocument();
+  it('renders three Type rows (All, Themes, Bundles)', () => {
+    render(<ExploreSidebar />);
+    expect(screen.getByText('All')).toBeInTheDocument();
+    expect(screen.getByText('Themes')).toBeInTheDocument();
+    expect(screen.getByText('Bundles')).toBeInTheDocument();
   });
 
-  it('clicking a Kind checkbox toggles it (visible in the checkbox data-state)', async () => {
-    vi.doMock('../../../hooks/use-config-vocab', () => ({
-      useConfigVocab: () => defaultVocab,
-    }));
-    const user = userEvent.setup();
-    const { ExploreSidebar } = await import('../explore-sidebar');
-    render(
-      <Wrap>
-        <ExploreSidebar />
-      </Wrap>,
-    );
-    const themeCheckbox = screen.getByTestId('explore-sidebar-kind-theme');
-    await user.click(themeCheckbox);
-    expect(themeCheckbox.getAttribute('data-state')).toBe('checked');
+  it('clicking a Type row calls setKind', async () => {
+    render(<ExploreSidebar />);
+    await userEvent.click(screen.getByTestId('explore-sidebar-kind-theme'));
+    expect(mockSetKind).toHaveBeenCalledWith('theme');
   });
 
-  it('renders empty state while vocab loads', async () => {
-    vi.doMock('../../../hooks/use-config-vocab', () => ({
-      useConfigVocab: () => ({ tags: [], version: null, loading: true, error: null }),
-    }));
-    const { ExploreSidebar } = await import('../explore-sidebar');
-    render(
-      <Wrap>
-        <ExploreSidebar />
-      </Wrap>,
-    );
-    expect(screen.getByText(/Loading tags/i)).toBeInTheDocument();
+  it('renders tag pills from config.vocab', () => {
+    render(<ExploreSidebar />);
+    expect(screen.getByRole('button', { name: 'dark' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'gaming' })).toBeInTheDocument();
+  });
+
+  it('clicking a tag pill toggles it via setTags', async () => {
+    render(<ExploreSidebar />);
+    await userEvent.click(screen.getByRole('button', { name: 'dark' }));
+    expect(mockSetTags).toHaveBeenCalledWith(['dark']);
+  });
+
+  it('does NOT render a sort radio (moved to grid toolbar)', () => {
+    render(<ExploreSidebar />);
+    expect(screen.queryByText(/sort/i)).not.toBeInTheDocument();
   });
 });
