@@ -1,54 +1,39 @@
-import type { ReactNode } from 'react';
-import { MoreVertical } from 'lucide-react';
+/**
+ * ArtifactCard — grid-variant card for the Explore panel.
+ *
+ * Per share-explorer-redesign spec §3.5:
+ * - The 'detail' variant is retired (the new <ExploreDetail> builds its own
+ *   header/body/footer layout).
+ * - Card has Tailwind `group` so <CardHoverOverlay> can reveal on hover.
+ * - Kind badge uses rounded-md (was rounded-full).
+ * - Tag chips use rounded-md (was rounded-full).
+ * - data-selected="true" adds a 1.5px cyan border + 3px ring.
+ */
 
+import { Download, Layers, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import type { CachedArtifactDetail, ArtifactDetail } from '../../lib/share-types';
-
-export interface ArtifactCardActionSlots {
-  /** Passive/view action — e.g. Preview, Open. Neutral style. */
-  left?: ReactNode;
-  /** State-toggle action — e.g. Install, Uninstall, Delete. Position stable across tabs. */
-  middle?: ReactNode;
-  /** Derivative action — e.g. Fork, Update. Usually accent style. */
-  right?: ReactNode;
-}
+import { CardHoverOverlay } from './card-hover-overlay';
 
 export interface ArtifactCardProps {
-  /** Grid variant renders the compact card; detail renders the right-panel full view. */
-  variant?: 'grid' | 'detail';
-  /** Artifact summary (grid) or full detail (detail). */
   artifact: CachedArtifactDetail | ArtifactDetail;
-  /** Whether this artifact is installed in the user's workspace. */
   installed?: boolean;
-  /** Consumer-provided action buttons for the three fixed slots (detail variant only). */
-  actionSlots?: ArtifactCardActionSlots;
-  /** Consumer-provided kebab menu items (detail variant only). */
-  kebabMenuItems?: ReactNode;
-  /** Click handler for the whole card (grid variant). */
   onClick?: () => void;
+  onPreview?: () => void;
+  onInstall?: () => void;
   className?: string;
-  /** Selection marker forwarded onto the grid-variant root element. */
   'data-selected'?: 'true' | 'false';
 }
 
-/** Safely read a string field out of a manifest record. */
 function manifestString(manifest: Record<string, unknown> | undefined, key: string): string | null {
   if (!manifest) return null;
   const v = manifest[key];
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-/** Derive the artifact display name from available fields. */
 function artifactName(artifact: CachedArtifactDetail | ArtifactDetail): string {
-  // CachedArtifactDetail has a top-level `name` field.
   const cached = artifact as CachedArtifactDetail;
   if (typeof cached.name === 'string' && cached.name.length > 0) return cached.name;
-  // ArtifactDetail stores name inside the manifest.
   const detail = artifact as ArtifactDetail;
   if (detail.manifest) {
     const fromManifest = manifestString(detail.manifest as Record<string, unknown>, 'name');
@@ -57,48 +42,40 @@ function artifactName(artifact: CachedArtifactDetail | ArtifactDetail): string {
   return artifact.artifact_id;
 }
 
-/** Derive a human-readable author label from available fields. */
 function authorDisplay(artifact: CachedArtifactDetail | ArtifactDetail): string {
-  // Per identity-completion-and-display-name spec (2026-04-26) + OWI-91
-  // (host relay extension): the presentation handle is
-  // `<display_name>#<8-hex>`. The 8-hex is the canonical disambiguator
-  // (always shown — it's the trust anchor); the name is the friendly
-  // prefix sourced from `author_display_name` on the list/gallery/artifact
-  // response, or null when the worker has nothing for the author.
-  //
-  // Both `CachedArtifactDetail` and `ArtifactDetail` declare
-  // `author_display_name: string | null` as a required field (post-OWI-91
-  // — Zod uses `.nullable()` not `.nullable().optional()`), so TypeScript
-  // narrows the union directly without any cast.
   const slice = artifact.author_pubkey.slice(0, 8);
-  const raw = artifact.author_display_name;
-  const name = raw?.trim();
-  // Worker contract (spec §3.4) guarantees `display_name` is NFC-normalized
-  // and trimmed before persistence — a non-null value that trims to empty
-  // signals a worker contract violation. Surface it as a console.warn so a
-  // dev exercising the path notices, but fall back to the slice-only
-  // handle so the UI keeps rendering instead of crashing.
-  if (raw !== null && raw !== undefined && raw.length > 0 && name === '') {
-    console.warn(
-      '[authorDisplay] author_display_name was non-null but trimmed to empty;' +
-        ' worker contract violation (spec §3.4 requires NFC + trim before' +
-        ` persistence). pubkey_hex slice=${slice} value=${JSON.stringify(raw)}`,
-    );
-  }
+  const name = artifact.author_display_name?.trim();
   return name ? `${name}#${slice}` : `#${slice}`;
 }
 
-function GridCard(props: ArtifactCardProps) {
-  const { artifact, installed, onClick, className } = props;
+function manifestTags(artifact: CachedArtifactDetail | ArtifactDetail): string[] {
+  const cached = artifact as CachedArtifactDetail;
+  if (Array.isArray(cached.tags)) return cached.tags;
+  const detail = artifact as ArtifactDetail;
+  if (detail.manifest && Array.isArray((detail.manifest as Record<string, unknown>)['tags'])) {
+    return ((detail.manifest as Record<string, unknown>)['tags'] as unknown[]).filter(
+      (t): t is string => typeof t === 'string',
+    );
+  }
+  return [];
+}
+
+export function ArtifactCard(props: ArtifactCardProps) {
+  const { artifact, installed, onClick, onPreview, onInstall, className } = props;
   const name = artifactName(artifact);
   const author = authorDisplay(artifact);
   const detail = artifact as ArtifactDetail;
   const installCount = typeof detail.installs === 'number' ? detail.installs : null;
+  const tags = manifestTags(artifact).slice(0, 3);
 
-  const badgeLabel = installed ? 'Installed' : artifact.kind === 'bundle' ? 'Bundle' : 'Theme';
-  const badgeClass = installed
-    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-    : 'bg-zinc-700/60 text-zinc-400 border-zinc-600/40';
+  const isBundle = artifact.kind === 'bundle';
+  const KindIcon = isBundle ? Layers : Palette;
+  const kindLabel = installed ? 'Installed' : isBundle ? 'Bundle' : 'Theme';
+  const kindColor = installed
+    ? 'text-emerald-400 border-emerald-500/30'
+    : isBundle
+      ? 'text-[#A855F7] border-[#A855F7]/40'
+      : 'text-[#00D9FF] border-[#3F3F46]';
 
   return (
     <div
@@ -118,178 +95,67 @@ function GridCard(props: ArtifactCardProps) {
           : undefined
       }
       className={cn(
-        'relative flex flex-col rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden',
-        onClick &&
-          'cursor-pointer transition-colors hover:border-zinc-700 hover:bg-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50',
+        'group relative flex flex-col overflow-hidden rounded-lg border border-[#27272A] bg-[#141416] transition-colors',
+        onClick && 'cursor-pointer hover:border-[#3F3F46] hover:bg-[#1A1A1D] focus-visible:outline-none',
+        props['data-selected'] === 'true' &&
+          'border-[1.5px] border-[#00D9FF] shadow-[0_0_0_3px_rgba(0,217,255,0.10)]',
         className,
       )}
     >
       {/* Thumbnail */}
-      <div className="relative aspect-video w-full overflow-hidden bg-zinc-800">
+      <div className="relative aspect-video w-full overflow-hidden bg-[#0F0F12]">
         {artifact.thumbnail_url ? (
           <img src={artifact.thumbnail_url} alt={name} className="h-full w-full object-cover" />
         ) : (
-          <div className="h-full w-full bg-gradient-to-br from-zinc-700 to-zinc-800" />
+          <div className="h-full w-full bg-gradient-to-br from-[#1F1F23] to-[#101013]" />
         )}
-
-        {/* Top-right badge */}
+        {/* Kind badge */}
         <span
           className={cn(
-            'absolute right-2 top-2 rounded-full border px-2 py-0.5 text-xs font-medium',
-            badgeClass,
+            'absolute right-2 top-2 flex items-center gap-1 rounded-md border bg-black/60 px-2 py-0.5 text-[10px] text-[#D4D4D8]',
+            kindColor,
           )}
         >
-          {badgeLabel}
+          <KindIcon className="h-2.5 w-2.5" aria-hidden />
+          {kindLabel}
         </span>
+        {/* Hover overlay (only when handlers are provided) */}
+        {(onPreview || onInstall) && (
+          <CardHoverOverlay
+            onPreview={onPreview ?? (() => {})}
+            onInstall={onInstall ?? (() => {})}
+          />
+        )}
       </div>
 
       {/* Metadata footer */}
-      <div className="flex flex-col gap-0.5 px-3 py-2">
-        <p className="truncate text-sm font-medium text-zinc-100">{name}</p>
-        <p className="text-xs text-zinc-500">
-          by {author}
+      <div className="flex flex-col gap-1.5 px-3 py-2.5">
+        <div className="flex items-center justify-between">
+          <p className="truncate text-[13px] font-medium text-[#FAFAFA]">{name}</p>
           {installCount !== null && (
-            <span className="ml-1 text-zinc-600">· {installCount.toLocaleString()} installs</span>
-          )}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function DetailCard({ artifact, actionSlots, kebabMenuItems, className }: ArtifactCardProps) {
-  const name = artifactName(artifact);
-  const detail = artifact as ArtifactDetail;
-  const author = authorDisplay(artifact);
-
-  // Fingerprint TOFU pill — show first 6 hex chars if available
-  const fingerprintHex =
-    typeof detail.author_fingerprint_hex === 'string' && detail.author_fingerprint_hex.length >= 6
-      ? detail.author_fingerprint_hex.slice(0, 6)
-      : null;
-
-  // Stats from ArtifactDetail fields
-  const installs = typeof detail.installs === 'number' ? detail.installs.toLocaleString() : '—';
-  const updatedAt =
-    typeof detail.updated_at === 'number' && detail.updated_at > 0
-      ? new Date(detail.updated_at * 1000).toLocaleDateString()
-      : typeof (artifact as CachedArtifactDetail).updated_at === 'number' &&
-          (artifact as CachedArtifactDetail).updated_at > 0
-        ? new Date((artifact as CachedArtifactDetail).updated_at * 1000).toLocaleDateString()
-        : '—';
-
-  // Manifest-derived fields
-  const manifest =
-    detail.manifest != null ? (detail.manifest as Record<string, unknown>) : undefined;
-  const version = manifestString(manifest, 'version') ?? '—';
-  const license = manifestString(manifest, 'license') ?? '—';
-  const description = manifestString(manifest, 'description') ?? null;
-  const rawTags = manifest?.['tags'];
-  const tags: string[] =
-    Array.isArray(rawTags) && rawTags.every((t) => typeof t === 'string')
-      ? (rawTags as string[])
-      : [];
-
-  return (
-    <div
-      data-testid="artifact-card-detail"
-      className={cn(
-        'flex flex-col gap-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4',
-        className,
-      )}
-    >
-      {/* Header: title + kebab */}
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="text-lg font-semibold text-zinc-100 leading-snug">{name}</h2>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              data-testid="artifact-card-kebab"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
-              aria-label="More options"
-            >
-              <MoreVertical className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">{kebabMenuItems ?? null}</DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Author row */}
-      <div className="flex items-center gap-2 text-sm text-zinc-500">
-        <span>by {author}</span>
-        {fingerprintHex && (
-          <span className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-400">
-            {fingerprintHex}
-          </span>
-        )}
-      </div>
-
-      {/* Hero thumbnail */}
-      <div className="aspect-video w-full overflow-hidden rounded-md bg-zinc-800">
-        {artifact.thumbnail_url ? (
-          <img src={artifact.thumbnail_url} alt={name} className="h-full w-full object-cover" />
-        ) : (
-          <div className="h-full w-full bg-gradient-to-br from-zinc-700 to-zinc-800" />
-        )}
-      </div>
-
-      {/* Description */}
-      {description && (
-        <p className="whitespace-pre-wrap text-sm text-zinc-400 leading-relaxed">{description}</p>
-      )}
-
-      {/* Stats grid */}
-      <div className="grid grid-cols-4 gap-2">
-        {(
-          [
-            { label: 'Installs', value: installs },
-            { label: 'Updated', value: updatedAt },
-            { label: 'Version', value: version },
-            { label: 'License', value: license },
-          ] as const
-        ).map(({ label, value }) => (
-          <div
-            key={label}
-            className="flex flex-col items-center rounded-md border border-zinc-800 bg-zinc-800/40 px-2 py-2 text-center"
-          >
-            <span className="text-xs text-zinc-500">{label}</span>
-            <span className="mt-0.5 text-sm font-medium text-zinc-200">{value}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Tag chips */}
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="rounded-full border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-xs text-zinc-400"
-            >
-              {tag}
+            <span className="flex items-center gap-1 text-[11px] text-[#71717A]">
+              <Download className="h-2.5 w-2.5" aria-hidden />
+              {installCount.toLocaleString()}
             </span>
-          ))}
+          )}
         </div>
-      )}
-
-      {/* Action row — three fixed slots */}
-      <div className="flex items-center gap-2">
-        <div data-testid="artifact-card-action-slot-left">{actionSlots?.left ?? null}</div>
-        <div data-testid="artifact-card-action-slot-middle" className="flex-1">
-          {actionSlots?.middle ?? null}
-        </div>
-        <div data-testid="artifact-card-action-slot-right">{actionSlots?.right ?? null}</div>
+        <p className="text-[11px] text-[#71717A]">
+          by {author.split('#')[0] || ''}
+          <span className="text-[#52525B]">#{author.split('#')[1] || ''}</span>
+        </p>
+        {tags.length > 0 && (
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-md border border-[#3F3F46] bg-[#27272A] px-2 py-0.5 text-[10px] text-[#A1A1AA]"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
-}
-
-export function ArtifactCard(props: ArtifactCardProps) {
-  const { variant = 'grid' } = props;
-  if (variant === 'detail') {
-    return <DetailCard {...props} />;
-  }
-  return <GridCard {...props} />;
 }
