@@ -83,20 +83,42 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
       : `#${identity.pubkey_hex.slice(0, 8)}`
     : '';
 
+  // Minimal header for loading + error states: keeps the close ✕ visible so
+  // the user can always dismiss the pane, even when the artifact data hasn't
+  // arrived (or failed to load entirely).
+  const minimalHeader = (
+    <div className="flex h-16 flex-shrink-0 items-center justify-end border-b border-[#27272A] bg-[#18181B] px-4 py-3.5">
+      <button
+        data-testid="explore-detail-close"
+        aria-label="Close"
+        onClick={() => setSelectedId(null)}
+        className="flex h-8 w-8 items-center justify-center rounded-md text-[#71717A] hover:bg-[#27272A]/50 hover:text-[#FAFAFA]"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
   if (loading && !artifact) {
     return (
-      <div data-testid="explore-detail-skeleton" className="flex flex-col gap-3 p-4">
-        <div className="h-16 animate-pulse rounded bg-[#27272A]" />
-        <div className="h-32 animate-pulse rounded-md bg-[#27272A]" />
-        <div className="h-4 w-3/4 animate-pulse rounded bg-[#27272A]" />
+      <div data-testid="explore-detail" className="flex h-full flex-col overflow-hidden bg-[#141416]">
+        {minimalHeader}
+        <div data-testid="explore-detail-skeleton" className="flex flex-1 flex-col gap-3 p-4">
+          <div className="h-16 animate-pulse rounded bg-[#27272A]" />
+          <div className="h-32 animate-pulse rounded-md bg-[#27272A]" />
+          <div className="h-4 w-3/4 animate-pulse rounded bg-[#27272A]" />
+        </div>
       </div>
     );
   }
 
   if (!artifact) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-xs text-rose-400">
-        Failed to load artifact details.
+      <div data-testid="explore-detail" className="flex h-full flex-col overflow-hidden bg-[#141416]">
+        {minimalHeader}
+        <div className="flex flex-1 items-center justify-center p-6 text-center text-xs text-rose-400">
+          Failed to load artifact details.
+        </div>
       </div>
     );
   }

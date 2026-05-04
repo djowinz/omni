@@ -527,14 +527,26 @@ describe('GET /v1/artifact/:id — manifest extraction', () => {
     expect(Array.isArray(m.files)).toBe(true);
   });
 
-  it('returns manifest: null when R2 blob is missing', async () => {
-    // seedArtifact (the existing helper) does NOT write to R2; confirm the
-    // route degrades cleanly rather than 500ing.
+  it('synthesizes manifest from D1 metadata when R2 blob is missing', async () => {
+    // seedArtifact (the existing helper) does NOT write to R2. Per
+    // share-explorer-redesign post-merge fix, the route now synthesizes a
+    // manifest from the D1 metadata columns instead of returning null —
+    // this keeps the wire shape stable for dev fixtures (intentionally
+    // blob-less per tools/dev-orchestrator/src/seed.rs) and any prod R2
+    // outage.
     await seedArtifact({ id: 'artNoBlob', authorPub: FIXTURE_PUB });
     const res = await SELF.fetch('https://worker.test/v1/artifact/artNoBlob');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { manifest: unknown };
-    expect(body.manifest).toBeNull();
+    expect(body.manifest).not.toBeNull();
+    expect(typeof body.manifest).toBe('object');
+    const m = body.manifest as Record<string, unknown>;
+    // Synthesized fields come from D1 columns; the seedArtifact helper
+    // sets sensible defaults that should round-trip into the manifest.
+    expect(typeof m.name).toBe('string');
+    expect(typeof m.version).toBe('string');
+    expect(typeof m.omni_min_version).toBe('string');
+    expect(Array.isArray(m.tags)).toBe(true);
   });
 });
 

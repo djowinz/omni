@@ -171,9 +171,7 @@ app.get('/:id', async (c) => {
 
   // Manifest extraction from R2. Worker-stored blobs are unsigned repacked
   // bundles (invariant #1), so the unsigned fast path `bundle.unpackManifest`
-  // is the correct reader — no signature to verify against. Failure to fetch
-  // or parse degrades to `manifest: null`; the metadata columns still answer
-  // the bulk of the contract.
+  // is the correct reader — no signature to verify against.
   let manifest: object | null = null;
   try {
     const r2Obj = await env.BLOBS.get(`bundles/${row.content_hash}.omnipkg`);
@@ -188,6 +186,23 @@ app.get('/:id', async (c) => {
     }
   } catch {
     manifest = null;
+  }
+
+  // Fallback synthesis: if R2 had no blob (dev fixtures intentionally ship
+  // blob-less per tools/dev-orchestrator/src/seed.rs; production R2 outage
+  // is the other realistic case), build a manifest object from the D1
+  // metadata columns. This keeps the wire shape stable — clients always
+  // receive a usable manifest, never null — while still preferring the
+  // canonical R2-extracted manifest when available.
+  if (manifest === null) {
+    manifest = {
+      name: row.name,
+      description: row.description ?? '',
+      tags: parseTags(row.tags),
+      license: row.license ?? '',
+      version: row.version,
+      omni_min_version: row.omni_min_version,
+    };
   }
 
   return new Response(JSON.stringify(artifactResponse(row, includeReports, manifest)), {

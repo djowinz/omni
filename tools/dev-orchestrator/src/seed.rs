@@ -12,6 +12,7 @@ use crate::fixtures::{self, FixtureAuthor};
 use crate::shell;
 use anyhow::{anyhow, Context};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 use tempfile::NamedTempFile;
@@ -29,12 +30,23 @@ struct ArtifactRow {
     name: &'static str,
     kind: &'static str,
     content_hash: &'static str,
-    thumbnail_hash: &'static str,
     description: &'static str,
     tags_json: &'static str,
     license: &'static str,
     version: &'static str,
     omni_min_version: &'static str,
+}
+
+/// Compute the SHA-256 of the tiny PNG. Used as the content-addressed
+/// thumbnail_hash for every fixture artifact (all four share the same bytes,
+/// so they share the same hash). The thumbnail route validates the hash with
+/// `/^[0-9a-f]{64}$/` and reads R2 at `thumbnails/<hash>.png`, so the seeder
+/// must compute a real SHA-256 hex and write to that exact key.
+fn tiny_png_thumbnail_hash() -> anyhow::Result<String> {
+    let bytes = hex::decode(TINY_PNG_HEX)?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok(hex::encode(hasher.finalize()))
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -45,11 +57,13 @@ pub fn run() -> anyhow::Result<()> {
         return Ok(());
     }
     let plan = build_plan(&authors);
-    seed_sql(&plan)?;
-    seed_thumbnails()?;
+    let thumbnail_hash = tiny_png_thumbnail_hash()?;
+    seed_sql(&plan, &thumbnail_hash)?;
+    seed_thumbnails(&thumbnail_hash)?;
     tracing::info!(
         authors = authors.len(),
         artifacts = plan.len(),
+        thumbnail_hash = %thumbnail_hash,
         "seed complete"
     );
     Ok(())
@@ -65,7 +79,6 @@ fn build_plan(authors: &[FixtureAuthor]) -> Vec<ArtifactRow> {
             name: "Neon Alley",
             kind: "theme",
             content_hash: "sha256-dev-alice-theme-1",
-            thumbnail_hash: "thumb-dev-alice-theme-1",
             description: "Cyan-pink neon with scanline overlay.",
             tags_json: r#"["dark","neon"]"#,
             license: "MIT",
@@ -78,7 +91,6 @@ fn build_plan(authors: &[FixtureAuthor]) -> Vec<ArtifactRow> {
             name: "HWMon Compact",
             kind: "bundle",
             content_hash: "sha256-dev-alice-bundle-1",
-            thumbnail_hash: "thumb-dev-alice-bundle-1",
             description: "Compact FPS + temps overlay.",
             tags_json: r#"["fps","temps","compact"]"#,
             license: "MIT",
@@ -91,7 +103,6 @@ fn build_plan(authors: &[FixtureAuthor]) -> Vec<ArtifactRow> {
             name: "Solarize Lite",
             kind: "theme",
             content_hash: "sha256-dev-bob-theme-1",
-            thumbnail_hash: "thumb-dev-bob-theme-1",
             description: "Low-contrast solarized palette.",
             tags_json: r#"["light","minimal"]"#,
             license: "Apache-2.0",
@@ -104,7 +115,6 @@ fn build_plan(authors: &[FixtureAuthor]) -> Vec<ArtifactRow> {
             name: "Full Telemetry",
             kind: "bundle",
             content_hash: "sha256-dev-bob-bundle-1",
-            thumbnail_hash: "thumb-dev-bob-bundle-1",
             description: "CPU/GPU/RAM/VRAM/net overlay.",
             tags_json: r#"["telemetry","full"]"#,
             license: "Apache-2.0",
@@ -150,7 +160,7 @@ fn first_artifact_seeded(id: &str) -> anyhow::Result<bool> {
     Ok(rows.map(|r| !r.is_empty()).unwrap_or(false))
 }
 
-fn seed_sql(plan: &[ArtifactRow]) -> anyhow::Result<()> {
+fn seed_sql(plan: &[ArtifactRow], thumbnail_hash: &str) -> anyhow::Result<()> {
     let now: i64 = 1_734_564_000; // fixed — stable across resets
     let mut sql = String::from("PRAGMA foreign_keys = ON;\n");
     // De-duplicate author writes by pubkey_hex.
@@ -187,7 +197,7 @@ fn seed_sql(plan: &[ArtifactRow]) -> anyhow::Result<()> {
             escape(row.name),
             escape(row.kind),
             escape(row.content_hash),
-            escape(row.thumbnail_hash),
+            escape(thumbnail_hash),
             escape(row.description),
             escape(row.tags_json),
             escape(row.license),
@@ -229,34 +239,30 @@ fn seed_sql(plan: &[ArtifactRow]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn seed_thumbnails() -> anyhow::Result<()> {
+fn seed_thumbnails(thumbnail_hash: &str) -> anyhow::Result<()> {
     let png_bytes = hex::decode(TINY_PNG_HEX)?;
-    let thumbnail_keys = [
-        "thumb-dev-alice-theme-1",
-        "thumb-dev-alice-bundle-1",
-        "thumb-dev-bob-theme-1",
-        "thumb-dev-bob-bundle-1",
-    ];
     // R2 CLI takes the real bucket name (not the wrangler binding). `BLOBS`
     // is the binding alias in wrangler.toml; the bucket itself is named
     // `omni-themes-blobs` — same name used for local miniflare + remote.
     const R2_BUCKET: &str = "omni-themes-blobs";
-    for key in thumbnail_keys {
-        let tmp = NamedTempFile::new()?;
-        fs::write(tmp.path(), &png_bytes)?;
-        let r2_path = format!("{R2_BUCKET}/thumbnails/{}", key);
-        let tmp_path = tmp.path().to_string_lossy().to_string();
-        let status = shell::std_cmd(
-            "pnpm",
-            [
-                "exec", "wrangler", "r2", "object", "put", &r2_path, "--file", &tmp_path, "--local",
-            ],
-        )
-        .current_dir(WORKER_DIR)
-        .status()?;
-        if !status.success() {
-            return Err(anyhow!("wrangler r2 put failed for {r2_path}"));
-        }
+    // All four fixture artifacts share the same 1×1 PNG bytes, so they share
+    // the same content-addressed hash. Upload the PNG once at the canonical
+    // R2 key the thumbnail route reads (`thumbnails/<sha256_hex>.png`); all
+    // four artifacts point their `thumbnail_hash` column at the same value.
+    let tmp = NamedTempFile::new()?;
+    fs::write(tmp.path(), &png_bytes)?;
+    let r2_path = format!("{R2_BUCKET}/thumbnails/{}.png", thumbnail_hash);
+    let tmp_path = tmp.path().to_string_lossy().to_string();
+    let status = shell::std_cmd(
+        "pnpm",
+        [
+            "exec", "wrangler", "r2", "object", "put", &r2_path, "--file", &tmp_path, "--local",
+        ],
+    )
+    .current_dir(WORKER_DIR)
+    .status()?;
+    if !status.success() {
+        return Err(anyhow!("wrangler r2 put failed for {r2_path}"));
     }
     Ok(())
 }
@@ -316,5 +322,22 @@ mod tests {
             &bytes[0..8],
             &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
         );
+    }
+
+    #[test]
+    fn tiny_png_thumbnail_hash_is_64_hex_chars() {
+        // Worker thumbnail route validates `/^[0-9a-f]{64}$/` — fixture seed
+        // must produce a hash in that shape so seeded thumbnails resolve.
+        let hash = tiny_png_thumbnail_hash().unwrap();
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    }
+
+    #[test]
+    fn tiny_png_thumbnail_hash_is_deterministic() {
+        // Same bytes → same hash; idempotent across reset+seed cycles.
+        let h1 = tiny_png_thumbnail_hash().unwrap();
+        let h2 = tiny_png_thumbnail_hash().unwrap();
+        assert_eq!(h1, h2);
     }
 }
