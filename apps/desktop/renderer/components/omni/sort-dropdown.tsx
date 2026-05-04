@@ -50,10 +50,10 @@ export function SortDropdown({ value, onChange }: SortDropdownProps) {
       }}
     >
       <SelectTrigger
-        className="flex h-7 items-center gap-1.5 rounded-md border border-[#27272A] bg-[#0D0D0F] px-2.5 text-xs text-[#A1A1AA]"
+        className="flex h-10 items-center gap-2 rounded-md border border-[#27272A] bg-[#0D0D0F] px-3.5 text-sm text-[#A1A1AA]"
         aria-label="Sort"
       >
-        <SlidersHorizontal className="h-3 w-3" aria-hidden />
+        <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
