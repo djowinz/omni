@@ -65,6 +65,14 @@ export interface ReviewProps {
     selected?: PublishablesEntry | null;
   };
   form: UseFormReturn<UploadFormValues>;
+  /**
+   * Optional — only the production parent passes this. Test harnesses that
+   * mount Review in isolation (without going through UploadDialog) can omit
+   * it; the moderation gate then becomes a no-op for those tests.
+   */
+  actions?: {
+    setPreviewBlocked: (blocked: boolean) => void;
+  };
 }
 
 /**
@@ -90,7 +98,7 @@ function resolveAutoPreviewSrc(entry: PublishablesEntry | null): string | null {
   return `omni-preview://${base}.preview.png`;
 }
 
-export function Review({ state, form }: ReviewProps) {
+export function Review({ state, form, actions }: ReviewProps) {
   const {
     register,
     setValue,
@@ -172,6 +180,13 @@ export function Review({ state, form }: ReviewProps) {
         <ReviewPreviewImage
           overlayPath={state.selected.workspace_path}
           autoPreviewSrc={resolveAutoPreviewSrc(state.selected)}
+          // `PublishablesEntry.kind` is `string` to leave room for future
+          // kinds (per the generated-types comment); narrow to the closed
+          // set the regenerate handler accepts. Anything we don't recognize
+          // falls through as `overlay` since that's the default treatment in
+          // `parse_kind` on the host.
+          kind={state.selected.kind === 'theme' ? 'theme' : 'overlay'}
+          onModerationStateChange={actions?.setPreviewBlocked}
         />
       ) : (
         <div data-testid="review-preview-image-slot" />

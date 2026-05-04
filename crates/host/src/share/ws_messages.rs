@@ -222,6 +222,39 @@ fn parse_kind(s: Option<&str>) -> ArtifactKind {
     }
 }
 
+/// Server-side cap on user-supplied thumbnail bytes (post-base64-decode).
+/// Mirrors the renderer's 2 MB pre-flight in `review-preview-image.tsx` so a
+/// consistent "too large" rejection lands at both sides.
+const MAX_CUSTOM_THUMBNAIL_BYTES: usize = 2 * 1024 * 1024;
+
+/// Decode the renderer-supplied `custom_preview_b64` into raw bytes, or
+/// `Ok(None)` when no custom thumbnail was supplied. Enforces the
+/// post-decode size cap so a 50 MB base64 string can't tie up moderation
+/// inference behind a buffer that was always going to be rejected.
+///
+/// Defense-in-depth: the renderer already enforces this cap before
+/// calling, but the WS surface is also reachable from external clients
+/// (Electron-out, future automation, hostile traffic) so we re-check.
+fn decode_custom_preview(s: Option<&str>) -> Result<Option<Vec<u8>>, String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    let Some(b64) = s else { return Ok(None) };
+    if b64.is_empty() {
+        return Ok(None);
+    }
+    let bytes = STANDARD
+        .decode(b64)
+        .map_err(|e| format!("base64 decode failed: {e}"))?;
+    if bytes.len() > MAX_CUSTOM_THUMBNAIL_BYTES {
+        return Err(format!(
+            "custom thumbnail is {} bytes; server cap is {} bytes",
+            bytes.len(),
+            MAX_CUSTOM_THUMBNAIL_BYTES
+        ));
+    }
+    Ok(Some(bytes))
+}
+
 /// Top-level dispatch. Returns `Some(text)` to broadcast a synchronous result, or `None`
 /// if the handler streams asynchronously via `send_fn`.
 pub async fn dispatch<F>(ctx: &ShareContext, msg: &Value, send_fn: F) -> Option<String>
@@ -267,6 +300,14 @@ where
         // pattern). The host singleton from `share::moderation` runs the
         // ONNX detector and returns the precomputed rejection flag.
         "share.moderationCheck" => handle_moderation_check(&id, params).await,
+        // Renderer-initiated preview regeneration (Step 2 "Regenerate" button).
+        // Re-runs the same `save_preview` pipeline that the file-save hook uses,
+        // so the on-disk `.omni-preview.png` (overlay) or
+        // `<theme>.css.preview.png` (theme) gets refreshed without the user
+        // having to actually save the file. Returns a `regenerated_at` epoch
+        // the renderer appends as a cache-bust query string so the `<img>` tag
+        // pulls the new bytes instead of the browser-cached old ones.
+        "share.regeneratePreview" => handle_regenerate_preview(&id, params, ctx).await,
         _ => None,
     }
 }
@@ -282,11 +323,25 @@ where
         kind: Option<String>,
         #[serde(default)]
         name: Option<String>,
+        /// Optional base64-encoded user-supplied thumbnail (PNG / JPEG /
+        /// WebP). When present the host re-runs moderation on the bytes
+        /// (host-side gate is authoritative per INV-7.7.2) and uses them
+        /// in place of the auto-rendered Ultralight thumbnail. Same shape
+        /// for `upload.publish` / `upload.update`.
+        #[serde(default)]
+        custom_preview_b64: Option<String>,
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
         Err(e) => {
             send_fn(bad_input(id, format!("bad upload.pack params: {e}")));
+            return;
+        }
+    };
+    let custom_thumbnail_bytes = match decode_custom_preview(p.custom_preview_b64.as_deref()) {
+        Ok(b) => b,
+        Err(e) => {
+            send_fn(bad_input(id, format!("bad upload.pack custom_preview_b64: {e}")));
             return;
         }
     };
@@ -300,6 +355,7 @@ where
         version: Version::new(0, 0, 0),
         omni_min_version: Version::new(0, 0, 0),
         update_artifact_id: None,
+        custom_thumbnail_bytes,
     };
     // Propagate config_limits errors instead of silently defaulting — an auth
     // failure here must surface as SERVER_REJECT, not masquerade as a size error
@@ -404,6 +460,12 @@ where
         version: Option<String>,
         #[serde(default)]
         omni_min_version: Option<String>,
+        /// See `handle_pack`'s `custom_preview_b64` doc — same shape, same
+        /// semantics. When `Some`, the host re-runs moderation on the bytes
+        /// and uses them as the artifact thumbnail in place of the
+        /// auto-rendered Ultralight output.
+        #[serde(default)]
+        custom_preview_b64: Option<String>,
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
@@ -477,6 +539,16 @@ where
     let persist_version_str = p.version.clone().unwrap_or_default();
     let persist_kind = parse_kind(p.kind.as_deref());
     let persist_pubkey_hex = ctx.identity.load().public_key().to_hex();
+    let custom_thumbnail_bytes = match decode_custom_preview(p.custom_preview_b64.as_deref()) {
+        Ok(b) => b,
+        Err(e) => {
+            send_fn(bad_input(
+                id,
+                format!("bad upload.publish custom_preview_b64: {e}"),
+            ));
+            return;
+        }
+    };
     let req = UploadRequest {
         kind: parse_kind(p.kind.as_deref()),
         source_path: resolve_workspace_path(&ctx.data_dir, &p.workspace_path),
@@ -487,6 +559,7 @@ where
         version,
         omni_min_version,
         update_artifact_id: if is_update { p.artifact_id } else { None },
+        custom_thumbnail_bytes,
     };
 
     // Refresh `ctx.limits` from the Worker before the pre-flight/upload
@@ -660,8 +733,8 @@ async fn handle_identity_backup(id: &str, params: Value, ctx: &ShareContext) -> 
 
 /// `identity.import` — restore an Ed25519 keypair from an encrypted
 /// `.omniid` backup blob, swap the active identity, and reset the
-/// per-key `IdentityMetadata` so stale `backed_up`/`display_name` from
-/// the prior key never carry across.
+/// per-key `IdentityMetadata` so stale `display_name` from the prior
+/// key never carries across.
 ///
 /// Params: `{ encrypted_bytes_b64, passphrase, overwrite_existing }`.
 /// Result: `{ pubkey_hex, fingerprint_hex }` (matches existing contract
@@ -677,12 +750,15 @@ async fn handle_identity_backup(id: &str, params: Value, ctx: &ShareContext) -> 
 /// On success: atomically writes the imported key to
 /// [`ShareContext::identity_key_path`], `ctx.identity.store(...)` swaps
 /// the active keypair (lock-free; in-flight signers observe the new
-/// key on next `.load()`), metadata is reset to defaults seeded with
-/// the new pubkey, and a best-effort `GET /v1/author/<new_pubkey>`
-/// seeds `display_name` if the worker has one. Worker unreachable →
-/// metadata stays with `display_name: None`; the next upload's
-/// COALESCE upsert will catch the worker up if the user later sets a
-/// name.
+/// key on next `.load()`), metadata is seeded with `backed_up: true`
+/// + `last_backed_up_at: now` (an imported identity is by definition
+/// already backed up — the user just supplied the encrypted blob, so
+/// they demonstrably possess it; suppressing the first-publish backup
+/// gate is the correct UX), and a best-effort
+/// `GET /v1/author/<new_pubkey>` seeds `display_name` if the worker
+/// has one. Worker unreachable → `display_name` stays `None`; the next
+/// upload's COALESCE upsert will catch the worker up if the user later
+/// sets a name.
 async fn handle_identity_import(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -749,12 +825,22 @@ async fn handle_identity_import(id: &str, params: Value, ctx: &ShareContext) -> 
         Err(e) => return Some(bad_input(id, format!("import disk write failed: {e}"))),
     };
 
-    // Reset metadata for the imported pubkey. Tripwire on
-    // `load_or_default` would do this anyway on next read, but
-    // persisting the reset now lets the editor immediately see clean
-    // `backed_up: false` etc. without a second handler round-trip.
+    // Seed metadata for the imported pubkey. Tripwire on
+    // `load_or_default` would reset stale fields on next read, but
+    // persisting now lets the editor immediately see the right state
+    // without a second handler round-trip. Importing an identity is
+    // proof the user already possesses the encrypted backup bytes, so
+    // `backed_up` is `true` from this moment on — failing to set this
+    // would put every imported user into the upload-dialog backup-gate
+    // loop forever.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let mut new_meta = IdentityMetadata {
         pubkey_hex: new_pk_hex.clone(),
+        backed_up: true,
+        last_backed_up_at: Some(now),
         ..Default::default()
     };
 
@@ -1714,6 +1800,126 @@ async fn handle_moderation_check(id: &str, params: Value) -> Option<String> {
                         "kind": kind,
                         "detail": e.to_string(),
                         "message": message,
+                    }
+                })
+                .to_string(),
+            )
+        }
+    }
+}
+
+/// `share.regeneratePreview` — re-render the on-disk save-time preview PNG
+/// for a workspace overlay or theme without requiring the user to actually
+/// re-save the source file.
+///
+/// Params: `{ workspace_path: String, kind: "overlay" | "theme" }`.
+///   * `kind = "overlay"` → `workspace_path` is the overlay folder
+///     (e.g. `overlays/marathon-hud`); writes to
+///     `<data_dir>/<workspace_path>/.omni-preview.png`.
+///   * `kind = "theme"` → `workspace_path` is the theme CSS file
+///     (e.g. `themes/dark.css`); writes to
+///     `<data_dir>/themes/dark.css.preview.png`.
+///
+/// Result: `{ regenerated_at: u64 }` (Unix-seconds), used by the renderer
+/// as a cache-bust query string so the existing `<img src="omni-preview://…">`
+/// reloads the freshly-written bytes instead of the browser-cached stale
+/// version.
+///
+/// On render failure (e.g. live-render thread unavailable, parser error,
+/// disk write error) returns a structured `preview_render_failed` error
+/// envelope. The host-side WARN log carries the full chain via the
+/// `Box<dyn Error>` debug repr — surface that to the user only as
+/// "Failed to regenerate preview; check host logs for details" since the
+/// underlying causes are admin-side, not user-fixable.
+async fn handle_regenerate_preview(
+    id: &str,
+    params: Value,
+    ctx: &ShareContext,
+) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        workspace_path: String,
+        kind: String,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => {
+            return Some(bad_input(
+                id,
+                format!("bad share.regeneratePreview params: {e}"),
+            ))
+        }
+    };
+
+    let render_result: Result<(), Box<dyn std::error::Error>> = match p.kind.as_str() {
+        "overlay" => {
+            let overlay_dir = resolve_workspace_path(&ctx.data_dir, &p.workspace_path);
+            super::save_preview::render_overlay_preview(&overlay_dir)
+        }
+        "theme" => {
+            // `workspace_path` is the CSS file path (e.g. `themes/dark.css`);
+            // split into parent dir + filename so we can call the existing
+            // `render_theme_preview(themes_dir, filename)` shape.
+            let abs_path = resolve_workspace_path(&ctx.data_dir, &p.workspace_path);
+            let parent = match abs_path.parent() {
+                Some(d) => d.to_path_buf(),
+                None => {
+                    return Some(bad_input(
+                        id,
+                        "theme workspace_path must include a parent directory",
+                    ))
+                }
+            };
+            let filename = match abs_path.file_name().and_then(|s| s.to_str()) {
+                Some(f) => f.to_string(),
+                None => {
+                    return Some(bad_input(
+                        id,
+                        "theme workspace_path must end in a filename",
+                    ))
+                }
+            };
+            super::save_preview::render_theme_preview(&parent, &filename)
+        }
+        other => {
+            return Some(bad_input(
+                id,
+                format!("share.regeneratePreview: unknown kind {other:?}; expected \"overlay\" or \"theme\""),
+            ))
+        }
+    };
+
+    match render_result {
+        Ok(()) => {
+            let regenerated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            Some(
+                json!({
+                    "id": id,
+                    "type": "share.regeneratePreviewResult",
+                    "params": { "regenerated_at": regenerated_at }
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                workspace_path = %p.workspace_path,
+                kind = %p.kind,
+                "preview regeneration failed",
+            );
+            Some(
+                json!({
+                    "id": id,
+                    "type": "error",
+                    "error": {
+                        "code": "preview_render_failed",
+                        "kind": "Admin",
+                        "detail": e.to_string(),
+                        "message": "Failed to regenerate preview; check host logs for details.",
                     }
                 })
                 .to_string(),

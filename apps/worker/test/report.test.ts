@@ -164,7 +164,7 @@ beforeAll(async () => {
     await env.META.exec(
       `CREATE TABLE IF NOT EXISTS authors (
          pubkey BLOB PRIMARY KEY,
-         display_name TEXT UNIQUE,
+         display_name TEXT,
          created_at INTEGER NOT NULL,
          total_uploads INTEGER NOT NULL DEFAULT 0,
          is_new_creator INTEGER NOT NULL DEFAULT 1,

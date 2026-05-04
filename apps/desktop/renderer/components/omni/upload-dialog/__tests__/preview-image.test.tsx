@@ -364,4 +364,218 @@ describe('ReviewPreviewImage (INV-7.2.4 / INV-7.7.* / INV-7.9.*)', () => {
       expect(screen.getByTestId('review-preview-image-custom')).toBeInTheDocument(),
     );
   });
+
+  // ─── Regenerate auto-preview button ──────────────────────────────────────
+  //
+  // Wires up a Step 2 affordance that re-runs the host-side `save_preview`
+  // pipeline without requiring the user to actually re-save the source file.
+  // The host writes the new bytes to the existing on-disk path and returns
+  // an epoch we append as `?v=<n>` to bust the browser cache for the
+  // `omni-preview://` URL.
+  it('does not render the Regenerate button when `kind` prop is omitted', async () => {
+    stubNoBridgeCalls();
+    render(<ReviewPreviewImage overlayPath={OVERLAY_PATH} autoPreviewSrc={AUTO_PREVIEW_SRC} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('review-preview-image-regenerate-link')).toBeNull();
+  });
+
+  it('renders the Regenerate button in the auto state when `kind` is provided', async () => {
+    stubNoBridgeCalls();
+    render(
+      <ReviewPreviewImage
+        overlayPath={OVERLAY_PATH}
+        autoPreviewSrc={AUTO_PREVIEW_SRC}
+        kind="overlay"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('review-preview-image-regenerate-link')).toBeInTheDocument();
+    expect(screen.getByTestId('review-preview-image-regenerate-link')).toHaveTextContent(
+      'Regenerate',
+    );
+  });
+
+  it('sends share.regeneratePreview with the workspace_path + kind on click', async () => {
+    const sendShareMessage = vi.fn(
+      async (msg: { id: string; type: string; params?: unknown }) => {
+        if (msg.type !== 'share.regeneratePreview') {
+          throw new Error(`unexpected sendShareMessage type: ${msg.type}`);
+        }
+        return {
+          id: msg.id,
+          type: 'share.regeneratePreviewResult',
+          params: { regenerated_at: 1_777_900_000 },
+        };
+      },
+    );
+    vi.stubGlobal('omni', {
+      sendMessage: vi.fn(),
+      sendShareMessage,
+      onShareEvent: vi.fn().mockImplementation(() => () => {}),
+    });
+
+    render(
+      <ReviewPreviewImage
+        overlayPath={OVERLAY_PATH}
+        autoPreviewSrc={AUTO_PREVIEW_SRC}
+        kind="overlay"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+
+    const button = screen.getByTestId('review-preview-image-regenerate-link');
+    await act(async () => {
+      fireEvent.click(button);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendShareMessage).toHaveBeenCalledTimes(1);
+    const sentEnvelope = sendShareMessage.mock.calls[0][0] as {
+      type: string;
+      params: { workspace_path: string; kind: string };
+    };
+    expect(sentEnvelope.type).toBe('share.regeneratePreview');
+    expect(sentEnvelope.params).toEqual({
+      workspace_path: OVERLAY_PATH,
+      kind: 'overlay',
+    });
+  });
+
+  // ─── Moderation-gate callback (footer Continue button gate) ─────────────
+  //
+  // Step 2's Continue button is gated on the moderation-rejected state via
+  // an `onModerationStateChange` callback. Without this, a user could
+  // advance past a rose-chrome "Image can't be used" tile and publish — the
+  // host would still derive the actual thumbnail server-side, but the UX is
+  // misleading. These tests pin the contract that the callback fires `true`
+  // when the rejected state is entered, `false` on every other state, and
+  // `false` on unmount (so the gate never sticks past the dialog closing).
+  it('fires onModerationStateChange(true) when an image gets flagged by moderation', async () => {
+    const onModerationStateChange = vi.fn();
+    stubModerationBridge({ unsafe_score: 0.93, label: 'EXPOSED_BREAST', rejected: true });
+    render(
+      <ReviewPreviewImage
+        overlayPath={OVERLAY_PATH}
+        autoPreviewSrc={AUTO_PREVIEW_SRC}
+        onModerationStateChange={onModerationStateChange}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+
+    // Pre-rejection: callback was fired with `false` on mount (auto state).
+    expect(onModerationStateChange).toHaveBeenLastCalledWith(false);
+
+    const file = makeFile('flagged.png', 'image/png', 200 * 1024);
+    await pickFile(file);
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-moderation')).toBeInTheDocument(),
+    );
+
+    expect(onModerationStateChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('fires onModerationStateChange(false) when the rejected image is cleared via the X badge', async () => {
+    const onModerationStateChange = vi.fn();
+    stubModerationBridge({ unsafe_score: 0.93, label: 'EXPOSED_BREAST', rejected: true });
+    render(
+      <ReviewPreviewImage
+        overlayPath={OVERLAY_PATH}
+        autoPreviewSrc={AUTO_PREVIEW_SRC}
+        onModerationStateChange={onModerationStateChange}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+    await pickFile(makeFile('flagged.png', 'image/png', 200 * 1024));
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-moderation')).toBeInTheDocument(),
+    );
+    expect(onModerationStateChange).toHaveBeenLastCalledWith(true);
+
+    // Click the X to revert to auto.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-preview-image-remove'));
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+    expect(onModerationStateChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('fires onModerationStateChange(false) on unmount so the gate releases when the dialog closes', async () => {
+    const onModerationStateChange = vi.fn();
+    stubModerationBridge({ unsafe_score: 0.93, label: 'EXPOSED_BREAST', rejected: true });
+    const { unmount } = render(
+      <ReviewPreviewImage
+        overlayPath={OVERLAY_PATH}
+        autoPreviewSrc={AUTO_PREVIEW_SRC}
+        onModerationStateChange={onModerationStateChange}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+    await pickFile(makeFile('flagged.png', 'image/png', 200 * 1024));
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-moderation')).toBeInTheDocument(),
+    );
+    expect(onModerationStateChange).toHaveBeenLastCalledWith(true);
+
+    onModerationStateChange.mockClear();
+    unmount();
+    expect(onModerationStateChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('appends the regenerated_at epoch as ?v=<n> on the auto-preview <img> after success', async () => {
+    const sendShareMessage = vi.fn(async (msg: { id: string }) => ({
+      id: msg.id,
+      type: 'share.regeneratePreviewResult',
+      params: { regenerated_at: 1_777_900_001 },
+    }));
+    vi.stubGlobal('omni', {
+      sendMessage: vi.fn(),
+      sendShareMessage,
+      onShareEvent: vi.fn().mockImplementation(() => () => {}),
+    });
+
+    render(
+      <ReviewPreviewImage
+        overlayPath={OVERLAY_PATH}
+        autoPreviewSrc={AUTO_PREVIEW_SRC}
+        kind="overlay"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('review-preview-image-auto')).toBeInTheDocument(),
+    );
+
+    // Pre-click: <img> uses the prop-provided autoPreviewSrc unchanged.
+    const imgBefore = screen.getByAltText('Auto-generated overlay preview') as HTMLImageElement;
+    expect(imgBefore.src).toBe(AUTO_PREVIEW_SRC);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-preview-image-regenerate-link'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Post-click: the component constructs a fresh `omni-preview://` URL from
+    // (overlayPath, kind) and appends `?v=<regenerated_at>` so the browser
+    // refetches the freshly-written PNG.
+    const imgAfter = screen.getByAltText('Auto-generated overlay preview') as HTMLImageElement;
+    expect(imgAfter.src).toBe(
+      `omni-preview://${OVERLAY_PATH}/.omni-preview.png?v=1777900001`,
+    );
+  });
 });

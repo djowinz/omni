@@ -155,7 +155,11 @@ export function UploadDialog({
               />
             )}
             {state.step === 'details' && (
-              <Review state={{ mode: state.mode, selected: state.selected }} form={form} />
+              <Review
+                state={{ mode: state.mode, selected: state.selected }}
+                form={form}
+                actions={{ setPreviewBlocked: actions.setPreviewBlocked }}
+              />
             )}
             {state.step === 'packing' && (
               <Packing
@@ -194,7 +198,11 @@ export function UploadDialog({
           <UploadDialogFooter
             step={state.step}
             state={state.uploadState}
-            primaryDisabled={state.primaryDisabled}
+            // OR-in `previewBlocked` so a moderation-rejected custom preview
+            // on Step 2 disables Continue. The flag only flips on Step 2 and
+            // the ReviewPreviewImage clears it on unmount, so it stays false
+            // for every other step's primary CTA.
+            primaryDisabled={state.primaryDisabled || state.previewBlocked}
             onBack={actions.back}
             onCancel={() => onOpenChange(false)}
             onPrimary={handlePrimary}

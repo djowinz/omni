@@ -372,6 +372,11 @@ export const UploadPackParamsSchema = z.object({
   workspace_path: z.string(),
   kind: z.enum(['theme', 'bundle']).optional(),
   name: z.string().optional(),
+  // Optional base64-encoded user-supplied thumbnail bytes (PNG / JPEG /
+  // WebP). When present the host re-runs moderation on the bytes
+  // (renderer-side gate is advisory per INV-7.7.2) and uses them as the
+  // artifact thumbnail in place of the auto-render.
+  custom_preview_b64: z.string().optional(),
 });
 export type UploadPackParams = z.infer<typeof UploadPackParamsSchema>;
 
@@ -439,6 +444,9 @@ export const UploadPublishParamsSchema = z.object({
   license: z.string().optional(),
   version: z.string().optional(),
   omni_min_version: z.string().optional(),
+  // See `UploadPackParamsSchema.custom_preview_b64` — same shape, same
+  // semantics, host re-runs moderation before using the bytes.
+  custom_preview_b64: z.string().optional(),
 });
 export type UploadPublishParams = z.infer<typeof UploadPublishParamsSchema>;
 
@@ -486,6 +494,9 @@ export const UploadUpdateParamsSchema = z.object({
   license: z.string().optional(),
   version: z.string().optional(),
   omni_min_version: z.string().optional(),
+  // See `UploadPackParamsSchema.custom_preview_b64` — same shape, same
+  // semantics, host re-runs moderation before using the bytes.
+  custom_preview_b64: z.string().optional(),
 });
 export type UploadUpdateParams = z.infer<typeof UploadUpdateParamsSchema>;
 
@@ -545,6 +556,34 @@ export const ShareModerationCheckResultSchema = z.object({
   params: ModerationCheckResultSchema,
 });
 export type ShareModerationCheckResult = z.infer<typeof ShareModerationCheckResultSchema>;
+
+// ── share.regeneratePreview ─────────────────────────────────────────────────
+
+// Shipped: crates/host/src/share/ws_messages.rs handle_regenerate_preview.
+//
+// Renderer-initiated regeneration of the on-disk save-time preview PNG for a
+// workspace overlay or theme. The host re-runs the exact same `save_preview`
+// pipeline used by the file-save hook (writes `.omni-preview.png` next to the
+// overlay folder, or `<theme>.css.preview.png` next to the theme CSS file).
+//
+// `regenerated_at` is the host's epoch-seconds clock at write completion;
+// the renderer appends it as `?v=<n>` to the existing `omni-preview://`
+// URL so the `<img>` tag fetches the freshly-written bytes instead of the
+// browser-cached stale version.
+export const ShareRegeneratePreviewParamsSchema = z.object({
+  workspace_path: z.string(),
+  kind: z.enum(['overlay', 'theme']),
+});
+export type ShareRegeneratePreviewParams = z.infer<typeof ShareRegeneratePreviewParamsSchema>;
+
+export const ShareRegeneratePreviewResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('share.regeneratePreviewResult'),
+  params: z.object({
+    regenerated_at: z.number(),
+  }),
+});
+export type ShareRegeneratePreviewResult = z.infer<typeof ShareRegeneratePreviewResultSchema>;
 
 // ── upload.delete ───────────────────────────────────────────────────────────
 
@@ -953,6 +992,10 @@ export interface ShareRequestMap {
     params: ShareModerationCheckParams;
     result: ShareModerationCheckResult;
   };
+  'share.regeneratePreview': {
+    params: ShareRegeneratePreviewParams;
+    result: ShareRegeneratePreviewResult;
+  };
 }
 
 /**
@@ -999,6 +1042,7 @@ export const ShareResponseSchemas = {
   'config.limitsResult': ConfigLimitsResultSchema,
   'workspace.listPublishablesResult': WorkspaceListPublishablesResultSchema,
   'share.moderationCheckResult': ShareModerationCheckResultSchema,
+  'share.regeneratePreviewResult': ShareRegeneratePreviewResultSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 /** Exhaustive union of every WS response/progress type string a consumer may receive. Useful for discriminated switch statements. */

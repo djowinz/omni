@@ -536,12 +536,22 @@ async fn import_swaps_active_keypair_and_resets_metadata() {
     let loaded = Keypair::load_or_create(&ctx.identity_key_path()).unwrap();
     assert_eq!(loaded.public_key().to_hex(), donor_pk_hex);
 
-    // Metadata is reset for the new pubkey; display_name stays None
-    // because the worker 404'd.
+    // Metadata is seeded for the new pubkey. display_name stays None
+    // because the worker 404'd. backed_up MUST be true: the user just
+    // supplied the encrypted backup bytes, so the identity is already
+    // backed up by definition — anything else puts imported users into
+    // an infinite first-publish backup-gate loop.
     let meta = IdentityMetadata::load_or_default(&ctx.identity_metadata_path(), &donor_pk_hex);
     assert_eq!(meta.pubkey_hex, donor_pk_hex);
     assert_eq!(meta.display_name, None);
-    assert!(!meta.backed_up);
+    assert!(
+        meta.backed_up,
+        "imported identity must be marked backed_up=true; user demonstrably possesses the backup"
+    );
+    assert!(
+        meta.last_backed_up_at.is_some(),
+        "imported identity must record last_backed_up_at; the import operation IS a backup event"
+    );
 }
 
 #[tokio::test]

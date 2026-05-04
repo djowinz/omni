@@ -3,9 +3,14 @@
 
 PRAGMA foreign_keys = ON;
 
+-- `display_name` is intentionally NOT UNIQUE — uniqueness is enforced on
+-- `pubkey` (PRIMARY KEY). Display names are vanity-only / cosmetic; two
+-- creators must be allowed to pick the same name without one's upload
+-- failing. The renderer disambiguates by appending the fingerprint suffix
+-- (e.g. `djowinz#abc12345`). Authoritative source: umbrella spec §6.2.
 CREATE TABLE authors (
   pubkey            BLOB PRIMARY KEY,
-  display_name      TEXT UNIQUE,
+  display_name      TEXT,
   created_at        INTEGER NOT NULL,
   total_uploads     INTEGER NOT NULL DEFAULT 0,
   is_new_creator    INTEGER NOT NULL DEFAULT 1,

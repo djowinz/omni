@@ -626,12 +626,6 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             | Some("identity.backup")
             | Some("identity.import")
             | Some("identity.rotate")
-            // identity-completion-and-display-name shipped the dispatch arms
-            // in `share::ws_messages::dispatch` but the routing gate here was
-            // not updated, so `identity.markBackedUp` and `identity.setDisplayName`
-            // fell through to `handle_message` and returned the
-            // "Unknown WebSocket message type" error to the renderer. Adding
-            // them here completes the routing.
             | Some("identity.markBackedUp")
             | Some("identity.setDisplayName")
             | Some("config.vocab")
@@ -642,32 +636,9 @@ fn is_share_message_type(ty: Option<&str>) -> bool {
             | Some("explorer.cancelPreview")
             | Some("explorer.list")
             | Some("explorer.get")
-            // upload-flow-redesign Wave A0 (OWI-34, plan task A0.8-9):
-            // Step 1 source picker calls this RPC instead of `file.list` so it
-            // gets per-row widget count, mtime, preview presence, and sidecar
-            // in a single round-trip. Routed through `dispatch_share_message`
-            // because the handler reads share-side helpers (`read_sidecar`,
-            // the omni parser). One-line wiring fix paired with
-            // `share::ws_messages::handle_list_publishables`; without this
-            // arm the message would fall through to `handle_message`, which
-            // doesn't know the type.
             | Some("workspace.listPublishables")
-            // #016 P8/P9 — identity write paths (mark a freshly-backed-up key
-            // as backed up; rename the local display name). Both routed
-            // through `dispatch_share_message` because they mutate
-            // `ShareContext::identity`.
-            | Some("identity.markBackedUp")
-            | Some("identity.setDisplayName")
-            // upload-flow-redesign Wave B1 — Preview Image dual-gate
-            // moderation (INV-7.7.2 site #1). Paired with
-            // `share::ws_messages::handle_moderation_check`. Note the
-            // `share.` prefix is unusual — every other share arm uses a
-            // bare module prefix (`upload.*`, `identity.*`, `explorer.*`).
-            // Without this arm the renderer's `ws.send('share.moderationCheck')`
-            // hangs forever because the fallback "unknown type" reply at
-            // `handle_message` omits the request `id`, so the IPC promise
-            // never correlates back.
             | Some("share.moderationCheck")
+            | Some("share.regeneratePreview")
     )
 }
 
@@ -869,6 +840,7 @@ mod tests {
             "explorer.get",
             "workspace.listPublishables",
             "share.moderationCheck",
+            "share.regeneratePreview",
         ] {
             assert!(
                 is_share_message_type(Some(ty)),

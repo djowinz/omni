@@ -38,6 +38,7 @@ fn test_request(src: &std::path::Path) -> UploadRequest {
         version: "1.0.0".parse().unwrap(),
         omni_min_version: "0.1.0".parse().unwrap(),
         update_artifact_id: None,
+        custom_thumbnail_bytes: None,
     }
 }
 

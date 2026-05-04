@@ -586,9 +586,18 @@ impl ShareClient {
     pub async fn get_author(&self, pubkey_hex: &str) -> Result<AuthorDetail, UploadError> {
         let path = format!("/v1/author/{pubkey_hex}");
         let url = self.url(&path);
-        let resp = self
-            .send_with_retry(self.http.get(url))
-            .await?;
+        // Even though this endpoint is unauthenticated (no JWS), the worker's
+        // global middleware (`apps/worker/src/index.ts` ~L75) still requires
+        // `X-Omni-Version` + `X-Omni-Sanitize-Version` on every route except
+        // GET /v1/{config,download,thumbnail}/*. `sign_request` normally
+        // attaches both for us; bypassing it here means we have to add them
+        // ourselves or every request comes back 400.
+        let req = self
+            .http
+            .get(url)
+            .header("X-Omni-Version", env!("CARGO_PKG_VERSION"))
+            .header("X-Omni-Sanitize-Version", SANITIZE_VERSION.to_string());
+        let resp = self.send_with_retry(req).await?;
         if !resp.status().is_success() {
             return Err(Self::decode_error(resp).await);
         }

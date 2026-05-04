@@ -79,6 +79,14 @@ pub struct UploadRequest {
     pub version: Version,
     pub omni_min_version: Version,
     pub update_artifact_id: Option<String>,
+    /// Optional user-supplied thumbnail bytes (PNG / JPEG / WebP). When
+    /// `Some`, the pack pipeline runs the host-side moderation gate on the
+    /// bytes and uses them as the artifact's R2 thumbnail in place of the
+    /// auto-rendered Ultralight output. Renderer-side moderation is
+    /// advisory per INV-7.7.2; the host re-run is the authoritative gate.
+    /// `None` (the default) preserves the legacy behavior of always
+    /// rendering server-side.
+    pub custom_thumbnail_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,8 +361,39 @@ pub async fn pack_only_with_progress(
                 source: Some(Box::new(e)),
             })?;
 
-    let (thumbnail_png, sanitized_bytes) =
-        render_thumbnail(req.kind, &sanitized_files, sanitized_bytes).await?;
+    // Custom thumbnail path: when the renderer supplied user-uploaded bytes
+    // (Step 2 Preview Image, INV-7.7.2 site #1), run the host-side
+    // moderation gate on them and use them as the thumbnail in place of
+    // the auto-rendered Ultralight output. The renderer-side gate is
+    // advisory; this re-run is the authoritative one. On reject we fail
+    // the pack with a structured `Moderation:ServerRejected` so the
+    // renderer can surface a recovery dialog rather than silently uploading
+    // either the user's flagged image OR the auto-render the user thought
+    // they had replaced.
+    let (thumbnail_png, sanitized_bytes) = match &req.custom_thumbnail_bytes {
+        Some(bytes) => {
+            let mod_result = match crate::share::moderation::check_image(bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Err(UploadError::BadInput {
+                        msg: format!("custom thumbnail moderation failed: {e}"),
+                        source: None,
+                    });
+                }
+            };
+            if mod_result.rejected {
+                return Err(UploadError::BadInput {
+                    msg: format!(
+                        "custom thumbnail rejected by moderation (detector={}, score={:.2}, label={})",
+                        mod_result.detector, mod_result.unsafe_score, mod_result.label
+                    ),
+                    source: None,
+                });
+            }
+            (bytes.clone(), sanitized_bytes)
+        }
+        None => render_thumbnail(req.kind, &sanitized_files, sanitized_bytes).await?,
+    };
 
     let compressed_size = sanitized_bytes.len() as u64;
 
@@ -1299,6 +1338,7 @@ mod tests {
             version: "1.0.0".parse().unwrap(),
             omni_min_version: "0.1.0".parse().unwrap(),
             update_artifact_id: None,
+            custom_thumbnail_bytes: None,
         };
         let pack = pack_only(&req, &BundleLimits::DEFAULT, &kp)
             .await

@@ -53,6 +53,7 @@ import { useForm, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { PackStage, PublishablesEntry } from '@omni/shared-types';
 import { useShareWs } from '../../../../hooks/use-share-ws';
+import { getCustomPreview } from '../../../../lib/indexed-db/custom-preview-store';
 import {
   DEFAULT_FORM,
   UploadFormSchema,
@@ -113,6 +114,16 @@ export interface UploadMachineState {
    * hasn't been dismissed this session.
    */
   backupGateOpen: boolean;
+  /**
+   * Set by `ReviewPreviewImage` when the user-uploaded preview lands in
+   * the moderation-rejected state. While true, the footer's primary CTA
+   * stays disabled even on Step 2 — without this gate the user could
+   * advance past a rose-chrome "Image can't be used" tile and publish
+   * (the host would still derive the actual thumbnail server-side, so
+   * nothing breaks technically, but the UX is misleading). Cleared on
+   * any non-moderation state and on RESET / SELECT_ITEM.
+   */
+  previewBlocked: boolean;
 }
 
 export interface UploadMachineActions {
@@ -141,6 +152,12 @@ export interface UploadMachineActions {
    * session as having seen the gate and resumes the paused publish.
    */
   resolveBackupGate: (dismissed: boolean) => Promise<void>;
+  /**
+   * Set by Step 2's `ReviewPreviewImage` to (un)gate the footer's primary
+   * CTA on the moderation-rejected preview state. See
+   * `UploadMachineState.previewBlocked` for rationale.
+   */
+  setPreviewBlocked: (blocked: boolean) => void;
 }
 
 // ── Step ordering ────────────────────────────────────────────────────────────
@@ -197,6 +214,44 @@ export function detectMode(entry: PublishablesEntry | null, currentPubkey: strin
   return entry.sidecar.author_pubkey_hex === currentPubkey ? 'update' : 'create';
 }
 
+// ── Custom preview IDB read ─────────────────────────────────────────────────
+
+/**
+ * Load the user-uploaded Step 2 Preview Image from IndexedDB and base64-
+ * encode it for the WS surface. Returns `null` when no custom preview was
+ * persisted (the auto-generated thumbnail will be used). Errors from the
+ * IDB read are also coalesced to `null` so a flaky persistence layer
+ * never blocks publish — worst case the user gets the auto-render they
+ * would have gotten without ever picking a custom image.
+ *
+ * The host-side `share::moderation::check_image` re-runs the gate on these
+ * bytes (renderer-side moderation is advisory per INV-7.7.2) and either
+ * accepts them as the artifact thumbnail or fails the publish with
+ * `Moderation:ServerRejected`. Both renderer & host enforce the 2 MB cap
+ * so an oversized image gets rejected at whichever layer sees it first.
+ */
+async function loadCustomPreviewB64(workspacePath: string): Promise<string | null> {
+  let record: Awaited<ReturnType<typeof getCustomPreview>> = null;
+  try {
+    record = await getCustomPreview(workspacePath);
+  } catch {
+    return null;
+  }
+  if (!record) return null;
+  const buf = await record.blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  // Encode in 32 KB chunks so very-large bytes don't blow the call stack
+  // through `String.fromCharCode.apply` — same pattern as
+  // `review-preview-image.tsx::blobToBase64`.
+  const chunkSize = 32 * 1024;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
 // ── Reducer ──────────────────────────────────────────────────────────────────
 
 type Action =
@@ -214,7 +269,8 @@ type Action =
   | { type: 'PUBLISH_SUCCESS'; result: PublishResult }
   | { type: 'PUBLISH_ERROR'; error: PublishError }
   | { type: 'JUMP_TO_DETAILS' }
-  | { type: 'BACKUP_GATE'; open: boolean };
+  | { type: 'BACKUP_GATE'; open: boolean }
+  | { type: 'SET_PREVIEW_BLOCKED'; blocked: boolean };
 
 const INITIAL_STATE: UploadMachineState = {
   step: 'select',
@@ -232,6 +288,7 @@ const INITIAL_STATE: UploadMachineState = {
   publishResult: null,
   publishError: null,
   backupGateOpen: false,
+  previewBlocked: false,
 };
 
 function reducer(state: UploadMachineState, action: Action): UploadMachineState {
@@ -439,6 +496,11 @@ function reducer(state: UploadMachineState, action: Action): UploadMachineState 
     }
     case 'BACKUP_GATE':
       return { ...state, backupGateOpen: action.open };
+    case 'SET_PREVIEW_BLOCKED':
+      // Cheap idempotent guard so a re-fire from an effect with a stable
+      // dependency doesn't churn the reducer (and re-render every consumer).
+      if (state.previewBlocked === action.blocked) return state;
+      return { ...state, previewBlocked: action.blocked };
   }
 }
 
@@ -687,6 +749,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     const cur = stateRef.current;
     if (!cur.selected) return;
     dispatch({ type: 'PACK_RESET' });
+    const customPreviewB64 = await loadCustomPreviewB64(cur.selected.workspace_path);
     try {
       // The host emits packProgress frames as it goes; the result here is the
       // terminal pack manifest + sanitize report. We don't need its body —
@@ -694,7 +757,10 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       // because pack failures surface via the per-stage 'failed' frame (the
       // host emits 'failed' before throwing) and via the publish-time error
       // envelope (which carries the structured violation list).
-      await ws.send('upload.pack', { workspace_path: cur.selected.workspace_path });
+      await ws.send('upload.pack', {
+        workspace_path: cur.selected.workspace_path,
+        ...(customPreviewB64 !== null && { custom_preview_b64: customPreviewB64 }),
+      });
     } catch (err) {
       // If a stage hasn't already been marked failed, mark dependency-stage
       // as failed and surface any violations carried on the envelope. The
@@ -736,10 +802,17 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     const common = buildPublishParams();
     if (!common) return;
     dispatch({ type: 'PUBLISH_START' });
+    const customPreviewB64 = cur.selected
+      ? await loadCustomPreviewB64(cur.selected.workspace_path)
+      : null;
+    const commonWithPreview = {
+      ...common,
+      ...(customPreviewB64 !== null && { custom_preview_b64: customPreviewB64 }),
+    };
     try {
       if (cur.mode === 'update' && cur.selected?.sidecar) {
         const resp = await ws.send('upload.update', {
-          ...common,
+          ...commonWithPreview,
           artifact_id: cur.selected.sidecar.artifact_id,
         });
         // Normalise `updated`/`unchanged` (UploadUpdateResult-only) into
@@ -770,7 +843,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
         onPublishedRef.current?.(normalised.params);
       } else {
         const resp = await ws.send('upload.publish', {
-          ...common,
+          ...commonWithPreview,
           visibility: 'public' as const,
         });
         dispatch({
@@ -832,6 +905,10 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
 
   const setCurrentPubkey = useCallback((pubkey: string | null) => {
     dispatch({ type: 'SET_CURRENT_PUBKEY', pubkey });
+  }, []);
+
+  const setPreviewBlocked = useCallback((blocked: boolean) => {
+    dispatch({ type: 'SET_PREVIEW_BLOCKED', blocked });
   }, []);
 
   const next = useCallback(async () => {
@@ -972,6 +1049,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       linkAndUpdate,
       renameAndPublishNew,
       resolveBackupGate,
+      setPreviewBlocked,
     }),
     [
       selectKind,
@@ -985,6 +1063,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       linkAndUpdate,
       renameAndPublishNew,
       resolveBackupGate,
+      setPreviewBlocked,
     ],
   );
 

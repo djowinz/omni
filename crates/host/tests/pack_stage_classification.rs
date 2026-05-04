@@ -122,6 +122,7 @@ fn bundle_request(workspace: &Path, name: &str) -> UploadRequest {
         version: "1.0.0".parse().expect("semver"),
         omni_min_version: "0.1.0".parse().expect("semver"),
         update_artifact_id: None,
+        custom_thumbnail_bytes: None,
     }
 }
 
@@ -136,6 +137,7 @@ fn theme_request(css_path: &Path, name: &str) -> UploadRequest {
         version: "1.0.0".parse().expect("semver"),
         omni_min_version: "0.1.0".parse().expect("semver"),
         update_artifact_id: None,
+        custom_thumbnail_bytes: None,
     }
 }
 

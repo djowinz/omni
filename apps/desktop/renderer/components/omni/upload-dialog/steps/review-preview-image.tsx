@@ -49,6 +49,37 @@ export interface ReviewPreviewImageProps {
    * AUTO tag and no image fill.
    */
   autoPreviewSrc: string | null;
+  /**
+   * Source kind for the regenerate-auto-preview button. `"overlay"` writes
+   * `<workspace_path>/.omni-preview.png`; `"theme"` writes
+   * `<workspace_path>.preview.png`. Optional so test harnesses that only
+   * exercise the IDB / moderation paths can omit it; when absent the
+   * Regenerate button doesn't render.
+   */
+  kind?: 'overlay' | 'theme';
+  /**
+   * Fired with `true` whenever the component enters the moderation-rejected
+   * state, and with `false` on every other state (incl. unmount). The
+   * upload-machine consumer uses this to disable the Step 2 Continue button
+   * so the user can't advance past a rose-chrome "Image can't be used" tile
+   * — see `UploadMachineState.previewBlocked`. Optional so the component is
+   * still usable in isolation by tests / future surfaces that don't gate.
+   */
+  onModerationStateChange?: (blocked: boolean) => void;
+}
+
+/**
+ * Build the auto-preview URL for a `(workspace_path, kind)` pair, mirroring
+ * `review.tsx::resolveAutoPreviewSrc`. Used after a successful
+ * `share.regeneratePreview` round-trip so we can render the freshly-written
+ * file even when `autoPreviewSrc` was originally `null` (the overlay had no
+ * preview before the user clicked Regenerate).
+ */
+function buildAutoPreviewUrl(workspacePath: string, kind: 'overlay' | 'theme'): string {
+  if (kind === 'overlay') {
+    return `omni-preview://${workspacePath}/.omni-preview.png`;
+  }
+  return `omni-preview://${workspacePath.replace(/\.css$/i, '')}.preview.png`;
 }
 
 /**
@@ -125,13 +156,25 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPreviewImageProps) {
+export function ReviewPreviewImage({
+  overlayPath,
+  autoPreviewSrc,
+  kind,
+  onModerationStateChange,
+}: ReviewPreviewImageProps) {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Track the live custom thumbnail's object URL so we can revoke it on
   // replace / remove. Auto previews use a `file://` URL we never own.
   const customUrlRef = useRef<string | null>(null);
   const [state, setState] = useState<State>({ kind: 'auto' });
+  // `regenerated_at` epoch from the most recent share.regeneratePreview
+  // round-trip. Appended to the auto-preview URL as `?v=<n>` so the
+  // <img> reloads the freshly-written bytes instead of the browser-cached
+  // ones. `null` until the user clicks Regenerate at least once.
+  const [regeneratedAt, setRegeneratedAt] = useState<number | null>(null);
+  // Disables the Regenerate button while a round-trip is in flight.
+  const [regenerating, setRegenerating] = useState(false);
   const ws = useShareWs();
 
   const replaceCustomUrl = useCallback((next: string | null) => {
@@ -194,6 +237,20 @@ export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPrevie
       }
     };
   }, []);
+
+  // Notify the upload-machine whenever the moderation gate flips. Fires
+  // `true` only in the rejected state; every other state (incl. unmount)
+  // clears it so the parent's Continue button doesn't stay disabled past
+  // Step 2. Effect-based so the parent never sees a stale value: the
+  // unmount cleanup runs even when the user closes the dialog or jumps
+  // forward via `linkAndUpdate` recovery.
+  useEffect(() => {
+    if (!onModerationStateChange) return;
+    onModerationStateChange(state.kind === 'moderation');
+    return () => {
+      onModerationStateChange(false);
+    };
+  }, [state.kind, onModerationStateChange]);
 
   const validateAndAccept = useCallback(
     async (file: File) => {
@@ -333,6 +390,40 @@ export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPrevie
     setState({ kind: 'auto' });
   }, [overlayPath, replaceCustomUrl]);
 
+  const handleRegenerate = useCallback(async () => {
+    if (kind === undefined) return;
+    setRegenerating(true);
+    try {
+      const result = await ws.send('share.regeneratePreview', {
+        workspace_path: overlayPath,
+        kind,
+      });
+      setRegeneratedAt(result.params.regenerated_at);
+    } catch {
+      // Host-side render failures are logged on the host with full context
+      // (`tracing::warn!` in `handle_regenerate_preview`). The renderer-side
+      // user-facing copy is intentionally generic — failures are admin-side
+      // (live-render thread offline, parser crash, disk write error), not
+      // anything the user can fix from this dialog. Swallow silently and
+      // leave the existing preview in place so the upload flow keeps moving.
+    } finally {
+      setRegenerating(false);
+    }
+  }, [kind, overlayPath, ws]);
+
+  // Compose the URL the AutoView <img> actually renders. Three cases:
+  //   1. User has clicked Regenerate at least once → build a fresh URL from
+  //      `(overlayPath, kind)` and append `?v=<epoch>` so the browser bypasses
+  //      its disk cache for the file:// (or omni-preview://) origin.
+  //   2. Host had a save-time preview already → use the URL the parent
+  //      computed via `resolveAutoPreviewSrc`.
+  //   3. No preview ever existed → null, AutoView renders the zinc placeholder.
+  let effectiveAutoSrc: string | null = autoPreviewSrc;
+  if (regeneratedAt !== null && kind !== undefined) {
+    const base = buildAutoPreviewUrl(overlayPath, kind);
+    effectiveAutoSrc = `${base}?v=${regeneratedAt}`;
+  }
+
   return (
     <div data-testid="review-preview-image" className="flex flex-col gap-1.5">
       <span className="text-[13px] font-semibold text-[#FAFAFA]">Preview Image</span>
@@ -350,13 +441,15 @@ export function ReviewPreviewImage({ overlayPath, autoPreviewSrc }: ReviewPrevie
       />
       <PreviewBody
         state={state}
-        autoPreviewSrc={autoPreviewSrc}
+        autoPreviewSrc={effectiveAutoSrc}
         onOpenPicker={openFilePicker}
         onRemove={handleRemove}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onRegenerate={kind !== undefined ? handleRegenerate : undefined}
+        regenerating={regenerating}
       />
     </div>
   );
@@ -371,6 +464,9 @@ interface PreviewBodyProps {
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void | Promise<void>;
+  /** Undefined when the parent didn't pass `kind` (Regenerate button hidden). */
+  onRegenerate?: () => void | Promise<void>;
+  regenerating: boolean;
 }
 
 function PreviewBody({
@@ -382,6 +478,8 @@ function PreviewBody({
   onDragOver,
   onDragLeave,
   onDrop,
+  onRegenerate,
+  regenerating,
 }: PreviewBodyProps) {
   // A single drop-target wrapper — mockup INV-7.2.4 says the entire row is
   // the drop target. Drag handlers always live on the wrapper; the inner
@@ -395,7 +493,12 @@ function PreviewBody({
       onDrop={onDrop}
     >
       {state.kind === 'auto' && (
-        <AutoView autoPreviewSrc={autoPreviewSrc} onOpenPicker={onOpenPicker} />
+        <AutoView
+          autoPreviewSrc={autoPreviewSrc}
+          onOpenPicker={onOpenPicker}
+          onRegenerate={onRegenerate}
+          regenerating={regenerating}
+        />
       )}
       {state.kind === 'drag-active' && <DragActiveView />}
       {state.kind === 'custom' && <CustomView state={state} onRemove={onRemove} />}
@@ -412,9 +515,13 @@ function PreviewBody({
 function AutoView({
   autoPreviewSrc,
   onOpenPicker,
+  onRegenerate,
+  regenerating,
 }: {
   autoPreviewSrc: string | null;
   onOpenPicker: () => void;
+  onRegenerate?: () => void | Promise<void>;
+  regenerating: boolean;
 }) {
   return (
     <div data-testid="review-preview-image-auto" className="flex gap-3">
@@ -438,6 +545,22 @@ function AutoView({
       </div>
       <div className="flex-1 text-[12px] leading-relaxed text-[#a1a1aa]">
         Using auto-generated preview from your overlay.
+        {onRegenerate !== undefined && (
+          <>
+            {' · '}
+            <button
+              type="button"
+              onClick={() => {
+                void onRegenerate();
+              }}
+              disabled={regenerating}
+              data-testid="review-preview-image-regenerate-link"
+              className="cursor-pointer bg-transparent p-0 text-[#00D9FF] hover:underline disabled:cursor-default disabled:text-[#71717a] disabled:no-underline"
+            >
+              {regenerating ? 'Regenerating…' : 'Regenerate'}
+            </button>
+          </>
+        )}
         <br />
         <button
           type="button"

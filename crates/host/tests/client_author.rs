@@ -165,6 +165,40 @@ async fn get_author_does_not_attach_authorization_header() {
 }
 
 #[tokio::test]
+async fn get_author_attaches_version_headers() {
+    // The worker's global middleware (`apps/worker/src/index.ts`) requires
+    // `X-Omni-Version` + `X-Omni-Sanitize-Version` on every route except
+    // GET /v1/{config,download,thumbnail}/*. /v1/author/* is NOT exempt,
+    // so even unauthenticated GETs must carry both headers — otherwise
+    // every `get_author` call comes back 400 BAD_REQUEST and the
+    // import-flow display_name seed silently no-ops.
+    let server = MockServer::start().await;
+    let pubkey_hex = "11".repeat(32);
+
+    // Catch-all that fires only when BOTH headers are present.
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/author/{pubkey_hex}")))
+        .and(header_regex("x-omni-version", r"^\d+\.\d+\.\d+"))
+        .and(header_regex("x-omni-sanitize-version", r"^\d+$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "pubkey_hex": pubkey_hex,
+            "fingerprint_hex": "00",
+            "display_name": null,
+            "joined_at": 0u64,
+            "total_uploads": 0u64,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = test_client(&server);
+    let _ = client
+        .get_author(&pubkey_hex)
+        .await
+        .expect("get_author must succeed when version headers are attached");
+}
+
+#[tokio::test]
 async fn set_display_name_puts_signed_request_with_correct_body() {
     let server = MockServer::start().await;
     let response_pubkey = "ab".repeat(32);

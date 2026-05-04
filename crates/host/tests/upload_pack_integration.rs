@@ -160,6 +160,7 @@ async fn pack_only_bundles_overlay_theme_font_and_image() {
         version: "1.0.0".parse().unwrap(),
         omni_min_version: "0.1.0".parse().unwrap(),
         update_artifact_id: None,
+        custom_thumbnail_bytes: None,
     };
     let pack = pack_only(&req, &BundleLimits::DEFAULT, &kp)
         .await
