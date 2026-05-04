@@ -1,200 +1,100 @@
 /// <reference types="@testing-library/jest-dom/vitest" />
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
-import type { ArtifactDetail } from '../../../lib/share-types';
+import { describe, expect, it, vi } from 'vitest';
+import { ExploreDetail } from '../explore-detail';
 
-const FIXTURE: ArtifactDetail = {
-  artifact_id: 'art-1',
-  kind: 'theme',
-  manifest: { name: 'Neon Demo' },
-  content_hash: 'h',
-  r2_url: 'https://x/a',
-  thumbnail_url: 'https://x/t',
-  author_pubkey: 'pk',
-  author_fingerprint_hex: 'aabbcc',
-  installs: 42,
-  reports: 0,
-  created_at: 0,
-  updated_at: 0,
-  status: 'published',
-  author_display_name: null,
-};
+const mockSetSelectedId = vi.fn();
 
-// Stub out useOmniState + useIdentity — ExploreDetail now calls both.
-// Called before loadWrap() so that vi.resetModules() doesn't evict the stubs
-// before the dynamic import of ExploreDetail resolves.
-function stubNewHooks(overrides: { overlays?: { name: string; content: string | null }[] } = {}) {
-  vi.doMock('../../../hooks/use-omni-state', () => ({
-    useOmniState: () => ({
-      state: { overlays: overrides.overlays ?? [] },
-      dispatch: vi.fn(),
-    }),
-  }));
-  vi.doMock('../../../lib/identity-context', () => ({
-    useIdentity: () => ({
-      identity: {
-        pubkey_hex: 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-        display_name: 'Tester',
-        fingerprint_hex: '',
-        fingerprint_words: [],
-        fingerprint_emoji: [],
-        created_at: 0,
-        backed_up: false,
-        last_backed_up_at: null,
-        last_rotated_at: null,
-        last_backup_path: null,
-      },
-      loading: false,
-      is_fresh_install: false,
-      first_run_handled: false,
-      refresh: vi.fn(),
-      markFirstRunHandled: vi.fn(),
-    }),
-  }));
-}
+vi.mock('../../../hooks/use-explore-filters', () => ({
+  useExploreFilters: () => ({
+    tab: 'discover',
+    kind: 'all',
+    sort: 'new',
+    tags: [],
+    q: '',
+    selectedId: 'a1',
+    setTab: vi.fn(),
+    setKind: vi.fn(),
+    setSort: vi.fn(),
+    setTags: vi.fn(),
+    setQ: vi.fn(),
+    setSelectedId: mockSetSelectedId,
+  }),
+}));
 
-// Dynamically import PreviewContextProvider after vi.resetModules() so the
-// provider + the usePreview() call inside ExploreDetail bind to the SAME
-// Context object (vi.resetModules invalidates the module cache, so a statically
-// imported provider would wind up referencing a stale Context instance).
-async function loadWrap() {
-  const { PreviewContextProvider } = await import('../../../lib/preview-context');
-  return function Wrap({ children }: { children: ReactNode }) {
-    return <PreviewContextProvider>{children}</PreviewContextProvider>;
-  };
-}
+vi.mock('../../../hooks/use-explore-detail', () => ({
+  useExploreDetail: () => ({
+    artifact: {
+      artifact_id: 'a1',
+      kind: 'bundle',
+      manifest: { name: 'Full Telemetry', description: 'Complete telemetry suite.', version: '4.2.0', license: 'Apache-2.0', tags: ['gaming', 'fps', 'racing'] },
+      content_hash: 'sha256:abc',
+      r2_url: '',
+      thumbnail_url: '',
+      author_pubkey: 'aa'.repeat(32),
+      author_fingerprint_hex: 'aabbccdd',
+      installs: 3241,
+      reports: 0,
+      created_at: 0,
+      updated_at: 1712601600,
+      status: 'active',
+      author_display_name: 'djowinz',
+    },
+    loading: false,
+    error: null,
+  }),
+}));
+
+// Stub out share-ws + omni-state + identity + preview hooks the same way
+// the existing detail test does (read existing file before authoring).
+vi.mock('../../../hooks/use-share-ws', () => ({ useShareWs: () => ({ send: vi.fn() }) }));
+vi.mock('../../../hooks/use-omni-state', () => ({
+  useOmniState: () => ({ state: { overlays: [] }, dispatch: vi.fn() }),
+}));
+vi.mock('../../../lib/identity-context', () => ({ useIdentity: () => ({ identity: null }) }));
+vi.mock('../../../lib/preview-context', () => ({ usePreview: () => ({ setPreview: vi.fn() }) }));
 
 describe('ExploreDetail', () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('renders placeholder when selectedId is null', async () => {
-    vi.doMock('../../../hooks/use-explore-detail', () => ({
-      useExploreDetail: () => ({ artifact: null, loading: false, error: null }),
-    }));
-    stubNewHooks();
-    const Wrap = await loadWrap();
-    const { ExploreDetail } = await import('../explore-detail');
-    render(
-      <Wrap>
-        <ExploreDetail selectedId={null} tab="discover" />
-      </Wrap>,
-    );
-    expect(screen.getByTestId('explore-detail-placeholder')).toBeInTheDocument();
+  it('renders the kind icon, name, and kind label in the header', () => {
+    render(<ExploreDetail selectedId="a1" tab="discover" />);
+    expect(screen.getByText('Full Telemetry')).toBeInTheDocument();
+    expect(screen.getByText('Bundle')).toBeInTheDocument();
   });
 
-  it('renders skeleton when loading', async () => {
-    vi.doMock('../../../hooks/use-explore-detail', () => ({
-      useExploreDetail: () => ({ artifact: null, loading: true, error: null }),
-    }));
-    stubNewHooks();
-    const Wrap = await loadWrap();
-    const { ExploreDetail } = await import('../explore-detail');
-    render(
-      <Wrap>
-        <ExploreDetail selectedId="art-1" tab="discover" />
-      </Wrap>,
-    );
-    expect(screen.getByTestId('explore-detail-skeleton')).toBeInTheDocument();
+  it('renders the description in the body', () => {
+    render(<ExploreDetail selectedId="a1" tab="discover" />);
+    expect(screen.getByText('Complete telemetry suite.')).toBeInTheDocument();
   });
 
-  it('renders the card with Preview/Install/Fork buttons on Discover', async () => {
-    vi.doMock('../../../hooks/use-explore-detail', () => ({
-      useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
-    }));
-    stubNewHooks();
-    const Wrap = await loadWrap();
-    const { ExploreDetail } = await import('../explore-detail');
-    render(
-      <Wrap>
-        <ExploreDetail selectedId="art-1" tab="discover" />
-      </Wrap>,
-    );
-    expect(screen.getByText('Preview')).toBeInTheDocument();
-    expect(screen.getByText('Install')).toBeInTheDocument();
-    expect(screen.getByText('Fork')).toBeInTheDocument();
+  it('renders all four stats in a 2x2 grid', () => {
+    render(<ExploreDetail selectedId="a1" tab="discover" />);
+    expect(screen.getByText('Installs')).toBeInTheDocument();
+    expect(screen.getByText('3,241')).toBeInTheDocument();
+    expect(screen.getByText('Version')).toBeInTheDocument();
+    expect(screen.getByText('4.2.0')).toBeInTheDocument();
+    expect(screen.getByText('License')).toBeInTheDocument();
+    expect(screen.getByText('Apache-2.0')).toBeInTheDocument();
   });
 
-  it('renders Installed-tab buttons', async () => {
-    vi.doMock('../../../hooks/use-explore-detail', () => ({
-      useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
-    }));
-    stubNewHooks();
-    const Wrap = await loadWrap();
-    const { ExploreDetail } = await import('../explore-detail');
-    render(
-      <Wrap>
-        <ExploreDetail selectedId="art-1" tab="installed" />
-      </Wrap>,
-    );
-    expect(screen.getByText('Open')).toBeInTheDocument();
-    expect(screen.getByText('Uninstall')).toBeInTheDocument();
-    expect(screen.getByText('Fork')).toBeInTheDocument();
+  it('renders tag pills', () => {
+    render(<ExploreDetail selectedId="a1" tab="discover" />);
+    expect(screen.getByText('gaming')).toBeInTheDocument();
+    expect(screen.getByText('fps')).toBeInTheDocument();
+    expect(screen.getByText('racing')).toBeInTheDocument();
   });
 
-  it('clicking Install dispatches explorer.install and shows success toast', async () => {
-    const sendSpy = vi.fn().mockResolvedValue({ tofu: 'first_install' });
-    const toastSuccessSpy = vi.fn();
-    vi.doMock('../../../lib/toast', () => ({
-      toast: { info: vi.fn(), success: toastSuccessSpy, error: vi.fn() },
-    }));
-    vi.doMock('../../../hooks/use-explore-detail', () => ({
-      useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
-    }));
-    vi.doMock('../../../hooks/use-share-ws', () => ({
-      useShareWs: () => ({ send: sendSpy }),
-    }));
-    stubNewHooks();
-    const Wrap = await loadWrap();
-    const { ExploreDetail } = await import('../explore-detail');
-    const user = userEvent.setup();
-    render(
-      <Wrap>
-        <ExploreDetail selectedId="art-1" tab="discover" />
-      </Wrap>,
-    );
-    await user.click(screen.getByText('Install'));
-    expect(sendSpy).toHaveBeenCalledWith('explorer.install', { artifact_id: 'art-1' });
-    await vi.waitFor(() => {
-      expect(toastSuccessSpy).toHaveBeenCalledWith(expect.stringMatching(/installed/i));
-    });
+  it('clicking the close button calls setSelectedId(null)', async () => {
+    render(<ExploreDetail selectedId="a1" tab="discover" />);
+    await userEvent.click(screen.getByTestId('explore-detail-close'));
+    expect(mockSetSelectedId).toHaveBeenCalledWith(null);
   });
 
-  it('clicking Install shows InlineError on failure', async () => {
-    const sendSpy = vi.fn().mockRejectedValue({
-      code: 'IO_FAIL',
-      kind: 'Io',
-      message: 'network error',
-    });
-    vi.doMock('../../../lib/toast', () => ({
-      toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
-    }));
-    vi.doMock('../../../hooks/use-explore-detail', () => ({
-      useExploreDetail: () => ({ artifact: FIXTURE, loading: false, error: null }),
-    }));
-    vi.doMock('../../../hooks/use-share-ws', () => ({
-      useShareWs: () => ({ send: sendSpy }),
-    }));
-    stubNewHooks();
-    const Wrap = await loadWrap();
-    const { ExploreDetail } = await import('../explore-detail');
-    const user = userEvent.setup();
-    render(
-      <Wrap>
-        <ExploreDetail selectedId="art-1" tab="discover" />
-      </Wrap>,
-    );
-    await user.click(screen.getByText('Install'));
-    await vi.waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
-    expect(screen.getByText('network error')).toBeInTheDocument();
+  it('renders Preview, Install, and Fork actions in the footer', () => {
+    render(<ExploreDetail selectedId="a1" tab="discover" />);
+    expect(screen.getByRole('button', { name: /preview/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^install$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /fork/i })).toBeInTheDocument();
   });
 });

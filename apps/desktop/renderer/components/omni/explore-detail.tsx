@@ -1,51 +1,33 @@
 /**
- * ExploreDetail — right 260px detail pane.
+ * ExploreDetail — 380px right detail pane.
  *
- * Renders an ArtifactCard "detail" variant wired with per-tab action slots
- * and kebab menu items. In Wave 3b only Preview is fully functional;
- * Install/Uninstall/Fork/Delete/Update click handlers toast "coming in sub-spec
- * #015/#016" so the UI is visible but real flows defer to those owners.
+ * Per share-explorer-redesign spec §3.4: structured header (h-16) +
+ * scrollable body + sticky footer. Replaces the previous
+ * <ArtifactCard variant='detail'> usage entirely. The 'detail' variant
+ * is retired in Task 8.
  *
- * Kebab: Copy artifact ID and Copy share link are fully wired in all tabs.
- * Check for update (Installed tab only) is a stub until #016 wires the
- * local install registry.
- *
- * P15 (OWI-106): The Install middle slot is now a real { idle | in-flight |
- * error } state machine. On success, toasts and resets. On tofu='mismatch',
- * opens TofuMismatchDialog (re-dispatches with trust_new_pubkey=true on
- * confirm). On error, renders InlineError with retry.
- *
- * NOTE: The host's explorer.installResult schema carries a `tofu` discriminator
- * ('first_install' | 'matched' | 'mismatch') but does NOT yet emit
- * `previously_seen` or `incoming` fingerprint fields — those are a host-side
- * gap. The TofuMismatchDialog branch is wired but will not fire until the host
- * adds those fields. Tracked as a follow-up.
- *
- * NOTE: Live progress events (explorer.installProgress subscription) are
- * deferred to a follow-up. The InstallProgress bar animates statically at
- * phase='download' during the flight for now.
- *
- * P16 (OWI-107): Fork right slot now opens ForkDialog instead of stub toast.
- * On submit, dispatches explorer.fork (artifact_id + target_name — the shipped
- * ExplorerForkParams schema is flat; the spec's discriminated source union is
- * not in the Rust handler yet, tracked as a host-side follow-up). On success:
- * closes dialog + SELECT_OVERLAY → target_name + SET_ACTIVE_PANEL →
- * 'components' + toast. NOTE: SET_ACTIVE_OVERLAY does not exist in the reducer;
- * SELECT_OVERLAY is used instead.
- *
- * existingNames is derived from state.overlays (array) — useOmniState has no
- * workspaces map; the overlays array serves as the collision list.
+ * The pane is mounted only when selectedId !== null. Clicking the header's
+ * ✕ calls filters.setSelectedId(null), which unmounts the pane (cards
+ * widen to absorb the freed space — column count stays at 3).
  */
 
 import { useMemo, useState } from 'react';
+import { Calendar, CheckSquare, Clock, Download, Layers, MoreVertical, Palette, Tag as TagIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
-import { ArtifactCard, type ArtifactCardActionSlots } from './artifact-card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import { InstallProgress, type InstallPhase } from './install-progress';
 import { TofuMismatchDialog, type TofuFingerprint } from './tofu-mismatch-dialog';
 import { ForkDialog } from './fork-dialog';
 import { InlineError } from './inline-error';
 import { useExploreDetail } from '../../hooks/use-explore-detail';
+import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { usePreview } from '../../lib/preview-context';
 import { useShareWs } from '../../hooks/use-share-ws';
 import { useOmniState } from '../../hooks/use-omni-state';
@@ -60,7 +42,7 @@ import {
 } from '../../lib/artifact-actions';
 
 export interface ExploreDetailProps {
-  selectedId: string | null;
+  selectedId: string;
   tab: ExploreTab;
 }
 
@@ -69,8 +51,15 @@ type InstallState =
   | { kind: 'in-flight'; phase: InstallPhase; done: number; total: number }
   | { kind: 'error'; message: string };
 
+function manifestString(manifest: Record<string, unknown> | undefined, key: string): string | null {
+  if (!manifest) return null;
+  const v = manifest[key];
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
 export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   const { artifact, loading } = useExploreDetail(selectedId);
+  const { setSelectedId } = useExploreFilters();
   const { setPreview } = usePreview();
   const { send } = useShareWs();
   const { state: omniState, dispatch } = useOmniState();
@@ -94,23 +83,12 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
       : `#${identity.pubkey_hex.slice(0, 8)}`
     : '';
 
-  if (selectedId === null) {
-    return (
-      <div
-        data-testid="explore-detail-placeholder"
-        className="flex h-full items-center justify-center p-6 text-center text-xs text-zinc-500"
-      >
-        Select an artifact to see details.
-      </div>
-    );
-  }
-
   if (loading && !artifact) {
     return (
       <div data-testid="explore-detail-skeleton" className="flex flex-col gap-3 p-4">
+        <div className="h-16 animate-pulse rounded bg-[#27272A]" />
         <div className="h-32 animate-pulse rounded-md bg-[#27272A]" />
         <div className="h-4 w-3/4 animate-pulse rounded bg-[#27272A]" />
-        <div className="h-3 w-1/2 animate-pulse rounded bg-[#27272A]" />
       </div>
     );
   }
@@ -124,6 +102,33 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   }
 
   const labels = actionLabelsFor(tab);
+  const isBundle = artifact.kind === 'bundle';
+  const KindIcon = isBundle ? Layers : Palette;
+  const kindIconColor = isBundle ? 'text-[#A855F7] bg-[#A855F7]/10' : 'text-[#00D9FF] bg-[#00D9FF]/10';
+  const kindLabel = isBundle ? 'Bundle' : 'Theme';
+
+  const name =
+    typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id;
+  const description = manifestString(
+    artifact.manifest as Record<string, unknown>,
+    'description',
+  );
+  const version = manifestString(artifact.manifest as Record<string, unknown>, 'version') ?? '—';
+  const license = manifestString(artifact.manifest as Record<string, unknown>, 'license') ?? '—';
+  const updatedAt =
+    typeof artifact.updated_at === 'number' && artifact.updated_at > 0
+      ? new Date(artifact.updated_at * 1000).toLocaleDateString()
+      : '—';
+  const installs =
+    typeof artifact.installs === 'number' ? artifact.installs.toLocaleString() : '—';
+  const rawTags = artifact.manifest['tags'];
+  const tags: string[] =
+    Array.isArray(rawTags) && rawTags.every((t) => typeof t === 'string')
+      ? (rawTags as string[])
+      : [];
+
+  const authorSlice = artifact.author_pubkey.slice(0, 8);
+  const authorName = artifact.author_display_name?.trim();
 
   const handleInstall = async (trustNewPubkey = false) => {
     setInstallState({ kind: 'in-flight', phase: 'download', done: 0, total: 4 });
@@ -132,7 +137,10 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         artifact_id: artifact.artifact_id,
       };
       if (trustNewPubkey) params.trust_new_pubkey = true;
-      const result = (await send('explorer.install', params as Parameters<typeof send<'explorer.install'>>[1])) as unknown as {
+      const result = (await send(
+        'explorer.install',
+        params as Parameters<typeof send<'explorer.install'>>[1],
+      )) as unknown as {
         tofu?: 'ok' | 'mismatch';
         previously_seen?: TofuFingerprint;
         incoming?: TofuFingerprint;
@@ -144,12 +152,9 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         return;
       }
       setInstallState({ kind: 'idle' });
-      toast.success(`Installed ${typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id}`);
+      toast.success(`Installed ${name}`);
     } catch (err) {
-      setInstallState({
-        kind: 'error',
-        message: mapErrorToUserMessage(err as OmniError).text,
-      });
+      setInstallState({ kind: 'error', message: mapErrorToUserMessage(err as OmniError).text });
     }
   };
 
@@ -160,24 +165,15 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         artifact_id: artifact.artifact_id,
         content_hash: artifact.content_hash,
         author_pubkey: artifact.author_pubkey,
-        name:
-          typeof artifact.manifest.name === 'string'
-            ? artifact.manifest.name
-            : artifact.artifact_id,
-        kind: artifact.kind === 'bundle' ? 'bundle' : 'theme',
-        tags: Array.isArray(artifact.manifest.tags)
-          ? (artifact.manifest.tags.filter((t): t is string => typeof t === 'string') as string[])
-          : [],
+        name,
+        kind: isBundle ? 'bundle' : 'theme',
+        tags,
         installs: artifact.installs ?? 0,
         r2_url: artifact.r2_url,
         thumbnail_url: artifact.thumbnail_url,
         author_fingerprint_hex: artifact.author_fingerprint_hex,
         created_at: artifact.created_at,
         updated_at: artifact.updated_at,
-        // OWI-91: forward the author_display_name from the ArtifactDetail
-        // into the cached preview entry so the preview-banner author chip
-        // matches the detail-card handle (single source of truth — both
-        // schemas now declare this field).
         author_display_name: artifact.author_display_name,
       });
     } catch (err) {
@@ -199,24 +195,9 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     toast.success('Share link copied.');
   };
 
-  // Mirrors authorDisplay() from artifact-card.tsx (not exported).
-  // `<display_name>#<8-hex>` when display name is present; `#<8-hex>` otherwise.
-  const artifactAuthorDisplay = (() => {
-    const slice = artifact.author_pubkey.slice(0, 8);
-    const raw = artifact.author_display_name;
-    const name = raw?.trim();
-    return name ? `${name}#${slice}` : `#${slice}`;
-  })();
-
-  const artifactName =
-    typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id;
-
   const handleFork = async ({ target_name }: { target_name: string }) => {
     try {
-      await send('explorer.fork', {
-        artifact_id: artifact.artifact_id,
-        target_name,
-      });
+      await send('explorer.fork', { artifact_id: artifact.artifact_id, target_name });
       setForkOpen(false);
       dispatch({ type: 'SELECT_OVERLAY', payload: target_name });
       dispatch({ type: 'SET_ACTIVE_PANEL', payload: 'components' });
@@ -227,91 +208,196 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     }
   };
 
-  const actionSlots: ArtifactCardActionSlots = {
-    left:
-      labels.left === 'Preview' ? (
-        <Button variant="outline" size="sm" onClick={handlePreview}>
-          {labels.left}
-        </Button>
-      ) : (
-        <Button variant="outline" size="sm" onClick={stubSubSpec('#016')}>
-          {labels.left}
-        </Button>
-      ),
-    middle:
-      labels.middle === 'Install' ? (
-        installState.kind === 'idle' ? (
-          <Button variant="default" size="sm" onClick={() => void handleInstall(false)}>
-            Install
-          </Button>
-        ) : installState.kind === 'in-flight' ? (
-          <InstallProgress
-            phase={installState.phase}
-            done={installState.done}
-            total={installState.total}
-          />
-        ) : (
-          <InlineError
-            message={installState.message}
-            onRetry={() => void handleInstall(false)}
-          />
-        )
-      ) : (
-        <Button
-          variant={labels.middle === 'Delete' ? 'destructive' : 'default'}
-          size="sm"
-          onClick={stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')}
-        >
-          {labels.middle}
-        </Button>
-      ),
-    right:
-      labels.right === 'Fork' ? (
-        <Button variant="secondary" size="sm" onClick={() => setForkOpen(true)}>
-          Fork
-        </Button>
-      ) : (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={stubSubSpec(labels.right === 'Update' ? '#015' : '#016')}
-        >
-          {labels.right}
-        </Button>
-      ),
-  };
-
   const kebabLabels = kebabLabelsFor(tab);
-  const kebabItems = (
-    <>
-      <DropdownMenuItem onSelect={copyId}>Copy artifact ID</DropdownMenuItem>
-      <DropdownMenuItem onSelect={copyShareLink}>Copy share link</DropdownMenuItem>
-      {kebabLabels.includes('Check for update') ? (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={stubSubSpec('#016')}>Check for update</DropdownMenuItem>
-        </>
-      ) : null}
-    </>
-  );
 
   return (
     <>
-      <ArtifactCard
-        variant="detail"
-        artifact={artifact}
-        actionSlots={actionSlots}
-        kebabMenuItems={kebabItems}
-      />
+      <div
+        data-testid="explore-detail"
+        className="flex h-full flex-col overflow-hidden bg-[#141416]"
+      >
+        {/* Sticky header (h-16) */}
+        <div className="flex h-16 flex-shrink-0 items-center justify-between border-b border-[#27272A] bg-[#18181B] px-4 py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className={cn(
+                'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
+                kindIconColor,
+              )}
+            >
+              <KindIcon className="h-[18px] w-[18px]" aria-hidden />
+            </div>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-[15px] font-semibold leading-tight text-[#FAFAFA]">
+                {name}
+              </span>
+              <span className="text-[11px] leading-tight text-[#71717A]">{kindLabel}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  data-testid="explore-detail-kebab"
+                  aria-label="More options"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-[#71717A] hover:bg-[#27272A]/50 hover:text-[#FAFAFA]"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={copyId}>Copy artifact ID</DropdownMenuItem>
+                <DropdownMenuItem onSelect={copyShareLink}>Copy share link</DropdownMenuItem>
+                {kebabLabels.includes('Check for update') && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={stubSubSpec('#016')}>
+                      Check for update
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              data-testid="explore-detail-close"
+              aria-label="Close"
+              onClick={() => setSelectedId(null)}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-[#71717A] hover:bg-[#27272A]/50 hover:text-[#FAFAFA]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-3.5">
+          <div className="flex flex-col gap-3.5">
+            {/* Hero */}
+            <div className="aspect-video w-full overflow-hidden rounded-lg border border-[#27272A] bg-gradient-to-br from-[#1F1F23] to-[#101013]">
+              {artifact.thumbnail_url && (
+                <img
+                  src={artifact.thumbnail_url}
+                  alt={name}
+                  className="h-full w-full object-cover"
+                />
+              )}
+            </div>
+
+            {description && (
+              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[#A1A1AA]">
+                {description}
+              </p>
+            )}
+
+            {/* Author chip */}
+            <div className="flex items-center gap-2.5 rounded-lg border border-[#27272A] bg-[#27272A]/40 p-2.5">
+              <div className="h-8 w-8 flex-shrink-0 rounded-full bg-gradient-to-br from-[#00D9FF] to-[#A855F7]" />
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-[13px] font-medium text-[#FAFAFA]">
+                  {authorName ?? 'Unknown'}
+                </span>
+                <span className="truncate font-mono text-[11px] text-[#71717A]">
+                  #{authorSlice}
+                </span>
+              </div>
+            </div>
+
+            {/* Stats grid 2x2 */}
+            <div className="grid grid-cols-2 gap-2">
+              <Stat icon={Download} label="Installs" value={installs} />
+              <Stat icon={CheckSquare} label="Version" value={version} mono />
+              <Stat icon={Clock} label="Updated" value={updatedAt} />
+              <Stat icon={Calendar} label="License" value={license} />
+            </div>
+
+            {/* Tags */}
+            {tags.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.10em] text-[#52525B]">
+                  Tags
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="flex items-center gap-1 rounded-md border border-[#3F3F46] bg-[#27272A] px-2.5 py-1 text-[11px] text-[#D4D4D8]"
+                    >
+                      <TagIcon className="h-2.5 w-2.5" aria-hidden />
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Sticky footer */}
+        <div className="flex flex-shrink-0 items-center gap-2 border-t border-[#27272A] bg-[#141416]/80 p-3">
+          {labels.left === 'Preview' ? (
+            <Button variant="outline" size="sm" onClick={handlePreview}>
+              {labels.left}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={stubSubSpec('#016')}>
+              {labels.left}
+            </Button>
+          )}
+          <div className="flex-1" data-testid="explore-detail-action-middle">
+            {labels.middle === 'Install' ? (
+              installState.kind === 'idle' ? (
+                <Button className="w-full" size="sm" onClick={() => void handleInstall(false)}>
+                  Install
+                </Button>
+              ) : installState.kind === 'in-flight' ? (
+                <InstallProgress
+                  phase={installState.phase}
+                  done={installState.done}
+                  total={installState.total}
+                />
+              ) : (
+                <InlineError
+                  message={installState.message}
+                  onRetry={() => void handleInstall(false)}
+                />
+              )
+            ) : (
+              <Button
+                className="w-full"
+                variant={labels.middle === 'Delete' ? 'destructive' : 'default'}
+                size="sm"
+                onClick={stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')}
+              >
+                {labels.middle}
+              </Button>
+            )}
+          </div>
+          {labels.right === 'Fork' ? (
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label="Fork"
+              onClick={() => setForkOpen(true)}
+            >
+              <ForkIcon />
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={stubSubSpec(labels.right === 'Update' ? '#015' : '#016')}
+            >
+              {labels.right}
+            </Button>
+          )}
+        </div>
+      </div>
+
       {tofuPair && (
         <TofuMismatchDialog
           open={tofuOpen}
           onOpenChange={setTofuOpen}
-          artifactName={
-            typeof artifact.manifest.name === 'string'
-              ? artifact.manifest.name
-              : artifact.artifact_id
-          }
+          artifactName={name}
           previously={tofuPair.previously}
           incoming={tofuPair.incoming}
           onCancel={() => setTofuOpen(false)}
@@ -325,16 +411,50 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         open={forkOpen}
         onOpenChange={setForkOpen}
         sourceKind={tab === 'discover' ? 'remote' : 'local'}
-        origin={{
-          name: artifactName,
-          author_handle: artifactAuthorDisplay,
-        }}
-        defaultName={`${artifactName}-fork`}
+        origin={{ name, author_handle: authorName ? `${authorName}#${authorSlice}` : `#${authorSlice}` }}
+        defaultName={`${name}-fork`}
         selfHandle={selfHandle}
         existingNames={existingNames}
         onCancel={() => setForkOpen(false)}
         onFork={({ target_name }) => void handleFork({ target_name })}
       />
     </>
+  );
+}
+
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  mono = false,
+}: {
+  icon: typeof Download;
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-[#27272A] bg-[#27272A]/40 p-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em] text-[#71717A]">
+        <Icon className="h-2.5 w-2.5" aria-hidden />
+        {label}
+      </div>
+      <div className={cn('text-[15px] font-semibold text-[#FAFAFA]', mono && 'font-mono')}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ForkIcon() {
+  // Inline lucide-style fork icon (matches mockup spec §3.4 footer right slot)
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+      <circle cx="12" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M6 9v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9" />
+      <path d="M12 12v3" />
+    </svg>
   );
 }
