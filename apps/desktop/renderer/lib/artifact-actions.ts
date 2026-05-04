@@ -30,19 +30,20 @@ export function actionLabelsFor(tab: ExploreTab): ActionLabels {
   }
 }
 
-/** Kebab menu item label order per tab (design §5.1). */
+/**
+ * Kebab menu item labels per tab.
+ *
+ * Discover + My-Uploads have no kebab items (the previous "Copy artifact ID"
+ * + "Copy share link" entries were removed: artifact_id is an internal
+ * identifier with no end-user use case, and the share link is an omni://
+ * deep-link whose protocol handler isn't shipped yet — both were UI bloat).
+ *
+ * Installed keeps "Check for update" because it's a meaningful per-row
+ * action that doesn't fit the three-slot footer.
+ */
 export function kebabLabelsFor(tab: ExploreTab): string[] {
-  const base = ['Copy artifact ID', 'Copy share link'];
   if (tab === 'installed') {
-    return [...base, 'Check for update'];
+    return ['Check for update'];
   }
-  return base;
-}
-
-/** omni:// deep-link format. Actual protocol handler ships in sub-spec #018; we only build the string. */
-export function buildShareLink(artifactId: string): string {
-  if (artifactId.length === 0) {
-    throw new Error('artifact_id required');
-  }
-  return `omni://install?artifact_id=${artifactId}`;
+  return [];
 }

@@ -18,7 +18,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -37,7 +36,6 @@ import { mapErrorToUserMessage, type OmniError } from '../../lib/map-error-to-us
 import {
   actionLabelsFor,
   kebabLabelsFor,
-  buildShareLink,
   type ExploreTab,
 } from '../../lib/artifact-actions';
 
@@ -207,16 +205,6 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     toast.info(`That action lands in sub-spec ${which}.`);
   };
 
-  const copyId = async () => {
-    await navigator.clipboard.writeText(artifact.artifact_id);
-    toast.success('Artifact ID copied.');
-  };
-
-  const copyShareLink = async () => {
-    await navigator.clipboard.writeText(buildShareLink(artifact.artifact_id));
-    toast.success('Share link copied.');
-  };
-
   const handleFork = async ({ target_name }: { target_name: string }) => {
     try {
       await send('explorer.fork', { artifact_id: artifact.artifact_id, target_name });
@@ -257,29 +245,26 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  data-testid="explore-detail-kebab"
-                  aria-label="More options"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-[#71717A] hover:bg-[#27272A]/50 hover:text-[#FAFAFA]"
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={copyId}>Copy artifact ID</DropdownMenuItem>
-                <DropdownMenuItem onSelect={copyShareLink}>Copy share link</DropdownMenuItem>
-                {kebabLabels.includes('Check for update') && (
-                  <>
-                    <DropdownMenuSeparator />
+            {kebabLabels.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    data-testid="explore-detail-kebab"
+                    aria-label="More options"
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-[#71717A] hover:bg-[#27272A]/50 hover:text-[#FAFAFA]"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {kebabLabels.includes('Check for update') && (
                     <DropdownMenuItem onSelect={stubSubSpec('#016')}>
                       Check for update
                     </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <button
               data-testid="explore-detail-close"
               aria-label="Close"

@@ -1,16 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildShareLink,
-  actionLabelsFor,
-  kebabLabelsFor,
-  type ExploreTab,
-} from '../artifact-actions';
+import { actionLabelsFor, kebabLabelsFor, type ExploreTab } from '../artifact-actions';
 
 describe('artifact-actions', () => {
-  it('buildShareLink composes an omni:// deep link', () => {
-    expect(buildShareLink('art-abc')).toBe('omni://install?artifact_id=art-abc');
-  });
-
   it('actionLabelsFor Discover returns Preview/Install/Fork', () => {
     expect(actionLabelsFor('discover')).toEqual({
       left: 'Preview',
@@ -35,20 +26,16 @@ describe('artifact-actions', () => {
     });
   });
 
-  it('kebabLabelsFor Discover has Copy ID + Copy share link only', () => {
-    expect(kebabLabelsFor('discover')).toEqual(['Copy artifact ID', 'Copy share link']);
+  it('kebabLabelsFor Discover is empty (no kebab items)', () => {
+    expect(kebabLabelsFor('discover')).toEqual([]);
   });
 
-  it('kebabLabelsFor Installed adds Check for update', () => {
-    expect(kebabLabelsFor('installed')).toEqual([
-      'Copy artifact ID',
-      'Copy share link',
-      'Check for update',
-    ]);
+  it('kebabLabelsFor My Uploads is empty (no kebab items)', () => {
+    expect(kebabLabelsFor('my-uploads')).toEqual([]);
   });
 
-  it('buildShareLink rejects empty artifact id at compile-time-adjacent runtime', () => {
-    expect(() => buildShareLink('')).toThrow(/artifact_id required/);
+  it('kebabLabelsFor Installed has Check for update only', () => {
+    expect(kebabLabelsFor('installed')).toEqual(['Check for update']);
   });
 
   it('ExploreTab type covers the three sub-tab ids', () => {
