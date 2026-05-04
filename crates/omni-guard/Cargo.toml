@@ -1,0 +1,55 @@
+# NOTE: empty [workspace] table here is a TEMPORARY shim during Task 1 of the
+# guard-opensource plan to let `cargo build --manifest-path` work standalone
+# while this crate is not yet listed in the root workspace.members. Task 4
+# adds the crate to workspace.members and this stub MUST be removed then.
+[workspace]
+
+[package]
+name = "omni-guard"
+version = "1.5.1"
+edition = "2021"
+license = "GPL-3.0"
+publish = false
+description = "Abuse-prevention primitives for Omni: device fingerprint, anti-debug, VM detection, PE .text self-integrity. Probe-only — no signing."
+
+[features]
+default = []
+# strict-integrity: replace option_env! with env! for the OMNI_GUARD_TEXT_SHA256
+# build-time constant. Release CI enables this; dev builds do not (so dev
+# builds skip integrity enforcement instead of failing to compile).
+strict-integrity = []
+# dev-no-guard: enables the DisabledGuard impl + the host-side bypass branch
+# in `crates/host/src/guard.rs::make_guard`. Use ONLY for local debugger
+# sessions; release builds MUST NOT enable this feature.
+dev-no-guard = []
+serde = ["dep:serde"]
+
+[dependencies]
+sha2 = "0.10"
+raw-cpuid = "11"
+goblin = "0.8"
+tracing = "0.1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Kernel",
+    "Wdk_System_Threading",
+] }
+
+[dev-dependencies]
+serde_json = "1"
+
+# Negative-integrity test (retro D-004-I) — dedicated test target that only
+# compiles with strict-integrity enabled.
+[[test]]
+name = "integrity_negative"
+required-features = ["strict-integrity"]
