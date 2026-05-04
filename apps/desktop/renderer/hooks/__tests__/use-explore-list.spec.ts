@@ -171,4 +171,59 @@ describe('useExploreList', () => {
     expect(result.current.items).toEqual([FIXTURE_ITEM]);
     expect(send).toHaveBeenCalled();
   });
+
+  it('includes q in the outgoing explorer.list params when filters.q is non-empty', async () => {
+    const send = stubSend(() => ({
+      id: 'r1',
+      type: 'explorer.listResult',
+      items: [],
+      next_cursor: null,
+    }));
+    vi.doMock('../use-share-ws', () => ({ useShareWs: () => ({ send, subscribe: vi.fn() }) }));
+    const { useExploreList } = await import('../use-explore-list');
+
+    renderHook(() =>
+      useExploreList({
+        tab: 'discover',
+        kind: 'all',
+        sort: 'new',
+        tags: [],
+        q: 'Marathon',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(send).toHaveBeenCalledWith(
+        'explorer.list',
+        expect.objectContaining({ q: 'Marathon' }),
+      );
+    });
+  });
+
+  it('omits q when filters.q is empty string', async () => {
+    const send = stubSend(() => ({
+      id: 'r1',
+      type: 'explorer.listResult',
+      items: [],
+      next_cursor: null,
+    }));
+    vi.doMock('../use-share-ws', () => ({ useShareWs: () => ({ send, subscribe: vi.fn() }) }));
+    const { useExploreList } = await import('../use-explore-list');
+
+    renderHook(() =>
+      useExploreList({
+        tab: 'discover',
+        kind: 'all',
+        sort: 'new',
+        tags: [],
+        q: '',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(send).toHaveBeenCalled();
+    });
+    const call = send.mock.calls[0]!;
+    expect(call[1]).not.toHaveProperty('q');
+  });
 });

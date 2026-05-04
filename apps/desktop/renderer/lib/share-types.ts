@@ -214,6 +214,10 @@ export const ExplorerListParamsSchema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/)
     .optional(),
+  // Optional case-insensitive substring search over artifact name.
+  // Worker truncates to 64 chars defensively; renderer does not need to
+  // pre-truncate. Per share-explorer-redesign spec §5.
+  q: z.string().optional(),
 });
 export type ExplorerListParams = z.infer<typeof ExplorerListParamsSchema>;
 

@@ -45,6 +45,7 @@ function toListParams(filters: ExploreListFilters, cursor: string | null): Explo
     cursor,
     limit: PAGE_SIZE,
     author_pubkey: filters.authorPubkey,
+    ...(filters.q ? { q: filters.q } : {}),
   };
 }
 
