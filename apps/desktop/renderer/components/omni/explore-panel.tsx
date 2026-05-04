@@ -1,86 +1,92 @@
 /**
- * ExplorePanel — top-level composition of the Explore tab.
+ * ExplorePanel — top-level Explore composition.
  *
- * Layout:
- *   +- Header ----------------------------------------------------+
- *   | [Discover] [Installed] [My Uploads]        [+ Upload]       |
- *   +----------+------------------------------+------------------+
- *   | Sidebar  |            Grid              |    Detail        |
- *   | 240px    |         (flex-1)             |     260px        |
- *   +----------+------------------------------+------------------+
+ * Layout per share-explorer-redesign spec §2:
+ *   +- Header h-10 -------------------------------------------------+
+ *   | Compass icon · "Explore"                       + Upload CTA   |
+ *   +- Body -------------------------------------------------------+
+ *   |                                                              |
+ *   |  Sidebar (260px)  |  Grid (flex-1)  |  Detail (380px,        |
+ *   |                   |                 |    mounted only when    |
+ *   |                   |                 |    selectedId !== null)  |
+ *   +--------------------------------------------------------------+
  *
- * Sub-tabs other than Discover render a full-width empty-state (no sidebar,
- * no grid) in Wave 3b — Installed needs a WS bridge that isn't shipped, and
- * My Uploads depends on #015's upload.list flow.
+ * Tab semantics:
+ *   - discover    → useExploreList(filters)
+ *   - installed   → useExploreList (returns empty until #016 wires registry)
+ *   - my-uploads  → useMyUploads(filters)  [identity-derived author filter]
+ *
+ * MyUploadsView + IdentitySummaryCard are deleted; identity surfaces in
+ * the titlebar IdentityChip + Settings IdentitySection per #016.
  */
 
 import { useState } from 'react';
 import { Compass, Upload as UploadIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useExploreFilters, type ExploreTab } from '../../hooks/use-explore-filters';
+import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
+import { useMyUploads } from '../../hooks/use-my-uploads';
+import { useShareWs } from '../../hooks/use-share-ws';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
 import { ExploreDetail } from './explore-detail';
-import { ExploreEmptyState } from './explore-empty-state';
 import { UploadDialog } from './upload-dialog';
-import { MyUploadsView } from './my-uploads-view';
-
-const SUBTABS: { id: ExploreTab; label: string }[] = [
-  { id: 'discover', label: 'Discover' },
-  { id: 'installed', label: 'Installed' },
-  { id: 'my-uploads', label: 'My Uploads' },
-];
+import { toast } from '../../lib/toast';
+import type { CachedArtifactDetail } from '../../lib/share-types';
 
 export function ExplorePanel() {
   const filters = useExploreFilters();
-  const list = useExploreList({
+  const { send } = useShareWs();
+
+  const discoverList = useExploreList({
     tab: filters.tab,
     kind: filters.kind,
     sort: filters.sort,
     tags: filters.tags,
     q: filters.q,
   });
+  const myUploads = useMyUploads();
+
+  const list = filters.tab === 'my-uploads' ? myUploads : discoverList;
 
   const [uploadOpen, setUploadOpen] = useState(false);
 
-  const handleUpload = () => {
-    setUploadOpen(true);
+  // Hover Install on a card: kicks off the install for that artifact's id.
+  // The detail-pane's full state-machine (in-flight progress, TOFU mismatch
+  // dialog, retry) is not driven from here — clicking Install on the card
+  // simply selects the artifact AND starts the install; if TOFU mismatch
+  // happens or progress needs tracking, the user has the detail pane open
+  // by then. This is the v1 behavior per spec out-of-band follow-ups.
+  const handleHoverInstall = async (a: CachedArtifactDetail) => {
+    filters.setSelectedId(a.artifact_id);
+    try {
+      await send('explorer.install', { artifact_id: a.artifact_id });
+      toast.success(`Installed ${a.name}`);
+    } catch (err) {
+      toast.error(err as Parameters<typeof toast.error>[0]);
+    }
+  };
+
+  const handleHoverPreview = async (a: CachedArtifactDetail) => {
+    try {
+      await send('explorer.preview', { artifact_id: a.artifact_id });
+      toast.info(`Previewing ${a.name}`);
+    } catch (err) {
+      toast.error(err as Parameters<typeof toast.error>[0]);
+    }
   };
 
   return (
     <div className="flex h-full flex-col bg-[#0D0D0F]">
-      {/* Header mirrors the Components / Editor / Preview panel pattern:
-          h-10 height, #18181B surface, zinc bottom border, colored section
-          icon + label on the left, editor-style tabs with bottom-border active
-          marker, and low-contrast secondary actions on the right. */}
-      <header className="flex h-10 items-center border-b border-[#27272A] bg-[#18181B] overflow-x-auto">
-        <div className="flex items-center gap-2 px-3 h-full">
+      <header className="flex h-10 flex-shrink-0 items-center border-b border-[#27272A] bg-[#18181B]">
+        <div className="flex h-full items-center gap-2 px-3">
           <Compass className="h-4 w-4 text-[#00D9FF]" />
           <h2 className="text-sm font-medium text-[#FAFAFA]">Explore</h2>
         </div>
-        <nav className="flex h-full items-stretch">
-          {SUBTABS.map((t) => (
-            <button
-              key={t.id}
-              data-testid={`explore-subtab-${t.id}`}
-              onClick={() => filters.setTab(t.id)}
-              className={cn(
-                'flex items-center gap-2 px-4 h-full text-xs border-l border-[#27272A] transition-colors whitespace-nowrap',
-                filters.tab === t.id
-                  ? 'bg-[#0D0D0F] text-[#FAFAFA] border-b-2 border-b-[#00D9FF]'
-                  : 'text-[#71717A] hover:text-[#FAFAFA] hover:bg-[#27272A]/50',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
         <div className="flex-1" />
         <button
           data-testid="explore-upload-cta"
-          onClick={handleUpload}
-          className="flex items-center gap-1.5 px-3 h-full text-[10px] uppercase tracking-wider text-[#71717A] hover:text-[#FAFAFA] transition-colors"
+          onClick={() => setUploadOpen(true)}
+          className="flex h-full items-center gap-1.5 px-3 text-[10px] uppercase tracking-wider text-[#71717A] transition-colors hover:text-[#FAFAFA]"
           title="Publish a theme or bundle"
         >
           <UploadIcon className="h-3.5 w-3.5" aria-hidden />
@@ -89,34 +95,26 @@ export function ExplorePanel() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {filters.tab === 'discover' ? (
-          <>
-            <ExploreSidebar />
-            <main className="flex-1 overflow-hidden">
-              <ExploreGrid
-                items={list.items}
-                loading={list.loading}
-                hasMore={list.nextCursor !== null}
-                selectedId={filters.selectedId}
-                onSelect={filters.setSelectedId}
-                onLoadMore={list.loadMore}
-                emptyLabel="No artifacts match these filters."
-                emptyHint="Adjust Kind or Tags to broaden your search."
-              />
-            </main>
-            <aside className="w-64 flex-shrink-0 border-l border-[#27272A] bg-[#141416]">
-              <ExploreDetail selectedId={filters.selectedId} tab={filters.tab} />
-            </aside>
-          </>
-        ) : filters.tab === 'installed' ? (
-          <ExploreEmptyState
-            label="Nothing installed yet."
-            hint="Head to Discover to browse themes and bundles."
+        <ExploreSidebar />
+        <main className="flex-1 overflow-hidden">
+          <ExploreGrid
+            items={list.items}
+            loading={list.loading}
+            hasMore={list.nextCursor !== null}
+            selectedId={filters.selectedId}
+            onSelect={filters.setSelectedId}
+            onPreview={handleHoverPreview}
+            onInstall={handleHoverInstall}
+            onLoadMore={list.loadMore}
           />
-        ) : (
-          <MyUploadsView />
+        </main>
+        {filters.selectedId !== null && (
+          <aside className="w-[380px] flex-shrink-0 border-l border-[#27272A]">
+            <ExploreDetail selectedId={filters.selectedId} tab={filters.tab} />
+          </aside>
         )}
       </div>
+
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} prefilledPath={null} />
     </div>
   );
