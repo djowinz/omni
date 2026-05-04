@@ -52,8 +52,8 @@ export function ExploreGrid({
 
   return (
     <div className="flex h-full flex-col bg-[#0D0D0F]">
-      {/* Toolbar */}
-      <div className="flex h-10 flex-shrink-0 items-center gap-3 border-b border-[#27272A] bg-[#18181B] px-4">
+      {/* Toolbar — h-16 to align horizontally with the detail-pane header. */}
+      <div className="flex h-16 flex-shrink-0 items-center gap-3 border-b border-[#27272A] bg-[#18181B] px-4 py-3.5">
         <SearchInput value={q} onChange={setQ} />
         <div className="ml-auto">
           <SortDropdown value={sort} onChange={setSort} />
