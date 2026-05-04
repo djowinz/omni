@@ -203,6 +203,26 @@ app.get('/', async (c) => {
     // as a BLOB literal, which SQLite parses safely.
   }
 
+  // share-explorer-redesign Task 3: optional case-insensitive substring search
+  // over artifacts.name. Defensive 64-char truncation matches the host's cap
+  // (host truncates first; we truncate again so direct-to-worker requests
+  // can't bypass it). Wildcards (% _ \) are escaped so the user's literal
+  // characters match literally — escape with backslash and bind ESCAPE '\'.
+  const qRaw = url.searchParams.get('q') ?? undefined;
+  let qNorm: string | undefined;
+  if (qRaw !== undefined && qRaw.length > 0) {
+    const truncated = qRaw.slice(0, 64);
+    const escaped = truncated
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+    qNorm = escaped;
+  }
+  if (qNorm !== undefined) {
+    conditions.push(`LOWER(artifacts.name) LIKE LOWER(?) ESCAPE '\\'`);
+    binds.push(`%${qNorm}%`);
+  }
+
   let cursorSql = '';
   if (cursorRaw) {
     let cur: Cursor;

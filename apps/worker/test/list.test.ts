@@ -360,6 +360,66 @@ describe('GET /v1/list — author_display_name JOIN (spec §4.4 / OWI-79)', () =
   });
 });
 
+describe('GET /v1/list — q search (share-explorer-redesign Task 3)', () => {
+  it('q=marathon returns rows whose name contains Marathon (case-insensitive)', async () => {
+    await resetD1();
+    await seed([
+      { id: 'q1', authorPub: AUTHOR_A, name: 'Marathon Pro', kind: 'theme', tags: [], installs: 0, createdAt: 2000 },
+      { id: 'q2', authorPub: AUTHOR_B, name: 'Other Theme', kind: 'theme', tags: [], installs: 0, createdAt: 2001 },
+    ]);
+    const { status, body } = await getList('q=marathon');
+    expect(status).toBe(200);
+    expect(body.items.map((r) => r.name)).toContain('Marathon Pro');
+    expect(body.items.map((r) => r.name)).not.toContain('Other Theme');
+  });
+
+  it('q empty string behaves like no q (returns all seeded rows)', async () => {
+    await resetD1();
+    await seed([
+      { id: 'q3', authorPub: AUTHOR_A, name: 'Foo', kind: 'theme', tags: [], installs: 0, createdAt: 3000 },
+      { id: 'q4', authorPub: AUTHOR_B, name: 'Bar', kind: 'theme', tags: [], installs: 0, createdAt: 3001 },
+    ]);
+    const { status, body } = await getList('q=');
+    expect(status).toBe(200);
+    expect(body.items.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('q over 64 chars is silently truncated (not a 400)', async () => {
+    await resetD1();
+    // The query is 200 x's; worker truncates to 64 x's before composing SQL.
+    // An artifact named with 64+ x's would match, but the key assertion is
+    // that the server returns 200 (no error), not that it matches anything.
+    const longQ = 'x'.repeat(200);
+    const { status } = await getList(`q=${longQ}`);
+    expect(status).toBe(200);
+  });
+
+  it('q wildcards (% _) are escaped — literal match only, not SQL wildcard', async () => {
+    await resetD1();
+    // Two rows: one with literal "50%_off" in the name, one without.
+    const AUTHOR_C = new Uint8Array(32).fill(0xcc);
+    const AUTHOR_D = new Uint8Array(32).fill(0xdd);
+    await seed([
+      { id: 'q6', authorPub: AUTHOR_C, name: '50%_off Special', kind: 'theme', tags: [], installs: 0, createdAt: 5000 },
+      { id: 'q7', authorPub: AUTHOR_D, name: '50ABC_off Special', kind: 'theme', tags: [], installs: 0, createdAt: 5001 },
+    ]);
+    // %25 is URL-encoded %; the URL parser decodes it so searchParams.get('q') returns '50%_off'
+    const { status, body } = await getList('q=50%25_off');
+    expect(status).toBe(200);
+    const names = body.items.map((r) => r.name);
+    expect(names).toContain('50%_off Special');
+    expect(names).not.toContain('50ABC_off Special'); // % was escaped, not treated as wildcard
+  });
+
+  it('q with no matches returns empty items + no next_cursor', async () => {
+    await resetD1();
+    const { status, body } = await getList('q=this-string-matches-nothing-zzz');
+    expect(status).toBe(200);
+    expect(body.items).toEqual([]);
+    expect(body.next_cursor).toBeUndefined();
+  });
+});
+
 describe('GET /v1/list — author_pubkey filter (#015 T1)', () => {
   // 64-hex encodings of the AUTHOR_A (0xaa * 32) and AUTHOR_B (0xbb * 32)
   // Uint8Arrays used in the shared DATASET above. Reusing the pre-seeded
