@@ -74,6 +74,12 @@ pub struct ListParams {
     /// current user's published work.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author_pubkey: Option<String>,
+    /// Optional case-insensitive substring search over artifact name.
+    /// Truncated upstream to 64 chars in `handle_list` before reaching
+    /// this struct (defensive cost-bound, not a security invariant).
+    /// Per share-explorer-redesign spec §5.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -534,6 +540,9 @@ impl ShareClient {
             }
             if let Some(pk) = &params.author_pubkey {
                 q.append_pair("author_pubkey", pk);
+            }
+            if let Some(qv) = &params.q {
+                q.append_pair("q", qv);
             }
         }
         let query = url.query().unwrap_or("").to_string();
@@ -1222,6 +1231,7 @@ mod tests {
                 cursor: None,
                 limit: None,
                 author_pubkey: Some(expected_pk.clone()),
+                q: None,
             })
             .await
             .expect("list ok");
@@ -1254,6 +1264,68 @@ mod tests {
                 cursor: None,
                 limit: None,
                 author_pubkey: None,
+                q: None,
+            })
+            .await
+            .expect("list ok");
+        assert!(lr.items.is_empty());
+    }
+
+    /// share-explorer-redesign Task 2: when q is Some, the outgoing /v1/list URL
+    /// must include `q=<value>`. Mirrors the author_pubkey pattern.
+    #[tokio::test]
+    async fn list_appends_q_query_param() {
+        use wiremock::matchers::query_param;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/list"))
+            .and(query_param("q", "Marathon"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let lr = client
+            .list(ListParams {
+                kind: None,
+                sort: None,
+                tag: Vec::new(),
+                cursor: None,
+                limit: None,
+                author_pubkey: None,
+                q: Some("Marathon".to_string()),
+            })
+            .await
+            .expect("list ok");
+        assert!(lr.items.is_empty());
+    }
+
+    /// share-explorer-redesign Task 2: when q is None, no `q` query param.
+    #[tokio::test]
+    async fn list_omits_q_when_none() {
+        use wiremock::matchers::query_param_is_missing;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/list"))
+            .and(query_param_is_missing("q"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        let client = test_client(&server.uri());
+        let lr = client
+            .list(ListParams {
+                kind: None,
+                sort: None,
+                tag: Vec::new(),
+                cursor: None,
+                limit: None,
+                author_pubkey: None,
+                q: None,
             })
             .await
             .expect("list ok");

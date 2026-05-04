@@ -1523,11 +1523,24 @@ async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
         limit: Option<u32>,
         #[serde(default)]
         author_pubkey: Option<String>,
+        // Optional case-insensitive substring search over artifact name.
+        // Truncated to 64 chars below before forwarding to the worker.
+        #[serde(default)]
+        q: Option<String>,
     }
     let p: P = match serde_json::from_value(params) {
         Ok(v) => v,
         Err(e) => return Some(bad_input(id, format!("bad explorer.list params: {e}"))),
     };
+    // Defensive truncation: cap user-supplied search at 64 chars (artifact
+    // names cap ~50, this leaves headroom). Per share-explorer-redesign §5.
+    let q = p.q.map(|s| {
+        if s.chars().count() > 64 {
+            s.chars().take(64).collect::<String>()
+        } else {
+            s
+        }
+    });
     let lp = ListParams {
         kind: p.kind,
         sort: p.sort,
@@ -1535,6 +1548,7 @@ async fn handle_list(id: &str, params: Value, ctx: &ShareContext) -> Option<Stri
         cursor: p.cursor,
         limit: p.limit,
         author_pubkey: p.author_pubkey,
+        q,
     };
     match ctx.client.list(lp).await {
         Ok(lr) => {
