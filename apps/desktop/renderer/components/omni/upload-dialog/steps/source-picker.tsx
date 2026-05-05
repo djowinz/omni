@@ -123,6 +123,7 @@ export function SourcePicker({ state, actions }: SourcePickerProps) {
                 entry={entry}
                 selected={state.selected?.workspace_path === entry.workspace_path}
                 onClick={() => actions.selectItem(entry)}
+                currentPubkey={state.currentPubkey}
               />
             ))}
           </div>

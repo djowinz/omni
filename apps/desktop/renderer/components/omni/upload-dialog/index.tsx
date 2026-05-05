@@ -128,7 +128,11 @@ export function UploadDialog({
           className="flex max-h-[90vh] flex-col sm:max-w-xl"
           data-testid="upload-dialog-content"
         >
-          <UploadDialogHeader mode={state.mode} kind={headerKind} />
+          <UploadDialogHeader
+            mode={state.mode}
+            kind={headerKind}
+            currentVersion={state.selected?.sidecar?.version ?? null}
+          />
 
           <div className="my-3 shrink-0">
             <Stepper

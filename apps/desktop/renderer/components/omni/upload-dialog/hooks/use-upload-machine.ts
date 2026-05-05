@@ -641,20 +641,33 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     return unsub;
   }, [ws]);
 
-  // Identity bootstrap — fetch on first mount so update-mode auto-detection
-  // can happen as soon as the user picks a workspace entry. Errors are
-  // swallowed (fresh-install / NOT_IMPLEMENTED stub return values are
-  // benign here; the host will surface a structured error at publish-time
-  // if it actually can't sign).
+  // Identity bootstrap — fetch on every dialog open so update-mode
+  // auto-detection has the current pubkey available as soon as the user
+  // picks a workspace entry.
   //
-  // We respect any pubkey that's already been set (via `setCurrentPubkey`)
-  // so test harnesses + future identity-rotation flows can pre-seed the
-  // value without it being clobbered by an in-flight bootstrap.
+  // The hook itself stays mounted across dialog opens (it lives in the
+  // <UploadDialog> body, above <DialogContent>, which is the part Radix
+  // unmounts on close). The RESET action fired on close clears
+  // `currentPubkey` to null. Without `open` in the deps below, the effect
+  // would only run once per hook mount — meaning the *second* dialog open
+  // would see `currentPubkey === null` permanently, and detectMode would
+  // mis-classify a previously-published entry as 'create'. This was a real
+  // user-visible bug; the `open` dep + early return is the fix.
+  //
+  // Errors are swallowed (fresh-install / NOT_IMPLEMENTED stub return
+  // values are benign here; the host will surface a structured error at
+  // publish-time if it actually can't sign).
   useEffect(() => {
+    if (!open) return;
     let cancelled = false;
     void (async () => {
       try {
         const resp = await ws.send('identity.show', {});
+        // Respect any pubkey already set (via setCurrentPubkey from a test
+        // harness or future identity-rotation flow) so we don't clobber it.
+        // After RESET on dialog close, currentPubkey is null, so this guard
+        // still allows the refetch on reopen — which is the whole point of
+        // this effect having `open` in its deps.
         if (!cancelled && stateRef.current.currentPubkey === null) {
           dispatch({ type: 'SET_CURRENT_PUBKEY', pubkey: resp.pubkey_hex });
         }
@@ -665,7 +678,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     return () => {
       cancelled = true;
     };
-  }, [ws]);
+  }, [ws, open]);
 
   // Prefilled path → wait for the workspace list to resolve, then look up
   // the matching entry and skip to Step 2. The lookup itself is one-shot
@@ -838,6 +851,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
             name: common.name ?? cur.selected.name,
             kind: cur.selected.kind,
             tags: common.tags ?? [],
+            thumbnail_b64: customPreviewB64,
           },
         });
         onPublishedRef.current?.(normalised.params);
@@ -853,6 +867,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
             name: common.name ?? cur.selected?.name ?? '',
             kind: cur.selected?.kind ?? 'overlay',
             tags: common.tags ?? [],
+            thumbnail_b64: customPreviewB64,
           },
         });
         onPublishedRef.current?.(resp.params);

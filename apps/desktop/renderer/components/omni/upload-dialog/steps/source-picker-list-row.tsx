@@ -16,12 +16,20 @@
  * `config::data_dir()` (both `%APPDATA%/Omni`).
  */
 
+import { CheckCircle2 } from 'lucide-react';
 import type { PublishablesEntry } from '@omni/shared-types';
 
 export interface SourcePickerListRowProps {
   entry: PublishablesEntry;
   selected: boolean;
   onClick: () => void;
+  /**
+   * The currently-loaded identity's pubkey hex. Used to decide whether a
+   * row's sidecar represents an artifact authored by THIS user — only then
+   * should the row surface a "v1.x.x Published" badge (otherwise the
+   * sidecar belongs to a different author and the row is a fresh publish).
+   */
+  currentPubkey: string | null;
 }
 
 /**
@@ -46,7 +54,12 @@ function previewUrlFor(entry: PublishablesEntry): string | null {
   return `omni-preview://${base}.preview.png`;
 }
 
-export function SourcePickerListRow({ entry, selected, onClick }: SourcePickerListRowProps) {
+export function SourcePickerListRow({
+  entry,
+  selected,
+  onClick,
+  currentPubkey,
+}: SourcePickerListRowProps) {
   const previewSrc = previewUrlFor(entry);
 
   const modifiedDate = entry.modified_at ? entry.modified_at.slice(0, 10) : '';
@@ -56,6 +69,15 @@ export function SourcePickerListRow({ entry, selected, onClick }: SourcePickerLi
       : `Modified ${modifiedDate}`;
 
   const borderClass = selected ? 'border-[#00D9FF] bg-[#00D9FF]/5' : 'border-[#27272A]';
+
+  // "Published by you" badge: only when the entry has a sidecar AND its
+  // author_pubkey_hex matches the current identity. Mirrors the resolveMode
+  // logic in use-upload-machine.ts — a sidecar from a different author is
+  // a fresh-publish situation, not an update.
+  const publishedByMe =
+    entry.sidecar !== null &&
+    currentPubkey !== null &&
+    entry.sidecar.author_pubkey_hex === currentPubkey;
 
   return (
     <button
@@ -71,7 +93,19 @@ export function SourcePickerListRow({ entry, selected, onClick }: SourcePickerLi
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold truncate">{entry.name}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-[13px] font-semibold truncate">{entry.name}</div>
+          {publishedByMe && entry.sidecar && (
+            <span
+              data-testid={`source-row-published-${entry.workspace_path}`}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-[#00D9FF]/30 bg-[#00D9FF]/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-[#00D9FF]"
+              title={`Published by you · last v${entry.sidecar.version} · clicking will update`}
+            >
+              <CheckCircle2 className="h-3 w-3" aria-hidden />
+              v{entry.sidecar.version}
+            </span>
+          )}
+        </div>
         <div className="text-[11px] text-[#a1a1aa] truncate">{subtitle}</div>
       </div>
       {selected && (

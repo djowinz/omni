@@ -42,6 +42,14 @@ export interface PublishResult {
   name: string;
   kind: string;
   tags: string[];
+  /**
+   * Base64-encoded PNG bytes of the published thumbnail (the same bytes the
+   * user picked in Step 3, or the host's auto-rendered preview when the
+   * user didn't pick a custom one). When present, the success card renders
+   * `<img src="data:image/png;base64,...">`. When null, the card falls back
+   * to a zinc gradient.
+   */
+  thumbnail_b64: string | null;
 }
 
 export interface PublishError {
@@ -223,13 +231,21 @@ function PublishSuccess({ result }: { result: PublishResult }) {
         className="mt-1 flex w-full items-center gap-2.5 rounded-lg border border-[#27272A] bg-[#0A0A0B] p-2.5"
       >
         <div
-          className="shrink-0 rounded"
+          className="shrink-0 overflow-hidden rounded"
           style={{
             width: 44,
             height: 28,
             background: 'linear-gradient(135deg,#27272A,#3f3f46)',
           }}
-        />
+        >
+          {result.thumbnail_b64 && (
+            <img
+              src={`data:image/png;base64,${result.thumbnail_b64}`}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          )}
+        </div>
         <div className="flex-1">
           <div className="text-xs font-semibold">{result.name}</div>
           <div className="text-[10px] text-[#a1a1aa]">
