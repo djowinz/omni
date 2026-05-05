@@ -314,8 +314,22 @@ app.patch('/:id', async (c) => {
   };
 
   if (doBody.canonical_hash === row.content_hash) {
+    // The host's `UploadResponseBody` requires `r2_url` + `thumbnail_url`
+    // to deserialize successfully. Omitting them turns a 200 OK into a
+    // serde parse failure that the host misreports as
+    // `UploadError::Network` ("Network error contacting the theme
+    // service"), even though the round-trip succeeded. Include them so
+    // re-uploading an unchanged bundle is a clean no-op for the user.
     return new Response(
-      JSON.stringify({ artifact_id: id, content_hash: row.content_hash, status: 'unchanged' }),
+      JSON.stringify({
+        artifact_id: id,
+        content_hash: row.content_hash,
+        r2_url: `/v1/download/${id}`,
+        thumbnail_url: `/v1/thumbnail/${row.thumbnail_hash}`,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        status: 'unchanged',
+      }),
       { status: 200, headers: { 'content-type': 'application/json; charset=utf-8' } },
     );
   }

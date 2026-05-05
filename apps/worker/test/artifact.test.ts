@@ -589,9 +589,22 @@ describe('PATCH /v1/artifact/:id — end-to-end DO roundtrip', () => {
     expect(firstBody.status).toBe('updated');
     const second = await doPatch();
     expect(second.status).toBe(200);
-    const secondBody = (await second.json()) as { status: string; content_hash: string };
+    const secondBody = (await second.json()) as {
+      status: string;
+      content_hash: string;
+      r2_url: string;
+      thumbnail_url: string;
+    };
     expect(secondBody.status).toBe('unchanged');
     expect(secondBody.content_hash).toBe(firstBody.content_hash);
+    // Regression: the unchanged short-circuit MUST include r2_url +
+    // thumbnail_url. Omitting them turned a 200 OK into a serde parse
+    // failure on the host, which surfaced as a misleading
+    // "Network error contacting the theme service" instead of a
+    // successful no-op republish.
+    expect(secondBody.r2_url).toBe(`/v1/download/artU`);
+    expect(typeof secondBody.thumbnail_url).toBe('string');
+    expect(secondBody.thumbnail_url.startsWith('/v1/thumbnail/')).toBe(true);
   });
 
   it("returns {status:'updated'} with new content_hash for a modified bundle", async () => {
