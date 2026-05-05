@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "admin"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -349,7 +349,7 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
 name = "bundle"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "getrandom 0.2.17",
  "hex",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "dev-orchestrator"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "anyhow",
  "bundle",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "fetch-models"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "serde",
  "sha2",
@@ -1410,7 +1410,7 @@ checksum = "ec9d92d097f4749b64e8cc33d924d9f40a2d4eb91402b458014b781f5733d60f"
 
 [[package]]
 name = "host"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "arc-swap",
  "backon",
@@ -1689,7 +1689,7 @@ checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
 name = "identity"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "argon2",
  "base64",
@@ -1828,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "integrity-hash"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "goblin",
  "sha2",
@@ -2184,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "moderation"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "image 0.25.10",
  "ndarray",
@@ -2445,7 +2445,7 @@ dependencies = [
 
 [[package]]
 name = "omni-guard-trait"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2515,7 +2515,7 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
 name = "overlay"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "shared",
  "tracing",
@@ -3374,7 +3374,7 @@ dependencies = [
 
 [[package]]
 name = "sanitize"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "ammonia",
  "bundle",
@@ -3570,7 +3570,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "ts-rs",
 ]
@@ -3840,7 +3840,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "test-harness"
-version = "0.1.0"
+version = "1.5.1"
 dependencies = [
  "arc-swap",
  "bundle",
@@ -4249,7 +4249,7 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
 name = "ultralight-sys"
-version = "0.1.0"
+version = "1.5.1"
 
 [[package]]
 name = "unarray"

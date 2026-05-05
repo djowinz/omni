@@ -6,9 +6,9 @@
 
 [package]
 name = "omni-guard"
-version = "1.5.1"
-edition = "2021"
-license = "GPL-3.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 publish = false
 description = "Abuse-prevention primitives for Omni: device fingerprint, anti-debug, VM detection, PE .text self-integrity. Probe-only — no signing."
 

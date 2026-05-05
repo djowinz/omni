@@ -1,6 +1,6 @@
 {
   "name": "@omni/worker",
-  "version": "0.1.0",
+  "version": "1.5.1",
   "private": true,
   "description": "Cloudflare Worker backend for Omni theme & bundle sharing (skeleton).",
   "type": "module",

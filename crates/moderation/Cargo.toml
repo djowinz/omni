@@ -1,7 +1,7 @@
 [package]
 name = "moderation"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 publish = false
 
 # ort feature flags pinned to the working set from the Wave 0.2 POC

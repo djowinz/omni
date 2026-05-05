@@ -17,6 +17,11 @@ members = [
     "tools/integrity-hash",
 ]
 
+[workspace.package]
+version = "1.5.1"
+edition = "2021"
+license = "GPL-3.0"
+
 # Private-crate resolution — retro D-004-K. `omni-host` declares `omni-guard`
 # as an optional git-URL dep pointing at the private repo; this patch swaps
 # the default resolution target to the public stub at `stubs/omni-guard/`

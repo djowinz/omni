@@ -1,7 +1,7 @@
 [package]
 name = "fetch-models"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 publish = false
 description = "Download + verify the bundled NSFW moderation ONNX models referenced in crates/moderation/resources/MODELS.toml. Idempotent — skips files already present and matching the manifest hash. Canonical invocation: `cargo run --release -p fetch-models`."
 

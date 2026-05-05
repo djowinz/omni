@@ -1,7 +1,7 @@
 [package]
 name = "sanitize"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 publish = false
 description = "Sanitization pipeline for Omni theme/bundle content (public, WASM-compatible)."
 
