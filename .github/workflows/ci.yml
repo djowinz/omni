@@ -33,6 +33,10 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
       - name: cargo test
         run: cargo test --workspace
+      - name: Build with dev-no-guard feature
+        run: cargo build --workspace --features host/dev-no-guard
+      - name: Test with dev-no-guard feature
+        run: cargo test --workspace --features host/dev-no-guard
 
   node-checks:
     name: Node typecheck + lint + format
