@@ -18,12 +18,12 @@ mod traits;
 mod types;
 mod vm;
 
-#[cfg(any(test, feature = "dev-no-guard"))]
+#[cfg(feature = "dev-no-guard")]
 mod disabled;
 
 pub use real::RealGuard;
 pub use traits::Guard;
 pub use types::{DeviceId, EnforcementMode, GuardError};
 
-#[cfg(any(test, feature = "dev-no-guard"))]
+#[cfg(feature = "dev-no-guard")]
 pub use disabled::DisabledGuard;
