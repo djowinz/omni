@@ -77,7 +77,7 @@ installer: fetch-models
 	./scripts/build-installer.sh
 
 release: fetch-models
-	./scripts/release.sh
+	./scripts/release.sh $(INCREMENT)
 
 release-notes:
 	./scripts/gen-release-notes.sh

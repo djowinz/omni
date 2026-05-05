@@ -821,7 +821,7 @@ async fn handle_identity_backup(id: &str, params: Value, ctx: &ShareContext) -> 
 /// [`ShareContext::identity_key_path`], `ctx.identity.store(...)` swaps
 /// the active keypair (lock-free; in-flight signers observe the new
 /// key on next `.load()`), metadata is seeded with `backed_up: true`
-/// + `last_backed_up_at: now` (an imported identity is by definition
+/// plus `last_backed_up_at: now` (an imported identity is by definition
 /// already backed up — the user just supplied the encrypted blob, so
 /// they demonstrably possess it; suppressing the first-publish backup
 /// gate is the correct UX), and a best-effort

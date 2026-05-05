@@ -5,7 +5,7 @@
 //! `dev-no-guard`; the host's release main checks
 //! `guard.enforcement_mode()` and exits non-zero if it returns `Disabled`.
 
-use omni_guard::{Guard, GuardError, RealGuard};
+use omni_guard::{Guard, GuardError};
 
 #[cfg(feature = "dev-no-guard")]
 pub fn make_guard() -> Result<Box<dyn Guard>, GuardError> {
@@ -17,5 +17,5 @@ pub fn make_guard() -> Result<Box<dyn Guard>, GuardError> {
 
 #[cfg(not(feature = "dev-no-guard"))]
 pub fn make_guard() -> Result<Box<dyn Guard>, GuardError> {
-    Ok(Box::new(RealGuard::new()?))
+    Ok(Box::new(omni_guard::RealGuard::new()?))
 }

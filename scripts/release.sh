@@ -98,6 +98,7 @@ CURRENT=$(node -p "require('./apps/desktop/package.json').version")
 NEW_VERSION=$(INCREMENT="$INCREMENT" CURRENT="$CURRENT" node -e "
     const cur = process.env.CURRENT;
     const inc = process.env.INCREMENT;
+    // Intentionally drops -prerelease suffix; release.sh doesn't ship prereleases.
     const m = cur.match(/^(\d+)\.(\d+)\.(\d+)/);
     if (!m) { console.error('cannot parse current version: ' + cur); process.exit(1); }
     let [_, maj, min, pat] = m;

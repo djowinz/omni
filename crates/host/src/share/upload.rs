@@ -486,7 +486,7 @@ fn emit_stage(
 /// `sanitize_bundle` / `sanitize_theme` is one atomic call internally — the
 /// overlay handler's structural validator (`validate_structure`), the theme
 /// handler's URL/scheme/`@import` gate, and the image / font handlers' decode
-/// + magic checks all live behind the same entry point. The renderer's
+/// plus magic checks all live behind the same entry point. The renderer's
 /// Step 3 UI splits this into Schema / ContentSafety / Asset rows; we infer
 /// which row to flame post-hoc by inspecting the `SanitizeError`.
 ///

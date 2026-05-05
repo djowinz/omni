@@ -47,7 +47,9 @@ done < <(cargo metadata --format-version 1 --no-deps | node -e "
 check_pkg() {
     local pkg="$1"
     local ver
-    ver=$(node -p "require('./$pkg').version")
+    # Pass path via env-var so a path containing shell-meta chars can't break
+    # out of the node script (matches bump-version.sh's bump_pkg pattern).
+    ver=$(PKG="$pkg" node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.PKG, 'utf8')).version)")
     if [ "$ver" != "$SENTINEL" ]; then
         echo "FAIL: $pkg = $ver (expected $SENTINEL)" >&2
         MISMATCH=1

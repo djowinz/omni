@@ -104,7 +104,9 @@ done < <(cargo metadata --format-version 1 --no-deps | node -e "
 validate_pkg() {
     local pkg="$1"
     local ver
-    ver=$(node -p "require('./$pkg').version")
+    # Pass path via env-var (matches bump_pkg) so a path containing '$', '`',
+    # or other shell-meta chars can't break out of the node script.
+    ver=$(PKG="$pkg" node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.PKG, 'utf8')).version)")
     if [ "$ver" != "$NEW" ]; then
         echo "  MISMATCH: $pkg = $ver (expected $NEW)" >&2
         MISMATCH=1

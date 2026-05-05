@@ -33,6 +33,11 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
       - name: cargo test
         run: cargo test --workspace
+      # Exercises the host's own `dev-no-guard` feature gate (crates/host/src/guard.rs).
+      # cargo test --workspace alone activates omni-guard/dev-no-guard via test-harness's
+      # feature unification, but the host-level `#[cfg(feature = "dev-no-guard")]` arm of
+      # make_guard() and the guard_factory_dev_no_guard test are only reached with
+      # host/dev-no-guard explicitly enabled.
       - name: Build with dev-no-guard feature
         run: cargo build --workspace --features host/dev-no-guard
       - name: Test with dev-no-guard feature
