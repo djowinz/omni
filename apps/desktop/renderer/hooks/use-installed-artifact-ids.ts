@@ -34,22 +34,56 @@ export interface InstalledArtifactsState {
   /** Full registry rows for the Installed sub-tab grid. */
   entries: InstalledEntryRow[];
   loading: boolean;
+  /** Last fetch error, if any. Cleared on the next successful refetch. */
+  error: string | null;
   refetch: () => Promise<void>;
 }
+
+const FETCH_TIMEOUT_MS = 10_000;
 
 export function useInstalledArtifacts(): InstalledArtifactsState {
   const { send } = useShareWs();
   const [entries, setEntries] = useState<InstalledEntryRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchOnce = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    // Race the WS round-trip against a hard timeout. If the host binary
+    // doesn't have the `workspace.listInstalled` handler (stale
+    // build / wrong process / dispatch fall-through) the request never
+    // completes — without this timeout the grid spins forever on a
+    // skeleton with no clue why. The timeout surfaces the failure as a
+    // visible error in the empty-state UI.
+    const sendPromise = send('workspace.listInstalled', {});
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `workspace.listInstalled timed out after ${FETCH_TIMEOUT_MS}ms — likely a stale host binary missing the handler`,
+            ),
+          ),
+        FETCH_TIMEOUT_MS,
+      );
+    });
+    console.log('[useInstalledArtifacts] sending workspace.listInstalled');
     try {
-      const resp = await send('workspace.listInstalled', {});
+      const resp = (await Promise.race([sendPromise, timeoutPromise])) as Awaited<
+        typeof sendPromise
+      >;
+      console.log(
+        '[useInstalledArtifacts] received',
+        resp.params.entries.length,
+        'entries',
+      );
       setEntries(resp.params.entries);
     } catch (err) {
-      console.warn('[useInstalledArtifacts] fetch failed', err);
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('[useInstalledArtifacts] fetch failed:', message, err);
       setEntries([]);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -61,7 +95,7 @@ export function useInstalledArtifacts(): InstalledArtifactsState {
 
   const ids = useMemo(() => new Set(entries.map((e) => e.artifact_id)), [entries]);
 
-  return { ids, entries, loading, refetch: fetchOnce };
+  return { ids, entries, loading, error, refetch: fetchOnce };
 }
 
 /** @deprecated use `useInstalledArtifacts` for the full row shape. */
