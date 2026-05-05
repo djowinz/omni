@@ -2075,25 +2075,54 @@ fn overlay_widget_count(overlay_dir: &std::path::Path) -> Option<u32> {
     parsed.map(|f| f.widgets.len() as u32)
 }
 
-/// Return the artifact_ids of every installed bundle + theme in the local
-/// registries. The renderer uses this to badge "Installed" on Discover/My
-/// Uploads cards (artifact_card.tsx + explore-grid.tsx) without needing
-/// to scan the filesystem itself.
+/// Return rich rows for every locally-installed bundle + theme. The renderer
+/// uses this for two purposes:
+///   1. Badge "Installed" on Discover / My-Uploads grid cards (the renderer
+///      Set-ifies `entries[].artifact_id` for O(1) lookups).
+///   2. Populate the Installed sub-tab grid directly from the registry,
+///      without round-tripping the worker. This means the Installed tab
+///      works offline and shows artifacts even after the upstream worker
+///      tombstones the row.
 ///
-/// Returns flat `Vec<String>` because the renderer just builds a Set out
-/// of it. If consumers later need richer metadata (version, installed_at,
-/// installed_path) we can return `Vec<InstalledEntry>` instead — but
-/// `Set<artifact_id>` is the only thing the badge needs today, and
-/// keeping the response compact keeps render cost per-grid-row trivial.
+/// Each entry carries enough fields to render a `CachedArtifactDetail`-
+/// shaped card on the renderer side: artifact_id, name (display_name),
+/// kind ("bundle" | "theme"), author_pubkey, author_fingerprint_hex,
+/// installed_version, content_hash, plus a local `omni-preview://` URL
+/// the Electron protocol handler resolves to the file the host wrote
+/// during sanitize_stage_and_commit. Tags, install counts, and the
+/// remote thumbnail_url aren't in the local registry — they default to
+/// empty / 0; the detail pane fetches the full record via `explorer.get`
+/// when the user clicks a card.
 async fn handle_list_installed(id: &str, ctx: &ShareContext) -> Option<String> {
-    let mut artifact_ids: Vec<String> = Vec::new();
+    fn entry_to_row(
+        entry: &super::registry::InstalledEntry,
+        kind: &'static str,
+    ) -> serde_json::Value {
+        // installed_path is absolute (joined against data_dir at install time
+        // — see handle_install). Strip the data_dir prefix so the renderer
+        // can build an `omni-preview://<rel>/.omni-preview.png` URL the
+        // Electron protocol handler maps back to <data_dir>/<rel>/.
+        json!({
+            "artifact_id": entry.artifact_id,
+            "name": entry.display_name,
+            "kind": kind,
+            "content_hash": entry.content_hash,
+            "author_pubkey": entry.author_pubkey,
+            "author_fingerprint_hex": entry.fingerprint_hex,
+            "installed_version": entry.installed_version.to_string(),
+            "installed_path": entry.installed_path.to_string_lossy(),
+            "installed_at": entry.installed_at,
+        })
+    }
+
+    let mut entries: Vec<serde_json::Value> = Vec::new();
     {
         let bundles = ctx
             .bundles_registry
             .lock()
             .expect("bundles registry mutex poisoned");
         for entry in bundles.entries().values() {
-            artifact_ids.push(entry.artifact_id.clone());
+            entries.push(entry_to_row(entry, "bundle"));
         }
     }
     {
@@ -2102,7 +2131,7 @@ async fn handle_list_installed(id: &str, ctx: &ShareContext) -> Option<String> {
             .lock()
             .expect("themes registry mutex poisoned");
         for entry in themes.entries().values() {
-            artifact_ids.push(entry.artifact_id.clone());
+            entries.push(entry_to_row(entry, "theme"));
         }
     }
     Some(
@@ -2110,7 +2139,7 @@ async fn handle_list_installed(id: &str, ctx: &ShareContext) -> Option<String> {
             "id": id,
             "type": "workspace.listInstalledResult",
             "params": {
-                "artifact_ids": artifact_ids,
+                "entries": entries,
             },
         })
         .to_string(),

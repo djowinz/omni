@@ -20,7 +20,7 @@
  * the titlebar IdentityChip + Settings IdentitySection per #016.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Compass, Upload as UploadIcon } from 'lucide-react';
 import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
@@ -63,7 +63,47 @@ export function ExplorePanel() {
   });
   const myUploads = useMyUploads();
 
-  const list = filters.tab === 'my-uploads' ? myUploads : discoverList;
+  // Map local InstalledEntryRow → CachedArtifactDetail-shaped rows the grid
+  // card expects. The registry doesn't carry tags / install counts /
+  // remote-thumbnail URLs, so those default to empty / 0 — the detail
+  // pane fetches the full ArtifactDetail from the worker via explorer.get
+  // when the user clicks a card.
+  const installedItems = useMemo<CachedArtifactDetail[]>(
+    () =>
+      installed.entries.map((e) => ({
+        artifact_id: e.artifact_id,
+        content_hash: e.content_hash,
+        author_pubkey: e.author_pubkey,
+        author_fingerprint_hex: e.author_fingerprint_hex,
+        name: e.name,
+        kind: e.kind,
+        tags: [],
+        installs: 0,
+        r2_url: '',
+        thumbnail_url: '',
+        created_at: 0,
+        updated_at: e.installed_at,
+        author_display_name: null,
+      })),
+    [installed.entries],
+  );
+
+  const installedList = useMemo(
+    () => ({
+      items: installedItems,
+      loading: installed.loading,
+      nextCursor: null as string | null,
+      loadMore: () => Promise.resolve(),
+    }),
+    [installedItems, installed.loading],
+  );
+
+  const list =
+    filters.tab === 'my-uploads'
+      ? myUploads
+      : filters.tab === 'installed'
+        ? installedList
+        : discoverList;
 
   const [uploadOpen, setUploadOpen] = useState(false);
 

@@ -1,45 +1,55 @@
 /**
- * useInstalledArtifactIds — fetch the set of artifact_ids currently installed
- * locally (bundles + themes registries) so explorer cards can badge
- * "Installed" without scanning the filesystem from the renderer.
+ * useInstalledArtifacts — fetch the local installed-artifacts registry
+ * (bundles + themes) for two consumers in the explorer:
  *
- * Wire shape: `workspace.listInstalled` (`crates/host/src/share/ws_messages.rs
- * handle_list_installed`) returns a flat `string[]`. We Set-ify it for O(1)
- * `has()` lookups in the grid render hot path.
+ *   1. Discover / My-Uploads grid badge: cards whose `artifact_id` is in
+ *      `ids` render the green 'Installed' kind label instead of
+ *      'Bundle'/'Theme'. The Set is built once per refetch for O(1)
+ *      `has()` lookups in the render hot path.
+ *
+ *   2. Installed sub-tab grid: ExplorePanel uses `entries` directly as
+ *      grid items (mapped into the CachedArtifactDetail shape the cards
+ *      expect). This means the Installed tab works offline and keeps
+ *      showing artifacts even when the worker has tombstoned the row.
+ *
+ * Wire shape: `workspace.listInstalled` (host
+ * `handle_list_installed`) returns `{ entries: InstalledEntryRow[] }`.
  *
  * Lifecycle:
  *   - Fetches once on mount.
- *   - Exposes `refetch()` so callers can re-pull after side-channel mutations
- *     (`explorer.install` success, future `explorer.uninstall`). The explore
- *     panel calls this from its install success handlers.
+ *   - `refetch()` re-pulls after side-channel mutations (install / future
+ *     uninstall). ExplorePanel calls it after install success.
  *
- * Errors are coalesced to an empty Set + console.warn — a transient WS hiccup
- * shouldn't break the grid render. Worst case the user briefly sees a card
- * un-badged until the next refetch.
+ * Errors coalesce to empty + console.warn so a transient WS hiccup
+ * doesn't break grid render.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShareWs } from './use-share-ws';
+import type { InstalledEntryRow } from '../lib/share-types';
 
-export interface InstalledArtifactIdsState {
+export interface InstalledArtifactsState {
+  /** O(1) artifact_id lookup for the Discover / My-Uploads installed badge. */
   ids: Set<string>;
+  /** Full registry rows for the Installed sub-tab grid. */
+  entries: InstalledEntryRow[];
   loading: boolean;
   refetch: () => Promise<void>;
 }
 
-export function useInstalledArtifactIds(): InstalledArtifactIdsState {
+export function useInstalledArtifacts(): InstalledArtifactsState {
   const { send } = useShareWs();
-  const [ids, setIds] = useState<Set<string>>(() => new Set());
+  const [entries, setEntries] = useState<InstalledEntryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchOnce = useCallback(async () => {
     setLoading(true);
     try {
       const resp = await send('workspace.listInstalled', {});
-      setIds(new Set(resp.params.artifact_ids));
+      setEntries(resp.params.entries);
     } catch (err) {
-      console.warn('[useInstalledArtifactIds] fetch failed', err);
-      setIds(new Set());
+      console.warn('[useInstalledArtifacts] fetch failed', err);
+      setEntries([]);
     } finally {
       setLoading(false);
     }
@@ -49,5 +59,10 @@ export function useInstalledArtifactIds(): InstalledArtifactIdsState {
     void fetchOnce();
   }, [fetchOnce]);
 
-  return { ids, loading, refetch: fetchOnce };
+  const ids = useMemo(() => new Set(entries.map((e) => e.artifact_id)), [entries]);
+
+  return { ids, entries, loading, refetch: fetchOnce };
 }
+
+/** @deprecated use `useInstalledArtifacts` for the full row shape. */
+export const useInstalledArtifactIds = useInstalledArtifacts;

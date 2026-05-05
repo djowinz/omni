@@ -906,19 +906,39 @@ export type WorkspaceListPublishablesResult = z.infer<typeof WorkspaceListPublis
 //
 // Shipped: crates/host/src/share/ws_messages.rs handle_list_installed()
 //
-// Returns the artifact_ids of every entry currently in the local installed-
-// bundles + installed-themes registries. Used by the explorer grid to badge
-// "Installed" on cards. Lightweight (just IDs); consumers that need full
-// metadata go through the registries' file paths or a richer follow-up
-// endpoint.
+// Returns rich rows for every entry currently in the local installed-bundles
+// + installed-themes registries. Two consumers:
+//   1. Discover / My-Uploads grid badge — the explore panel Set-ifies
+//      `entries[].artifact_id` and passes the set down so cards whose id
+//      matches render the green 'Installed' kind label.
+//   2. The Installed sub-tab grid itself — renders directly off these rows
+//      (no worker round-trip), which means the tab works offline and keeps
+//      working even if the worker tombstones the upstream artifact row.
+//
+// `installed_path` is absolute (joined against the host's data_dir at install
+// time). The renderer uses it to build an `omni-preview://` URL pointing at
+// the on-disk preview the host wrote during install commit.
 export const WorkspaceListInstalledParamsSchema = z.object({});
 export type WorkspaceListInstalledParams = z.infer<typeof WorkspaceListInstalledParamsSchema>;
+
+export const InstalledEntrySchema = z.object({
+  artifact_id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  content_hash: z.string(),
+  author_pubkey: z.string(),
+  author_fingerprint_hex: z.string(),
+  installed_version: z.string(),
+  installed_path: z.string(),
+  installed_at: z.number().int(),
+});
+export type InstalledEntryRow = z.infer<typeof InstalledEntrySchema>;
 
 export const WorkspaceListInstalledResultSchema = z.object({
   id: z.string(),
   type: z.literal('workspace.listInstalledResult'),
   params: z.object({
-    artifact_ids: z.array(z.string()),
+    entries: z.array(InstalledEntrySchema),
   }),
 });
 export type WorkspaceListInstalledResult = z.infer<typeof WorkspaceListInstalledResultSchema>;
