@@ -1,7 +1,7 @@
 //! Disabled guard for development-only use. Exposed via the `dev-no-guard`
-//! cargo feature OR `#[cfg(test)]`; release builds without the feature
-//! literally do not contain this struct. Renamed from the historical
-//! `StubGuard` to reflect its actual semantic.
+//! cargo feature; release builds without the feature literally do not
+//! contain this struct. Renamed from the historical `StubGuard` to
+//! reflect its actual semantic.
 
 use sha2::{Digest, Sha256};
 

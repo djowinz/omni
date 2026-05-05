@@ -42,8 +42,8 @@ pub enum GuardError {
 /// is intentionally disabled for development. Release main refuses to
 /// start when the active guard returns `Disabled`. Defense-in-depth: the
 /// structural guarantee comes from `DisabledGuard` being gated
-/// `#[cfg(any(test, feature = "dev-no-guard"))]`, so a release binary
-/// without that feature literally doesn't contain the variant.
+/// `#[cfg(feature = "dev-no-guard")]`, so a release binary without that
+/// feature literally doesn't contain the variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnforcementMode {
     Real,
