@@ -20,11 +20,11 @@ NEW_VERSION=""
 cleanup() {
     echo ""
     echo "!!! Release failed — rolling back..."
-    # Revert package.json bump
+    # Revert workspace + every JS package.json bump (bump-version.sh sweeps
+    # both apps/* and packages/*, so the rollback must too).
     if [ -n "$NEW_VERSION" ]; then
-        cd "$REPO_ROOT/apps/desktop"
-        git checkout -- package.json 2>/dev/null || true
         cd "$REPO_ROOT"
+        git checkout -- Cargo.toml apps/*/package.json packages/*/package.json 2>/dev/null || true
         # Delete local tag if it exists
         git tag -d "v${NEW_VERSION}" 2>/dev/null || true
     fi
@@ -89,9 +89,26 @@ echo ""
 
 # ── 3. Bump version locally (no commit, no push) ────────────────────────
 echo "[3/8] Bumping version locally..."
-cd "$REPO_ROOT/apps/desktop"
-NEW_VERSION=$(npm version "$INCREMENT" --no-git-tag-version | tr -d 'v')
-cd "$REPO_ROOT"
+# bump-version.sh wants an absolute target, so derive it from the current
+# workspace version + INCREMENT. We do the semver math inline (a stock
+# `node` is enough — no `semver` package needed) then hand the resolved
+# version to bump-version.sh which sweeps every Cargo.toml + every
+# apps/*/package.json + every packages/*/package.json in lockstep.
+CURRENT=$(node -p "require('./apps/desktop/package.json').version")
+NEW_VERSION=$(INCREMENT="$INCREMENT" CURRENT="$CURRENT" node -e "
+    const cur = process.env.CURRENT;
+    const inc = process.env.INCREMENT;
+    const m = cur.match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (!m) { console.error('cannot parse current version: ' + cur); process.exit(1); }
+    let [_, maj, min, pat] = m;
+    maj = +maj; min = +min; pat = +pat;
+    if      (inc === 'major') { maj += 1; min = 0; pat = 0; }
+    else if (inc === 'minor') { min += 1; pat = 0; }
+    else if (inc === 'patch') { pat += 1; }
+    else { console.error('unknown increment: ' + inc); process.exit(1); }
+    console.log(maj + '.' + min + '.' + pat);
+")
+"$SCRIPTS/bump-version.sh" "$NEW_VERSION"
 
 # Create local tag so git describe picks it up for GitDate versioning
 git tag "v${NEW_VERSION}"
@@ -117,7 +134,7 @@ echo ""
 
 # ── 7. Commit, move tag, push ──────────────────────────────────────────
 echo "[7/8] Committing and pushing..."
-git add apps/desktop/package.json
+git add Cargo.toml apps/*/package.json packages/*/package.json
 git commit -m "[skip ci] Bumping to v${NEW_VERSION}. Releasing..."
 
 # Move tag from old HEAD to the new commit
