@@ -830,6 +830,24 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       ...common,
       ...(customPreviewB64 !== null && { custom_preview_b64: customPreviewB64 }),
     };
+    // Build the thumbnail_src for the success card. Custom preview wins
+    // (instant render from in-memory bytes); otherwise fall back to the
+    // host's auto-rendered preview that lives on disk next to the
+    // workspace entry. The renderer reaches it through the
+    // `omni-preview://` Electron protocol — same URL scheme the source
+    // picker rows use, mirrored here so the user actually sees their
+    // overlay in the success card instead of a grey placeholder.
+    const successThumbnailSrc: string | null = (() => {
+      if (customPreviewB64 !== null) return `data:image/png;base64,${customPreviewB64}`;
+      if (!cur.selected) return null;
+      // overlays/<name>/.omni-preview.png  vs  themes/<base>.preview.png
+      // (matches source-picker-list-row.tsx::previewUrlFor).
+      if (cur.selected.kind === 'overlay') {
+        return `omni-preview://${cur.selected.workspace_path}/.omni-preview.png`;
+      }
+      const base = cur.selected.workspace_path.replace(/\.css$/i, '');
+      return `omni-preview://${base}.preview.png`;
+    })();
     try {
       if (cur.mode === 'update' && cur.selected?.sidecar) {
         const resp = await ws.send('upload.update', {
@@ -859,7 +877,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
             name: common.name ?? cur.selected.name,
             kind: cur.selected.kind,
             tags: common.tags ?? [],
-            thumbnail_b64: customPreviewB64,
+            thumbnail_src: successThumbnailSrc,
           },
         });
         onPublishedRef.current?.(normalised.params);
@@ -875,7 +893,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
             name: common.name ?? cur.selected?.name ?? '',
             kind: cur.selected?.kind ?? 'overlay',
             tags: common.tags ?? [],
-            thumbnail_b64: customPreviewB64,
+            thumbnail_src: successThumbnailSrc,
           },
         });
         onPublishedRef.current?.(resp.params);

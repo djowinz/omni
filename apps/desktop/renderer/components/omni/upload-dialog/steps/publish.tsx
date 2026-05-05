@@ -43,13 +43,21 @@ export interface PublishResult {
   kind: string;
   tags: string[];
   /**
-   * Base64-encoded PNG bytes of the published thumbnail (the same bytes the
-   * user picked in Step 3, or the host's auto-rendered preview when the
-   * user didn't pick a custom one). When present, the success card renders
-   * `<img src="data:image/png;base64,...">`. When null, the card falls back
-   * to a zinc gradient.
+   * Image source for the success card thumbnail. Either:
+   *   - a `data:image/png;base64,...` URL (when the user picked a custom
+   *     preview in Step 3 — those bytes were already in memory before the
+   *     publish so we keep them on the result for instant render), OR
+   *   - an `omni-preview://<workspace_path>/.omni-preview.png` URL pointing
+   *     at the host's auto-rendered preview that lives on disk next to the
+   *     overlay folder (or `<theme>.css.preview.png` for themes), OR
+   *   - null when neither source resolved cleanly (the success card then
+   *     falls back to a zinc gradient).
+   *
+   * Naming intentionally generic (`thumbnail_src`, not `thumbnail_b64`) so
+   * the consumer just drops it into `<img src={result.thumbnail_src} />`
+   * without branching on the URL scheme.
    */
-  thumbnail_b64: string | null;
+  thumbnail_src: string | null;
 }
 
 export interface PublishError {
@@ -238,9 +246,9 @@ function PublishSuccess({ result }: { result: PublishResult }) {
             background: 'linear-gradient(135deg,#27272A,#3f3f46)',
           }}
         >
-          {result.thumbnail_b64 && (
+          {result.thumbnail_src && (
             <img
-              src={`data:image/png;base64,${result.thumbnail_b64}`}
+              src={result.thumbnail_src}
               alt=""
               className="h-full w-full object-cover"
             />
