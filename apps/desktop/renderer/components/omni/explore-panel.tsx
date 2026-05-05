@@ -26,6 +26,7 @@ import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
 import { useMyUploads } from '../../hooks/use-my-uploads';
 import { useShareWs } from '../../hooks/use-share-ws';
+import { useOmniState } from '../../hooks/use-omni-state';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
 import { ExploreDetail } from './explore-detail';
@@ -36,6 +37,7 @@ import type { CachedArtifactDetail } from '../../lib/share-types';
 export function ExplorePanel() {
   const filters = useExploreFilters();
   const { send } = useShareWs();
+  const { refreshOverlays } = useOmniState();
 
   const discoverList = useExploreList({
     tab: filters.tab,
@@ -60,6 +62,10 @@ export function ExplorePanel() {
     filters.setSelectedId(a.artifact_id);
     try {
       await send('explorer.install', { artifact_id: a.artifact_id });
+      // Re-scan the workspace so the new <data_dir>/overlays/<id>/ folder
+      // shows up in the header dropdown. Without this the user has to
+      // hard-refresh the app to see what they just installed.
+      await refreshOverlays();
       toast.success(`Installed ${a.name}`);
     } catch (err) {
       toast.error(err as Parameters<typeof toast.error>[0]);

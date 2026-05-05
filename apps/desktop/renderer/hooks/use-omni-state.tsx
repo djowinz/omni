@@ -58,6 +58,13 @@ interface OmniContextValue {
   assignToGame: (overlayName: string, executable: string) => Promise<void>;
   removeGameAssignment: (executable: string) => Promise<void>;
   getOverlayForGame: (executable: string) => Overlay | undefined;
+  /**
+   * Re-scan the workspace for overlay folders and update `state.overlays`.
+   * Used after side-channel writes to the workspace (e.g. install from the
+   * Explore panel creates `<data_dir>/overlays/<id>/`) so the header
+   * dropdown picks them up without a full app reload.
+   */
+  refreshOverlays: () => Promise<void>;
   // Tab functions
   openThemeTab: (themePath: string) => Promise<void>;
   openOverlayTab: (overlayName: string) => void;
@@ -437,6 +444,15 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     return state.openTabs.find((t) => t.id === state.activeTabId);
   }, [state.openTabs, state.activeTabId]);
 
+  const refreshOverlays = useCallback(async (): Promise<void> => {
+    try {
+      const overlays = await loadOverlayList();
+      dispatch({ type: 'SET_OVERLAYS', payload: overlays });
+    } catch (err) {
+      console.error('Failed to refresh overlays:', err);
+    }
+  }, []);
+
   const value: OmniContextValue = {
     state,
     dispatch,
@@ -450,6 +466,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     assignToGame,
     removeGameAssignment,
     getOverlayForGame,
+    refreshOverlays,
     openThemeTab,
     openOverlayTab,
     closeTab,

@@ -60,7 +60,7 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
   const { setSelectedId } = useExploreFilters();
   const { setPreview } = usePreview();
   const { send } = useShareWs();
-  const { state: omniState, dispatch } = useOmniState();
+  const { state: omniState, dispatch, refreshOverlays } = useOmniState();
   const { identity } = useIdentity();
 
   const [installState, setInstallState] = useState<InstallState>({ kind: 'idle' });
@@ -172,6 +172,9 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         return;
       }
       setInstallState({ kind: 'idle' });
+      // Re-scan the workspace so the newly-installed overlay folder shows
+      // up in the header dropdown without a full app reload.
+      await refreshOverlays();
       toast.success(`Installed ${name}`);
     } catch (err) {
       setInstallState({ kind: 'error', message: mapErrorToUserMessage(err as OmniError).text });
