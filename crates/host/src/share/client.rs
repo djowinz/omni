@@ -16,7 +16,7 @@ use arc_swap::ArcSwap;
 use backon::ExponentialBuilder;
 use base64::Engine;
 use identity::{sign_http_jws, HttpJwsClaims, Keypair};
-use omni_guard_trait::Guard;
+use omni_guard::Guard;
 use reqwest::{Method, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

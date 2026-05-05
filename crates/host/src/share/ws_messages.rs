@@ -9,7 +9,7 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use bundle::{BundleLimits, Tag};
 use identity::{Keypair, PublicKey};
-use omni_guard_trait::Guard;
+use omni_guard::Guard;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

@@ -13,15 +13,14 @@ path = "src/main.rs"
 
 [features]
 default = []
-# `guard` enables the RealGuard wiring. Resolution of the `omni-guard` crate
-# is handled by the workspace-level `[patch]` (retro D-004-K): default
-# contributor builds resolve to `stubs/omni-guard/` (no-op behavior); release
-# CI overrides the patch via `--config` to pull the real private crate.
-guard = ["dep:omni-guard"]
+# `dev-no-guard` propagates to omni-guard's same feature. Use ONLY for local
+# debugger sessions where anti-debug interferes; release builds MUST NOT
+# enable this. Release main exits non-zero if guard.enforcement_mode() is
+# Disabled (defense-in-depth on top of this feature gate).
+dev-no-guard = ["omni-guard/dev-no-guard"]
 
 [dependencies]
-omni-guard-trait = { path = "../omni-guard-trait" }
-omni-guard = { git = "ssh://git@github.com/djowinz/omni-guard.git", branch = "main", optional = true }
+omni-guard = { path = "../omni-guard" }
 shared = { path = "../shared" }
 ts-rs = { version = "10", features = ["serde-compat"] }
 tracing = "0.1"

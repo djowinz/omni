@@ -1443,7 +1443,7 @@ enum BuildShareCtxError {
     #[error("identity load failed: {0}")]
     IdentityLoad(#[source] identity::IdentityError),
     #[error("guard init failed: {0}")]
-    GuardInit(#[source] omni_guard_trait::GuardError),
+    GuardInit(#[source] omni_guard::GuardError),
     #[error("tofu store load failed: {0}")]
     TofuLoad(#[source] identity::IdentityError),
     #[error("registry load failed: {0}")]
@@ -1542,7 +1542,7 @@ fn build_share_context(
 
     // `make_guard()` returns `Box<dyn Guard>`; convert to Arc for ShareContext.
     let guard_box = omni_host::guard::make_guard().map_err(BuildShareCtxError::GuardInit)?;
-    let guard: Arc<dyn omni_guard_trait::Guard> = Arc::from(guard_box);
+    let guard: Arc<dyn omni_guard::Guard> = Arc::from(guard_box);
 
     let client = Arc::new(ShareClient::new(
         worker_url,

@@ -1,27 +1,21 @@
-//! Guard factory. Default builds use `StubGuard`; `--features guard` builds
-//! use `omni_guard::RealGuard`, which resolves either to the public stub at
-//! `stubs/omni-guard/` (default) or to the real private crate (release CI,
-//! via a `--config` patch override).
-//!
-//! Per retro/2026-04-13-theme-sharing-004-design-retro.md:
-//! - D-004-A: `Guard` has no `sign` method. All signing lives in
-//!   `omni-identity::Keypair`; this factory takes no key.
-//! - D-004-B: `RealGuard::new()` runs integrity at construction and returns
-//!   `Result<Self, GuardError>`. `make_guard` propagates that.
-//! - D-004-G: private crate is pulled via git URL, not via a submodule path.
-//! - D-004-K: a public stub at `stubs/omni-guard/` satisfies the workspace
-//!   resolver by default; the real crate replaces the stub only in release
-//!   CI via `cargo --config` patch override.
+//! Guard factory. Default builds use `RealGuard` (the real anti-tamper
+//! primitives from `omni-guard`). Builds with `--features dev-no-guard`
+//! return `DisabledGuard` instead — useful for local debugger sessions
+//! where anti-debug interferes. Release builds MUST NOT enable
+//! `dev-no-guard`; the host's release main checks
+//! `guard.enforcement_mode()` and exits non-zero if it returns `Disabled`.
 
-use omni_guard_trait::{Guard, GuardError};
+use omni_guard::{Guard, GuardError, RealGuard};
 
-#[cfg(feature = "guard")]
+#[cfg(feature = "dev-no-guard")]
 pub fn make_guard() -> Result<Box<dyn Guard>, GuardError> {
-    let real = omni_guard::RealGuard::new()?;
-    Ok(Box::new(real))
+    tracing::warn!(
+        "running with dev-no-guard feature; integrity + anti-debug + Sybil resistance disabled"
+    );
+    Ok(Box::new(omni_guard::DisabledGuard))
 }
 
-#[cfg(not(feature = "guard"))]
+#[cfg(not(feature = "dev-no-guard"))]
 pub fn make_guard() -> Result<Box<dyn Guard>, GuardError> {
-    Ok(Box::new(omni_guard_trait::StubGuard))
+    Ok(Box::new(RealGuard::new()?))
 }

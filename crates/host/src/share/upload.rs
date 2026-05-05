@@ -55,7 +55,7 @@ use std::sync::Arc;
 
 use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use identity::Keypair;
-use omni_guard_trait::Guard;
+use omni_guard::Guard;
 use sanitize::SanitizeError;
 use semver::Version;
 use serde::{Deserialize, Serialize};
