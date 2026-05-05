@@ -1544,6 +1544,32 @@ fn build_share_context(
     let guard_box = omni_host::guard::make_guard().map_err(BuildShareCtxError::GuardInit)?;
     let guard: Arc<dyn omni_guard::Guard> = Arc::from(guard_box);
 
+    // Release defense — refuse to start if the active guard reports Disabled.
+    //
+    // Critical: this runtime check is the ONLY guarantee that a release binary
+    // fails closed if a future contributor accidentally references DisabledGuard
+    // from non-test code. The structural guarantee originally designed (gating
+    // DisabledGuard behind `#[cfg(any(test, feature = "dev-no-guard"))]`) was
+    // weakened in Task 6 of the guard-opensource spec, when test-harness gained
+    // `features = ["dev-no-guard"]` to expose DisabledGuard via cargo feature
+    // unification. That unification means omni-guard's rmeta in a release build
+    // has dev-no-guard ON; DisabledGuard's symbol stays out of the final
+    // binary only because the LTO-thin linker dead-strips the unused struct.
+    // If anyone in `omni_host` source ever writes `DisabledGuard::...`, the
+    // linker keeps it and this gate is what catches it. Spec §4.2 / OWI-10.
+    //
+    // Note: gated on `#[cfg(not(debug_assertions))]` (not `cfg(release)` —
+    // Cargo doesn't expose that). Debug builds skip the gate; release builds
+    // enforce it.
+    #[cfg(not(debug_assertions))]
+    if guard.enforcement_mode() == omni_guard::EnforcementMode::Disabled {
+        eprintln!(
+            "error: guard is disabled. Release builds refuse this configuration. \
+             Rebuild without --features dev-no-guard."
+        );
+        std::process::exit(2);
+    }
+
     let client = Arc::new(ShareClient::new(
         worker_url,
         identity.clone(),
