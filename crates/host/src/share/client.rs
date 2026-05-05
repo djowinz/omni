@@ -698,6 +698,16 @@ impl ShareClient {
             return Err(Self::decode_error(resp).await);
         }
         let body: UploadResponseBody = resp.json().await.map_err(UploadError::Network)?;
+        // Drop the post-upload cache shadow for this artifact so the next
+        // `merge_into_list` falls through to the worker's freshly-updated
+        // row (new content_hash / version / name / tags / updated_at).
+        // Without this the user sees v1.0.0 in the explorer immediately
+        // after publishing v1.0.1 — the cache still holds the v1.0.0 row
+        // from the original POST /v1/upload and `merge_into_list` lets it
+        // override the server's fresh data for the full 60s TTL.
+        self.cache
+            .invalidate(&(self.pubkey_hex(), body.artifact_id.clone()))
+            .await;
         Ok(UploadResult {
             artifact_id: body.artifact_id,
             content_hash: body.content_hash,

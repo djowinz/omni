@@ -110,6 +110,16 @@ impl ArtifactCache {
         self.inner.insert(key, value).await;
     }
 
+    /// Drop a single entry from the cache. Used by `client.patch()` after a
+    /// successful update so the next `merge_into_list` call falls through
+    /// to the worker's fresh row instead of replaying the now-stale
+    /// post-upload cache shadow (different content_hash, different version,
+    /// different name etc.). Idempotent — invalidating an absent key is a
+    /// no-op.
+    pub async fn invalidate(&self, key: &CacheKey) {
+        self.inner.invalidate(key).await;
+    }
+
     #[cfg(test)]
     pub(crate) async fn get(&self, key: &CacheKey) -> Option<CachedArtifactDetail> {
         self.inner.get(key).await
