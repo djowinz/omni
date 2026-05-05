@@ -1,9 +1,3 @@
-# NOTE: empty [workspace] table here is a TEMPORARY shim during Task 1 of the
-# guard-opensource plan to let `cargo build --manifest-path` work standalone
-# while this crate is not yet listed in the root workspace.members. Task 4
-# adds the crate to workspace.members and this stub MUST be removed then.
-[workspace]
-
 [package]
 name = "omni-guard"
 version.workspace = true
