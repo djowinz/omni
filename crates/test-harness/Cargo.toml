@@ -12,7 +12,13 @@ arc-swap = "1"
 bundle = { path = "../bundle" }
 host = { package = "host", path = "../host" }
 identity = { path = "../identity" }
-omni-guard-trait = { path = "../omni-guard-trait" }
+# test-harness constructs DisabledGuard unconditionally. DisabledGuard is
+# gated behind `dev-no-guard` in omni-guard, so we MUST enable that feature
+# here. Cargo unifies features across the build graph: when any crate is
+# built with test-harness in its dep graph (e.g. `cargo test -p host`),
+# omni-guard ends up with `dev-no-guard` enabled and DisabledGuard becomes
+# reachable everywhere — including `#[cfg(test)]` blocks in `crates/host/src/`.
+omni-guard = { path = "../omni-guard", features = ["dev-no-guard"] }
 semver = "1"
 sha2 = "0.10"
 tempfile = "3"

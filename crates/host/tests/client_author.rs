@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use identity::Keypair;
-use omni_guard_trait::{Guard, StubGuard};
+use omni_guard::{DisabledGuard, Guard};
 use omni_host::share::client::{AuthorDetail, ShareClient};
 use omni_host::share::error::{UploadError, WorkerErrorKind};
 use url::Url;
@@ -26,7 +26,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 fn test_client(server: &MockServer) -> ShareClient {
     let identity = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
     let url = Url::parse(&server.uri()).unwrap();
-    ShareClient::new(url, identity, Arc::new(StubGuard) as Arc<dyn Guard>)
+    ShareClient::new(url, identity, Arc::new(DisabledGuard) as Arc<dyn Guard>)
 }
 
 #[tokio::test]

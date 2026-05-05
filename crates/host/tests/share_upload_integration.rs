@@ -9,12 +9,13 @@
 //!
 //! What is NOT mocked: omni-identity, omni-bundle, omni-sanitize — real crates.
 //!
-//! `StubGuard` (default, non-feature `guard` build) keeps CI free of the private crate.
+//! `DisabledGuard` (the dev-only no-op Guard from `omni-guard`) keeps CI free
+//! of any device-fingerprint side effects in the request-shape assertions.
 
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use omni_guard_trait::{Guard, StubGuard};
+use omni_guard::{DisabledGuard, Guard};
 use omni_host::share::{
     client::{ListParams, ShareClient, SANITIZE_VERSION},
     progress::UploadProgress,
@@ -42,8 +43,8 @@ fn test_request(src: &std::path::Path) -> UploadRequest {
     }
 }
 
-fn stub_guard() -> Arc<dyn Guard> {
-    Arc::new(StubGuard) as Arc<dyn Guard>
+fn disabled_guard() -> Arc<dyn Guard> {
+    Arc::new(DisabledGuard) as Arc<dyn Guard>
 }
 
 fn write_theme(dir: &std::path::Path, name: &str, body: &[u8]) -> std::path::PathBuf {
@@ -106,7 +107,7 @@ async fn happy_path_upload_emits_jws_header_and_progress() {
 
     // 3. Build host-side infrastructure
     let identity = Arc::new(deterministic_keypair());
-    let guard = stub_guard();
+    let guard = disabled_guard();
     let base = Url::parse(&server.uri()).unwrap();
     // ShareClient holds an Arc<ArcSwap<Keypair>>; mirror the production
     // wiring that wraps the same keypair Arc so a `.store(...)` against
@@ -185,7 +186,7 @@ async fn rate_limited_retries_once_then_succeeds() {
     let p = write_theme(dir.path(), "t.css", b"/* empty */");
 
     let identity = Arc::new(deterministic_keypair());
-    let guard = stub_guard();
+    let guard = disabled_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
         Arc::new(ArcSwap::new(identity.clone())),
@@ -222,7 +223,7 @@ async fn auth_bad_signature_is_not_retried() {
     let p = write_theme(dir.path(), "t.css", b"/* empty */");
 
     let identity = Arc::new(deterministic_keypair());
-    let guard = stub_guard();
+    let guard = disabled_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
         Arc::new(ArcSwap::new(identity.clone())),
@@ -275,7 +276,7 @@ async fn oversized_bundle_returns_bad_input_before_hitting_server() {
     );
 
     let identity = Arc::new(deterministic_keypair());
-    let guard = stub_guard();
+    let guard = disabled_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
         Arc::new(ArcSwap::new(identity.clone())),
@@ -332,7 +333,7 @@ async fn cache_entry_visible_in_followup_list() {
     let p = write_theme(dir.path(), "t.css", b":root { --a: 1; }");
 
     let identity = Arc::new(deterministic_keypair());
-    let guard = stub_guard();
+    let guard = disabled_guard();
     let client = Arc::new(ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
         Arc::new(ArcSwap::new(identity.clone())),

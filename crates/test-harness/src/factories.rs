@@ -1,6 +1,6 @@
 //! Production-shaped construction helpers. Factories in this module return
 //! state wired exactly the way the `omni-host` startup path wires it, with
-//! the stub guard and a deterministic identity key.
+//! `DisabledGuard` (the dev-only no-op Guard) and a deterministic identity key.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -15,7 +15,7 @@ use host::share::registry::{RegistryHandle, RegistryKind};
 use host::share::tofu::TofuStore;
 use host::share::ws_messages::ShareContext;
 use identity::Keypair;
-use omni_guard_trait::{Guard, StubGuard};
+use omni_guard::{DisabledGuard, Guard};
 use semver::Version;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
@@ -40,7 +40,7 @@ impl ThemeSwap for InertThemeSwap {
 /// startup, rooted at `data_dir` (pass a `tempfile::TempDir::path()` so the
 /// caller owns the directory lifetime).
 ///
-/// Uses [`deterministic_keypair`] for the identity, `StubGuard` for the
+/// Uses [`deterministic_keypair`] for the identity, `DisabledGuard` for the
 /// guard, and a local-only `wiremock`-compatible `ShareClient` base URL
 /// (`http://127.0.0.1:0/`) that the caller replaces if it spins up a mock.
 pub fn build_share_context(data_dir: &Path) -> ShareContext {
@@ -52,7 +52,7 @@ pub fn build_share_context(data_dir: &Path) -> ShareContext {
     // shape — a test that swaps the slot through `ctx.identity.store`
     // observes the change in the client too.
     let identity = Arc::new(ArcSwap::new(Arc::new(deterministic_keypair())));
-    let guard: Arc<dyn Guard> = Arc::new(StubGuard);
+    let guard: Arc<dyn Guard> = Arc::new(DisabledGuard);
     let base = Url::parse("http://127.0.0.1:0/").unwrap();
     let client = Arc::new(ShareClient::new(base, identity.clone(), guard.clone()));
     let tofu = Arc::new(Mutex::new(TofuStore::open(data_dir).expect("tofu open")));

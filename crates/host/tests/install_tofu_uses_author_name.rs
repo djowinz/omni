@@ -21,7 +21,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use bundle::{BundleLimits, FileEntry, Manifest, Tag};
 use identity::{pack_signed_bundle, Keypair, TofuRegistry};
-use omni_guard_trait::{Guard, StubGuard};
+use omni_guard::{DisabledGuard, Guard};
 use omni_host::share::client::ShareClient;
 use omni_host::share::install::{install, InstallRequest};
 use omni_host::share::registry::{RegistryHandle, RegistryKind};
@@ -127,7 +127,7 @@ async fn tofu_records_author_display_name_not_bundle_name() {
     let client = ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
         Arc::new(ArcSwap::new(Arc::new(Keypair::generate()))),
-        Arc::new(StubGuard) as Arc<dyn Guard>,
+        Arc::new(DisabledGuard) as Arc<dyn Guard>,
     );
     let mut tofu = TofuStore::open(app_data.path()).unwrap();
     let mut registry = RegistryHandle::load(app_data.path(), RegistryKind::Themes).unwrap();
@@ -204,7 +204,7 @@ async fn tofu_records_none_when_worker_offline() {
     let client = ShareClient::new(
         Url::parse(&server.uri()).unwrap(),
         Arc::new(ArcSwap::new(Arc::new(Keypair::generate()))),
-        Arc::new(StubGuard) as Arc<dyn Guard>,
+        Arc::new(DisabledGuard) as Arc<dyn Guard>,
     );
     let mut tofu = TofuStore::open(app_data.path()).unwrap();
     let mut registry = RegistryHandle::load(app_data.path(), RegistryKind::Themes).unwrap();

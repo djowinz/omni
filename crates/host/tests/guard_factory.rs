@@ -1,6 +1,5 @@
-//! Host factory tests. Contract-level coverage for the Guard trait lives in
-//! `omni-guard-trait/tests/contract.rs` (retro D-004-H). These tests confirm
-//! only that `make_guard()` wires correctly in each feature mode.
+//! `make_guard()` wires correctly under the default + dev-no-guard features.
+//! Trait-contract coverage lives in `crates/omni-guard/tests/contract.rs`.
 
 #[test]
 fn make_guard_returns_ok_and_valid_device_id() {

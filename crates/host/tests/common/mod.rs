@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bundle::{FileEntry, Manifest, Tag};
-use omni_guard_trait::{DeviceId, Guard, GuardError, StubGuard};
+use omni_guard::{DeviceId, DisabledGuard, Guard, GuardError};
 use omni_host::share::client::ShareClient;
 use omni_host::share::upload::{PackResult, UploadResult};
 use omni_host::share::ws_messages::ShareContext;
@@ -236,12 +236,12 @@ impl Guard for FixedDeviceGuard {
     }
 }
 
-// Compile-time pin: keep StubGuard reachable so editors / IDEs that
+// Compile-time pin: keep DisabledGuard reachable so editors / IDEs that
 // strip unused imports don't quietly drop our cross-crate dependency
-// edge — the `omni-guard-trait` crate is what re-exports Guard.
+// edge — the `omni-guard` crate is what re-exports Guard.
 #[allow(dead_code)]
-fn _stub_guard_pin() -> Arc<dyn Guard> {
-    Arc::new(StubGuard)
+fn _disabled_guard_pin() -> Arc<dyn Guard> {
+    Arc::new(DisabledGuard)
 }
 
 // ----------------------------------------------------------------------

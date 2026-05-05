@@ -8,7 +8,7 @@ See `docs/superpowers/specs/2026-04-19-integration-testing-discipline-design.md`
 
 ## Factories
 
-- `build_share_context(tempdir)` — real `data_dir`, `StubGuard`,
+- `build_share_context(tempdir)` — real `data_dir`, `DisabledGuard`,
   deterministic identity, inert theme-swap.
 - `deterministic_keypair()` — fixed 32-byte seed; same bytes every run.
 - `marathon_fixture()` — `(Manifest, files)` rooted at the reference overlay.

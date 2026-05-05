@@ -2450,16 +2450,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "omni-guard-trait"
-version = "1.5.1"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3861,7 +3851,7 @@ dependencies = [
  "bundle",
  "host",
  "identity",
- "omni-guard-trait",
+ "omni-guard",
  "semver",
  "sha2",
  "tempfile",

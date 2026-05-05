@@ -2614,7 +2614,7 @@ mod tests {
         // rotate-style assertion that calls `ctx.identity.store(...)`
         // observes the change in `ctx.client` too.
         let kp = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
-        let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
+        let guard: Arc<dyn Guard> = Arc::new(omni_guard::DisabledGuard);
         let client = Arc::new(ShareClient::new(
             url::Url::parse("http://localhost:1/").unwrap(),
             kp.clone(),
@@ -3218,7 +3218,7 @@ mod tests {
 
         let tmp = TempDir::new().unwrap();
         let kp = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
-        let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
+        let guard: Arc<dyn Guard> = Arc::new(omni_guard::DisabledGuard);
         let client = Arc::new(ShareClient::new(
             url::Url::parse(&format!("{}/", server.uri())).unwrap(),
             kp.clone(),
@@ -3416,7 +3416,7 @@ mod tests {
     fn make_test_ctx_with_base(base: &str) -> (ShareContext, TempDir) {
         let tmp = TempDir::new().expect("tempdir");
         let kp = Arc::new(ArcSwap::new(Arc::new(Keypair::generate())));
-        let guard: Arc<dyn Guard> = Arc::new(omni_guard_trait::StubGuard);
+        let guard: Arc<dyn Guard> = Arc::new(omni_guard::DisabledGuard);
         let client = Arc::new(ShareClient::new(
             url::Url::parse(base).expect("base url parse"),
             kp.clone(),

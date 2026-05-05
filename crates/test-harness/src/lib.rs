@@ -2,7 +2,7 @@
 //!
 //! This crate is dev-only (`publish = false`). It exposes factories that
 //! construct shared state the way the production host binary does — real
-//! `data_dir` tempdirs, `StubGuard`, deterministic identity keys — so
+//! `data_dir` tempdirs, `DisabledGuard`, deterministic identity keys — so
 //! integration tests across `crates/host`, `crates/sanitize`, and
 //! `crates/bundle` can share one construction path rather than open-coding
 //! setup in every test file.

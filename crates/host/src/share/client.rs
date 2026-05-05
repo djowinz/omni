@@ -1178,7 +1178,7 @@ pub(crate) fn serialize_multipart(parts: Vec<MultipartPart>) -> (Vec<u8>, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omni_guard_trait::StubGuard;
+    use omni_guard::DisabledGuard;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1186,7 +1186,7 @@ mod tests {
         ShareClient::new(
             Url::parse(base).unwrap(),
             Arc::new(ArcSwap::new(Arc::new(Keypair::generate()))),
-            Arc::new(StubGuard) as Arc<dyn Guard>,
+            Arc::new(DisabledGuard) as Arc<dyn Guard>,
         )
     }
 
@@ -1555,7 +1555,7 @@ mod tests {
         let client = ShareClient::new(
             Url::parse("http://127.0.0.1:0/").unwrap(),
             Arc::clone(&identity),
-            Arc::new(StubGuard) as Arc<dyn Guard>,
+            Arc::new(DisabledGuard) as Arc<dyn Guard>,
         );
         assert_eq!(client.identity.load().public_key().0, pk1);
 
