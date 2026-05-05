@@ -34,7 +34,12 @@ export const UploadFormSchema = z.object({
   bump: z.enum(['patch', 'minor', 'major', 'none']),
   // Description stays optional (no asterisk in UI) — INV-7.2.3.
   description: z.string().max(500, 'Description must be 500 characters or less').optional(),
-  tags: z.array(z.string()).max(10, 'Up to 10 tags').default([]),
+  // `.default([])` would make the Zod input/output types diverge (input
+  // optional, output required). With @hookform/resolvers v5 + Zod v4 that
+  // mismatch breaks the Resolver's input/output generic alignment with
+  // useForm<UploadFormValues>. DEFAULT_FORM provides `tags: []` directly,
+  // so the schema-level default is redundant — drop it for type alignment.
+  tags: z.array(z.string()).max(10, 'Up to 10 tags'),
   // `license` carries either an SPDX value from LICENSE_OPTIONS OR the literal
   // `'Custom'` sentinel; in the latter case the resolved identifier lives in
   // `customLicense`. Step 2's submit handler is responsible for collapsing the
