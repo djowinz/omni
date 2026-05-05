@@ -549,6 +549,46 @@ fn run_stop() {
 
 /// Core host loop shared by --watch and --service modes.
 fn run_host() {
+    // Release-defense gate — runs FIRST, before any fallible setup that could
+    // make `build_share_context` short-circuit. Previously this gate lived
+    // inside `build_share_context` (downstream of identity/Worker URL/registry
+    // setup); if any of those errored, main warned + continued, so a release
+    // build accidentally compiled with `--features dev-no-guard` ran silently
+    // with `DisabledGuard` active for everything outside the share surface.
+    // Hoisted so the gate fires unconditionally on startup. Spec §4.2 / OWI-10.
+    //
+    // Critical: this runtime check is the ONLY guarantee that a release binary
+    // fails closed if a future contributor accidentally references DisabledGuard
+    // from non-test code. The structural guarantee originally designed (gating
+    // DisabledGuard behind `#[cfg(any(test, feature = "dev-no-guard"))]`) was
+    // weakened in Task 6 of the guard-opensource spec, when test-harness gained
+    // `features = ["dev-no-guard"]` to expose DisabledGuard via cargo feature
+    // unification. That unification means omni-guard's rmeta in a release build
+    // has dev-no-guard ON; DisabledGuard's symbol stays out of the final
+    // binary only because the LTO-thin linker dead-strips the unused struct.
+    // If anyone in `omni_host` source ever writes `DisabledGuard::...`, the
+    // linker keeps it and this gate is what catches it.
+    //
+    // Note: gated on `#[cfg(not(debug_assertions))]` (not `cfg(release)` —
+    // Cargo doesn't expose that). Debug builds skip the gate; release builds
+    // enforce it.
+    let guard_box = match omni_host::guard::make_guard() {
+        Ok(g) => g,
+        Err(e) => {
+            error!(error = %e, "guard initialization failed");
+            std::process::exit(1);
+        }
+    };
+    #[cfg(not(debug_assertions))]
+    if guard_box.enforcement_mode() == omni_guard::EnforcementMode::Disabled {
+        eprintln!(
+            "error: guard is disabled. Release builds refuse this configuration. \
+             Rebuild without --features dev-no-guard."
+        );
+        std::process::exit(2);
+    }
+    let guard: Arc<dyn omni_guard::Guard> = Arc::from(guard_box);
+
     let config_path = config::config_path();
     let mut config = config::load_config(&config_path);
     let data_dir = config::data_dir();
@@ -616,7 +656,8 @@ fn run_host() {
     // the fallback path in `ws_server::handle_message`. Contributors building
     // offline (no identity file yet, no Worker reachable) still get a working host
     // minus the share surface.
-    match build_share_context(&ws_state, &overlay_name, pending_theme_slot.clone()) {
+    match build_share_context(&ws_state, &overlay_name, pending_theme_slot.clone(), guard.clone())
+    {
         Ok(ctx) => ws_state.set_share_ctx(std::sync::Arc::new(ctx)),
         Err(e) => tracing::warn!(
             error = %e,
@@ -1442,8 +1483,9 @@ enum BuildShareCtxError {
     WorkerUrl(#[source] url::ParseError),
     #[error("identity load failed: {0}")]
     IdentityLoad(#[source] identity::IdentityError),
-    #[error("guard init failed: {0}")]
-    GuardInit(#[source] omni_guard::GuardError),
+    // Note: `GuardInit` was removed when guard construction was hoisted to
+    // `run_host()` (final-review fix). Guard failures now `error!` + exit
+    // before `build_share_context` runs.
     #[error("tofu store load failed: {0}")]
     TofuLoad(#[source] identity::IdentityError),
     #[error("registry load failed: {0}")]
@@ -1501,6 +1543,7 @@ fn build_share_context(
     state: &ws_server::WsSharedState,
     overlay_name: &str,
     pending_theme_slot: omni_host::share::preview_impl::PendingSlot,
+    guard: Arc<dyn omni_guard::Guard>,
 ) -> Result<omni_host::share::ws_messages::ShareContext, BuildShareCtxError> {
     use arc_swap::ArcSwap;
     use omni_host::share::client::ShareClient;
@@ -1510,7 +1553,7 @@ fn build_share_context(
     use omni_host::share::tofu::TofuStore;
     use omni_host::share::ws_messages::ShareContext;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     let worker_url_str =
         std::env::var("OMNI_WORKER_URL").unwrap_or_else(|_| "http://127.0.0.1:8787/".to_string());
@@ -1540,36 +1583,9 @@ fn build_share_context(
             .map_err(BuildShareCtxError::IdentityLoad)?,
     )));
 
-    // `make_guard()` returns `Box<dyn Guard>`; convert to Arc for ShareContext.
-    let guard_box = omni_host::guard::make_guard().map_err(BuildShareCtxError::GuardInit)?;
-    let guard: Arc<dyn omni_guard::Guard> = Arc::from(guard_box);
-
-    // Release defense — refuse to start if the active guard reports Disabled.
-    //
-    // Critical: this runtime check is the ONLY guarantee that a release binary
-    // fails closed if a future contributor accidentally references DisabledGuard
-    // from non-test code. The structural guarantee originally designed (gating
-    // DisabledGuard behind `#[cfg(any(test, feature = "dev-no-guard"))]`) was
-    // weakened in Task 6 of the guard-opensource spec, when test-harness gained
-    // `features = ["dev-no-guard"]` to expose DisabledGuard via cargo feature
-    // unification. That unification means omni-guard's rmeta in a release build
-    // has dev-no-guard ON; DisabledGuard's symbol stays out of the final
-    // binary only because the LTO-thin linker dead-strips the unused struct.
-    // If anyone in `omni_host` source ever writes `DisabledGuard::...`, the
-    // linker keeps it and this gate is what catches it. Spec §4.2 / OWI-10.
-    //
-    // Note: gated on `#[cfg(not(debug_assertions))]` (not `cfg(release)` —
-    // Cargo doesn't expose that). Debug builds skip the gate; release builds
-    // enforce it.
-    #[cfg(not(debug_assertions))]
-    if guard.enforcement_mode() == omni_guard::EnforcementMode::Disabled {
-        eprintln!(
-            "error: guard is disabled. Release builds refuse this configuration. \
-             Rebuild without --features dev-no-guard."
-        );
-        std::process::exit(2);
-    }
-
+    // Guard is constructed + gated up in `run_host()` (before any fallible
+    // setup) and threaded in here as a parameter. See the gate comment at the
+    // top of `run_host()` for rationale.
     let client = Arc::new(ShareClient::new(
         worker_url,
         identity.clone(),

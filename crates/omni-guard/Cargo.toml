@@ -42,6 +42,22 @@ windows = { version = "0.52", features = [
 [dev-dependencies]
 serde_json = "1"
 
+# `contract` and `enforcement_mode` both unconditionally `use
+# omni_guard::DisabledGuard;`. DisabledGuard is feature-gated behind
+# `dev-no-guard` (see lib.rs). Without `required-features` here,
+# `cargo test -p omni-guard` (no features) fails to compile with a
+# confusing "unresolved import" error. The workspace path masks this
+# because test-harness's omni-guard dep activates the feature via cargo
+# unification — but contributors working on omni-guard in isolation hit
+# the failure. Mirrors the integrity_negative pattern below.
+[[test]]
+name = "contract"
+required-features = ["dev-no-guard"]
+
+[[test]]
+name = "enforcement_mode"
+required-features = ["dev-no-guard"]
+
 # Negative-integrity test (retro D-004-I) — dedicated test target that only
 # compiles with strict-integrity enabled.
 [[test]]
