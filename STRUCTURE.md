@@ -17,7 +17,6 @@ omni/
 ├── crates/        Rust workspace (libraries + binaries shipped within apps)
 ├── packages/      TypeScript workspace (shared Node packages)
 ├── tools/         Dev-only CLIs (never shipped to end users)
-├── stubs/         Rust fallback crates for private-repo dependencies
 ├── vendor/        Third-party prebuilt binaries (DLLs, headers)
 ├── docs/          Public documentation (in VCS)
 │   ├── architecture.md   Runtime architecture
@@ -68,7 +67,7 @@ and have no independent release. Their version is the desktop app's version.
 | `crates/bundle/`           | lib                      | Bundle validation                                     |
 | `crates/sanitize/`         | lib                      | CSS/HTML sanitizer                                    |
 | `crates/identity/`         | lib                      | Ed25519 keypair + JWS signing                         |
-| `crates/omni-guard-trait/` | lib                      | Trait for the private `omni-guard` crate              |
+| `crates/omni-guard/`       | lib                      | Guard trait + RealGuard impl (anti-debug, integrity)  |
 | `crates/ultralight-sys/`   | lib (FFI)                | Ultralight SDK bindings                               |
 
 **Put something here if:** it's Rust code that `apps/desktop/` depends on, or
@@ -123,10 +122,10 @@ Bad: `omni-host`, `omni-bundle`
 **Exceptions (all constraint-driven):**
 
 - **`ultralight-sys`** — Rust FFI crates must end in `-sys`. Non-negotiable.
-- **`omni-guard`** and **`omni-guard-trait`** — the name of the private
-  `omni-guard` crate must match its remote git repo for `[patch.'ssh://...']`
-  to resolve. `omni-guard-trait` keeps the prefix for visual alignment with
-  its pair.
+- **`omni-guard`** — historically a private crate, kept the `omni-` prefix
+  to match the original `djowinz/omni-guard` git URL. Now consolidated and
+  open-sourced into this workspace; the prefix is preserved to avoid
+  churning every dependent's `Cargo.toml`.
 
 ### Binary names — keep `omni-` prefix for end-user binaries
 
@@ -195,16 +194,6 @@ Member packages should **not** redeclare configs — extend from root. If a
 member genuinely needs to override, do so with the narrowest possible delta
 in that member's config file.
 
-### `stubs/`
-
-Fallback Rust crates that satisfy private-repo dependencies during
-open-source builds. The root `Cargo.toml` patches the private git URL to
-the local stub path. CI's release pipeline overrides the patch with
-`--config` to pull the real private crate.
-
-Only add a new stub here when introducing a new private-crate dependency.
-See `crates/host/CONTRIBUTING.md` for the full sync workflow.
-
 ### `vendor/`
 
 Third-party binaries, DLLs, and headers shipped as-is — not built from source
@@ -258,8 +247,7 @@ New code
 │    └─ TypeScript, shared across ≥2 apps → packages/<name>/
 │    └─ TypeScript, used by only one app → inside that app
 │
-└─ Is it a fallback for a private crate? → stubs/<name>/
-   Is it a third-party prebuilt binary? → vendor/<name>/
+└─ Is it a third-party prebuilt binary? → vendor/<name>/
    Is it a cross-component contract (schema/API/algorithm)? → docs/contracts/
 ```
 
