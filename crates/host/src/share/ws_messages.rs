@@ -1297,14 +1297,29 @@ where
             }
         },
     };
-    // `target_workspace` is a contract-level string; we interpret a non-empty
-    // value as a workspace-relative path and fall back to
-    // `bundles/<artifact_id>` under the default workspace root. The install
-    // pipeline takes an absolute `target_path`; callers without a prebaked
-    // path must supply one or accept the default.
+    // Resolve the install target path against `ctx.data_dir` (the workspace
+    // root, `%APPDATA%\Omni` on Windows). `target_workspace` is a contract-
+    // level optional string the renderer sends when it wants to override the
+    // default location; an empty / missing value falls back to
+    // `<data_dir>/overlays/<artifact_id>`.
+    //
+    // Earlier this fell back to a bare `bundles/<artifact_id>` relative path
+    // that AtomicDir::stage resolved against the host process CWD — which is
+    // wherever the host binary happened to be launched from, NOT the user's
+    // workspace. Result: install went to `<host_cwd>/bundles/<artifact_id>`,
+    // had no relationship to the user's overlays/ folder, and a stale leftover
+    // there caused 'AlreadyExists' errors that the user couldn't even see.
+    //
+    // Using `<data_dir>/overlays/<artifact_id>` puts installed bundles next
+    // to user-authored overlays where the rest of the app expects them. The
+    // folder name is the stable artifact_id rather than the human-friendly
+    // manifest name — a folder name based on bundle_name would require
+    // unpacking the bundle FIRST to learn the name, which is doable but an
+    // architectural shift; using the id is the minimum patch that unblocks
+    // install. Display naming is handled separately by the registry.
     let target_path: PathBuf = match p.target_workspace.as_deref() {
-        Some(s) if !s.is_empty() => PathBuf::from(s),
-        _ => PathBuf::from("bundles").join(&p.artifact_id),
+        Some(s) if !s.is_empty() => ctx.data_dir.join(s),
+        _ => ctx.data_dir.join("overlays").join(&p.artifact_id),
     };
 
     let req = InstallRequest {
