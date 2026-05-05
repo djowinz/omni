@@ -534,6 +534,7 @@ where
     // move would be a borrow-checker error. (`persist_tags` is captured
     // earlier — see the comment above the `Tag::new` parse.)
     let persist_workspace_path = p.workspace_path.clone();
+    let persist_name = p.name.clone().unwrap_or_default();
     let persist_description = p.description.clone().unwrap_or_default();
     let persist_license = p.license.clone().unwrap_or_default();
     let persist_version_str = p.version.clone().unwrap_or_default();
@@ -612,6 +613,7 @@ where
                         pubkey_hex: &persist_pubkey_hex,
                         artifact_id: &upload_result.artifact_id,
                         version: &persist_version_str,
+                        name: &persist_name,
                         description: &persist_description,
                         tags: &persist_tags,
                         license: &persist_license,
@@ -2916,6 +2918,7 @@ mod tests {
             author_pubkey_hex: hex::encode(ctx.identity.load().public_key().0),
             version: "1.0.0".to_string(),
             last_published_at: "2026-04-21T00:00:00Z".to_string(),
+            name: String::new(),
             description: String::new(),
             tags: Vec::new(),
             license: String::new(),

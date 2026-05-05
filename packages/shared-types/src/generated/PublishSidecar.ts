@@ -25,6 +25,18 @@
  */
 export type PublishSidecar = { artifact_id: string, author_pubkey_hex: string, version: string, last_published_at: string, 
 /**
+ * Last-published artifact name. Cached locally so the upload dialog's
+ * Step 2 form prefills with what the user actually called the artifact
+ * on the worker, NOT the workspace folder name (which can differ —
+ * e.g. a folder named `Sample` published as `Simple Overlay`).
+ * Without this field, the form would default to the folder name on
+ * re-publish, silently overwriting the worker's chosen name.
+ * `#[serde(default)]` keeps older sidecars (written before this field
+ * existed) deserializing cleanly — they fall back to the folder name
+ * just like before, which is the safe legacy behavior.
+ */
+name: string, 
+/**
  * Last-published manifest description. Cached locally so the upload
  * dialog's Step 2 form (INV-7.5.3) can prefill on update mode without
  * a worker round-trip. `#[serde(default)]` keeps older sidecars

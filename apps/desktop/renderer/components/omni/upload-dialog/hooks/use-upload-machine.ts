@@ -745,8 +745,16 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     // overwrite the user's Step 2 input. INV-7.5.3 specifies prefill on
     // first entry into update mode, not unconditional re-prefill.
     if (isDirty) return;
+    // Prefer the sidecar's persisted name (what the user actually published
+    // it as on the worker) over the workspace folder name. They can differ —
+    // e.g. a folder called `Sample` may have been published as
+    // `Simple Overlay`. Falling back to the folder name on update would
+    // silently overwrite the worker's chosen name. Older sidecars (written
+    // before this field existed) deserialize with `name === ''` per Zod's
+    // `.default('')`, in which case we fall back to the folder name — same
+    // behavior as before, no regression.
     form.reset({
-      name: entry.name,
+      name: sidecar.name && sidecar.name.length > 0 ? sidecar.name : entry.name,
       description: sidecar.description ?? '',
       tags: sidecar.tags ?? [],
       license: sidecar.license ?? '',
@@ -1007,6 +1015,14 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
           author_pubkey_hex: cur.currentPubkey ?? '',
           version: cur.publishError?.detail ? '0.0.0' : '0.0.0',
           last_published_at: new Date().toISOString(),
+          // We don't know the original published name/description/tags/license
+          // here (this is the "sidecar deleted, recovering via worker error"
+          // path); leave them empty. The form keeps whatever the user typed
+          // before the publish attempt, which is the right UX for recovery.
+          name: '',
+          description: '',
+          tags: [],
+          license: '',
         },
       };
       dispatch({ type: 'SELECT_ITEM', entry: synthetic });

@@ -28,6 +28,10 @@ const SIDECAR: PublishSidecar = {
   author_pubkey_hex: 'aaaaaaaabbbbbbbbccccccccdddddddd',
   version: '1.3.0',
   last_published_at: '2026-04-18T12:00:00Z',
+  name: '',
+  description: '',
+  tags: [],
+  license: '',
 };
 
 const OVERLAY_ENTRY: PublishablesEntry = {

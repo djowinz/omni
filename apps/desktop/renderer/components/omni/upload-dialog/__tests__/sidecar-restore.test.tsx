@@ -44,6 +44,10 @@ const SIDECAR = {
   author_pubkey_hex: PUBKEY_HEX,
   version: '1.3.0',
   last_published_at: '2026-04-18T18:12:44Z',
+  name: 'Full Telemetry',
+  description: '',
+  tags: [],
+  license: '',
 };
 
 const OVERLAY_ENTRY = {

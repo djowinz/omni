@@ -48,6 +48,17 @@ pub struct PublishSidecar {
     pub author_pubkey_hex: String,
     pub version: String,
     pub last_published_at: String,
+    /// Last-published artifact name. Cached locally so the upload dialog's
+    /// Step 2 form prefills with what the user actually called the artifact
+    /// on the worker, NOT the workspace folder name (which can differ —
+    /// e.g. a folder named `Sample` published as `Simple Overlay`).
+    /// Without this field, the form would default to the folder name on
+    /// re-publish, silently overwriting the worker's chosen name.
+    /// `#[serde(default)]` keeps older sidecars (written before this field
+    /// existed) deserializing cleanly — they fall back to the folder name
+    /// just like before, which is the safe legacy behavior.
+    #[serde(default)]
+    pub name: String,
     /// Last-published manifest description. Cached locally so the upload
     /// dialog's Step 2 form (INV-7.5.3) can prefill on update mode without
     /// a worker round-trip. `#[serde(default)]` keeps older sidecars
@@ -142,6 +153,7 @@ mod tests {
             author_pubkey_hex: "abcd".into(),
             version: "1.3.0".into(),
             last_published_at: "2026-04-18T18:12:44Z".into(),
+            name: "Marathon HUD".into(),
             description: "marathon run HUD".into(),
             tags: vec!["marathon".into(), "running".into()],
             license: "MIT".into(),

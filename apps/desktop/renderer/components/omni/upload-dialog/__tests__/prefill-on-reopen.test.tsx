@@ -26,6 +26,7 @@ const ENTRY = {
     author_pubkey_hex: PUBKEY_HEX,
     version: '1.0.0',
     last_published_at: '2026-04-18T00:00:00Z',
+    name: 'Marathon HUD',
     description: 'desc',
     tags: ['marathon'],
     license: 'MIT',

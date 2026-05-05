@@ -851,6 +851,7 @@ export const PublishSidecarSchema = z.object({
   author_pubkey_hex: z.string(),
   version: z.string(),
   last_published_at: z.string(),
+  name: z.string().default(''),
   description: z.string().default(''),
   tags: z.array(z.string()).default([]),
   license: z.string().default(''),

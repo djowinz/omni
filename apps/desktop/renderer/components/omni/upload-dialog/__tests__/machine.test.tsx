@@ -74,6 +74,10 @@ function withSidecar(authorPubkey: string): PublishablesEntry {
       author_pubkey_hex: authorPubkey,
       version: '1.0.0',
       last_published_at: '2026-04-20T00:00:00Z',
+      name: '',
+      description: '',
+      tags: [],
+      license: '',
     },
   });
 }

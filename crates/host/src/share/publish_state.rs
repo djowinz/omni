@@ -88,6 +88,12 @@ pub struct PersistInputs<'a> {
     pub pubkey_hex: &'a str,
     pub artifact_id: &'a str,
     pub version: &'a str,
+    /// Last-published artifact name as the user typed it in the upload
+    /// dialog's Step 2 form. Persisted to the sidecar so the next update
+    /// prefills with what the worker actually has, not the workspace folder
+    /// name (which can differ — e.g. folder `Sample` published as
+    /// `Simple Overlay`).
+    pub name: &'a str,
     pub description: &'a str,
     pub tags: &'a [String],
     pub license: &'a str,
@@ -120,6 +126,7 @@ pub fn persist_publish_state(inputs: &PersistInputs<'_>) {
         author_pubkey_hex: inputs.pubkey_hex.to_string(),
         version: inputs.version.to_string(),
         last_published_at: now.clone(),
+        name: inputs.name.to_string(),
         description: inputs.description.to_string(),
         tags: inputs.tags.to_vec(),
         license: inputs.license.to_string(),
@@ -227,6 +234,7 @@ mod tests {
             pubkey_hex: "abcd",
             artifact_id: "ov_test",
             version: "1.0.0",
+            name: "Test Name",
             description: "test desc",
             tags,
             license: "MIT",
@@ -252,6 +260,7 @@ mod tests {
         assert_eq!(sidecar.artifact_id, "ov_test");
         assert_eq!(sidecar.author_pubkey_hex, "abcd");
         assert_eq!(sidecar.version, "1.0.0");
+        assert_eq!(sidecar.name, "Test Name");
         assert_eq!(sidecar.description, "test desc");
         assert_eq!(sidecar.tags, vec!["tag1".to_string()]);
         assert_eq!(sidecar.license, "MIT");
