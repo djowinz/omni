@@ -4,7 +4,10 @@
 use std::collections::BTreeMap;
 
 use bundle::{BundleLimits, FileEntry, Manifest};
-use identity::{pack_signed_bundle, unpack_signed_bundle, IdentityError, Keypair};
+use identity::{
+    pack_signed_bundle, unpack_signed_bundle, unpack_worker_attested_bundle, IdentityError,
+    Keypair,
+};
 use sha2::{Digest, Sha256};
 
 fn sha256(b: &[u8]) -> [u8; 32] {
@@ -127,6 +130,41 @@ fn unpack_rejects_missing_signature() {
         err,
         IdentityError::MissingSignature | IdentityError::Bundle(_)
     ));
+}
+
+#[test]
+fn worker_attested_unpack_succeeds_with_matching_hash() {
+    // The worker-repacked path: bundle has no signature.jws, but the worker
+    // tells us the canonical hash + author pubkey. Recompute the hash and
+    // accept the bundle if they match.
+    let (m, f) = fixture();
+    let limits = BundleLimits::DEFAULT;
+    let bytes = bundle::pack(&m, &f, &limits).unwrap();
+    let asserted_author = Keypair::generate().public_key();
+    let claimed_hash = hex::encode(bundle::canonical_hash(&m, &BTreeMap::new()));
+
+    let signed = unpack_worker_attested_bundle(&bytes, asserted_author, &claimed_hash, &limits)
+        .expect("worker-attested unpack should accept a matching canonical hash");
+    assert_eq!(signed.author_pubkey().0, asserted_author.0);
+    assert_eq!(signed.manifest().name, m.name);
+}
+
+#[test]
+fn worker_attested_unpack_rejects_hash_mismatch() {
+    // Tampering / wrong-claim case: even if the worker says the bundle
+    // should hash to X, if the bytes hash to Y we must reject. Otherwise
+    // a malicious worker could swap blobs.
+    let (m, f) = fixture();
+    let limits = BundleLimits::DEFAULT;
+    let bytes = bundle::pack(&m, &f, &limits).unwrap();
+    let asserted_author = Keypair::generate().public_key();
+    let wrong_claim = "0".repeat(64);
+
+    let err: IdentityError = unwrap_err_no_debug(
+        unpack_worker_attested_bundle(&bytes, asserted_author, &wrong_claim, &limits),
+        "mismatched canonical hash must be rejected",
+    );
+    assert!(matches!(err, IdentityError::Bundle(_)));
 }
 
 #[test]

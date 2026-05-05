@@ -213,6 +213,20 @@ pub enum DownloadError {
     Status { status: u16, body: String },
 }
 
+/// Bundle bytes plus the worker's attestation headers from
+/// `/v1/download/:id`. Returned by [`ShareClient::download_with_meta`].
+///
+/// `content_hash_hex` and `author_pubkey_hex` are `None` when the worker
+/// omitted the headers (e.g. older worker versions, or routing quirks).
+/// Install path treats `None` as "fall back to the legacy
+/// `unpack_signed_bundle` strict path" — i.e. require an in-bundle JWS.
+#[derive(Debug, Clone)]
+pub struct DownloadResponse {
+    pub bytes: Vec<u8>,
+    pub content_hash_hex: Option<String>,
+    pub author_pubkey_hex: Option<String>,
+}
+
 /// Server response for `POST /v1/upload` and `PATCH /v1/artifact/:id`.
 #[derive(Debug, Clone, Deserialize)]
 struct UploadResponseBody {
@@ -889,8 +903,30 @@ impl ShareClient {
     pub async fn download<F: FnMut(u64, u64)>(
         &self,
         artifact_id: &str,
-        mut on_chunk: F,
+        on_chunk: F,
     ) -> Result<Vec<u8>, DownloadError> {
+        let DownloadResponse { bytes, .. } = self.download_with_meta(artifact_id, on_chunk).await?;
+        Ok(bytes)
+    }
+
+    /// Download a bundle plus the worker's attestation headers.
+    ///
+    /// `X-Omni-Content-Hash` and `X-Omni-Author-Pubkey` are emitted on every
+    /// successful `/v1/download/:id` response (see worker
+    /// `apps/worker/src/routes/download.ts`). The install path uses these to
+    /// verify worker-repacked bundles when no `signature.jws` is present
+    /// inside the blob — see `unpack_worker_attested_bundle` in the
+    /// `identity` crate. Headers are returned as plain strings; callers
+    /// that want the parsed `PublicKey` can pass `author_pubkey_hex`
+    /// through `PublicKey::from_hex`.
+    ///
+    /// `bytes` is the same buffer `download()` would have returned; this
+    /// just exposes the metadata that was previously dropped on the floor.
+    pub async fn download_with_meta<F: FnMut(u64, u64)>(
+        &self,
+        artifact_id: &str,
+        mut on_chunk: F,
+    ) -> Result<DownloadResponse, DownloadError> {
         use futures_util::StreamExt;
         let url = self
             .base_url
@@ -910,9 +946,18 @@ impl ShareClient {
                 body,
             });
         }
+        // Capture attestation headers BEFORE consuming the response body.
+        let content_hash_hex = resp
+            .headers()
+            .get("X-Omni-Content-Hash")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let author_pubkey_hex = resp
+            .headers()
+            .get("X-Omni-Author-Pubkey")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
         let total = resp.content_length().unwrap_or(0);
-        // Cap pre-allocation: a hostile server advertising a huge Content-Length
-        // must not tip us into an OOM before the first byte arrives.
         let preallocate = total.min(MAX_DOWNLOAD_BYTES) as usize;
         let mut buf = Vec::with_capacity(preallocate);
         let mut stream = resp.bytes_stream();
@@ -927,7 +972,11 @@ impl ShareClient {
             }
             on_chunk(buf.len() as u64, total);
         }
-        Ok(buf)
+        Ok(DownloadResponse {
+            bytes: buf,
+            content_hash_hex,
+            author_pubkey_hex,
+        })
     }
 
     async fn decode_error(resp: reqwest::Response) -> UploadError {

@@ -122,6 +122,55 @@ pub fn pack_signed_bundle(
     Ok(bytes)
 }
 
+/// Unpack a worker-repacked (unsigned) bundle and verify it against a
+/// worker-attested author + content-hash pair.
+///
+/// Worker-repacked blobs have their `signature.jws` entry stripped (the
+/// worker can't re-sign sanitized content per invariant #1), so
+/// `unpack_signed_bundle` will reject them with `MissingSignature`. This
+/// constructor accepts that case under a different trust model: the
+/// bundle's author + canonical hash come from the worker's response
+/// headers (D1 row), and we verify only that the bundle structure is
+/// well-formed AND the recomputed canonical hash matches what the worker
+/// claimed.
+///
+/// In other words: cryptographic authorship was verified ONCE at upload
+/// time (worker DO ran `unpack_signed_bundle` then). After that, the
+/// worker is the trust oracle for repacked bundles. Downstream callers
+/// (install, preview) hold a `SignedBundle` either way; the invariant
+/// shifts from "JWS verified" to "either JWS verified OR worker-asserted
+/// author + canonical-hash matched", which is the model that ships in
+/// the wild given invariant #1.
+///
+/// Returns:
+/// - `IdentityError::Bundle(BundleError::Integrity { HashMismatch })` if
+///   the recomputed canonical hash differs from `expected_content_hash_hex`.
+/// - Any structural error from `bundle_unpack` (size limits, ratio, etc.).
+pub fn unpack_worker_attested_bundle(
+    bytes: &[u8],
+    asserted_author: PublicKey,
+    expected_content_hash_hex: &str,
+    limits: &BundleLimits,
+) -> Result<SignedBundle, IdentityError> {
+    let unpack = bundle_unpack(bytes, limits)?;
+    let (manifest, files_map) = unpack.into_map()?;
+    let recomputed_hex = hex::encode(canonical_hash(&manifest, &BTreeMap::new()));
+    if recomputed_hex != expected_content_hash_hex {
+        return Err(IdentityError::Bundle(BundleError::Integrity {
+            kind: IntegrityKind::HashMismatch,
+            detail: format!(
+                "worker-attested content_hash mismatch: claimed {}, computed {}",
+                expected_content_hash_hex, recomputed_hex
+            ),
+        }));
+    }
+    Ok(SignedBundle {
+        manifest,
+        files: files_map,
+        author_pubkey: asserted_author,
+    })
+}
+
 /// Unpack and verify a signed bundle. Returns a `SignedBundle` only if the
 /// JWS is present, the Ed25519 signature is valid, and the canonical hash
 /// of the original manifest matches the signed value.

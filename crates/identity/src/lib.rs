@@ -33,7 +33,9 @@ pub(crate) mod wasm_jws_core;
 pub mod wasm;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use bundle::{pack_signed_bundle, unpack_signed_bundle, SignedBundle};
+pub use bundle::{
+    pack_signed_bundle, unpack_signed_bundle, unpack_worker_attested_bundle, SignedBundle,
+};
 pub use error::IdentityError;
 // Re-exports below are enabled as their modules are implemented in later tasks.
 pub use fingerprint::{Fingerprint, PublicKey};

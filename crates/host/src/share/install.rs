@@ -25,7 +25,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bundle::{BundleLimits, FileEntry};
 use identity::{
-    unpack_signed_bundle, Fingerprint, IdentityError, PublicKey, SignedBundle, TofuResult,
+    unpack_signed_bundle, unpack_worker_attested_bundle, Fingerprint, IdentityError, PublicKey,
+    SignedBundle, TofuResult,
 };
 use sanitize::{sanitize_bundle, SanitizeError};
 use sha2::{Digest, Sha256};
@@ -129,16 +130,83 @@ pub async fn install(
     cancel: CancellationToken,
     mut progress: impl FnMut(InstallProgress),
 ) -> Result<InstallOutcome, InstallError> {
-    let bytes = tokio::select! {
+    let download = tokio::select! {
         _ = cancel.cancelled() => return Err(InstallError::Cancelled),
-        r = client.download(&req.artifact_id, |rx, total| {
+        r = client.download_with_meta(&req.artifact_id, |rx, total| {
             progress(InstallProgress::Downloading { received: rx, total });
         }) => r.map_err(client_to_install_error)?,
     };
+    let bytes = download.bytes;
 
     progress(InstallProgress::Verifying);
-    let signed: SignedBundle = unpack_signed_bundle(&bytes, req.expected_pubkey.as_ref(), limits)
-        .map_err(identity_to_install_error)?;
+    // Try the strict signed path first. If the bundle has a `signature.jws`
+    // entry, this is the cryptographic-trust path — host-uploaded blobs
+    // that haven't been worker-repacked yet hit this branch.
+    //
+    // Worker-repacked blobs (the dominant production path per invariant #1)
+    // have their JWS stripped during sanitize, so `unpack_signed_bundle`
+    // returns `MissingSignature`. In that case we fall back to the
+    // worker-attested verification path: parse the worker's response
+    // headers (X-Omni-Author-Pubkey + X-Omni-Content-Hash), verify the
+    // bundle's recomputed canonical hash matches the worker's claim, and
+    // construct a `SignedBundle` that the rest of the install pipeline
+    // can consume identically. The trust source shifts from "JWS verified
+    // in-bundle" to "worker attestation verified at upload + content-hash
+    // matches the worker's D1 row".
+    let signed: SignedBundle = match unpack_signed_bundle(
+        &bytes,
+        req.expected_pubkey.as_ref(),
+        limits,
+    ) {
+        Ok(s) => s,
+        Err(IdentityError::MissingSignature) => {
+            let asserted_author_hex =
+                download.author_pubkey_hex.as_deref().ok_or_else(|| InstallError::BadBundle {
+                    kind: BadBundleKind::Integrity,
+                    detail:
+                        "worker did not return X-Omni-Author-Pubkey header on a \
+                         repacked bundle; cannot verify authorship"
+                            .into(),
+                    source: None,
+                })?;
+            let asserted_hash_hex =
+                download.content_hash_hex.as_deref().ok_or_else(|| InstallError::BadBundle {
+                    kind: BadBundleKind::Integrity,
+                    detail:
+                        "worker did not return X-Omni-Content-Hash header on a \
+                         repacked bundle; cannot verify integrity"
+                            .into(),
+                    source: None,
+                })?;
+            let asserted_author =
+                PublicKey::from_hex(asserted_author_hex).ok_or_else(|| InstallError::BadBundle {
+                    kind: BadBundleKind::Integrity,
+                    detail: format!(
+                        "worker X-Omni-Author-Pubkey header is not 64-hex: {asserted_author_hex}"
+                    ),
+                    source: None,
+                })?;
+            // Optional pinning: if the install request asked for a specific
+            // author, the worker's attestation must agree. Otherwise we'd
+            // accept any author the worker claimed.
+            if let Some(expected) = req.expected_pubkey.as_ref() {
+                if expected.0 != asserted_author.0 {
+                    return Err(InstallError::BadBundle {
+                        kind: BadBundleKind::Integrity,
+                        detail: format!(
+                            "worker-attested author {} does not match expected {}",
+                            asserted_author.to_hex(),
+                            expected.to_hex(),
+                        ),
+                        source: None,
+                    });
+                }
+            }
+            unpack_worker_attested_bundle(&bytes, asserted_author, asserted_hash_hex, limits)
+                .map_err(identity_to_install_error)?
+        }
+        Err(e) => return Err(identity_to_install_error(e)),
+    };
 
     let required = signed.manifest().omni_min_version.clone();
     if *current_version < required {
