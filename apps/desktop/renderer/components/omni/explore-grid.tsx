@@ -26,6 +26,13 @@ export interface ExploreGridProps {
   loading: boolean;
   hasMore: boolean;
   selectedId: string | null;
+  /**
+   * Set of artifact_ids that are currently installed locally. Cards whose
+   * artifact_id is in this set render with the green "Installed" kind
+   * badge instead of "Theme"/"Bundle". Optional so test fixtures + future
+   * consumers that don't have a host registry to query can omit it.
+   */
+  installedIds?: Set<string>;
   onSelect: (artifactId: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
@@ -37,6 +44,7 @@ export function ExploreGrid({
   loading,
   hasMore,
   selectedId,
+  installedIds,
   onSelect,
   onPreview,
   onInstall,
@@ -67,6 +75,7 @@ export function ExploreGrid({
           loading={loading}
           hasMore={hasMore}
           selectedId={selectedId}
+          installedIds={installedIds}
           onSelect={onSelect}
           onPreview={onPreview}
           onInstall={onInstall}
@@ -84,6 +93,7 @@ interface GridBodyProps {
   loading: boolean;
   hasMore: boolean;
   selectedId: string | null;
+  installedIds?: Set<string>;
   onSelect: (artifactId: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
@@ -97,6 +107,7 @@ function GridBody({
   loading,
   hasMore,
   selectedId,
+  installedIds,
   onSelect,
   onPreview,
   onInstall,
@@ -155,6 +166,7 @@ function GridBody({
             <ArtifactCard
               key={item.artifact_id}
               artifact={item}
+              installed={installedIds?.has(item.artifact_id) ?? false}
               onClick={() => onSelect(item.artifact_id)}
               onPreview={onPreview ? () => onPreview(item) : undefined}
               onInstall={onInstall ? () => onInstall(item) : undefined}
@@ -177,6 +189,7 @@ function GridBody({
     <VirtualGrid
       rows={rows}
       selectedId={selectedId}
+      installedIds={installedIds}
       onSelect={onSelect}
       onPreview={onPreview}
       onInstall={onInstall}
@@ -189,6 +202,7 @@ function GridBody({
 interface VirtualGridProps {
   rows: CachedArtifactDetail[][];
   selectedId: string | null;
+  installedIds?: Set<string>;
   onSelect: (id: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
@@ -199,6 +213,7 @@ interface VirtualGridProps {
 function VirtualGrid({
   rows,
   selectedId,
+  installedIds,
   onSelect,
   onPreview,
   onInstall,
@@ -236,6 +251,7 @@ function VirtualGrid({
                 <ArtifactCard
                   key={item.artifact_id}
                   artifact={item}
+                  installed={installedIds?.has(item.artifact_id) ?? false}
                   onClick={() => onSelect(item.artifact_id)}
                   onPreview={onPreview ? () => onPreview(item) : undefined}
                   onInstall={onInstall ? () => onInstall(item) : undefined}

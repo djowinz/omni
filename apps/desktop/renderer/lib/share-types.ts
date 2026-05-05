@@ -902,6 +902,27 @@ export const WorkspaceListPublishablesResultSchema = z.object({
 });
 export type WorkspaceListPublishablesResult = z.infer<typeof WorkspaceListPublishablesResultSchema>;
 
+// ── workspace.listInstalled ──────────────────────────────────────────────────
+//
+// Shipped: crates/host/src/share/ws_messages.rs handle_list_installed()
+//
+// Returns the artifact_ids of every entry currently in the local installed-
+// bundles + installed-themes registries. Used by the explorer grid to badge
+// "Installed" on cards. Lightweight (just IDs); consumers that need full
+// metadata go through the registries' file paths or a richer follow-up
+// endpoint.
+export const WorkspaceListInstalledParamsSchema = z.object({});
+export type WorkspaceListInstalledParams = z.infer<typeof WorkspaceListInstalledParamsSchema>;
+
+export const WorkspaceListInstalledResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('workspace.listInstalledResult'),
+  params: z.object({
+    artifact_ids: z.array(z.string()),
+  }),
+});
+export type WorkspaceListInstalledResult = z.infer<typeof WorkspaceListInstalledResultSchema>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Type-level request + subscription registries
 // ─────────────────────────────────────────────────────────────────────────────
@@ -992,6 +1013,10 @@ export interface ShareRequestMap {
     params: WorkspaceListPublishablesParams;
     result: WorkspaceListPublishablesResult;
   };
+  'workspace.listInstalled': {
+    params: WorkspaceListInstalledParams;
+    result: WorkspaceListInstalledResult;
+  };
   // Wave B1 — Step 2 Preview Image moderation gate (INV-7.7.2 site #1).
   'share.moderationCheck': {
     params: ShareModerationCheckParams;
@@ -1046,6 +1071,7 @@ export const ShareResponseSchemas = {
   'config.vocabResult': ConfigVocabResultSchema,
   'config.limitsResult': ConfigLimitsResultSchema,
   'workspace.listPublishablesResult': WorkspaceListPublishablesResultSchema,
+  'workspace.listInstalledResult': WorkspaceListInstalledResultSchema,
   'share.moderationCheckResult': ShareModerationCheckResultSchema,
   'share.regeneratePreviewResult': ShareRegeneratePreviewResultSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;

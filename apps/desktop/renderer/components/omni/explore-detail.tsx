@@ -173,8 +173,13 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
       }
       setInstallState({ kind: 'idle' });
       // Re-scan the workspace so the newly-installed overlay folder shows
-      // up in the header dropdown without a full app reload.
+      // up in the header dropdown without a full app reload. The grid
+      // card's "Installed" badge is driven by the installed-id set
+      // managed at the panel level (useInstalledArtifactIds); after a
+      // detail-pane install, we fire a window event the panel listens
+      // for so it refetches that set.
       await refreshOverlays();
+      window.dispatchEvent(new CustomEvent('omni:artifact-installed'));
       toast.success(`Installed ${name}`);
     } catch (err) {
       setInstallState({ kind: 'error', message: mapErrorToUserMessage(err as OmniError).text });

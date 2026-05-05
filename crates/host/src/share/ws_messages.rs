@@ -294,6 +294,7 @@ where
         "explorer.list" => handle_list(&id, params, ctx).await,
         "explorer.get" => handle_get(&id, params, ctx).await,
         "workspace.listPublishables" => handle_list_publishables(&id, params, ctx).await,
+        "workspace.listInstalled" => handle_list_installed(&id, ctx).await,
         // Renderer-initiated single-image moderation gate (INV-7.7.2 site #1).
         // Fed by Step 2's Preview Image accept path; the renderer base64-
         // encodes the image bytes (matches the existing thumbnail-upload
@@ -2072,6 +2073,48 @@ fn overlay_widget_count(overlay_dir: &std::path::Path) -> Option<u32> {
     // We tolerate diagnostics — the source picker should still surface a
     // count for an overlay that emits warnings but successfully parses.
     parsed.map(|f| f.widgets.len() as u32)
+}
+
+/// Return the artifact_ids of every installed bundle + theme in the local
+/// registries. The renderer uses this to badge "Installed" on Discover/My
+/// Uploads cards (artifact_card.tsx + explore-grid.tsx) without needing
+/// to scan the filesystem itself.
+///
+/// Returns flat `Vec<String>` because the renderer just builds a Set out
+/// of it. If consumers later need richer metadata (version, installed_at,
+/// installed_path) we can return `Vec<InstalledEntry>` instead — but
+/// `Set<artifact_id>` is the only thing the badge needs today, and
+/// keeping the response compact keeps render cost per-grid-row trivial.
+async fn handle_list_installed(id: &str, ctx: &ShareContext) -> Option<String> {
+    let mut artifact_ids: Vec<String> = Vec::new();
+    {
+        let bundles = ctx
+            .bundles_registry
+            .lock()
+            .expect("bundles registry mutex poisoned");
+        for entry in bundles.entries().values() {
+            artifact_ids.push(entry.artifact_id.clone());
+        }
+    }
+    {
+        let themes = ctx
+            .themes_registry
+            .lock()
+            .expect("themes registry mutex poisoned");
+        for entry in themes.entries().values() {
+            artifact_ids.push(entry.artifact_id.clone());
+        }
+    }
+    Some(
+        json!({
+            "id": id,
+            "type": "workspace.listInstalledResult",
+            "params": {
+                "artifact_ids": artifact_ids,
+            },
+        })
+        .to_string(),
+    )
 }
 
 async fn handle_list_publishables(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {

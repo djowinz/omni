@@ -20,13 +20,14 @@
  * the titlebar IdentityChip + Settings IdentitySection per #016.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Compass, Upload as UploadIcon } from 'lucide-react';
 import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
 import { useMyUploads } from '../../hooks/use-my-uploads';
 import { useShareWs } from '../../hooks/use-share-ws';
 import { useOmniState } from '../../hooks/use-omni-state';
+import { useInstalledArtifactIds } from '../../hooks/use-installed-artifact-ids';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
 import { ExploreDetail } from './explore-detail';
@@ -38,6 +39,20 @@ export function ExplorePanel() {
   const filters = useExploreFilters();
   const { send } = useShareWs();
   const { refreshOverlays } = useOmniState();
+  const installed = useInstalledArtifactIds();
+
+  // Detail-pane install fires a window event after success so the panel
+  // can refetch the installed-id set without coupling the two components
+  // through a shared context. Hover-button install (handleHoverInstall
+  // below) calls installed.refetch() directly because it owns the panel-
+  // level installed state.
+  useEffect(() => {
+    const onInstalled = () => {
+      void installed.refetch();
+    };
+    window.addEventListener('omni:artifact-installed', onInstalled);
+    return () => window.removeEventListener('omni:artifact-installed', onInstalled);
+  }, [installed]);
 
   const discoverList = useExploreList({
     tab: filters.tab,
@@ -66,6 +81,8 @@ export function ExplorePanel() {
       // shows up in the header dropdown. Without this the user has to
       // hard-refresh the app to see what they just installed.
       await refreshOverlays();
+      // Refresh the installed-id set so the grid card flips to "Installed".
+      await installed.refetch();
       toast.success(`Installed ${a.name}`);
     } catch (err) {
       toast.error(err as Parameters<typeof toast.error>[0]);
@@ -108,6 +125,7 @@ export function ExplorePanel() {
             loading={list.loading}
             hasMore={list.nextCursor !== null}
             selectedId={filters.selectedId}
+            installedIds={installed.ids}
             onSelect={filters.setSelectedId}
             onPreview={handleHoverPreview}
             onInstall={handleHoverInstall}
