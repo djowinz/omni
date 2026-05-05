@@ -334,17 +334,42 @@ app.patch('/:id', async (c) => {
     );
   }
 
-  // Decode the sanitized bundle and extract the post-sanitize version from
-  // its manifest (unsigned fast path per invariant #19b — repacked blobs are
-  // unsigned per invariant #1).
+  // Decode the sanitized bundle and extract the full post-sanitize manifest
+  // (unsigned fast path per invariant #19b — repacked blobs are unsigned per
+  // invariant #1). We propagate name/description/tags/license/version/
+  // omni_min_version from the manifest into D1 so user-edited metadata
+  // actually reaches the row. Earlier this route only mirrored `version`,
+  // which silently dropped name/description/tags/license edits — the user's
+  // "update" appeared to succeed but D1 kept the old values.
   const sanitizedBytes = b64urlDecode(doBody.sanitized_bundle);
+  let newName = row.name;
+  let newDescription = row.description;
+  let newTags = row.tags;
+  let newLicense = row.license;
   let newVersion = row.version;
+  let newOmniMinVersion = row.omni_min_version;
   try {
     const { bundle } = await loadWasm();
-    const m = bundle.unpackManifest(sanitizedBytes, undefined) as { version?: string };
+    const m = bundle.unpackManifest(sanitizedBytes, undefined) as {
+      name?: string;
+      description?: string;
+      tags?: unknown;
+      license?: string;
+      version?: string;
+      omni_min_version?: string;
+    };
+    if (typeof m.name === 'string') newName = m.name;
+    if (typeof m.description === 'string') newDescription = m.description;
+    if (Array.isArray(m.tags)) {
+      newTags = JSON.stringify(m.tags.filter((t): t is string => typeof t === 'string'));
+    }
+    if (typeof m.license === 'string') newLicense = m.license;
     if (typeof m.version === 'string') newVersion = m.version;
+    if (typeof m.omni_min_version === 'string') newOmniMinVersion = m.omni_min_version;
   } catch {
-    // keep existing version
+    // keep existing values — sanitize+repack guarantees a valid manifest, so
+    // a parse failure here would point at a host-side issue we'd want to
+    // surface separately rather than silently overwriting the row.
   }
 
   // Replace R2 blob (old hash → new hash) and update D1 row.
@@ -354,10 +379,21 @@ app.patch('/:id', async (c) => {
     env.BLOBS.put(`bundles/${doBody.canonical_hash}.omnipkg`, sanitizedBytes),
     env.META.prepare(
       `UPDATE artifacts
-         SET content_hash = ?, version = ?, updated_at = ?
+         SET content_hash = ?, name = ?, description = ?, tags = ?, license = ?,
+             version = ?, omni_min_version = ?, updated_at = ?
        WHERE id = ?`,
     )
-      .bind(doBody.canonical_hash, newVersion, now, id)
+      .bind(
+        doBody.canonical_hash,
+        newName,
+        newDescription,
+        newTags,
+        newLicense,
+        newVersion,
+        newOmniMinVersion,
+        now,
+        id,
+      )
       .run(),
   ]);
 

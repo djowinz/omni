@@ -400,6 +400,9 @@ async function buildSignedBundle(opts: {
   name: string;
   version?: string;
   themeBytes?: Uint8Array;
+  description?: string;
+  tags?: string[];
+  license?: string;
 }): Promise<{ bytes: Uint8Array; manifestName: string; version: string }> {
   const { identity } = await loadWasm();
   const themeBytes = opts.themeBytes ?? THEME_CSS_BYTES;
@@ -413,9 +416,9 @@ async function buildSignedBundle(opts: {
     name: opts.name,
     version,
     omni_min_version: '0.1.0',
-    description: 'artifact-test fixture',
-    tags: [],
-    license: 'MIT',
+    description: opts.description ?? 'artifact-test fixture',
+    tags: opts.tags ?? [],
+    license: opts.license ?? 'MIT',
     entry_overlay: 'overlay.omni',
     default_theme: 'themes/default.css',
     sensor_requirements: [],
@@ -658,6 +661,72 @@ describe('PATCH /v1/artifact/:id — end-to-end DO roundtrip', () => {
     expect(row?.version).toBe('1.1.0');
     const newBlob = await env.BLOBS.head(`bundles/${body.content_hash}.omnipkg`);
     expect(newBlob).not.toBeNull();
+  });
+
+  it("propagates name/description/tags/license from the new manifest into D1", async () => {
+    // Regression: PATCH route previously only mirrored content_hash + version
+    // into D1, silently dropping name/description/tags/license edits — the
+    // user's "update" appeared to succeed but the stored row kept the old
+    // metadata. This test pins the new behavior: every manifest field flows
+    // into D1.
+    const original = await buildSignedBundle({
+      name: 'patch-meta-orig',
+      description: 'original description',
+      tags: ['old-tag'],
+      license: 'MIT',
+    });
+    const originalHash = await canonicalHashHex(original.bytes);
+    await seedArtifactWithBlob({
+      id: 'artMeta',
+      bundleBytes: original.bytes,
+      contentHash: originalHash,
+      authorPub: FIXTURE_PUB,
+      name: original.manifestName,
+      version: original.version,
+    });
+    // Build an updated bundle with completely different metadata.
+    const updated = await buildSignedBundle({
+      name: 'patch-meta-updated',
+      version: '2.0.0',
+      description: 'rewritten description',
+      tags: ['new-tag-a', 'new-tag-b'],
+      license: 'Apache-2.0',
+      themeBytes: THEME_CSS_BYTES_ALT,
+    });
+    const mp = buildMultipart(updated.bytes, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    const jws = await signJws({
+      method: 'PATCH',
+      path: '/v1/artifact/artMeta',
+      body: mp.body,
+      seed: FIXTURE_SEED,
+      pubkey: FIXTURE_PUB,
+      df: FIXTURE_DF,
+    });
+    const res = await SELF.fetch('https://worker.test/v1/artifact/artMeta', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Omni-JWS ${jws}`,
+        'content-type': mp.contentType,
+      },
+      body: mp.body,
+    });
+    expect(res.status).toBe(200);
+    const row = await env.META.prepare(
+      'SELECT name, description, tags, license, version FROM artifacts WHERE id = ?',
+    )
+      .bind('artMeta')
+      .first<{
+        name: string;
+        description: string;
+        tags: string;
+        license: string;
+        version: string;
+      }>();
+    expect(row?.name).toBe('patch-meta-updated');
+    expect(row?.description).toBe('rewritten description');
+    expect(JSON.parse(row?.tags ?? '[]')).toEqual(['new-tag-a', 'new-tag-b']);
+    expect(row?.license).toBe('Apache-2.0');
+    expect(row?.version).toBe('2.0.0');
   });
 });
 

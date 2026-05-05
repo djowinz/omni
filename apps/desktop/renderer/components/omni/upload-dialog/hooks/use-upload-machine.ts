@@ -217,6 +217,39 @@ export function detectMode(entry: PublishablesEntry | null, currentPubkey: strin
 // ── Custom preview IDB read ─────────────────────────────────────────────────
 
 /**
+ * Apply the user's chosen semver bump to a version string. Pure helper —
+ * exported for reuse + so the unit-test file can pin the behavior.
+ *
+ * - `patch`: 1.0.0 → 1.0.1
+ * - `minor`: 1.0.0 → 1.1.0 (patch resets to 0)
+ * - `major`: 1.0.0 → 2.0.0 (minor + patch reset to 0)
+ * - `none`:  1.0.0 → 1.0.0 (no change)
+ *
+ * If the input doesn't parse as `MAJOR.MINOR.PATCH` (with optional
+ * pre-release / build suffix that we discard), we hand the string back
+ * unchanged. That's safe because the host re-parses via `Version::parse`
+ * downstream and surfaces a structured BadInput on malformed semver — so
+ * a bogus version would surface as a publish error rather than silently
+ * publishing garbage.
+ */
+export function applyBump(version: string, bump: UploadFormValues['bump']): string {
+  if (bump === 'none') return version;
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return version;
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  const patch = Number(m[3]);
+  switch (bump) {
+    case 'patch':
+      return `${major}.${minor}.${patch + 1}`;
+    case 'minor':
+      return `${major}.${minor + 1}.0`;
+    case 'major':
+      return `${major + 1}.0.0`;
+  }
+}
+
+/**
  * Load the user-uploaded Step 2 Preview Image from IndexedDB and base64-
  * encode it for the WS surface. Returns `null` when no custom preview was
  * persisted (the auto-generated thumbnail will be used). Errors from the
@@ -806,6 +839,16 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
     if (!cur.selected) return null;
     const license =
       values.license === 'Custom' ? values.customLicense || undefined : values.license || undefined;
+    // In update mode, apply the user's bump choice to the prefilled version
+    // before sending. Without this the renderer was sending the OLD version
+    // verbatim and the host ignored `bump` (#[allow(dead_code)] on the
+    // host-side P struct) — so the outgoing manifest's version was identical
+    // to the stored row's. The sanitize-repack canonical_hash matched the
+    // existing row, the worker's PATCH route short-circuited as 'unchanged',
+    // and the user's "update" was a no-op against D1. Apply the bump here so
+    // the wire-level version actually changes.
+    const outboundVersion =
+      cur.mode === 'update' ? applyBump(values.version || '1.0.0', values.bump) : values.version;
     return {
       workspace_path: cur.selected.workspace_path,
       bump: values.bump,
@@ -813,7 +856,7 @@ export function useUploadMachine(options: UseUploadMachineOptions = {}): UseUplo
       description: values.description,
       tags: values.tags,
       license,
-      version: values.version,
+      version: outboundVersion,
       omni_min_version: values.omni_min_version,
     };
   }
