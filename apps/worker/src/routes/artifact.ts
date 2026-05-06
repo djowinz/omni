@@ -140,6 +140,100 @@ function artifactResponse(
 }
 
 // ---------------------------------------------------------------------------
+// POST /v1/artifact/batch  (unauthenticated; bulk lookup by id)
+// ---------------------------------------------------------------------------
+//
+// Returns artifact metadata for up to 50 ids in a single request. Used by the
+// renderer's Installed-tab grid to live-fetch thumbnail_url + install count
+// (and other display-only fields) for locally-installed artifacts in one
+// round-trip instead of N. Missing / never-existed ids are silently omitted
+// from the response, matching `GET /:id` 404 semantics applied per row.
+//
+// The R2 manifest fetch from `GET /:id` is intentionally skipped here —
+// callers (the Installed-grid card) only need the columnar metadata
+// (thumbnail_url, install count, name, tags), and a synthesized manifest
+// from the D1 columns is good enough for that surface. Skipping per-row
+// R2 reads keeps batch latency bounded by the single D1 query instead of
+// N parallel R2 fetches.
+//
+// Public route — same auth posture as `GET /:id`. Reports count is omitted
+// (no moderator override path here; moderators wanting reports use the
+// per-id GET).
+
+interface BatchRequestBody {
+  ids: unknown;
+}
+
+app.post('/batch', async (c) => {
+  const env = c.env;
+  const debugLog = makeDebugLog(env);
+
+  let body: BatchRequestBody;
+  try {
+    body = (await c.req.raw.json()) as BatchRequestBody;
+  } catch {
+    return errorFromKind('Malformed', 'BadRequest', 'expected JSON body { ids: string[] }');
+  }
+  if (!body || typeof body !== 'object' || !Array.isArray(body.ids)) {
+    return errorFromKind('Malformed', 'BadRequest', 'expected JSON body { ids: string[] }');
+  }
+  const ids = (body.ids as unknown[]).filter((s): s is string => typeof s === 'string');
+  // Cap at 50 — bounded query cost, sized for a typical "installed list" load.
+  // Renderers wanting more should page (the Installed registry never has
+  // enough entries for this to bite in practice).
+  if (ids.length > 50) {
+    return errorFromKind(
+      'Malformed',
+      'BadRequest',
+      `too many ids (${ids.length}); max 50 per batch`,
+    );
+  }
+  if (ids.length === 0) {
+    return new Response(JSON.stringify({ artifacts: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
+  // De-dupe so a single SELECT covers each unique id once. The response keeps
+  // each unique row only once — duplicates in the request would be redundant.
+  const uniqueIds = Array.from(new Set(ids));
+  debugLog(`[artifact] POST /v1/artifact/batch ids=${uniqueIds.length}`);
+
+  const placeholders = uniqueIds.map(() => '?').join(',');
+  const stmt = env.META.prepare(
+    `SELECT artifacts.id, artifacts.author_pubkey, artifacts.name, artifacts.kind,
+            artifacts.content_hash, artifacts.thumbnail_hash,
+            artifacts.description, artifacts.tags, artifacts.license,
+            artifacts.version, artifacts.omni_min_version, artifacts.signature,
+            artifacts.created_at, artifacts.updated_at, artifacts.install_count,
+            artifacts.report_count, artifacts.is_removed, artifacts.is_featured,
+            authors.display_name AS author_display_name
+     FROM artifacts
+     LEFT JOIN authors ON authors.pubkey = artifacts.author_pubkey
+     WHERE artifacts.id IN (${placeholders})`,
+  ).bind(...uniqueIds);
+  const result = await stmt.all<ArtifactFullRow>();
+  const rows = result.results ?? [];
+
+  const artifacts = rows.map((row) => {
+    const synthesizedManifest = {
+      name: row.name,
+      description: row.description ?? '',
+      tags: parseTags(row.tags),
+      license: row.license ?? '',
+      version: row.version,
+      omni_min_version: row.omni_min_version,
+    };
+    return artifactResponse(row, false, synthesizedManifest);
+  });
+
+  return new Response(JSON.stringify({ artifacts }), {
+    status: 200,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GET /v1/artifact/:id  (unauthenticated; moderator optional for reports)
 // ---------------------------------------------------------------------------
 

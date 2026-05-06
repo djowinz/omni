@@ -10,9 +10,11 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+bundle = { path = "../../crates/bundle" }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 identity = { path = "../../crates/identity" }
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -20,3 +22,9 @@ tempfile = "3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Used in seed.rs unit tests to assert fixture bundles pass the install-time
+# sanitize gate. Without this, a future sanitize tightening would silently
+# break seeded install — first user-visible failure.
+sanitize = { path = "../../crates/sanitize" }

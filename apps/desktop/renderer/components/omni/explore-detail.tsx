@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Calendar, CheckSquare, Clock, Download, Layers, MoreVertical, Palette, Tag as TagIcon, X } from 'lucide-react';
+import { AlertTriangle, Calendar, CheckSquare, Clock, Download, Layers, MoreVertical, Palette, Tag as TagIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -42,6 +42,16 @@ import {
 export interface ExploreDetailProps {
   selectedId: string;
   tab: ExploreTab;
+  /** True when the selected artifact is in the local install registry.
+   *  Used to flip Discover's middle slot from "Install" → "Uninstall"
+   *  (destructive variant) so the user doesn't see a no-op Install button
+   *  on something they've already installed. */
+  installed?: boolean;
+  /** Opens the panel-level uninstall confirm dialog with the supplied
+   *  display name. The panel owns the dialog mount + the post-success
+   *  refetch / overlay refresh / pane-close logic so all uninstall
+   *  surfaces (detail-pane button + grid hover button) share one flow. */
+  onRequestUninstall?: (artifactId: string, name: string) => void;
 }
 
 type InstallState =
@@ -55,7 +65,12 @@ function manifestString(manifest: Record<string, unknown> | undefined, key: stri
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
+export function ExploreDetail({
+  selectedId,
+  tab,
+  installed = false,
+  onRequestUninstall,
+}: ExploreDetailProps) {
   const { artifact, loading } = useExploreDetail(selectedId);
   const { setSelectedId } = useExploreFilters();
   const { setPreview } = usePreview();
@@ -121,7 +136,23 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     );
   }
 
-  const labels = actionLabelsFor(tab);
+  // Base labels are tab-derived (`actionLabelsFor`). The Discover tab's middle
+  // slot is "Install" by default, but if the user already has this artifact
+  // in their local registry an Install click is a no-op — flip it to
+  // "Uninstall" so the action panel reflects reality. Installed/My-Uploads
+  // labels are unchanged. The destructive-variant decision below keys off
+  // the resolved label, so styling follows automatically.
+  const baseLabels = actionLabelsFor(tab);
+  const labels =
+    tab === 'discover' && installed && baseLabels.middle === 'Install'
+      ? { ...baseLabels, middle: 'Uninstall' }
+      : baseLabels;
+  // The upstream artifact is gone (`/v1/artifact/:id` returned status:
+  // 'tombstoned'). The user got here through the Installed tab — Discover
+  // filters tombstones server-side, but the user can still click into one
+  // they have installed. Surface a banner + disable any action that
+  // requires the upstream (Install / Update / Open / Preview).
+  const tombstoned = artifact.status === 'tombstoned';
   const isBundle = artifact.kind === 'bundle';
   const KindIcon = isBundle ? Layers : Palette;
   const kindIconColor = isBundle ? 'text-[#A855F7] bg-[#A855F7]/10' : 'text-[#00D9FF] bg-[#00D9FF]/10';
@@ -217,6 +248,11 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
     try {
       await send('explorer.fork', { artifact_id: artifact.artifact_id, target_name });
       setForkOpen(false);
+      // Reload state.overlays from disk so SELECT_OVERLAY can find the new
+      // fork; without this, getCurrentOverlay() returns undefined and the
+      // editor lands in an empty "No overlay" state with the fork missing
+      // from the header dropdown even though the files exist on disk.
+      await refreshOverlays();
       dispatch({ type: 'SELECT_OVERLAY', payload: target_name });
       dispatch({ type: 'SET_ACTIVE_PANEL', payload: 'components' });
       toast.success(`Forked to overlays/${target_name} — ready to edit`);
@@ -298,6 +334,40 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
               )}
             </div>
 
+            {/* Tombstoned banner: upstream artifact has been removed by the
+                author (or moderation). The local copy still works, but the
+                user can't re-download or update — surface the state and
+                offer Fork as the durable-keep path. */}
+            {tombstoned && (
+              <div
+                role="alert"
+                data-testid="explore-detail-tombstoned-banner"
+                className="flex items-start gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-amber-200"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+                <div className="flex flex-col gap-2">
+                  <p>
+                    <strong className="text-amber-100">
+                      The author removed this from the share explorer.
+                    </strong>{' '}
+                    Your installed copy still works, but you can&apos;t re-download or update
+                    it. Fork now to keep a copy you own.
+                  </p>
+                  <div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 border-amber-500/40 bg-amber-500/[0.08] text-amber-100 hover:bg-amber-500/[0.16] hover:text-amber-50"
+                      onClick={() => setForkOpen(true)}
+                    >
+                      <ForkIcon />
+                      Fork now
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {description && (
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#A1A1AA]">
                 {description}
@@ -350,7 +420,17 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
         {/* Sticky footer */}
         <div className="flex flex-shrink-0 items-center gap-2 border-t border-[#27272A] bg-[#141416]/80 p-3">
           {labels.left === 'Preview' ? (
-            <Button variant="outline" size="sm" onClick={handlePreview}>
+            // Preview hits `/v1/download/:id` which 410s on tombstoned rows —
+            // disable the button rather than letting the user click into a
+            // cryptic "TOMBSTONED" toast. `Open` (Installed/My-Uploads tabs)
+            // reads from disk, so it stays enabled.
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreview}
+              disabled={tombstoned}
+              title={tombstoned ? 'Removed from the share explorer' : undefined}
+            >
               {labels.left}
             </Button>
           ) : (
@@ -361,7 +441,17 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
           <div className="flex-1" data-testid="explore-detail-action-middle">
             {labels.middle === 'Install' ? (
               installState.kind === 'idle' ? (
-                <Button className="w-full" size="sm" onClick={() => void handleInstall(false)}>
+                // Install would trip the worker's 410 TOMBSTONED on download —
+                // disable when the upstream is gone. Discover normally won't
+                // surface tombstoned rows (server filter), so this fires only
+                // when the pane is opened with a stale `selectedId`.
+                <Button
+                  className="w-full"
+                  size="sm"
+                  onClick={() => void handleInstall(false)}
+                  disabled={tombstoned}
+                  title={tombstoned ? 'Removed from the share explorer' : undefined}
+                >
                   Install
                 </Button>
               ) : installState.kind === 'in-flight' ? (
@@ -377,11 +467,24 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
                 />
               )
             ) : (
+              // Both Uninstall and Delete remove the artifact — render them
+              // with the destructive variant so the visual weight matches the
+              // action's gravity (red, not the default cyan primary).
+              // Uninstall opens the confirm dialog and runs `explorer.uninstall`;
+              // Delete stays stubbed (server-side artifact deletion lands later).
               <Button
                 className="w-full"
-                variant={labels.middle === 'Delete' ? 'destructive' : 'default'}
+                variant={
+                  labels.middle === 'Delete' || labels.middle === 'Uninstall'
+                    ? 'destructive'
+                    : 'default'
+                }
                 size="sm"
-                onClick={stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')}
+                onClick={
+                  labels.middle === 'Uninstall'
+                    ? () => onRequestUninstall?.(artifact.artifact_id, name)
+                    : stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')
+                }
               >
                 {labels.middle}
               </Button>
@@ -397,10 +500,19 @@ export function ExploreDetail({ selectedId, tab }: ExploreDetailProps) {
               <ForkIcon />
             </Button>
           ) : (
+            // Update needs the upstream — PATCH on a tombstoned row would 404
+            // (worker rejects mutations on `is_removed = 1`). My-Uploads
+            // filters tombstones server-side, so this is defensive belt+suspenders.
             <Button
               variant="outline"
               size="sm"
               onClick={stubSubSpec(labels.right === 'Update' ? '#015' : '#016')}
+              disabled={tombstoned && labels.right === 'Update'}
+              title={
+                tombstoned && labels.right === 'Update'
+                  ? 'Removed from the share explorer'
+                  : undefined
+              }
             >
               {labels.right}
             </Button>

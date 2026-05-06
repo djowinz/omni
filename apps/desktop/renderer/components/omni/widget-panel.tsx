@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { useBackend } from '@/hooks/use-backend';
+import { useOverlayMeta } from '@/hooks/use-overlay-meta';
 import { parseOmniContent, toggleWidgetEnabled, parseThemeImports } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
 import {
@@ -30,6 +31,16 @@ import { UploadDialog } from './upload-dialog';
 export function WidgetPanel() {
   const { state, dispatch, getCurrentOverlay, openThemeTab } = useOmniState();
   const currentOverlay = getCurrentOverlay();
+  const overlayMeta = useOverlayMeta(currentOverlay?.name);
+  // Mirror editor-panel.tsx's isReadOnlyOverlay: an overlay is read-only when
+  // it's installed-from-share AND the local identity isn't the bundle's signed
+  // author. The Default overlay is always editable. Installed overlays are
+  // intended to be used as-is — every editing affordance (publish, widget
+  // toggle, theme add/create) must be disabled to enforce the install-vs-fork
+  // model. The Fork-to-edit CTA in editor-panel is the single legal path to
+  // start making changes.
+  const isReadOnlyOverlay =
+    overlayMeta.isInstalled && !overlayMeta.editable && currentOverlay?.name !== 'Default';
 
   const widgets = useMemo(
     () => (currentOverlay?.content ? parseOmniContent(currentOverlay.content) : []),
@@ -42,6 +53,9 @@ export function WidgetPanel() {
 
   const handleToggleWidget = (widgetId: string, enabled: boolean) => {
     if (!currentOverlay || currentOverlay.content === null) return;
+    // Read-only guard: Switch is disabled in the UI, but defend against
+    // programmatic dispatch (e.g. keyboard) by short-circuiting here too.
+    if (isReadOnlyOverlay) return;
 
     const newContent = toggleWidgetEnabled(currentOverlay.content, widgetId, enabled);
     dispatch({
@@ -101,6 +115,7 @@ export function WidgetPanel() {
   };
 
   const handleCreateTheme = async () => {
+    if (isReadOnlyOverlay) return;
     const name = newThemeName.trim();
     if (!name) return;
     const filename = name.endsWith('.css') ? name : `${name}.css`;
@@ -127,6 +142,7 @@ export function WidgetPanel() {
   };
 
   const handleAddExistingTheme = (themeFilename: string) => {
+    if (isReadOnlyOverlay) return;
     addThemeToOverlay(themeFilename);
     setBrowseThemesOpen(false);
     openThemeTab(`themes/${themeFilename}`);
@@ -145,9 +161,15 @@ export function WidgetPanel() {
         <button
           data-testid="components-publish-button"
           onClick={() => setUploadOpen(true)}
-          disabled={!currentOverlay}
+          disabled={!currentOverlay || isReadOnlyOverlay}
           className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#71717A] hover:text-[#FAFAFA] disabled:opacity-40 disabled:hover:text-[#71717A] transition-colors"
-          title={currentOverlay ? 'Publish the current overlay' : 'Open an overlay to publish'}
+          title={
+            isReadOnlyOverlay
+              ? 'This overlay is installed from the explorer — fork it to make changes'
+              : currentOverlay
+                ? 'Publish the current overlay'
+                : 'Open an overlay to publish'
+          }
         >
           <UploadIcon className="h-3.5 w-3.5" aria-hidden />
           Publish
@@ -168,15 +190,25 @@ export function WidgetPanel() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleBrowseThemes}
-                  className="text-[10px] text-[#71717A] hover:text-[#FAFAFA] transition-colors"
-                  title="Add existing theme"
+                  disabled={isReadOnlyOverlay}
+                  className="text-[10px] text-[#71717A] hover:text-[#FAFAFA] disabled:opacity-40 disabled:hover:text-[#71717A] disabled:cursor-not-allowed transition-colors"
+                  title={
+                    isReadOnlyOverlay
+                      ? 'Read-only — fork this overlay to add themes'
+                      : 'Add existing theme'
+                  }
                 >
                   Browse
                 </button>
                 <button
                   onClick={() => setCreateThemeOpen(true)}
-                  className="flex items-center gap-1 text-[10px] text-[#00D9FF] hover:text-[#00D9FF]/80 transition-colors"
-                  title="Create new theme"
+                  disabled={isReadOnlyOverlay}
+                  className="flex items-center gap-1 text-[10px] text-[#00D9FF] hover:text-[#00D9FF]/80 disabled:opacity-40 disabled:hover:text-[#00D9FF] disabled:cursor-not-allowed transition-colors"
+                  title={
+                    isReadOnlyOverlay
+                      ? 'Read-only — fork this overlay to add themes'
+                      : 'Create new theme'
+                  }
                 >
                   <Plus className="h-3 w-3" />
                   New
@@ -293,7 +325,9 @@ export function WidgetPanel() {
                       onCheckedChange={(checked) => handleToggleWidget(widget.id, checked)}
                       onClick={(e) => e.stopPropagation()}
                       aria-label={`Toggle ${widget.name}`}
-                      className="data-[state=checked]:bg-[#A855F7]"
+                      disabled={isReadOnlyOverlay}
+                      title={isReadOnlyOverlay ? 'Read-only — fork to toggle widgets' : undefined}
+                      className="data-[state=checked]:bg-[#A855F7] disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </div>
                 ))}

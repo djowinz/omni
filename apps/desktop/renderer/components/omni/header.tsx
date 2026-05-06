@@ -28,11 +28,13 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useOmniState } from '@/hooks/use-omni-state';
+import { useOverlayMeta } from '@/hooks/use-overlay-meta';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { CreateOverlayDialog } from './create-overlay-dialog';
 import { GameAssignmentsDialog } from './game-assignments-dialog';
 import { IdentityChip } from './identity-chip';
+import { UninstallConfirmDialog } from './uninstall-confirm-dialog';
 
 export function Header() {
   const {
@@ -43,9 +45,18 @@ export function Header() {
     deleteOverlay,
     getCurrentOverlay,
     ensureOverlayLoaded,
+    refreshOverlays,
   } = useOmniState();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [gamesDialogOpen, setGamesDialogOpen] = useState(false);
+  // The submenu's Delete branches on whether the overlay is in the install
+  // registry. For installed rows it opens this confirm dialog and routes
+  // through `explorer.uninstall` (registry + on-disk cleanup). For
+  // user-created rows it falls through to the existing `deleteOverlay`.
+  const [uninstallTarget, setUninstallTarget] = useState<{
+    artifact_id: string;
+    name: string;
+  } | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -58,8 +69,14 @@ export function Header() {
   }, [dispatch]);
 
   const currentOverlay = getCurrentOverlay();
+  const overlayMeta = useOverlayMeta(currentOverlay?.name);
   const isActive = currentOverlay?.name === state.config?.active_overlay;
   const isDefault = currentOverlay?.name === 'Default';
+  // Hide Duplicate for installed-from-share rows that we don't own — the
+  // canonical "make it mine" action there is Fork (which stamps lineage in
+  // a way Duplicate doesn't). Owned-by-me installs can still Duplicate
+  // because the user has authoring rights.
+  const showDuplicate = !overlayMeta.isInstalled || overlayMeta.editable;
 
   const logoSrc = 'omni://resources/omni-logo.png';
   const logoTextSrc = 'omni://resources/omni-text-logo.png';
@@ -82,9 +99,18 @@ export function Header() {
   };
 
   const handleDelete = async () => {
-    if (currentOverlay && currentOverlay.name !== 'Default') {
-      await deleteOverlay(currentOverlay.name);
+    if (!currentOverlay || currentOverlay.name === 'Default') return;
+    if (overlayMeta.isInstalled && overlayMeta.installedArtifactId) {
+      // Installed bundles route through `explorer.uninstall` so the
+      // registry stays consistent and the on-disk dir is removed cleanly.
+      // The dialog mount below owns the post-success cleanup.
+      setUninstallTarget({
+        artifact_id: overlayMeta.installedArtifactId,
+        name: currentOverlay.name,
+      });
+      return;
     }
+    await deleteOverlay(currentOverlay.name);
   };
 
   return (
@@ -201,13 +227,15 @@ export function Header() {
                   <Gamepad2 className="mr-2 h-4 w-4" />
                   Assign to Games
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDuplicate}
-                  className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#00D9FF]"
-                >
-                  <Copy className="mr-2 h-4 w-4" />
-                  Duplicate
-                </DropdownMenuItem>
+                {showDuplicate && (
+                  <DropdownMenuItem
+                    onClick={handleDuplicate}
+                    className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#00D9FF]"
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Duplicate
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator className="bg-[#27272A]" />
                 <DropdownMenuItem
                   onClick={handleDelete}
@@ -215,7 +243,7 @@ export function Header() {
                   className="text-[#EF4444] focus:bg-[#27272A] focus:text-[#EF4444]"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
+                  {overlayMeta.isInstalled ? 'Uninstall' : 'Delete'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -324,6 +352,31 @@ export function Header() {
         onOpenChange={setGamesDialogOpen}
         overlayName={currentOverlay?.name || ''}
       />
+      {uninstallTarget && (
+        <UninstallConfirmDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setUninstallTarget(null);
+          }}
+          artifactId={uninstallTarget.artifact_id}
+          artifactName={uninstallTarget.name}
+          onUninstalled={() => {
+            // Re-scan workspace so the dropdown drops the removed folder,
+            // and notify other listeners (Explore panel) so any installed-id
+            // cache they hold refetches in lockstep.
+            const removedName = uninstallTarget.name;
+            void refreshOverlays();
+            window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
+            setUninstallTarget(null);
+            // If the user had the just-removed overlay selected, switch
+            // to Default so the editor doesn't sit on a stale name. If
+            // the dropdown was already on something else, leave it alone.
+            if (state.selectedOverlayName === removedName) {
+              dispatch({ type: 'SELECT_OVERLAY', payload: 'Default' });
+            }
+          }}
+        />
+      )}
     </>
   );
 }

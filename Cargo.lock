@@ -821,9 +821,12 @@ name = "dev-orchestrator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bundle",
  "clap",
  "hex",
  "identity",
+ "sanitize",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

@@ -249,6 +249,28 @@ export const ExplorerGetResultSchema = z.object({
 });
 export type ExplorerGetResult = z.infer<typeof ExplorerGetResultSchema>;
 
+// ── explorer.batchGet ─────────────────────────────────────────────────────
+//
+// Bulk artifact lookup, max 50 ids per request. Used by the Installed-tab
+// grid to live-fetch thumbnail_url + install counts in one round-trip.
+// Missing / tombstoned ids are silently omitted from the response — the
+// renderer keys results by `artifact_id` and falls back to the gradient
+// placeholder for unmatched entries.
+//
+// Shipped: crates/host/src/share/ws_messages.rs handle_batch_get() →
+//          ShareClient::batch_get_artifacts → POST /v1/artifact/batch
+export const ExplorerBatchGetParamsSchema = z.object({
+  ids: z.array(z.string()).max(50),
+});
+export type ExplorerBatchGetParams = z.infer<typeof ExplorerBatchGetParamsSchema>;
+
+export const ExplorerBatchGetResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('explorer.batchGetResult'),
+  artifacts: z.array(ArtifactDetailSchema),
+});
+export type ExplorerBatchGetResult = z.infer<typeof ExplorerBatchGetResultSchema>;
+
 // ── explorer.install ───────────────────────────────────────────────────────
 
 // Oracle: contracts/ws-explorer.md §explorer.install params
@@ -303,6 +325,28 @@ export const ExplorerInstallResultSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type ExplorerInstallResult = z.infer<typeof ExplorerInstallResultSchema>;
+
+// ── explorer.uninstall ─────────────────────────────────────────────────────
+//
+// Removes an installed artifact's on-disk content + the registry entry.
+// Wire shape: params `{ artifact_id }` → result `{ artifact_id, kind }` on
+// success, `NOT_FOUND` error envelope when the registry has no matching
+// row. Best-effort filesystem removal — registry-side change is durable
+// even if the on-disk path can't be deleted (logged via tracing).
+//
+// Shipped: crates/host/src/share/ws_messages.rs handle_uninstall().
+export const ExplorerUninstallParamsSchema = z.object({
+  artifact_id: z.string(),
+});
+export type ExplorerUninstallParams = z.infer<typeof ExplorerUninstallParamsSchema>;
+
+export const ExplorerUninstallResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('explorer.uninstallResult'),
+  artifact_id: z.string(),
+  kind: z.enum(['bundle', 'theme']),
+});
+export type ExplorerUninstallResult = z.infer<typeof ExplorerUninstallResultSchema>;
 
 // ── explorer.preview ───────────────────────────────────────────────────────
 
@@ -965,9 +1009,17 @@ export interface ShareRequestMap {
     params: ExplorerGetParams;
     result: ExplorerGetResult;
   };
+  'explorer.batchGet': {
+    params: ExplorerBatchGetParams;
+    result: ExplorerBatchGetResult;
+  };
   'explorer.install': {
     params: ExplorerInstallParams;
     result: ExplorerInstallResult;
+  };
+  'explorer.uninstall': {
+    params: ExplorerUninstallParams;
+    result: ExplorerUninstallResult;
   };
   'explorer.preview': {
     params: ExplorerPreviewParams;
@@ -1074,7 +1126,9 @@ export interface ShareSubscriptionMap {
 export const ShareResponseSchemas = {
   'explorer.listResult': ExplorerListResultSchema,
   'explorer.getResult': ExplorerGetResultSchema,
+  'explorer.batchGetResult': ExplorerBatchGetResultSchema,
   'explorer.installResult': ExplorerInstallResultSchema,
+  'explorer.uninstallResult': ExplorerUninstallResultSchema,
   'explorer.previewResult': ExplorerPreviewResultSchema,
   'explorer.cancelPreviewResult': ExplorerCancelPreviewResultSchema,
   'explorer.forkResult': ExplorerForkResultSchema,

@@ -255,6 +255,54 @@ fn decode_custom_preview(s: Option<&str>) -> Result<Option<Vec<u8>>, String> {
     Ok(Some(bytes))
 }
 
+/// All WS message types this module's `dispatch` handles.
+///
+/// SOURCE OF TRUTH for the share-surface gate. `is_share_message_type` and
+/// `crate::ws_server`'s pre-dispatch filter both consult this slice — adding
+/// a new RPC means adding it here, the dispatch match arm below, and nothing
+/// else. Drop the entry from either side and the parity test
+/// (`dispatch_has_arm_for_every_share_message_type`) fails.
+///
+/// The defensive `_` arm in `dispatch` checks this list at runtime: if a type
+/// reaches dispatch through the gate but no match arm fires (i.e. the slice
+/// was updated but the arm was forgotten), the handler returns a visible
+/// server-reject reply instead of letting the renderer's request hang.
+pub const SHARE_MESSAGE_TYPES: &[&str] = &[
+    "upload.pack",
+    "upload.publish",
+    "upload.update",
+    "upload.delete",
+    "identity.show",
+    "identity.backup",
+    "identity.import",
+    "identity.rotate",
+    "identity.markBackedUp",
+    "identity.setDisplayName",
+    "config.vocab",
+    "config.limits",
+    "report.submit",
+    "explorer.install",
+    "explorer.uninstall",
+    "explorer.preview",
+    "explorer.cancelPreview",
+    "explorer.list",
+    "explorer.get",
+    "explorer.batchGet",
+    "workspace.listPublishables",
+    "workspace.listInstalled",
+    "share.moderationCheck",
+    "share.regeneratePreview",
+];
+
+/// True if `ty` is a share-surface RPC routed through `dispatch`.
+///
+/// Called by `ws_server`'s top-level message router to decide whether to
+/// hand a frame to the share runtime or fall through to the non-share
+/// `handle_message` path. Backed by `SHARE_MESSAGE_TYPES`.
+pub fn is_share_message_type(ty: Option<&str>) -> bool {
+    ty.is_some_and(|t| SHARE_MESSAGE_TYPES.contains(&t))
+}
+
 /// Top-level dispatch. Returns `Some(text)` to broadcast a synchronous result, or `None`
 /// if the handler streams asynchronously via `send_fn`.
 pub async fn dispatch<F>(ctx: &ShareContext, msg: &Value, send_fn: F) -> Option<String>
@@ -289,10 +337,12 @@ where
         "config.limits" => handle_config_limits(&id, ctx).await,
         "report.submit" => handle_report(&id, params, ctx).await,
         "explorer.install" => handle_install(&id, params, ctx, send_fn).await,
+        "explorer.uninstall" => handle_uninstall(&id, params, ctx).await,
         "explorer.preview" => handle_preview(&id, params, ctx).await,
         "explorer.cancelPreview" => handle_cancel_preview(&id, params, ctx).await,
         "explorer.list" => handle_list(&id, params, ctx).await,
         "explorer.get" => handle_get(&id, params, ctx).await,
+        "explorer.batchGet" => handle_batch_get(&id, params, ctx).await,
         "workspace.listPublishables" => handle_list_publishables(&id, params, ctx).await,
         "workspace.listInstalled" => handle_list_installed(&id, ctx).await,
         // Renderer-initiated single-image moderation gate (INV-7.7.2 site #1).
@@ -309,7 +359,24 @@ where
         // the renderer appends as a cache-bust query string so the `<img>` tag
         // pulls the new bytes instead of the browser-cached old ones.
         "share.regeneratePreview" => handle_regenerate_preview(&id, params, ctx).await,
-        _ => None,
+        // Drift guard: type passed the gate (so it's in `SHARE_MESSAGE_TYPES`)
+        // but no arm above handled it — slice updated, arm forgotten. Return
+        // a visible reject so the renderer's request resolves instead of
+        // hanging on a never-arriving reply. Production paths reach this only
+        // when the gate let an unlisted type through (gate bypassed in tests).
+        _ => {
+            if SHARE_MESSAGE_TYPES.contains(&ty) {
+                tracing::error!(
+                    ty = %ty,
+                    "share dispatch drift: type listed in SHARE_MESSAGE_TYPES but no match arm"
+                );
+                return Some(bad_input(
+                    &id,
+                    format!("internal: share dispatch missing arm for {ty}"),
+                ));
+            }
+            None
+        }
     }
 }
 
@@ -1323,6 +1390,9 @@ where
         _ => ctx.data_dir.join("overlays").join(&p.artifact_id),
     };
 
+    // Hold a copy of the artifact id for post-install bookkeeping; the
+    // request itself moves the original String into `install::install`.
+    let req_artifact_id = p.artifact_id.clone();
     let req = InstallRequest {
         artifact_id: p.artifact_id,
         target_path,
@@ -1384,12 +1454,199 @@ where
     });
 
     match result {
-        Ok(outcome) => Some(install_outcome_to_result_frame(id, &outcome)),
+        Ok(outcome) => {
+            restore_self_author_publish_state(
+                &outcome,
+                &req_artifact_id,
+                &ctx.data_dir,
+                &ctx.identity.load().public_key().to_hex(),
+                None,
+            );
+            Some(install_outcome_to_result_frame(id, &outcome))
+        }
         Err(e) => {
             let payload = handlers::map_install_error(&e);
             Some(handlers::error_frame(id, &payload))
         }
     }
+}
+
+/// Self-author install → restore the `.omni-publish.json` sidecar + workspace
+/// publish-index entry so the upload dialog's `detectMode` recognises this
+/// re-installed artifact as an UPDATE on the next open, not a fresh
+/// "create new artifact" flow.
+///
+/// Covers the regression: original publish → local delete → re-download from
+/// Discover → click Publish. Without this restore, the just-downloaded overlay
+/// has no sidecar (install never writes one), so the upload dialog falls back
+/// to 'create' and uploads as a brand-new artifact.
+///
+/// Scoped to overlays today because `RegistryKind::Bundles` is the only
+/// install path wired up; theme-as-installable is a follow-up.
+///
+/// Pure helper so the bookkeeping is unit-testable without standing up a real
+/// install pipeline (the install network path requires a worker fixture).
+/// `index_path_override` mirrors `PersistInputs::index_path` for parallel-safe
+/// tests; production callers pass `None`.
+fn restore_self_author_publish_state(
+    outcome: &install::InstallOutcome,
+    artifact_id: &str,
+    data_dir: &std::path::Path,
+    local_pubkey_hex: &str,
+    index_path_override: Option<&std::path::Path>,
+) {
+    if outcome.author_pubkey.to_hex() != local_pubkey_hex {
+        return;
+    }
+    let Ok(rel) = outcome.installed_path.strip_prefix(data_dir) else {
+        return;
+    };
+    let workspace_path = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/");
+    if !workspace_path.starts_with("overlays/") {
+        return;
+    }
+    crate::share::publish_state::persist_publish_state(
+        &crate::share::publish_state::PersistInputs {
+            data_dir,
+            kind: ArtifactKind::Bundle,
+            workspace_path: &workspace_path,
+            pubkey_hex: local_pubkey_hex,
+            artifact_id,
+            version: &outcome.manifest.version.to_string(),
+            name: &outcome.manifest.name,
+            description: &outcome.manifest.description,
+            tags: &outcome.manifest.tags,
+            license: &outcome.manifest.license,
+            index_path: index_path_override,
+        },
+    );
+}
+
+/// `explorer.uninstall` — remove an installed artifact from disk and from
+/// the install registry.
+///
+/// Looks up `artifact_id` in both the bundles + themes registries (themes
+/// today land in the bundles registry per the hard-coded `RegistryKind`
+/// in `handle_install`, but the search covers both for forward-compat
+/// when that branches). On match, the on-disk path is removed:
+///   - directory (`<data_dir>/overlays/<id>/`)  → `remove_dir_all`
+///   - file      (`<data_dir>/themes/<name>.css`) → `remove_file`, plus
+///     any sibling `<base>.preview.png` so the theme's preview thumbnail
+///     doesn't outlive the theme itself.
+///
+/// File-removal failures DO NOT roll back the registry — once the registry
+/// is updated and saved, the artifact is "uninstalled" from the user's
+/// point of view. A leaked file (denied permission, file in use, etc.)
+/// is logged via `tracing::warn!` so the user can clean up manually,
+/// but the registry stays consistent with the user's intent.
+///
+/// Stale paths (the user manually deleted the folder) succeed silently:
+/// the registry entry is still removed.
+async fn handle_uninstall(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        artifact_id: String,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad explorer.uninstall params: {e}"))),
+    };
+
+    // Try bundles first, then themes. Returns (entry, kind_string) on hit.
+    let removed: Option<(super::registry::InstalledEntry, &'static str)> = {
+        let mut bundles = ctx
+            .bundles_registry
+            .lock()
+            .expect("bundles registry mutex poisoned");
+        if let Some(entry) = bundles.remove_by_artifact_id(&p.artifact_id) {
+            if let Err(e) = bundles.save() {
+                return Some(bad_input(
+                    id,
+                    format!("registry save failed after remove: {e}"),
+                ));
+            }
+            Some((entry, "bundle"))
+        } else {
+            drop(bundles);
+            let mut themes = ctx
+                .themes_registry
+                .lock()
+                .expect("themes registry mutex poisoned");
+            if let Some(entry) = themes.remove_by_artifact_id(&p.artifact_id) {
+                if let Err(e) = themes.save() {
+                    return Some(bad_input(
+                        id,
+                        format!("registry save failed after remove: {e}"),
+                    ));
+                }
+                Some((entry, "theme"))
+            } else {
+                None
+            }
+        }
+    };
+
+    let Some((entry, kind)) = removed else {
+        return Some(handlers::error_frame(
+            id,
+            &ErrorPayload {
+                code: "NOT_FOUND",
+                kind: "Malformed",
+                detail: format!("artifact {} is not installed", p.artifact_id),
+                message: "That artifact is not installed.",
+            },
+        ));
+    };
+
+    // Remove the on-disk path. Best-effort: log + continue on failure so the
+    // registry-side change isn't reverted.
+    let path = &entry.installed_path;
+    if path.exists() {
+        if path.is_dir() {
+            if let Err(e) = std::fs::remove_dir_all(path) {
+                tracing::warn!(
+                    artifact_id = %p.artifact_id,
+                    path = %path.display(),
+                    error = %e,
+                    "remove_dir_all failed during uninstall; registry was updated, on-disk \
+                     directory may need manual cleanup"
+                );
+            }
+        } else if path.is_file() {
+            if let Err(e) = std::fs::remove_file(path) {
+                tracing::warn!(
+                    artifact_id = %p.artifact_id,
+                    path = %path.display(),
+                    error = %e,
+                    "remove_file failed during uninstall; registry was updated, on-disk \
+                     file may need manual cleanup"
+                );
+            }
+            // Themes write `<name>.css` and a sibling `<base>.preview.png`
+            // — strip `.css` from the file stem and try to remove the
+            // matching preview. Missing → silently ignored (the install
+            // pipeline doesn't always render previews).
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let base = stem.trim_end_matches(".css");
+                let preview = path.with_file_name(format!("{base}.preview.png"));
+                let _ = std::fs::remove_file(&preview);
+            }
+        }
+    }
+
+    Some(
+        json!({
+            "id": id,
+            "type": "explorer.uninstallResult",
+            "artifact_id": p.artifact_id,
+            "kind": kind,
+        })
+        .to_string(),
+    )
 }
 
 /// Scope guard that removes an entry from `cancel_registry` on drop. Ensures
@@ -1645,6 +1902,56 @@ async fn handle_get(id: &str, params: Value, ctx: &ShareContext) -> Option<Strin
                     "id": id,
                     "type": "explorer.getResult",
                     "artifact": artifact,
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => Some(error_envelope(id, &e).to_string()),
+    }
+}
+
+/// `explorer.batchGet` — bulk artifact lookup by id (max 50 per request).
+///
+/// Backs the Installed-tab grid's live-fetch of thumbnail_url + install
+/// counts: the renderer reads the local install registry, then issues one
+/// `explorer.batchGet` over those ids to populate display-only fields. The
+/// host hops through `ShareClient::batch_get_artifacts` to the worker's
+/// `POST /v1/artifact/batch` route. Missing ids are silently omitted from
+/// the response (per-row 404 semantics).
+///
+/// Errors propagate verbatim from the worker; size-cap rejection surfaces
+/// as a `BAD_REQUEST` envelope matching the worker's response.
+async fn handle_batch_get(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    #[derive(Deserialize)]
+    struct P {
+        ids: Vec<String>,
+    }
+    let p: P = match serde_json::from_value(params) {
+        Ok(v) => v,
+        Err(e) => return Some(bad_input(id, format!("bad explorer.batchGet params: {e}"))),
+    };
+    match ctx.client.batch_get_artifacts(&p.ids).await {
+        Ok(details) => {
+            let artifacts = match serde_json::to_value(&details) {
+                Ok(v) => v,
+                Err(e) => {
+                    return Some(handlers::error_frame(
+                        id,
+                        &ErrorPayload {
+                            code: "SERIALIZATION_ERROR",
+                            kind: "HostLocal",
+                            detail: format!("batch_artifacts_serialize_failed: {e}"),
+                            message:
+                                "Worker returned a batch we could not serialize.",
+                        },
+                    ));
+                }
+            };
+            Some(
+                json!({
+                    "id": id,
+                    "type": "explorer.batchGetResult",
+                    "artifacts": artifacts,
                 })
                 .to_string(),
             )
@@ -2098,10 +2405,11 @@ async fn handle_list_installed(id: &str, ctx: &ShareContext) -> Option<String> {
         entry: &super::registry::InstalledEntry,
         kind: &'static str,
     ) -> serde_json::Value {
-        // installed_path is absolute (joined against data_dir at install time
-        // — see handle_install). Strip the data_dir prefix so the renderer
-        // can build an `omni-preview://<rel>/.omni-preview.png` URL the
-        // Electron protocol handler maps back to <data_dir>/<rel>/.
+        // The registry stores ONLY local install state. Display-only fields
+        // (thumbnail_url, install count, tags) are not persisted here — they
+        // come from a separate live `explorer.batchGet` against the worker
+        // so the Installed grid sees current install counts instead of a
+        // snapshot from install time. See `handle_batch_get` below.
         json!({
             "artifact_id": entry.artifact_id,
             "name": entry.display_name,
@@ -2310,15 +2618,251 @@ mod tests {
         (ctx, tmp)
     }
 
+    /// Regression: original publish → local delete → re-download → click
+    /// Publish was treating the re-downloaded artifact as a brand-new upload
+    /// instead of an update of the user's own artifact. The fix restores the
+    /// `.omni-publish.json` sidecar + workspace publish-index entry at install
+    /// time when the bundle's author matches the local identity, so the
+    /// upload dialog's `detectMode` returns 'update' on the next open.
+    #[test]
+    fn restore_self_author_publish_state_writes_sidecar_and_index_when_author_matches() {
+        use crate::share::install::{InstallOutcome, InstalledManifestSnapshot};
+        use crate::share::publish_index;
+        use crate::share::sidecar::read_sidecar;
+        use identity::{Keypair, TofuResult};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path();
+        let kp = Keypair::generate();
+        let pk = kp.public_key();
+        let local_pubkey_hex = pk.to_hex();
+        let installed_path = data_dir.join("overlays").join("art-self");
+        std::fs::create_dir_all(&installed_path).unwrap();
+
+        let outcome = InstallOutcome {
+            installed_path: installed_path.clone(),
+            content_hash: [0u8; 32],
+            author_pubkey: pk,
+            fingerprint: pk.fingerprint(),
+            tofu: TofuResult::FirstSeen,
+            warnings: vec![],
+            manifest: InstalledManifestSnapshot {
+                name: "Marathon HUD".into(),
+                version: semver::Version::new(1, 2, 0),
+                description: "splits + pace".into(),
+                tags: vec!["running".into(), "marathon".into()],
+                license: "MIT".into(),
+            },
+        };
+
+        let index_path = data_dir.join("publish-index.json");
+        super::restore_self_author_publish_state(
+            &outcome,
+            "art-self",
+            data_dir,
+            &local_pubkey_hex,
+            Some(&index_path),
+        );
+
+        let sidecar = read_sidecar(&installed_path)
+            .expect("read")
+            .expect("sidecar present");
+        assert_eq!(sidecar.artifact_id, "art-self");
+        assert_eq!(sidecar.author_pubkey_hex, local_pubkey_hex);
+        assert_eq!(sidecar.version, "1.2.0");
+        assert_eq!(sidecar.name, "Marathon HUD");
+        assert_eq!(sidecar.description, "splits + pace");
+        assert_eq!(sidecar.tags, vec!["running".to_string(), "marathon".into()]);
+        assert_eq!(sidecar.license, "MIT");
+
+        let idx = publish_index::read(&index_path).unwrap();
+        assert_eq!(idx.entries.len(), 1, "expected exactly one index entry");
+        assert_eq!(idx.entries[0].artifact_id, "art-self");
+        assert_eq!(idx.entries[0].pubkey_hex, local_pubkey_hex);
+    }
+
+    /// Negative: when the installed bundle's author DOES NOT match the local
+    /// identity (a normal third-party install), no sidecar or publish-index
+    /// row gets written. The user is not the author, so re-publishing this
+    /// would correctly be a brand-new artifact.
+    #[test]
+    fn restore_self_author_publish_state_skips_when_author_differs() {
+        use crate::share::install::{InstallOutcome, InstalledManifestSnapshot};
+        use crate::share::publish_index;
+        use crate::share::sidecar::read_sidecar;
+        use identity::{Keypair, TofuResult};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path();
+        let local_kp = Keypair::generate();
+        let other_kp = Keypair::generate();
+        let installed_path = data_dir.join("overlays").join("art-other");
+        std::fs::create_dir_all(&installed_path).unwrap();
+
+        let outcome = InstallOutcome {
+            installed_path: installed_path.clone(),
+            content_hash: [0u8; 32],
+            author_pubkey: other_kp.public_key(),
+            fingerprint: other_kp.public_key().fingerprint(),
+            tofu: TofuResult::FirstSeen,
+            warnings: vec![],
+            manifest: InstalledManifestSnapshot {
+                name: "Other".into(),
+                version: semver::Version::new(1, 0, 0),
+                description: String::new(),
+                tags: vec![],
+                license: "MIT".into(),
+            },
+        };
+
+        let index_path = data_dir.join("publish-index.json");
+        super::restore_self_author_publish_state(
+            &outcome,
+            "art-other",
+            data_dir,
+            &local_kp.public_key().to_hex(),
+            Some(&index_path),
+        );
+
+        assert!(read_sidecar(&installed_path).unwrap().is_none());
+        let idx = publish_index::read(&index_path).unwrap();
+        assert!(idx.entries.is_empty());
+    }
+
     #[tokio::test]
     async fn unknown_type_returns_none() {
-        // Build a minimal context — no network calls will fire for an unknown type.
-        // We construct ShareClient with a dummy URL; unknown-type dispatch returns before
-        // touching the client.
+        // Type that's not in `SHARE_MESSAGE_TYPES` — the `_` arm's drift guard
+        // should NOT fire (it only fires for types listed in the slice but
+        // missing from the match), so `dispatch` returns None silently and
+        // the renderer's gate would normally have filtered it earlier.
         let (ctx, _tmp) = make_test_ctx();
         let msg = json!({ "id": "r1", "type": "no.such.type" });
         let out = dispatch(&ctx, &msg, |_s: String| {}).await;
         assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn handle_uninstall_removes_bundle_registry_entry_and_directory() {
+        // Seed the bundles registry with a row + a real on-disk directory
+        // matching `installed_path`, then dispatch `explorer.uninstall`
+        // and assert both the registry and the filesystem are cleaned up.
+        // Regression for the user-reported bug: "uninstall did not remove
+        // installed-bundle.json entry and did not delete files on disk".
+        use crate::share::registry::InstalledEntry;
+        use std::fs;
+        let (ctx, _tmp) = make_test_ctx();
+
+        let installed_dir = ctx.data_dir.join("overlays").join("art-uninstall");
+        fs::create_dir_all(&installed_dir).expect("create installed dir");
+        fs::write(installed_dir.join("overlay.omni"), b"contents").expect("write overlay");
+
+        let entry = InstalledEntry {
+            artifact_id: "art-uninstall".into(),
+            content_hash: "deadbeef".into(),
+            author_pubkey: "00".repeat(32),
+            fingerprint_hex: "11".repeat(6),
+            source_url: "download://art-uninstall".into(),
+            installed_at: 1,
+            installed_version: Version::new(1, 0, 0),
+            omni_min_version: Version::new(0, 1, 0),
+            installed_path: installed_dir.clone(),
+            display_name: "art-uninstall".into(),
+        };
+        {
+            let mut bundles = ctx.bundles_registry.lock().unwrap();
+            bundles.upsert("00000000-art-uninstall".into(), entry);
+            bundles.save().expect("save");
+        }
+
+        let msg = json!({
+            "id": "u-1",
+            "type": "explorer.uninstall",
+            "params": { "artifact_id": "art-uninstall" },
+        });
+        let reply_text = dispatch(&ctx, &msg, |_s: String| {})
+            .await
+            .expect("dispatch produced a reply");
+        let reply: Value = serde_json::from_str(&reply_text).expect("reply is JSON");
+        assert_eq!(reply["type"], "explorer.uninstallResult", "reply: {reply}");
+        assert_eq!(reply["artifact_id"], "art-uninstall");
+        assert_eq!(reply["kind"], "bundle");
+
+        // Registry entry removed.
+        {
+            let bundles = ctx.bundles_registry.lock().unwrap();
+            assert!(
+                bundles.entries().is_empty(),
+                "registry should be empty after uninstall: {:?}",
+                bundles.entries(),
+            );
+        }
+        // Persisted to disk too — re-load from the file and confirm.
+        let reloaded =
+            crate::share::registry::RegistryHandle::load(&ctx.data_dir, RegistryKind::Bundles)
+                .expect("reload registry");
+        assert!(
+            reloaded.entries().is_empty(),
+            "registry file on disk still contains entries: {:?}",
+            reloaded.entries(),
+        );
+
+        // Directory removed.
+        assert!(
+            !installed_dir.exists(),
+            "installed directory still exists at {}",
+            installed_dir.display(),
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_uninstall_returns_not_found_when_artifact_unknown() {
+        let (ctx, _tmp) = make_test_ctx();
+        let msg = json!({
+            "id": "u-missing",
+            "type": "explorer.uninstall",
+            "params": { "artifact_id": "never-installed" },
+        });
+        let reply_text = dispatch(&ctx, &msg, |_s: String| {})
+            .await
+            .expect("reply");
+        let reply: Value = serde_json::from_str(&reply_text).expect("json");
+        assert_eq!(reply["type"], "error");
+        assert_eq!(reply["error"]["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn dispatch_has_arm_for_every_share_message_type() {
+        // Drift guard for the OTHER direction: `SHARE_MESSAGE_TYPES` listed
+        // a type but the match in `dispatch` doesn't have an arm for it.
+        // Without this, adding to the slice without adding the arm would
+        // make the gate forward the message to a `_` arm that returns None
+        // — silent hang. The defensive `_` arm in dispatch surfaces the
+        // drift as a `bad_input` reply containing the marker string below.
+        // We capture both the synchronous return and any send_fn output and
+        // assert no marker appears for any slice entry.
+        let drift_marker = "internal: share dispatch missing arm";
+        let (ctx, _tmp) = make_test_ctx();
+
+        for &ty in SHARE_MESSAGE_TYPES {
+            let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let cap = captured.clone();
+            let send_fn = move |s: String| {
+                cap.lock().unwrap().push(s);
+            };
+            let msg = json!({ "id": "parity", "type": ty });
+            let sync_reply = dispatch(&ctx, &msg, send_fn).await;
+            if let Some(s) = sync_reply {
+                captured.lock().unwrap().push(s);
+            }
+            let logs = captured.lock().unwrap();
+            for line in logs.iter() {
+                assert!(
+                    !line.contains(drift_marker),
+                    "{ty}: dispatch's `_` drift arm fired — type listed in \
+                     SHARE_MESSAGE_TYPES but match arm is missing. Reply: {line}",
+                );
+            }
+        }
     }
 
     #[tokio::test]

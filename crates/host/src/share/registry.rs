@@ -97,6 +97,22 @@ impl RegistryHandle {
         self.data.entries.insert(key, entry);
     }
 
+    /// Remove the first entry whose `artifact_id` matches and return it.
+    /// Used by `explorer.uninstall` — the WS handler doesn't know the
+    /// `<pubkey8>-<display_name>` registry key (the renderer only carries
+    /// `artifact_id`), so the uninstall path scans entries to find the
+    /// row to drop. Registries are bounded by the user's installed-artifact
+    /// count, so an O(n) scan is fine.
+    pub fn remove_by_artifact_id(&mut self, artifact_id: &str) -> Option<InstalledEntry> {
+        let key = self
+            .data
+            .entries
+            .iter()
+            .find(|(_, e)| e.artifact_id == artifact_id)
+            .map(|(k, _)| k.clone())?;
+        self.data.entries.remove(&key)
+    }
+
     /// Resolve a bundle registry key to its entry. `lookup_theme` mirrors
     /// the shape for symmetry with the themes registry.
     pub fn lookup_bundle(&self, key: &str) -> Option<&InstalledEntry> {

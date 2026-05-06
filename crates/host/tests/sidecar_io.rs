@@ -12,6 +12,7 @@ fn sample() -> PublishSidecar {
         author_pubkey_hex: "abcdef0123".into(),
         version: "1.3.0".into(),
         last_published_at: "2026-04-18T18:12:44Z".into(),
+        name: "marathon-hud".into(),
         description: "test desc".into(),
         tags: vec!["a".into(), "b".into()],
         license: "MIT".into(),

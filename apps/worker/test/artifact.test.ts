@@ -264,6 +264,71 @@ describe('GET /v1/artifact/:id — tombstoned status', () => {
   });
 });
 
+// ---------- POST /v1/artifact/batch ----------
+
+describe('POST /v1/artifact/batch — bulk lookup', () => {
+  it('returns matching artifacts and silently skips missing ids', async () => {
+    await seedArtifact({ id: 'art1', authorPub: AUTHOR_PUB });
+    await seedArtifact({ id: 'art2', authorPub: AUTHOR_PUB });
+    const res = await SELF.fetch('https://worker.test/v1/artifact/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: ['art1', 'art2', 'never-existed'] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { artifacts: Array<{ artifact_id: string }> };
+    const got = body.artifacts.map((a) => a.artifact_id).sort();
+    expect(got).toEqual(['art1', 'art2']);
+  });
+
+  it('returns empty array when ids is empty', async () => {
+    const res = await SELF.fetch('https://worker.test/v1/artifact/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: [] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { artifacts: unknown[] };
+    expect(body.artifacts).toEqual([]);
+  });
+
+  it('rejects oversized batch (> 50 ids) with BAD_REQUEST', async () => {
+    const ids = Array.from({ length: 51 }, (_, i) => `id-${i}`);
+    const res = await SELF.fetch('https://worker.test/v1/artifact/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    expect(res.status).toBe(400);
+    const j = (await res.json()) as { error: { code: string } };
+    expect(j.error.code).toBe('BAD_REQUEST');
+  });
+
+  it('rejects malformed body (no `ids` field) with BAD_REQUEST', async () => {
+    const res = await SELF.fetch('https://worker.test/v1/artifact/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ wrong: 'shape' }),
+    });
+    expect(res.status).toBe(400);
+    const j = (await res.json()) as { error: { code: string } };
+    expect(j.error.code).toBe('BAD_REQUEST');
+  });
+
+  it('omits reports field on every row (public route, no moderator override)', async () => {
+    await seedArtifact({ id: 'art1', authorPub: AUTHOR_PUB, reports: 7 });
+    const res = await SELF.fetch('https://worker.test/v1/artifact/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: ['art1'] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { artifacts: Array<Record<string, unknown>> };
+    expect(body.artifacts).toHaveLength(1);
+    expect('reports' in body.artifacts[0]!).toBe(false);
+  });
+});
+
 // ---------- PATCH /v1/artifact/:id ----------
 
 describe('PATCH /v1/artifact/:id — FORBIDDEN for non-author', () => {

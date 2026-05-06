@@ -1,26 +1,53 @@
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import type { OnMount, BeforeMount } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
 import type * as monacoEditor from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { Button } from '@/components/ui/button';
-import { Code, Save, RotateCcw, X, Palette } from 'lucide-react';
+import { Code, GitFork, Lock, Save, RotateCcw, X, Palette } from 'lucide-react';
 import { useOmniState } from '@/hooks/use-omni-state';
 import { useBackend } from '@/hooks/use-backend';
+import { useOverlayMeta } from '@/hooks/use-overlay-meta';
+import { useShareWs } from '@/hooks/use-share-ws';
+import { useIdentity } from '@/lib/identity-context';
 import { parseOmniContent } from '@/lib/omni-parser';
 import { cn } from '@/lib/utils';
 import { omniDarkTheme, registerOmniLanguage, updateHwInfoSensors } from '@/lib/monaco-omni';
+import { toast } from '@/lib/toast';
+import { ForkDialog } from './fork-dialog';
 import type { ParseError } from '@omni/shared-types';
 
 export function EditorPanel() {
-  const { state, dispatch, getCurrentOverlay, saveCurrentOverlay, closeTab, getActiveTab } =
-    useOmniState();
+  const {
+    state,
+    dispatch,
+    getCurrentOverlay,
+    saveCurrentOverlay,
+    closeTab,
+    getActiveTab,
+    refreshOverlays,
+  } = useOmniState();
   const currentOverlay = getCurrentOverlay();
   const activeTab = getActiveTab();
+  const overlayMeta = useOverlayMeta(currentOverlay?.name);
+  const { send } = useShareWs();
+  const { identity } = useIdentity();
 
   const isShowingTab = activeTab != null;
   const displayContent = isShowingTab ? activeTab?.content : (currentOverlay?.content ?? '');
   const displayType = isShowingTab ? activeTab?.type : 'overlay';
+  // The overlay is read-only when it's installed-from-share AND the local
+  // identity isn't the bundle's signed author. Installed overlays are meant
+  // to be used as-is — every editing affordance (Monaco, Save, theme tabs,
+  // widget toggles, publish) is suppressed. Forking is the only legal path
+  // to make changes. Theme tabs of a read-only overlay are also read-only:
+  // editing the theme file would visually mutate the read-only overlay,
+  // which would silently re-introduce the install-vs-fork ambiguity. The
+  // Default overlay is special-cased editable even if (somehow) the registry
+  // knows about it.
+  const isReadOnlyOverlay =
+    overlayMeta.isInstalled && !overlayMeta.editable && currentOverlay?.name !== 'Default';
+  const [forkOpen, setForkOpen] = useState(false);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monacoEditor | null>(null);
@@ -190,18 +217,71 @@ export function EditorPanel() {
     }
   }, [currentOverlay, backend, dispatch]);
 
-  // Keyboard shortcuts (Ctrl+S)
+  // Keyboard shortcuts (Ctrl+S) — short-circuited when the overlay is
+  // read-only so the install-vs-fork model isn't bypassable via keyboard.
+  // Theme tabs of a read-only overlay are also read-only (see the
+  // isReadOnlyOverlay derivation above).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
+        if (isReadOnlyOverlay) return;
         handleSave();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSave]);
+  }, [handleSave, isReadOnlyOverlay]);
+
+  // Fork-to-edit: when the user clicks the read-only banner's CTA we
+  // dispatch `explorer.fork` (host-side `handle_fork` in ws_server.rs),
+  // which copies the installed bundle into a new user-owned overlay and
+  // returns its workspace_path. Switch to it on success so the user lands
+  // in their fork ready to edit. existingNames lets the dialog reject
+  // collisions before the round-trip.
+  const existingOverlayNames = useMemo(
+    () => state.overlays.map((o) => o.name),
+    [state.overlays],
+  );
+  const selfHandle = identity
+    ? identity.display_name
+      ? `${identity.display_name}#${identity.pubkey_hex.slice(0, 8)}`
+      : `#${identity.pubkey_hex.slice(0, 8)}`
+    : '';
+  const forkOriginName = currentOverlay?.name ?? '';
+  const forkAuthorHandle = overlayMeta.installedAuthorPubkey
+    ? `#${overlayMeta.installedAuthorPubkey.slice(0, 8)}`
+    : '';
+
+  const handleFork = useCallback(
+    async ({ target_name }: { target_name: string }) => {
+      if (!overlayMeta.installedArtifactId) return;
+      try {
+        await send('explorer.fork', {
+          artifact_id: overlayMeta.installedArtifactId,
+          target_name,
+        });
+        setForkOpen(false);
+        // Reload `state.overlays` from disk BEFORE selecting the fork.
+        // SELECT_OVERLAY just sets a name; if the overlay list hasn't been
+        // re-scanned, `getCurrentOverlay()` returns undefined and the editor
+        // lands in an empty "No overlay" state with the new fork missing
+        // from the header dropdown — even though the files exist on disk.
+        // The cross-surface `omni:artifact-installed` event refreshes the
+        // *installed artifacts* list, not the workspace overlay list, so
+        // it's still needed for badges but not sufficient on its own.
+        await refreshOverlays();
+        window.dispatchEvent(new CustomEvent('omni:artifact-installed'));
+        dispatch({ type: 'SELECT_OVERLAY', payload: target_name });
+        toast.success(`Forked to overlays/${target_name} — ready to edit`);
+      } catch (err) {
+        setForkOpen(false);
+        toast.error(err as Parameters<typeof toast.error>[0]);
+      }
+    },
+    [overlayMeta.installedArtifactId, send, dispatch, refreshOverlays],
+  );
 
   // Scroll to selected widget in editor when widget is clicked.
   // Watches widgetScrollRequest (increments on every click, even same widget).
@@ -293,10 +373,14 @@ export function EditorPanel() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Save/Revert buttons */}
+        {/* Save/Revert buttons — hidden entirely when the overlay is
+            read-only (installed-not-author). The user shouldn't see a
+            disabled-Save affordance hinting that editing is "almost"
+            available; the Fork-to-edit banner below the tab bar is the
+            one canonical path to make changes. */}
         <div className="flex items-center gap-2 px-3">
           <span className="text-xs text-[#71717A] font-mono">{lineCount} lines</span>
-          {(state.isDirty && !isShowingTab) || activeTab?.isDirty ? (
+          {!isReadOnlyOverlay && ((state.isDirty && !isShowingTab) || activeTab?.isDirty) ? (
             <>
               {!isShowingTab && (
                 <Button
@@ -322,8 +406,46 @@ export function EditorPanel() {
         </div>
       </div>
 
+      {/* Read-only banner (installed-not-author overlays). Sits between
+          the tab bar and the editor so the user always sees the "why"
+          before they try to interact with the dimmed code. The Fork CTA
+          opens the same dialog the explore-detail uses. */}
+      {isReadOnlyOverlay && (
+        <div
+          role="alert"
+          data-testid="editor-readonly-banner"
+          className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-[12px] text-amber-200"
+        >
+          <div className="flex items-center gap-2.5">
+            <Lock className="h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+            <span>
+              <strong className="text-amber-100">Read-only.</strong> Installed from the share
+              explorer — fork to make a copy you can edit.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 border-amber-500/40 bg-amber-500/[0.08] text-amber-100 hover:bg-amber-500/[0.16] hover:text-amber-50"
+            onClick={() => setForkOpen(true)}
+          >
+            <GitFork className="h-3.5 w-3.5 mr-1" />
+            Fork to edit
+          </Button>
+        </div>
+      )}
+
       {/* Monaco editor */}
-      <div className="flex-1 overflow-hidden">
+      <div
+        className={cn(
+          'relative flex-1 overflow-hidden',
+          // `editor-readonly` toggles a CSS rule that hides Monaco's caret
+          // (.cursor) when read-only. Selection markers stay so users can
+          // still copy code if they want — what's removed is the visual
+          // signal that the editor is editable.
+          isReadOnlyOverlay && 'editor-readonly',
+        )}
+      >
         <Editor
           key={`${currentOverlay?.name ?? 'none'}-${activeTab?.id ?? 'main'}-${displayContent ? 'loaded' : 'empty'}`}
           theme="omni-dark"
@@ -361,9 +483,44 @@ export function EditorPanel() {
             contextmenu: true,
             quickSuggestions: { other: true, strings: true, comments: false },
             automaticLayout: true,
+            // Belt-and-suspenders read-only: `readOnly` blocks edits, the
+            // pointer-events-none overlay below blocks click→caret, and the
+            // CSS in globals.css hides `.cursor`. Save button is also gone
+            // when this is true so there's no path to a write-on-disk.
+            readOnly: isReadOnlyOverlay,
+            domReadOnly: isReadOnlyOverlay,
           }}
         />
+        {/* Dim overlay — sits above Monaco, transparent black tint. Uses
+            pointer-events-none so the user can still scroll with the
+            mouse wheel; the Monaco readOnly + CSS caret hide handle the
+            "no edit signal" requirement. */}
+        {isReadOnlyOverlay && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-black/35"
+            data-testid="editor-readonly-dim"
+          />
+        )}
       </div>
+
+      {/* Fork-to-edit dialog. Only mounts in read-only mode (no point
+          building default names + collision lists when the editor is
+          already editable). On success `handleFork` switches the user
+          into the freshly-forked overlay. */}
+      {isReadOnlyOverlay && (
+        <ForkDialog
+          open={forkOpen}
+          onOpenChange={setForkOpen}
+          sourceKind="local"
+          origin={{ name: forkOriginName, author_handle: forkAuthorHandle }}
+          defaultName={`${forkOriginName}-fork`}
+          selfHandle={selfHandle}
+          existingNames={existingOverlayNames}
+          onCancel={() => setForkOpen(false)}
+          onFork={(input) => void handleFork(input)}
+        />
+      )}
 
       {/* Status bar */}
       <div className="flex h-6 items-center justify-between border-t border-[#27272A] bg-[#18181B] px-3">
@@ -374,10 +531,12 @@ export function EditorPanel() {
           <span>UTF-8</span>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-[#52525B]">
-          <span className="flex items-center gap-1">
-            <kbd className="px-1 py-0.5 bg-[#27272A] rounded text-[#71717A]">Ctrl+S</kbd>
-            <span>Save</span>
-          </span>
+          {!isReadOnlyOverlay && (
+            <span className="flex items-center gap-1">
+              <kbd className="px-1 py-0.5 bg-[#27272A] rounded text-[#71717A]">Ctrl+S</kbd>
+              <span>Save</span>
+            </span>
+          )}
         </div>
       </div>
     </div>

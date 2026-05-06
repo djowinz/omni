@@ -11,12 +11,12 @@ import { SettingsPanel } from '@/components/omni/settings-panel';
 import { ActivityBar } from '@/components/omni/activity-bar';
 import { ExplorePanel } from '@/components/omni/explore-panel';
 import { useOmniState } from '@/hooks/use-omni-state';
-import { PreviewContextProvider } from '../lib/preview-context';
-import { PreviewBanner } from '../components/omni/preview-banner';
-import { IdentityContextProvider, useIdentity } from '../lib/identity-context';
-import { SplashLoader } from '../components/omni/splash-loader';
-import { IdentityWelcomeDialog } from '../components/omni/identity-welcome-dialog';
-import { IdentityBackupDialog } from '../components/omni/identity-backup-dialog';
+import { PreviewContextProvider } from '@/lib/preview-context';
+import { PreviewBanner } from '@/components/omni/preview-banner';
+import { IdentityContextProvider, useIdentity } from '@/lib/identity-context';
+import { SplashLoader } from '@/components/omni/splash-loader';
+import { IdentityWelcomeDialog } from '@/components/omni/identity-welcome-dialog';
+import { IdentityBackupDialog } from '@/components/omni/identity-backup-dialog';
 
 function IdentityGate({ children }: { children: ReactNode }) {
   const { identity, is_fresh_install, markFirstRunHandled, refresh } = useIdentity();

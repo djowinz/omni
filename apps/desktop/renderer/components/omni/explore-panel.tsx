@@ -20,7 +20,7 @@
  * the titlebar IdentityChip + Settings IdentitySection per #016.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Compass, Upload as UploadIcon } from 'lucide-react';
 import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { useExploreList } from '../../hooks/use-explore-list';
@@ -28,9 +28,11 @@ import { useMyUploads } from '../../hooks/use-my-uploads';
 import { useShareWs } from '../../hooks/use-share-ws';
 import { useOmniState } from '../../hooks/use-omni-state';
 import { useInstalledArtifactIds } from '../../hooks/use-installed-artifact-ids';
+import { useInstalledDetails } from '../../hooks/use-installed-details';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
 import { ExploreDetail } from './explore-detail';
+import { UninstallConfirmDialog } from './uninstall-confirm-dialog';
 import { UploadDialog } from './upload-dialog';
 import { toast } from '../../lib/toast';
 import type { CachedArtifactDetail } from '../../lib/share-types';
@@ -41,18 +43,10 @@ export function ExplorePanel() {
   const { refreshOverlays } = useOmniState();
   const installed = useInstalledArtifactIds();
 
-  // Detail-pane install fires a window event after success so the panel
-  // can refetch the installed-id set without coupling the two components
-  // through a shared context. Hover-button install (handleHoverInstall
-  // below) calls installed.refetch() directly because it owns the panel-
-  // level installed state.
-  useEffect(() => {
-    const onInstalled = () => {
-      void installed.refetch();
-    };
-    window.addEventListener('omni:artifact-installed', onInstalled);
-    return () => window.removeEventListener('omni:artifact-installed', onInstalled);
-  }, [installed]);
+  // (Cross-surface sync via `omni:artifact-installed` /
+  // `omni:artifact-uninstalled` window events lives inside
+  // `useInstalledArtifacts` itself now — every consumer auto-refetches
+  // when either event fires, so the panel doesn't need its own listener.)
 
   const discoverList = useExploreList({
     tab: filters.tab,
@@ -64,28 +58,46 @@ export function ExplorePanel() {
   const myUploads = useMyUploads();
 
   // Map local InstalledEntryRow → CachedArtifactDetail-shaped rows the grid
-  // card expects. The registry doesn't carry tags / install counts /
-  // remote-thumbnail URLs, so those default to empty / 0 — the detail
-  // pane fetches the full ArtifactDetail from the worker via explorer.get
-  // when the user clicks a card.
+  // card expects. The registry stores ONLY local install state; display-only
+  // fields (thumbnail, install count, tags) come from the batch live-fetch
+  // below so cards see current install counts instead of a snapshot from
+  // install time. Cards render immediately with name/kind/author from the
+  // registry (works offline) and re-render with thumbnails + counts once
+  // the batch returns. Network failure → cards stay with the placeholder.
+  const installedDetails = useInstalledDetails(installed.entries);
+  // Tombstoned-id set: artifacts whose upstream row has `is_removed = 1`.
+  // Discover never sees these (server filters), so this is sourced solely
+  // from the live batch fetch above. Used by the Installed grid to flip
+  // the green "Installed" pill to amber "Removed upstream", and by the
+  // detail pane (via the same status field) to surface the warning banner.
+  const tombstonedIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const detail of installedDetails.byId.values()) {
+      if (detail.status === 'tombstoned') out.add(detail.artifact_id);
+    }
+    return out;
+  }, [installedDetails.byId]);
   const installedItems = useMemo<CachedArtifactDetail[]>(
     () =>
-      installed.entries.map((e) => ({
-        artifact_id: e.artifact_id,
-        content_hash: e.content_hash,
-        author_pubkey: e.author_pubkey,
-        author_fingerprint_hex: e.author_fingerprint_hex,
-        name: e.name,
-        kind: e.kind,
-        tags: [],
-        installs: 0,
-        r2_url: '',
-        thumbnail_url: '',
-        created_at: 0,
-        updated_at: e.installed_at,
-        author_display_name: null,
-      })),
-    [installed.entries],
+      installed.entries.map((e) => {
+        const live = installedDetails.byId.get(e.artifact_id);
+        return {
+          artifact_id: e.artifact_id,
+          content_hash: e.content_hash,
+          author_pubkey: e.author_pubkey,
+          author_fingerprint_hex: e.author_fingerprint_hex,
+          name: e.name,
+          kind: e.kind,
+          tags: [],
+          installs: live?.installs ?? 0,
+          r2_url: live?.r2_url ?? '',
+          thumbnail_url: live?.thumbnail_url ?? '',
+          created_at: live?.created_at ?? 0,
+          updated_at: live?.updated_at ?? e.installed_at,
+          author_display_name: live?.author_display_name ?? null,
+        };
+      }),
+    [installed.entries, installedDetails.byId],
   );
 
   const installedList = useMemo(
@@ -106,6 +118,26 @@ export function ExplorePanel() {
         : discoverList;
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Uninstall flow lives at the panel level so all surfaces (detail-pane
+  // middle button + grid hover button) share one dialog mount. The state
+  // is `null` when no uninstall is in progress; setting it to a target
+  // opens the confirm dialog. Post-success we refetch installed + refresh
+  // overlays directly here, then null out the target. This replaces the
+  // earlier window-event hop, which had a subtle staleness bug: the dialog
+  // was mounted inside ExploreDetail, and unmounting the pane after
+  // `setSelectedId(null)` could race the dispatch and leave the listener
+  // calling refetch on an already-detached set.
+  const [uninstallTarget, setUninstallTarget] = useState<{
+    artifact_id: string;
+    name: string;
+  } | null>(null);
+
+  // Hover Uninstall on an installed card: open the panel-level dialog with
+  // the card's name pre-filled. The grid only wires this when a card is
+  // installed — see `pickHoverHandlers` in explore-grid.tsx.
+  const handleHoverUninstall = (a: CachedArtifactDetail) => {
+    setUninstallTarget({ artifact_id: a.artifact_id, name: a.name });
+  };
 
   // Hover Install on a card: kicks off the install for that artifact's id.
   // The detail-pane's full state-machine (in-flight progress, TOFU mismatch
@@ -121,8 +153,10 @@ export function ExplorePanel() {
       // shows up in the header dropdown. Without this the user has to
       // hard-refresh the app to see what they just installed.
       await refreshOverlays();
-      // Refresh the installed-id set so the grid card flips to "Installed".
-      await installed.refetch();
+      // Notify other surfaces (header, editor) so their useInstalledArtifacts
+      // instances refetch — they listen for this window event. The panel's
+      // own copy refetches via the same listener (in the hook) automatically.
+      window.dispatchEvent(new CustomEvent('omni:artifact-installed'));
       toast.success(`Installed ${a.name}`);
     } catch (err) {
       toast.error(err as Parameters<typeof toast.error>[0]);
@@ -166,18 +200,55 @@ export function ExplorePanel() {
             hasMore={list.nextCursor !== null}
             selectedId={filters.selectedId}
             installedIds={installed.ids}
+            tombstonedIds={tombstonedIds}
             onSelect={filters.setSelectedId}
             onPreview={handleHoverPreview}
             onInstall={handleHoverInstall}
+            onUninstall={handleHoverUninstall}
             onLoadMore={list.loadMore}
           />
         </main>
         {filters.selectedId !== null && (
           <aside className="w-[380px] flex-shrink-0 border-l border-[#27272A]">
-            <ExploreDetail selectedId={filters.selectedId} tab={filters.tab} />
+            <ExploreDetail
+              selectedId={filters.selectedId}
+              tab={filters.tab}
+              installed={installed.ids.has(filters.selectedId)}
+              onRequestUninstall={(artifact_id, name) =>
+                setUninstallTarget({ artifact_id, name })
+              }
+            />
           </aside>
         )}
       </div>
+
+      {uninstallTarget && (
+        <UninstallConfirmDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setUninstallTarget(null);
+          }}
+          artifactId={uninstallTarget.artifact_id}
+          artifactName={uninstallTarget.name}
+          onUninstalled={() => {
+            // On Installed tab, also close the pane if it's showing the
+            // just-uninstalled row (the row vanishes from the grid; an
+            // open pane pointing at it would mismatch the tab's contents).
+            // On Discover the pane stays open so the user can one-click
+            // re-install — its middle button label flips back to "Install"
+            // as soon as the registry refetch lands. The window event
+            // triggers refetch in *every* useInstalledArtifacts instance
+            // (panel, header, editor) so all surfaces stay synced.
+            const removedId = uninstallTarget.artifact_id;
+            void refreshOverlays();
+            window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
+            setUninstallTarget(null);
+            if (filters.selectedId === removedId && filters.tab === 'installed') {
+              filters.setSelectedId(null);
+            }
+          }}
+        />
+      )}
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} prefilledPath={null} />
     </div>

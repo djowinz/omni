@@ -1135,3 +1135,15 @@
 .identity-pulse {
   animation: identity-pulse 2s ease-in-out;
 }
+
+/* Read-only overlay editor: hide Monaco's caret entirely. The container
+   div in editor-panel.tsx adds `editor-readonly` when the active overlay
+   is installed-from-share AND the local identity isn't the bundle's
+   author. Selection markers (`.slc`, `.selected-text`) are intentionally
+   left alone so users can still highlight code to copy — what we hide
+   is the visual signal that the editor is editable. Pairs with
+   `readOnly: true` on Monaco itself + a pointer-events-none dim
+   overlay. See header comment in editor-panel.tsx for the full chain. */
+.editor-readonly .monaco-editor .cursor {
+  display: none !important;
+}

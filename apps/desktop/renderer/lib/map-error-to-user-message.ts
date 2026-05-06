@@ -55,8 +55,22 @@ export function mapErrorToUserMessage(error: OmniError): UserFacingError {
       icon = 'warn';
       break;
     default: {
+      // Exhaustive check — adding a new OmniError kind without updating this
+      // mapping must produce a TypeScript error at the `_exhaustive` line
+      // below. At runtime we DON'T throw, though: throwing here masks the
+      // primary error with a "Unhandled OmniError kind" surface that
+      // doesn't tell the user (or us in logs) what actually went wrong.
+      // Soft-fall-back to a Malformed-shaped severity so the original
+      // message still surfaces in a toast.
       const _exhaustive: never = error.kind;
-      throw new Error(`Unhandled OmniError kind: ${String(_exhaustive)}`);
+      void _exhaustive;
+      console.warn(
+        `[mapErrorToUserMessage] unknown OmniError kind=${String((error as { kind?: unknown }).kind)} — falling back to Malformed mapping`,
+        error,
+      );
+      severity = 'warning';
+      icon = 'warn';
+      break;
     }
   }
 

@@ -16,6 +16,8 @@ use shared::SensorSnapshot;
 use tracing::{debug, info, warn};
 use tungstenite::{accept, Message};
 
+use crate::share::ws_messages::is_share_message_type;
+
 pub const WS_PORT: u16 = 9473;
 
 /// Adapter from `RegistryHandle` to fork's `InstalledBundleLookup`.
@@ -525,14 +527,30 @@ fn handle_message(
             use crate::share::registry::{RegistryHandle, RegistryKind};
             use crate::workspace::fork::{self, ForkRequest};
 
-            let slug = msg
-                .get("bundle_slug")
+            // Wire-shape contract (renderer side: ExplorerForkParams /
+            // ExplorerForkResultSchema in apps/desktop/renderer/lib/share-types.ts):
+            //   request:  { id, type: "explorer.fork", params: { artifact_id, target_name } }
+            //   response: { id, type: "explorer.forkResult", workspace_path, new_manifest }
+            //
+            // Earlier this arm read the top-level fields directly (`msg.bundle_slug`
+            // / `msg.new_overlay_name`), which the share `send()` envelope never
+            // sets — every share request nests the per-handler params under
+            // `params`. The result was that fork ran with empty strings, errored
+            // generically, AND returned a frame with no `id` field — so the
+            // renderer's awaited promise never resolved (the `send` hook keys
+            // matches by id) and the user saw the dialog hang silently.
+            let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            let artifact_id = params
+                .get("artifact_id")
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let name = msg
-                .get("new_overlay_name")
+                .unwrap_or("")
+                .to_string();
+            let target_name = params
+                .get("target_name")
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
+                .unwrap_or("")
+                .to_string();
 
             let overlays_root = state.data_dir.join("overlays");
             let registry = match RegistryHandle::load(&state.data_dir, RegistryKind::Bundles) {
@@ -540,37 +558,90 @@ fn handle_message(
                 Err(e) => {
                     return Some(
                         json!({
+                            "id": id,
                             "type": "error",
-                            "code": "IO_ERROR",
-                            "message": format!("installed-bundles registry load failed: {e}"),
+                            "error": {
+                                "code": "IO_ERROR",
+                                "kind": "Io",
+                                "message": format!(
+                                    "installed-bundles registry load failed: {e}"
+                                ),
+                            },
                         })
                         .to_string(),
                     );
                 }
             };
-            let lookup = RegistryBundleLookup(&registry);
 
-            let req = ForkRequest {
-                bundle_slug: slug.to_string(),
-                new_overlay_name: name.to_string(),
-            };
-            match fork::fork_to_local(req, &overlays_root, &lookup) {
-                Ok(res) => Some(
+            // The registry key for a bundle is `<pubkey8>-<display_name>` (see
+            // install.rs), but the renderer only carries `artifact_id`. Resolve
+            // the slug at the call site so the rest of the fork API stays
+            // unchanged. NOT_FOUND if no matching row — common when the user
+            // uninstalled between the dialog opening and Submit.
+            let slug = registry
+                .entries()
+                .iter()
+                .find(|(_, e)| e.artifact_id == artifact_id)
+                .map(|(k, _)| k.clone());
+            let Some(slug) = slug else {
+                return Some(
                     json!({
-                        "type": "explorer.forked",
-                        "path": res.path.strip_prefix(&state.data_dir)
-                            .unwrap_or(&res.path)
-                            .to_string_lossy(),
-                        "name": res.name,
-                        "forked_from": res.origin.forked_from,
+                        "id": id,
+                        "type": "error",
+                        "error": {
+                            "code": "NOT_FOUND",
+                            "kind": "Malformed",
+                            "message": format!(
+                                "no installed bundle for artifact_id `{artifact_id}` (was it just uninstalled?)"
+                            ),
+                        },
                     })
                     .to_string(),
-                ),
+                );
+            };
+
+            let lookup = RegistryBundleLookup(&registry);
+            let req = ForkRequest {
+                bundle_slug: slug,
+                new_overlay_name: target_name,
+            };
+            match fork::fork_to_local(req, &overlays_root, &lookup) {
+                Ok(res) => {
+                    // Reload the forked manifest so the renderer can echo it
+                    // (the schema requires a `new_manifest` object). Best-effort
+                    // — fork already succeeded, so a manifest read failure is
+                    // logged-and-empty, not a hard error.
+                    let manifest = std::fs::read_to_string(res.path.join("overlay.omni"))
+                        .map(|s| {
+                            serde_json::from_str::<serde_json::Value>(&s)
+                                .unwrap_or_else(|_| serde_json::json!({}))
+                        })
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    let workspace_path = res
+                        .path
+                        .strip_prefix(&state.data_dir)
+                        .unwrap_or(&res.path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    Some(
+                        json!({
+                            "id": id,
+                            "type": "explorer.forkResult",
+                            "workspace_path": workspace_path,
+                            "new_manifest": manifest,
+                        })
+                        .to_string(),
+                    )
+                }
                 Err(e) => Some(
                     json!({
+                        "id": id,
                         "type": "error",
-                        "code": e.ws_error_code(),
-                        "message": e.to_string(),
+                        "error": {
+                            "code": e.ws_error_code(),
+                            "kind": "Malformed",
+                            "message": e.to_string(),
+                        },
                     })
                     .to_string(),
                 ),
@@ -614,33 +685,6 @@ fn handle_message(
     }
 }
 
-/// Is this message type handled by the share-surface dispatcher?
-fn is_share_message_type(ty: Option<&str>) -> bool {
-    matches!(
-        ty,
-        Some("upload.pack")
-            | Some("upload.publish")
-            | Some("upload.update")
-            | Some("upload.delete")
-            | Some("identity.show")
-            | Some("identity.backup")
-            | Some("identity.import")
-            | Some("identity.rotate")
-            | Some("identity.markBackedUp")
-            | Some("identity.setDisplayName")
-            | Some("config.vocab")
-            | Some("config.limits")
-            | Some("report.submit")
-            | Some("explorer.install")
-            | Some("explorer.preview")
-            | Some("explorer.cancelPreview")
-            | Some("explorer.list")
-            | Some("explorer.get")
-            | Some("workspace.listPublishables")
-            | Some("share.moderationCheck")
-            | Some("share.regeneratePreview")
-    )
-}
 
 /// Dispatch a share-surface message. Synchronous results (and all progress frames)
 /// are pushed onto the provided mpsc sender; the WS loop drains it every tick and
@@ -809,44 +853,19 @@ mod tests {
 
     #[test]
     fn share_message_gate_recognizes_all_inner_dispatcher_arms() {
-        // Regression for two real silent-failure modes already observed:
-        //   - `share.moderationCheck` (Wave B1) was added to
-        //     `share::ws_messages::dispatch` but missed from the gate.
-        //     Renderer IPC hung forever because the unknown-fallback reply
-        //     omits the request `id`.
-        //   - `identity.markBackedUp` + `identity.setDisplayName` (#016
-        //     P8/P9) had the same gap — the inner dispatcher learned about
-        //     them but the gate did not.
-        // This test enumerates every arm in `share::ws_messages::dispatch` —
-        // when adding a new share RPC, add it here AND to the gate.
-        for ty in [
-            "upload.pack",
-            "upload.publish",
-            "upload.update",
-            "upload.delete",
-            "identity.show",
-            "identity.backup",
-            "identity.import",
-            "identity.rotate",
-            "identity.markBackedUp",
-            "identity.setDisplayName",
-            "config.vocab",
-            "config.limits",
-            "report.submit",
-            "explorer.install",
-            "explorer.preview",
-            "explorer.cancelPreview",
-            "explorer.list",
-            "explorer.get",
-            "workspace.listPublishables",
-            "share.moderationCheck",
-            "share.regeneratePreview",
-        ] {
+        // Smoke test for the gate wrapper. The real drift guard lives in
+        // `share::ws_messages::dispatch_has_arm_for_every_share_message_type`
+        // (a parity test that calls dispatch for every entry in
+        // `SHARE_MESSAGE_TYPES` and confirms no `_` arm fires). This test only
+        // confirms the gate function delegates to the canonical slice.
+        for ty in crate::share::ws_messages::SHARE_MESSAGE_TYPES {
             assert!(
                 is_share_message_type(Some(ty)),
-                "{ty} is dispatched in share::ws_messages but missing from is_share_message_type allowlist"
+                "{ty} listed in SHARE_MESSAGE_TYPES but is_share_message_type rejects it",
             );
         }
+        assert!(!is_share_message_type(Some("no.such.type")));
+        assert!(!is_share_message_type(None));
     }
 
     #[test]

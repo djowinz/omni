@@ -107,6 +107,20 @@ pub struct InstallRequest {
     pub expected_pubkey: Option<PublicKey>,
 }
 
+/// Subset of the bundle's manifest fields surfaced to install callers so
+/// post-install bookkeeping (e.g. `.omni-publish.json` sidecar restoration
+/// when the installer re-downloads their own artifact) doesn't have to
+/// re-open the bundle. Populated unconditionally at install time; the
+/// caller decides whether to use it.
+#[derive(Debug, Clone)]
+pub struct InstalledManifestSnapshot {
+    pub name: String,
+    pub version: semver::Version,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub license: String,
+}
+
 #[derive(Debug)]
 pub struct InstallOutcome {
     pub installed_path: PathBuf,
@@ -115,6 +129,7 @@ pub struct InstallOutcome {
     pub fingerprint: Fingerprint,
     pub tofu: TofuResult,
     pub warnings: Vec<InstallWarning>,
+    pub manifest: InstalledManifestSnapshot,
 }
 
 /// Full install driver.
@@ -277,6 +292,15 @@ pub async fn install(
     tofu.record_install(&author_pubkey)
         .map_err(identity_to_install_error)?;
 
+    let manifest_ref = signed.manifest();
+    let manifest = InstalledManifestSnapshot {
+        name: manifest_ref.name.clone(),
+        version: manifest_ref.version.clone(),
+        description: manifest_ref.description.clone(),
+        tags: manifest_ref.tags.iter().map(|t| t.as_str().to_string()).collect(),
+        license: manifest_ref.license.clone(),
+    };
+
     Ok(InstallOutcome {
         installed_path: req.target_path,
         content_hash,
@@ -284,6 +308,7 @@ pub async fn install(
         fingerprint: author_pubkey.fingerprint(),
         tofu: tofu_result,
         warnings: vec![],
+        manifest,
     })
 }
 
@@ -481,6 +506,14 @@ async fn install_inline_for_tests(
     sanitize_stage_and_commit(&signed, target, false, &cancel, &mut |_| {}).await?;
 
     let pk = *signed.author_pubkey();
+    let manifest_ref = signed.manifest();
+    let manifest = InstalledManifestSnapshot {
+        name: manifest_ref.name.clone(),
+        version: manifest_ref.version.clone(),
+        description: manifest_ref.description.clone(),
+        tags: manifest_ref.tags.iter().map(|t| t.as_str().to_string()).collect(),
+        license: manifest_ref.license.clone(),
+    };
     Ok(InstallOutcome {
         installed_path: target.to_path_buf(),
         content_hash: sha256_of(bytes),
@@ -488,6 +521,7 @@ async fn install_inline_for_tests(
         fingerprint: pk.fingerprint(),
         tofu: TofuResult::FirstSeen,
         warnings: vec![],
+        manifest,
     })
 }
 

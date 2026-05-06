@@ -93,6 +93,25 @@ export function useInstalledArtifacts(): InstalledArtifactsState {
     void fetchOnce();
   }, [fetchOnce]);
 
+  // Cross-surface sync: any component that triggers an install/uninstall
+  // (Explore panel detail, hover button, header submenu, editor fork CTA)
+  // dispatches one of these window events on success. Every consumer of
+  // this hook (and there are several — header.tsx, editor-panel.tsx,
+  // explore-panel.tsx) needs to refetch so the registry-derived state
+  // (badges, read-only overlay flag, hover affordance) stays in sync
+  // without one component having to know about all the others.
+  useEffect(() => {
+    const onChanged = () => {
+      void fetchOnce();
+    };
+    window.addEventListener('omni:artifact-installed', onChanged);
+    window.addEventListener('omni:artifact-uninstalled', onChanged);
+    return () => {
+      window.removeEventListener('omni:artifact-installed', onChanged);
+      window.removeEventListener('omni:artifact-uninstalled', onChanged);
+    };
+  }, [fetchOnce]);
+
   const ids = useMemo(() => new Set(entries.map((e) => e.artifact_id)), [entries]);
 
   return { ids, entries, loading, error, refetch: fetchOnce };

@@ -591,6 +591,56 @@ impl ShareClient {
         Ok(detail)
     }
 
+    /// `POST /v1/artifact/batch` — bulk artifact lookup, up to 50 ids per
+    /// request. Used by the renderer's Installed-tab grid to live-fetch
+    /// thumbnail + install-count in one round-trip instead of N.
+    ///
+    /// Public route (no JWS). Headers `X-Omni-Version` +
+    /// `X-Omni-Sanitize-Version` are still required by the worker's global
+    /// middleware. Missing / tombstoned / never-existed ids are silently
+    /// omitted from the response body (matching `GET /:id`'s 404 semantics
+    /// per row). Caller is responsible for capping the request to <= 50;
+    /// the worker rejects oversize batches with `BAD_REQUEST`.
+    ///
+    /// `r2_url` and `thumbnail_url` are absolutized before return so the
+    /// renderer (different origin) can fetch them directly.
+    pub async fn batch_get_artifacts(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<ArtifactDetail>, UploadError> {
+        #[derive(Deserialize)]
+        struct BatchResponse {
+            artifacts: Vec<ArtifactDetail>,
+        }
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let body = serde_json::to_vec(&serde_json::json!({ "ids": ids })).map_err(|e| {
+            UploadError::BadInput {
+                msg: "batch_get_artifacts body serialization failed".into(),
+                source: Some(Box::new(e)),
+            }
+        })?;
+        let path = "/v1/artifact/batch";
+        let req = self
+            .http
+            .post(self.url(path))
+            .header("Content-Type", "application/json")
+            .header("X-Omni-Version", env!("CARGO_PKG_VERSION"))
+            .header("X-Omni-Sanitize-Version", SANITIZE_VERSION.to_string())
+            .body(body);
+        let resp = self.send_with_retry(req).await?;
+        if !resp.status().is_success() {
+            return Err(Self::decode_error(resp).await);
+        }
+        let mut wrapper: BatchResponse = resp.json().await.map_err(UploadError::Network)?;
+        for a in wrapper.artifacts.iter_mut() {
+            a.r2_url = self.absolutize_url(&a.r2_url);
+            a.thumbnail_url = self.absolutize_url(&a.thumbnail_url);
+        }
+        Ok(wrapper.artifacts)
+    }
+
     /// `GET /v1/author/:pubkey_hex` — public author profile lookup.
     ///
     /// Public endpoint; **no JWS** (the worker route validates `pubkey_hex`

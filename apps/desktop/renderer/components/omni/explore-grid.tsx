@@ -33,9 +33,18 @@ export interface ExploreGridProps {
    * consumers that don't have a host registry to query can omit it.
    */
   installedIds?: Set<string>;
+  /**
+   * Set of artifact_ids whose upstream row is tombstoned (`status: 'tombstoned'`
+   * from the live batch fetch). Takes precedence over `installedIds` —
+   * cards in this set render an amber "Removed upstream" pill. Discover
+   * never populates this (server-side filter); only the Installed tab
+   * sees rows in this state.
+   */
+  tombstonedIds?: Set<string>;
   onSelect: (artifactId: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
+  onUninstall?: (artifact: CachedArtifactDetail) => void;
   onLoadMore: () => void;
 }
 
@@ -45,9 +54,11 @@ export function ExploreGrid({
   hasMore,
   selectedId,
   installedIds,
+  tombstonedIds,
   onSelect,
   onPreview,
   onInstall,
+  onUninstall,
   onLoadMore,
 }: ExploreGridProps) {
   const { q, sort, setQ, setSort, setKind, setTags } = useExploreFilters();
@@ -76,9 +87,11 @@ export function ExploreGrid({
           hasMore={hasMore}
           selectedId={selectedId}
           installedIds={installedIds}
+          tombstonedIds={tombstonedIds}
           onSelect={onSelect}
           onPreview={onPreview}
           onInstall={onInstall}
+          onUninstall={onUninstall}
           onLoadMore={onLoadMore}
           q={q}
           onClearFilters={clearFilters}
@@ -94,9 +107,11 @@ interface GridBodyProps {
   hasMore: boolean;
   selectedId: string | null;
   installedIds?: Set<string>;
+  tombstonedIds?: Set<string>;
   onSelect: (artifactId: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
+  onUninstall?: (artifact: CachedArtifactDetail) => void;
   onLoadMore: () => void;
   q: string;
   onClearFilters: () => void;
@@ -108,9 +123,11 @@ function GridBody({
   hasMore,
   selectedId,
   installedIds,
+  tombstonedIds,
   onSelect,
   onPreview,
   onInstall,
+  onUninstall,
   onLoadMore,
   q,
   onClearFilters,
@@ -162,17 +179,28 @@ function GridBody({
     return (
       <div ref={scrollRef} data-testid="explore-grid" className="h-full overflow-y-auto p-4">
         <div className="grid grid-cols-3 content-start gap-3.5">
-          {items.map((item) => (
-            <ArtifactCard
-              key={item.artifact_id}
-              artifact={item}
-              installed={installedIds?.has(item.artifact_id) ?? false}
-              onClick={() => onSelect(item.artifact_id)}
-              onPreview={onPreview ? () => onPreview(item) : undefined}
-              onInstall={onInstall ? () => onInstall(item) : undefined}
-              data-selected={selectedId === item.artifact_id ? 'true' : 'false'}
-            />
-          ))}
+          {items.map((item) => {
+            const handlers = pickHoverHandlers(
+              item,
+              installedIds,
+              onPreview,
+              onInstall,
+              onUninstall,
+            );
+            return (
+              <ArtifactCard
+                key={item.artifact_id}
+                artifact={item}
+                installed={installedIds?.has(item.artifact_id) ?? false}
+                tombstoned={tombstonedIds?.has(item.artifact_id) ?? false}
+                onClick={() => onSelect(item.artifact_id)}
+                onPreview={handlers.onPreview}
+                onInstall={handlers.onInstall}
+                onUninstall={handlers.onUninstall}
+                data-selected={selectedId === item.artifact_id ? 'true' : 'false'}
+              />
+            );
+          })}
         </div>
         {hasMore && <div ref={sentinelRef} data-testid="explore-grid-sentinel" className="h-8" />}
       </div>
@@ -190,22 +218,54 @@ function GridBody({
       rows={rows}
       selectedId={selectedId}
       installedIds={installedIds}
+      tombstonedIds={tombstonedIds}
       onSelect={onSelect}
       onPreview={onPreview}
       onInstall={onInstall}
+      onUninstall={onUninstall}
       hasMore={hasMore}
       sentinelRef={sentinelRef}
     />
   );
 }
 
+/**
+ * Pick hover-overlay handlers per card. Installed cards (regardless of tab)
+ * get Uninstall-only — Install would no-op and Preview is redundant with the
+ * "Open" affordance on the detail pane. Non-installed cards keep the
+ * Preview + Install pair. The grid drives this rather than the panel because
+ * the per-card decision needs `installedIds` lookup.
+ */
+function pickHoverHandlers(
+  item: CachedArtifactDetail,
+  installedIds: Set<string> | undefined,
+  onPreview: ((a: CachedArtifactDetail) => void) | undefined,
+  onInstall: ((a: CachedArtifactDetail) => void) | undefined,
+  onUninstall: ((a: CachedArtifactDetail) => void) | undefined,
+): {
+  onPreview?: () => void;
+  onInstall?: () => void;
+  onUninstall?: () => void;
+} {
+  const isInstalled = installedIds?.has(item.artifact_id) ?? false;
+  if (isInstalled && onUninstall) {
+    return { onUninstall: () => onUninstall(item) };
+  }
+  return {
+    onPreview: onPreview ? () => onPreview(item) : undefined,
+    onInstall: onInstall ? () => onInstall(item) : undefined,
+  };
+}
+
 interface VirtualGridProps {
   rows: CachedArtifactDetail[][];
   selectedId: string | null;
   installedIds?: Set<string>;
+  tombstonedIds?: Set<string>;
   onSelect: (id: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
+  onUninstall?: (artifact: CachedArtifactDetail) => void;
   hasMore: boolean;
   sentinelRef: (node: Element | null) => void;
 }
@@ -214,9 +274,11 @@ function VirtualGrid({
   rows,
   selectedId,
   installedIds,
+  tombstonedIds,
   onSelect,
   onPreview,
   onInstall,
+  onUninstall,
   hasMore,
   sentinelRef,
 }: VirtualGridProps) {
@@ -247,17 +309,28 @@ function VirtualGrid({
               }}
               className="grid grid-cols-3 gap-3.5 pb-3.5"
             >
-              {row.map((item) => (
-                <ArtifactCard
-                  key={item.artifact_id}
-                  artifact={item}
-                  installed={installedIds?.has(item.artifact_id) ?? false}
-                  onClick={() => onSelect(item.artifact_id)}
-                  onPreview={onPreview ? () => onPreview(item) : undefined}
-                  onInstall={onInstall ? () => onInstall(item) : undefined}
-                  data-selected={selectedId === item.artifact_id ? 'true' : 'false'}
-                />
-              ))}
+              {row.map((item) => {
+                const handlers = pickHoverHandlers(
+                  item,
+                  installedIds,
+                  onPreview,
+                  onInstall,
+                  onUninstall,
+                );
+                return (
+                  <ArtifactCard
+                    key={item.artifact_id}
+                    artifact={item}
+                    installed={installedIds?.has(item.artifact_id) ?? false}
+                    tombstoned={tombstonedIds?.has(item.artifact_id) ?? false}
+                    onClick={() => onSelect(item.artifact_id)}
+                    onPreview={handlers.onPreview}
+                    onInstall={handlers.onInstall}
+                    onUninstall={handlers.onUninstall}
+                    data-selected={selectedId === item.artifact_id ? 'true' : 'false'}
+                  />
+                );
+              })}
             </div>
           );
         })}

@@ -5,9 +5,10 @@
  * (search) field at 250ms (per design §2.5). `loadMore()` appends the next
  * page using the stashed next_cursor; concurrent calls are de-duplicated.
  *
- * Installed + My-Uploads tabs return empty synchronously in Wave 3b —
- * their data sources (install registry, upload.list) aren't owned by #014
- * and are deferred to #015/#016.
+ * Powers the Discover tab. The Installed tab is wired through
+ * `useInstalledArtifacts` at the panel level (it's a local registry read,
+ * not an `explorer.list` query). My-Uploads short-circuits to empty until
+ * `authorPubkey` is available from `identity.show`.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -80,8 +81,10 @@ export function useExploreList(filters: ExploreListFilters): ExploreListState {
       setError(null);
       try {
         if (effectiveFilters.tab === 'installed') {
-          // Installed tab deferred to #016 — return empty.
-          debugLog('[useExploreList] installed tab → returning empty (deferred to #016)');
+          // Installed tab is owned by `useInstalledArtifacts` at the panel
+          // level — explorer.list isn't the data source. Short-circuit so a
+          // stray Installed-tab query (from a stale filtersKey) doesn't hit
+          // the worker.
           setItems((prev) => (append ? prev : []));
           setNextCursor(null);
           return;

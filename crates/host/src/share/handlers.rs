@@ -349,7 +349,19 @@ mod tests {
 
     // ---- #021 contract-serializer tests --------------------------------
 
-    use crate::share::install::{InstallOutcome, InstallProgress, InstallWarning};
+    use crate::share::install::{
+        InstallOutcome, InstallProgress, InstallWarning, InstalledManifestSnapshot,
+    };
+
+    fn test_manifest_snapshot() -> InstalledManifestSnapshot {
+        InstalledManifestSnapshot {
+            name: "test-bundle".into(),
+            version: semver::Version::new(1, 0, 0),
+            description: String::new(),
+            tags: vec![],
+            license: "MIT".into(),
+        }
+    }
     use identity::{Keypair, PublicKey, TofuResult};
     use serde_json::Value as JsonValue;
 
@@ -444,6 +456,7 @@ mod tests {
                 actual: 1_000_000,
                 limit: 500_000,
             }],
+            manifest: test_manifest_snapshot(),
         };
         let frame = install_outcome_to_result_frame("req-9", &outcome);
         let parsed: JsonValue = serde_json::from_str(&frame).unwrap();
@@ -479,6 +492,7 @@ mod tests {
             fingerprint: fp,
             tofu,
             warnings: vec![],
+            manifest: test_manifest_snapshot(),
         };
         let f1 = install_outcome_to_result_frame("r", &base(TofuResult::FirstSeen));
         let f2 = install_outcome_to_result_frame("r", &base(TofuResult::KnownMatch));

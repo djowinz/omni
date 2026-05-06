@@ -10,7 +10,7 @@
  * - data-selected="true" adds a 1.5px cyan border + 3px ring.
  */
 
-import { Download, Layers, Palette } from 'lucide-react';
+import { AlertTriangle, Download, Layers, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CachedArtifactDetail, ArtifactDetail } from '../../lib/share-types';
 import { CardHoverOverlay } from './card-hover-overlay';
@@ -18,9 +18,16 @@ import { CardHoverOverlay } from './card-hover-overlay';
 export interface ArtifactCardProps {
   artifact: CachedArtifactDetail | ArtifactDetail;
   installed?: boolean;
+  /** True when the upstream artifact row has `is_removed = 1` — the
+   *  installed copy still works locally, but the card surfaces an amber
+   *  "Removed upstream" pill so the user knows the author pulled it
+   *  from the share explorer. Only meaningful on the Installed tab; the
+   *  Discover list filters tombstoned rows out server-side. */
+  tombstoned?: boolean;
   onClick?: () => void;
   onPreview?: () => void;
   onInstall?: () => void;
+  onUninstall?: () => void;
   className?: string;
   'data-selected'?: 'true' | 'false';
 }
@@ -61,7 +68,7 @@ function manifestTags(artifact: CachedArtifactDetail | ArtifactDetail): string[]
 }
 
 export function ArtifactCard(props: ArtifactCardProps) {
-  const { artifact, installed, onClick, onPreview, onInstall, className } = props;
+  const { artifact, installed, tombstoned, onClick, onPreview, onInstall, onUninstall, className } = props;
   const name = artifactName(artifact);
   const author = authorDisplay(artifact);
   const detail = artifact as ArtifactDetail;
@@ -69,13 +76,25 @@ export function ArtifactCard(props: ArtifactCardProps) {
   const tags = manifestTags(artifact).slice(0, 3);
 
   const isBundle = artifact.kind === 'bundle';
-  const KindIcon = isBundle ? Layers : Palette;
-  const kindLabel = installed ? 'Installed' : isBundle ? 'Bundle' : 'Theme';
-  const kindColor = installed
-    ? 'text-emerald-400 border-emerald-500/30'
-    : isBundle
-      ? 'text-[#A855F7] border-[#A855F7]/40'
-      : 'text-[#00D9FF] border-[#3F3F46]';
+  // Tombstoned takes priority: the upstream artifact is gone, so the user
+  // shouldn't see the green "Installed" affordance — it implies the artifact
+  // is still good to redistribute, which it isn't. Amber pill flags the
+  // "still works locally, but pulled from the share network" state.
+  const KindIcon = tombstoned ? AlertTriangle : isBundle ? Layers : Palette;
+  const kindLabel = tombstoned
+    ? 'Removed upstream'
+    : installed
+      ? 'Installed'
+      : isBundle
+        ? 'Bundle'
+        : 'Theme';
+  const kindColor = tombstoned
+    ? 'text-amber-400 border-amber-500/30'
+    : installed
+      ? 'text-emerald-400 border-emerald-500/30'
+      : isBundle
+        ? 'text-[#A855F7] border-[#A855F7]/40'
+        : 'text-[#00D9FF] border-[#3F3F46]';
 
   return (
     <div
@@ -119,11 +138,12 @@ export function ArtifactCard(props: ArtifactCardProps) {
           <KindIcon className="h-3 w-3" aria-hidden />
           {kindLabel}
         </span>
-        {/* Hover overlay (only when handlers are provided) */}
-        {(onPreview || onInstall) && (
+        {/* Hover overlay (only when at least one handler is provided) */}
+        {(onPreview || onInstall || onUninstall) && (
           <CardHoverOverlay
-            onPreview={onPreview ?? (() => {})}
-            onInstall={onInstall ?? (() => {})}
+            onPreview={onPreview}
+            onInstall={onInstall}
+            onUninstall={onUninstall}
           />
         )}
       </div>
