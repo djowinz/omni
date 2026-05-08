@@ -410,7 +410,20 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ForkError> {
             std::fs::create_dir_all(&to)?;
             copy_dir_recursive(&from, &to)?;
         } else if ft.is_file() {
-            std::fs::copy(&from, &to)?;
+            let bytes = std::fs::read(&from).map_err(ForkError::Io)?;
+            let filename = entry.file_name().to_string_lossy().into_owned();
+            let to_write = match sanitize::beautify::beautify_for_fork(&filename, &bytes) {
+                Ok(formatted) => formatted,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %from.display(),
+                        error = %e,
+                        "fork beautify failed; copying raw bytes"
+                    );
+                    bytes
+                }
+            };
+            std::fs::write(&to, to_write).map_err(ForkError::Io)?;
         } else {
             // Symlinks/special files should never reach here (sanitize
             // rejects them at install time); fail loudly if one does.

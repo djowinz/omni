@@ -128,6 +128,138 @@ fn orphan_staging_dirs_are_swept() {
     assert!(!orphan.exists(), "orphan staging dir should be gone");
 }
 
+#[test]
+fn fork_of_installed_bundle_writes_beautified_files() {
+    // Fixture: an installed bundle directory containing a minified .css
+    // and a minified .omni. We construct it on disk, then fork it, then
+    // assert the forked files are pretty-printed.
+    use std::collections::HashMap;
+    use std::fs;
+    use tempfile::TempDir;
+
+    struct StubLookup(HashMap<String, InstalledBundleView>);
+    impl InstalledBundleLookup for StubLookup {
+        fn lookup(&self, slug: &str) -> Option<InstalledBundleView> {
+            self.0.get(slug).cloned()
+        }
+    }
+
+    let root = TempDir::new().unwrap();
+    let bundle_dir = root.path().join("bundles/author/minified");
+    fs::create_dir_all(bundle_dir.join("themes")).unwrap();
+
+    // Minified bodies — what install would have written.
+    fs::write(bundle_dir.join("themes/dark.css"), b"body{color:red;margin:0}").unwrap();
+    fs::write(
+        bundle_dir.join("overlay.omni"),
+        b"<widget><template><div><span>a</span></div></template><style>body{color:red;margin:0}</style></widget>",
+    )
+    .unwrap();
+    fs::write(bundle_dir.join("manifest.json"), b"{\"name\":\"x\"}").unwrap();
+
+    let view = InstalledBundleView {
+        path: bundle_dir.clone(),
+        artifact_id: "author/minified".into(),
+        content_hash: "a".repeat(64),
+        bundle_name: "minified".into(),
+        author_pubkey: "b".repeat(64),
+        author_display_name: Some("Author".into()),
+        author_fingerprint: "c".repeat(8),
+    };
+    let mut map = HashMap::new();
+    map.insert("author/minified".into(), view);
+    let lookup = StubLookup(map);
+
+    let overlays_root = root.path().join("overlays");
+    fs::create_dir_all(&overlays_root).unwrap();
+
+    let req = ForkRequest {
+        bundle_slug: "author/minified".into(),
+        new_overlay_name: "my-fork".into(),
+    };
+    let result = fork_to_local(req, &overlays_root, &lookup).expect("fork must succeed");
+
+    // Assertions on the resulting fork.
+    let css = fs::read_to_string(result.path.join("themes/dark.css"))
+        .expect("forked css must exist");
+    assert!(css.contains('\n'), "css must be pretty-printed: {css:?}");
+
+    let omni = fs::read_to_string(result.path.join("overlay.omni"))
+        .expect("forked omni must exist");
+    let style_open = omni.find("<style>").unwrap();
+    let style_close = omni.find("</style>").unwrap();
+    let style_body = &omni[style_open + "<style>".len()..style_close];
+    assert!(
+        style_body.contains('\n'),
+        "<style> body must be multi-line in fork: {style_body:?}"
+    );
+
+    let tpl_open = omni.find("<template>").unwrap();
+    let tpl_close = omni.find("</template>").unwrap();
+    let tpl_body = &omni[tpl_open + "<template>".len()..tpl_close];
+    assert!(
+        tpl_body.contains('\n'),
+        "<template> body must be multi-line in fork: {tpl_body:?}"
+    );
+
+    // manifest.json: pass-through, byte-equal.
+    let manifest = fs::read(result.path.join("manifest.json")).unwrap();
+    assert_eq!(manifest, b"{\"name\":\"x\"}", "manifest must pass through unchanged");
+
+    // .omni-origin.json: written by fork itself, must be valid JSON with origin.
+    let origin_bytes = fs::read(result.path.join(".omni-origin.json")).unwrap();
+    let origin: serde_json::Value = serde_json::from_slice(&origin_bytes).expect("origin parses");
+    assert_eq!(origin["forked_from"]["artifact_id"], "author/minified");
+    assert_eq!(origin["forked_from"]["content_hash"], "a".repeat(64));
+}
+
+#[test]
+fn fork_with_invalid_css_falls_back_to_raw_bytes() {
+    use std::collections::HashMap;
+    use std::fs;
+    use tempfile::TempDir;
+
+    struct StubLookup(HashMap<String, InstalledBundleView>);
+    impl InstalledBundleLookup for StubLookup {
+        fn lookup(&self, slug: &str) -> Option<InstalledBundleView> {
+            self.0.get(slug).cloned()
+        }
+    }
+
+    let root = TempDir::new().unwrap();
+    let bundle_dir = root.path().join("bundles/author/broken");
+    fs::create_dir_all(bundle_dir.join("themes")).unwrap();
+
+    // Garbage that fails lightningcss::StyleSheet::parse.
+    let broken = b"body{:::not valid css";
+    fs::write(bundle_dir.join("themes/dark.css"), broken).unwrap();
+
+    let view = InstalledBundleView {
+        path: bundle_dir.clone(),
+        artifact_id: "author/broken".into(),
+        content_hash: "a".repeat(64),
+        bundle_name: "broken".into(),
+        author_pubkey: "b".repeat(64),
+        author_display_name: None,
+        author_fingerprint: "c".repeat(8),
+    };
+    let mut map = HashMap::new();
+    map.insert("author/broken".into(), view);
+    let lookup = StubLookup(map);
+
+    let overlays_root = root.path().join("overlays");
+    fs::create_dir_all(&overlays_root).unwrap();
+
+    let req = ForkRequest {
+        bundle_slug: "author/broken".into(),
+        new_overlay_name: "my-broken-fork".into(),
+    };
+    let result = fork_to_local(req, &overlays_root, &lookup).expect("fork must succeed despite bad css");
+
+    let on_disk = fs::read(result.path.join("themes/dark.css")).unwrap();
+    assert_eq!(on_disk, broken, "fork must fall back to raw bytes when beautify fails");
+}
+
 fn snapshot(p: &Path) -> Vec<(String, Vec<u8>)> {
     let mut v = Vec::new();
     snap(p, p, &mut v);
