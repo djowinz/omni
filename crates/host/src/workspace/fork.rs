@@ -410,8 +410,15 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ForkError> {
             std::fs::create_dir_all(&to)?;
             copy_dir_recursive(&from, &to)?;
         } else if ft.is_file() {
-            let bytes = std::fs::read(&from).map_err(ForkError::Io)?;
             let filename = entry.file_name().to_string_lossy().into_owned();
+            // Fast path: pass-through files (manifest.json, thumbnails, anything
+            // not on the beautify dispatch table) take an OS-level copy and skip
+            // the read + heap-alloc + write triplet.
+            if !sanitize::beautify::is_beautifiable(&filename) {
+                std::fs::copy(&from, &to).map_err(ForkError::Io)?;
+                continue;
+            }
+            let bytes = std::fs::read(&from).map_err(ForkError::Io)?;
             let to_write = match sanitize::beautify::beautify_for_fork(&filename, &bytes) {
                 Ok(formatted) => formatted,
                 Err(e) => {

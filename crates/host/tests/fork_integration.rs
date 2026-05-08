@@ -1,6 +1,7 @@
 //! Integration tests for `fork_to_local` crossing `workspace::fork` +
 //! `workspace::atomic_dir` with a real on-disk layout.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use omni_host::workspace::fork::{
@@ -15,6 +16,13 @@ impl InstalledBundleLookup for OneBundle {
         } else {
             None
         }
+    }
+}
+
+struct StubLookup(HashMap<String, InstalledBundleView>);
+impl InstalledBundleLookup for StubLookup {
+    fn lookup(&self, slug: &str) -> Option<InstalledBundleView> {
+        self.0.get(slug).cloned()
     }
 }
 
@@ -133,16 +141,8 @@ fn fork_of_installed_bundle_writes_beautified_files() {
     // Fixture: an installed bundle directory containing a minified .css
     // and a minified .omni. We construct it on disk, then fork it, then
     // assert the forked files are pretty-printed.
-    use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
-
-    struct StubLookup(HashMap<String, InstalledBundleView>);
-    impl InstalledBundleLookup for StubLookup {
-        fn lookup(&self, slug: &str) -> Option<InstalledBundleView> {
-            self.0.get(slug).cloned()
-        }
-    }
 
     let root = TempDir::new().unwrap();
     let bundle_dir = root.path().join("bundles/author/minified");
@@ -216,16 +216,8 @@ fn fork_of_installed_bundle_writes_beautified_files() {
 #[test]
 #[tracing_test::traced_test]
 fn fork_with_invalid_css_falls_back_to_raw_bytes() {
-    use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
-
-    struct StubLookup(HashMap<String, InstalledBundleView>);
-    impl InstalledBundleLookup for StubLookup {
-        fn lookup(&self, slug: &str) -> Option<InstalledBundleView> {
-            self.0.get(slug).cloned()
-        }
-    }
 
     let root = TempDir::new().unwrap();
     let bundle_dir = root.path().join("bundles/author/broken");

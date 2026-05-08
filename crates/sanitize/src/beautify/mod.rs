@@ -8,24 +8,33 @@ mod error;
 mod html;
 mod omni;
 
-pub use css::beautify_css;
 pub use error::BeautifyError;
-pub use html::beautify_html;
-pub use omni::beautify_omni;
+
+use css::beautify_css;
+use omni::beautify_omni;
+
+/// True if `filename` will be transformed by `beautify_for_fork`. Lets callers
+/// (e.g. fork.rs) short-circuit to an OS-level copy for non-beautifiable
+/// files instead of paying read + write + heap copy.
+pub fn is_beautifiable(filename: &str) -> bool {
+    matches!(extension(filename).as_str(), "css" | "omni")
+}
 
 /// Returns formatted bytes for a recognized extension. Unknown extensions
 /// pass through unchanged (returns `Ok(input.to_vec())`).
 pub fn beautify_for_fork(filename: &str, bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
-    let ext = filename
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .unwrap_or_default();
-
-    match ext.as_str() {
+    match extension(filename).as_str() {
         "css" => beautify_css(bytes),
         "omni" => beautify_omni(bytes),
         _ => Ok(bytes.to_vec()),
     }
+}
+
+fn extension(filename: &str) -> String {
+    filename
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -48,12 +57,19 @@ mod dispatch_tests {
 
     #[test]
     fn extension_match_is_case_insensitive() {
-        // Stub returns input unchanged (will be replaced once Task 2 lands).
-        // For now we only assert dispatch ROUTES to the css beautifier — the
-        // stub won't error, it just round-trips.
         let input = b"body{color:red}";
         let out_lower = beautify_for_fork("a.css", input).expect("lowercase ok");
         let out_upper = beautify_for_fork("a.CSS", input).expect("uppercase ok");
         assert_eq!(out_lower, out_upper);
+    }
+
+    #[test]
+    fn is_beautifiable_matches_dispatch() {
+        assert!(is_beautifiable("themes/dark.css"));
+        assert!(is_beautifiable("widget.omni"));
+        assert!(is_beautifiable("WIDGET.OMNI"));
+        assert!(!is_beautifiable("manifest.json"));
+        assert!(!is_beautifiable("README"));
+        assert!(!is_beautifiable("preview.png"));
     }
 }

@@ -11,7 +11,7 @@ use crate::beautify::error::BeautifyError;
 use crate::beautify::html::beautify_html;
 use crate::omni_parser::{validate_structure, BodyKind};
 
-pub fn beautify_omni(bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
+pub(crate) fn beautify_omni(bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
     let ranges = validate_structure("beautify", "<fork>", bytes)
         .map_err(|e| BeautifyError::Omni(format!("parse: {e}")))?;
 

@@ -6,7 +6,7 @@ use lightningcss::stylesheet::{ParserOptions, StyleSheet};
 
 use crate::beautify::error::BeautifyError;
 
-pub fn beautify_css(bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
+pub(crate) fn beautify_css(bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
     let css = std::str::from_utf8(bytes).map_err(|e| BeautifyError::Css(e.to_string()))?;
     let sheet = StyleSheet::parse(css, ParserOptions::default())
         .map_err(|e| BeautifyError::Css(e.to_string()))?;

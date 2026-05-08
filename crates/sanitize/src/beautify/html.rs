@@ -5,7 +5,7 @@ use markup_fmt::{config::FormatOptions, format_text, Language};
 
 use crate::beautify::error::BeautifyError;
 
-pub fn beautify_html(bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
+pub(crate) fn beautify_html(bytes: &[u8]) -> Result<Vec<u8>, BeautifyError> {
     let html = std::str::from_utf8(bytes).map_err(|e| BeautifyError::Html(e.to_string()))?;
     if html.trim().is_empty() {
         return Ok(bytes.to_vec());
