@@ -69,4 +69,26 @@ export class BackendApi {
     const response = await this.send({ type: 'preview.subscribe' });
     return { active: response.active };
   }
+
+  /**
+   * Pin the editor preview stream to a specific overlay source.
+   * The host parses `source`, builds initial HTML, and begins broadcasting
+   * `preview.html.editor` / `preview.update.editor` frames for that overlay
+   * independently of the in-game stream.
+   */
+  async setEditorOverlay(params: { source: string; overlay_name: string }): Promise<void> {
+    await this.send({
+      type: 'preview.setEditorOverlay',
+      source: params.source,
+      overlay_name: params.overlay_name,
+    });
+  }
+
+  /**
+   * Clear the pinned editor overlay, falling back to the mirror-by-default
+   * path where the editor channel echoes the in-game stream.
+   */
+  async clearEditorOverlay(): Promise<void> {
+    await this.send({ type: 'preview.clearEditorOverlay' });
+  }
 }

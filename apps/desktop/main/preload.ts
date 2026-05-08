@@ -61,6 +61,56 @@ contextBridge.exposeInMainWorld('omni', {
     };
   },
 
+  // In-game preview stream — initial HTML for the active overlay.
+  onPreviewHtmlIngame: (callback: (data: { html: string; css: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-html-ingame', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-html-ingame', handler);
+    };
+  },
+
+  // In-game preview stream — incremental sensor/diff updates for the active overlay.
+  onPreviewUpdateIngame: (
+    callback: (data: {
+      diff?: Record<string, { c?: string; t?: string; a?: Record<string, string> }>;
+      values?: Record<string, number>;
+    }) => void,
+  ) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-update-ingame', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-update-ingame', handler);
+    };
+  },
+
+  // Editor preview stream — initial HTML for the editor-selected overlay.
+  // Payload includes `overlay_name` so the renderer can display/track which
+  // overlay the editor channel is currently showing.
+  onPreviewHtmlEditor: (
+    callback: (data: { html: string; css: string; overlay_name: string }) => void,
+  ) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-html-editor', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-html-editor', handler);
+    };
+  },
+
+  // Editor preview stream — incremental sensor/diff updates for the editor selection.
+  onPreviewUpdateEditor: (
+    callback: (data: {
+      diff?: Record<string, { c?: string; t?: string; a?: Record<string, string> }>;
+      values?: Record<string, number>;
+    }) => void,
+  ) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-update-editor', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-update-editor', handler);
+    };
+  },
+
   // HWiNFO sensor list updates
   onHwInfoSensors: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);

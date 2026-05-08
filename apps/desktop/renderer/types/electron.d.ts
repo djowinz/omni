@@ -1,5 +1,7 @@
 /** Type declarations for the Electron IPC bridge exposed via preload.ts */
 
+import type { PreviewDiff, PreviewValues } from '../lib/preview-updater';
+
 interface OmniIpcBridge {
   minimizeWindow: () => void;
   maximizeWindow: () => void;
@@ -11,6 +13,20 @@ interface OmniIpcBridge {
   onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => () => void;
   onPreviewUpdate: (
     callback: (data: { diff: Record<string, { c?: string; t?: string }> }) => void,
+  ) => () => void;
+  /** In-game preview stream — emitted when the host builds initial HTML for the active overlay. */
+  onPreviewHtmlIngame: (callback: (data: { html: string; css: string }) => void) => () => void;
+  /** In-game preview stream — incremental sensor/diff updates for the active overlay. */
+  onPreviewUpdateIngame: (
+    callback: (data: { diff?: PreviewDiff; values?: PreviewValues }) => void,
+  ) => () => void;
+  /** Editor preview stream — emitted when the host builds initial HTML for the editor selection. */
+  onPreviewHtmlEditor: (
+    callback: (data: { html: string; css: string; overlay_name: string }) => void,
+  ) => () => void;
+  /** Editor preview stream — incremental sensor/diff updates for the editor selection. */
+  onPreviewUpdateEditor: (
+    callback: (data: { diff?: PreviewDiff; values?: PreviewValues }) => void,
   ) => () => void;
   onHwInfoSensors: (callback: (data: any) => void) => () => void;
   onUpdateReady: (callback: (version: string, releaseDate: string) => void) => () => void;

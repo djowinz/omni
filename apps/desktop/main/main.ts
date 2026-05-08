@@ -469,6 +469,29 @@ app.on('ready', async () => {
         values: msg.values,
       });
     }
+    // Dual-stream preview events (host renames + new editor channel).
+    if (msg.type === 'preview.html.ingame') {
+      mainWindow?.webContents.send('preview-html-ingame', { html: msg.html, css: msg.css });
+    }
+    if (msg.type === 'preview.update.ingame') {
+      mainWindow?.webContents.send('preview-update-ingame', {
+        diff: msg.diff,
+        values: msg.values,
+      });
+    }
+    if (msg.type === 'preview.html.editor') {
+      mainWindow?.webContents.send('preview-html-editor', {
+        html: msg.html,
+        css: msg.css,
+        overlay_name: msg.overlay_name,
+      });
+    }
+    if (msg.type === 'preview.update.editor') {
+      mainWindow?.webContents.send('preview-update-editor', {
+        diff: msg.diff,
+        values: msg.values,
+      });
+    }
     // Forward unsolicited share-hub frames to the renderer's 'share:event' channel.
     // Silently drops if mainWindow is null (window closed). Does not interfere with
     // the ws-message invoke path above — these type strings don't overlap with responseTypes.

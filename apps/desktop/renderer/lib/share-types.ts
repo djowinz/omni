@@ -987,6 +987,39 @@ export const WorkspaceListInstalledResultSchema = z.object({
 });
 export type WorkspaceListInstalledResult = z.infer<typeof WorkspaceListInstalledResultSchema>;
 
+// ── preview.setEditorOverlay ────────────────────────────────────────────────
+//
+// Renderer-initiated request to pin the editor preview stream to a specific
+// overlay source. The host parses `source`, builds initial HTML, and begins
+// broadcasting `preview.html.editor` / `preview.update.editor` frames for
+// that overlay independently of the in-game stream.
+//
+// Shipped: crates/host/src/ws_server.rs handle_message "preview.setEditorOverlay"
+export const PreviewSetEditorOverlayParamsSchema = z.object({
+  source: z.string(),
+  overlay_name: z.string(),
+});
+export type PreviewSetEditorOverlayParams = z.infer<typeof PreviewSetEditorOverlayParamsSchema>;
+
+export const PreviewSetEditorOverlayAckSchema = z.object({
+  type: z.literal('preview.setEditorOverlay.ack'),
+});
+export type PreviewSetEditorOverlayAck = z.infer<typeof PreviewSetEditorOverlayAckSchema>;
+
+// ── preview.clearEditorOverlay ──────────────────────────────────────────────
+//
+// Renderer-initiated request to clear the pinned editor overlay, falling back
+// to the mirror-by-default path (editor channel echoes the in-game stream).
+//
+// Shipped: crates/host/src/ws_server.rs handle_message "preview.clearEditorOverlay"
+export const PreviewClearEditorOverlayParamsSchema = z.object({});
+export type PreviewClearEditorOverlayParams = z.infer<typeof PreviewClearEditorOverlayParamsSchema>;
+
+export const PreviewClearEditorOverlayAckSchema = z.object({
+  type: z.literal('preview.clearEditorOverlay.ack'),
+});
+export type PreviewClearEditorOverlayAck = z.infer<typeof PreviewClearEditorOverlayAckSchema>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Type-level request + subscription registries
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1098,6 +1131,14 @@ export interface ShareRequestMap {
     params: ShareRegeneratePreviewParams;
     result: ShareRegeneratePreviewResult;
   };
+  'preview.setEditorOverlay': {
+    params: PreviewSetEditorOverlayParams;
+    result: PreviewSetEditorOverlayAck;
+  };
+  'preview.clearEditorOverlay': {
+    params: PreviewClearEditorOverlayParams;
+    result: PreviewClearEditorOverlayAck;
+  };
 }
 
 /**
@@ -1148,6 +1189,8 @@ export const ShareResponseSchemas = {
   'workspace.listInstalledResult': WorkspaceListInstalledResultSchema,
   'share.moderationCheckResult': ShareModerationCheckResultSchema,
   'share.regeneratePreviewResult': ShareRegeneratePreviewResultSchema,
+  'preview.setEditorOverlay.ack': PreviewSetEditorOverlayAckSchema,
+  'preview.clearEditorOverlay.ack': PreviewClearEditorOverlayAckSchema,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 /** Exhaustive union of every WS response/progress type string a consumer may receive. Useful for discriminated switch statements. */
