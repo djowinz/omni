@@ -419,7 +419,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ForkError> {
                 continue;
             }
             let bytes = std::fs::read(&from).map_err(ForkError::Io)?;
-            let to_write = match sanitize::beautify::beautify_for_fork(&filename, &bytes) {
+            let to_write = match sanitize::beautify::beautify_for_disk(&filename, &bytes) {
                 Ok(formatted) => formatted,
                 Err(e) => {
                     tracing::warn!(

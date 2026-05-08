@@ -368,7 +368,26 @@ async fn sanitize_stage_and_commit(
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&dest, body)?;
+        // Beautify after hash verification so the on-disk file is editable.
+        // The signed bundle's bytes (verified above) are the authoritative
+        // form for re-publish; on-disk drift is intentional. Pass-through
+        // files (manifest.json, binary thumbnails, anything not on the
+        // dispatch table) skip the parse and write the verified bytes.
+        if sanitize::beautify::is_beautifiable(path) {
+            match sanitize::beautify::beautify_for_disk(path, body) {
+                Ok(formatted) => std::fs::write(&dest, &formatted)?,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %path,
+                        error = %e,
+                        "install beautify failed; writing raw bytes"
+                    );
+                    std::fs::write(&dest, body)?;
+                }
+            }
+        } else {
+            std::fs::write(&dest, body)?;
+        }
         progress(InstallProgress::Writing {
             file: path.clone(),
             index,

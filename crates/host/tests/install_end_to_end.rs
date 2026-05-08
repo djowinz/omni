@@ -39,9 +39,13 @@ fn sha256_of(bytes: &[u8]) -> [u8; 32] {
 #[tokio::test]
 async fn worker_to_host_to_workspace_roundtrip() {
     // ---- 1. Build a signed bundle (mirrors install.rs::tests::build_fixture) ----
+    // Fixtures are MINIFIED so the install-time beautify has visible work to do;
+    // assertions below check the on-disk form is multi-line.
     let kp = Keypair::generate();
-    let overlay_bytes = b"<widget><template><div/></template></widget>".to_vec();
-    let theme_bytes = b"body { color: red; }".to_vec();
+    let overlay_bytes =
+        b"<widget><template><div><span>a</span></div></template><style>body{color:red}</style></widget>"
+            .to_vec();
+    let theme_bytes = b"body{color:red;margin:0}".to_vec();
     let overlay_sha = sha256_of(&overlay_bytes);
     let theme_sha = sha256_of(&theme_bytes);
 
@@ -133,10 +137,18 @@ async fn worker_to_host_to_workspace_roundtrip() {
         theme_file.exists(),
         "themes/theme.css must exist after install"
     );
-    let theme_on_disk = std::fs::read(&theme_file).unwrap();
-    assert_eq!(
-        theme_on_disk, theme_bytes,
-        "theme.css contents match fixture"
+    // theme.css and overlay.omni are beautified on install (minified fixture
+    // bytes were verified against the manifest hash, then pretty-printed
+    // before write). Assert: file lands on disk, bytes are multi-line, and
+    // content is preserved (`color: red` survives the round-trip).
+    let theme_on_disk = std::fs::read_to_string(&theme_file).unwrap();
+    assert!(
+        theme_on_disk.contains('\n'),
+        "theme.css must be beautified on install (multi-line): {theme_on_disk:?}"
+    );
+    assert!(
+        theme_on_disk.contains("color"),
+        "theme.css content must survive beautify"
     );
 
     let overlay_file = outcome.installed_path.join("overlay.omni");
@@ -144,10 +156,20 @@ async fn worker_to_host_to_workspace_roundtrip() {
         overlay_file.exists(),
         "overlay.omni must exist after install"
     );
-    let overlay_on_disk = std::fs::read(&overlay_file).unwrap();
-    assert_eq!(
-        overlay_on_disk, overlay_bytes,
-        "overlay.omni contents match fixture"
+    let overlay_on_disk = std::fs::read_to_string(&overlay_file).unwrap();
+    let style_open = overlay_on_disk.find("<style>").expect("has <style>");
+    let style_close = overlay_on_disk.find("</style>").expect("has </style>");
+    let style_body = &overlay_on_disk[style_open + "<style>".len()..style_close];
+    assert!(
+        style_body.contains('\n'),
+        "<style> body must be beautified on install: {style_body:?}"
+    );
+    let tpl_open = overlay_on_disk.find("<template>").expect("has <template>");
+    let tpl_close = overlay_on_disk.find("</template>").expect("has </template>");
+    let tpl_body = &overlay_on_disk[tpl_open + "<template>".len()..tpl_close];
+    assert!(
+        tpl_body.contains('\n'),
+        "<template> body must be beautified on install: {tpl_body:?}"
     );
 
     // ---- 7b. Registry round-trip from disk: exactly one entry, matches ------
