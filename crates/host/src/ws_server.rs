@@ -222,17 +222,63 @@ fn handle_client(stream: TcpStream, state: &Arc<WsSharedState>) {
                                 info!("Client subscribed to preview updates");
                             }
 
-                            // Send current HTML if available
+                            // Send current HTML if available — dual-stream replay.
+                            // Emits `preview.html.ingame` first (renamed from the
+                            // old `preview.html` event), then `preview.html.editor`
+                            // with mirror-by-default: if the renderer has pushed a
+                            // `preview.setEditorOverlay` we replay that; otherwise
+                            // we echo the in-game HTML so the editor iframe is
+                            // never blank on first connect.
                             if let Some((ref html, ref css)) =
                                 *state.latest_initial_html.lock().unwrap()
                             {
-                                let msg = json!({
-                                    "type": "preview.html",
+                                // In-game replay (renamed channel).
+                                let ingame_msg = json!({
+                                    "type": "preview.html.ingame",
                                     "html": html,
                                     "css": css,
                                 })
                                 .to_string();
-                                if ws.send(Message::Text(msg.into())).is_err() {
+                                if ws.send(Message::Text(ingame_msg.into())).is_err() {
+                                    break;
+                                }
+
+                                // Editor replay: use the dedicated editor build if
+                                // available, otherwise mirror the in-game HTML.
+                                let editor_initial = state
+                                    .editor_initial_html
+                                    .lock()
+                                    .ok()
+                                    .and_then(|g| g.clone());
+                                let (editor_html_owned, editor_css_owned, editor_overlay_name) =
+                                    match editor_initial {
+                                        Some(initial) => (
+                                            initial.html.clone(),
+                                            initial.css.clone(),
+                                            state
+                                                .active_overlay
+                                                .lock()
+                                                .map(|s| s.clone())
+                                                .unwrap_or_else(|_| "Default".to_string()),
+                                        ),
+                                        None => (
+                                            html.clone(),
+                                            css.clone(),
+                                            state
+                                                .active_overlay
+                                                .lock()
+                                                .map(|s| s.clone())
+                                                .unwrap_or_else(|_| "Default".to_string()),
+                                        ),
+                                    };
+                                let editor_msg = json!({
+                                    "type": "preview.html.editor",
+                                    "html": editor_html_owned,
+                                    "css": editor_css_owned,
+                                    "overlay_name": editor_overlay_name,
+                                })
+                                .to_string();
+                                if ws.send(Message::Text(editor_msg.into())).is_err() {
                                     break;
                                 }
                             }
@@ -1179,5 +1225,56 @@ mod tests {
             state.editor_omni_file.lock().unwrap().is_none(),
             "malformed source must not populate editor_omni_file"
         );
+    }
+
+    /// Verifies that `preview.subscribe` returns a `preview.subscribed`
+    /// acknowledgement and that `broadcast_preview_html_editor` emits the
+    /// correct `preview.html.editor` envelope type.
+    ///
+    /// NOTE: The dual-stream replay logic (ingame + editor messages) inside
+    /// `handle_client` requires a live WebSocket connection and cannot be
+    /// exercised in a unit test without a heavyweight fixture. The actual replay
+    /// path is covered by the manual smoke test (Task 8) and the integration
+    /// smoke check in the broader ws_server test suite.
+    #[test]
+    fn preview_subscribe_ack_and_editor_broadcast_type() {
+        let state = Arc::new(WsSharedState::new(std::env::temp_dir()));
+        let mut subscribed = false;
+
+        // preview.subscribe must ack
+        let reply = handle_message(r#"{"type": "preview.subscribe"}"#, &state, &mut subscribed)
+            .expect("handler returns reply");
+        let parsed: serde_json::Value = serde_json::from_str(&reply).expect("reply is JSON");
+        assert_eq!(parsed["type"], "preview.subscribed");
+        assert_eq!(
+            parsed["active"], false,
+            "active should be false when latest_initial_html is None"
+        );
+
+        // Populate latest_initial_html then check active flag
+        *state.latest_initial_html.lock().unwrap() =
+            Some(("html".to_string(), "css".to_string()));
+        let reply2 = handle_message(r#"{"type": "preview.subscribe"}"#, &state, &mut subscribed)
+            .expect("handler returns reply");
+        let parsed2: serde_json::Value = serde_json::from_str(&reply2).expect("reply is JSON");
+        assert_eq!(parsed2["active"], true, "active should be true when html is cached");
+
+        // Verify broadcast_preview_html_editor emits the correct event type.
+        // Subscribe a channel to capture the broadcast.
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        state.preview_subscribers.lock().unwrap().push(tx);
+
+        broadcast_preview_html_editor(&state, "<div/>", "body{}", "my-overlay");
+
+        let broadcast_msg = rx.try_recv().expect("broadcast sent a message");
+        let broadcast_val: serde_json::Value =
+            serde_json::from_str(&broadcast_msg).expect("broadcast is JSON");
+        assert_eq!(
+            broadcast_val["type"], "preview.html.editor",
+            "editor broadcast must use preview.html.editor event type"
+        );
+        assert_eq!(broadcast_val["html"], "<div/>");
+        assert_eq!(broadcast_val["css"], "body{}");
+        assert_eq!(broadcast_val["overlay_name"], "my-overlay");
     }
 }
