@@ -65,6 +65,13 @@ interface OmniContextValue {
    * dropdown picks them up without a full app reload.
    */
   refreshOverlays: () => Promise<void>;
+  /**
+   * Drop dangling config references (active_overlay, per-game assignments)
+   * pointing at an overlay that's about to be removed. Called by the
+   * uninstall path so the config doesn't outlive the on-disk folder. The
+   * built-in `deleteOverlay` calls this internally.
+   */
+  cleanupConfigForRemovedOverlay: (removedName: string) => Promise<void>;
   // Tab functions
   openThemeTab: (themePath: string) => Promise<void>;
   openOverlayTab: (overlayName: string) => void;
@@ -289,16 +296,68 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     [state.overlays],
   );
 
-  const deleteOverlay = useCallback(async (name: string): Promise<void> => {
-    if (name === 'Default') return; // Can't delete default
+  // Clean up dangling config references that an about-to-disappear overlay
+  // leaves behind: `active_overlay` reverts to 'Default', and any per-game
+  // assignment pointing at the removed overlay is dropped. Without this,
+  // the host keeps trying to render an overlay whose folder no longer
+  // exists, the header shows the removed name as "Active", and game-
+  // launches load nothing for the affected executables. Used by both
+  // `deleteOverlay` (user-folder removal) and the uninstall flow
+  // (`explorer.uninstall` registry + on-disk cleanup) — same shape of
+  // cleanup either way. Read, mutate, write — single round-trip so the
+  // on-disk config matches the user's intent the moment the removal
+  // completes.
+  const cleanupConfigForRemovedOverlay = useCallback(
+    async (removedName: string): Promise<void> => {
+      try {
+        const config = await backend.getConfig();
+        let changed = false;
+        if (config.active_overlay === removedName) {
+          config.active_overlay = 'Default';
+          changed = true;
+        }
+        for (const [exe, assigned] of Object.entries(config.overlay_by_game)) {
+          if (assigned === removedName) {
+            delete config.overlay_by_game[exe];
+            changed = true;
+          }
+        }
+        if (changed) {
+          // Persist via `config.update`. The host's file watcher picks up
+          // the on-disk change, re-resolves the active overlay, and
+          // triggers `host.switch_overlay` + `ul_needs_reload = true` —
+          // which loads the new overlay's source from disk, parses it,
+          // mounts the new HTML in Ultralight, and broadcasts the
+          // preview frame to subscribers. The renderer doesn't pull
+          // content + push it back; it just tells the host the truth
+          // about which overlay is active and lets the host's render
+          // loop do its job.
+          await backend.updateConfig(config);
+          dispatch({ type: 'SET_CONFIG', payload: config });
+        }
+      } catch (err) {
+        // The removal that triggered this cleanup has already succeeded —
+        // log so the stale config is visible, but never re-throw.
+        console.error('Failed to clean up config after overlay removal:', err);
+      }
+    },
+    [],
+  );
 
-    try {
-      await backend.deleteFile(`overlays/${name}`);
-      dispatch({ type: 'DELETE_OVERLAY', payload: name });
-    } catch (err) {
-      console.error('Failed to delete overlay:', err);
-    }
-  }, []);
+  const deleteOverlay = useCallback(
+    async (name: string): Promise<void> => {
+      if (name === 'Default') return; // Can't delete default
+
+      try {
+        await backend.deleteFile(`overlays/${name}`);
+        await cleanupConfigForRemovedOverlay(name);
+        dispatch({ type: 'DELETE_OVERLAY', payload: name });
+      } catch (err) {
+        console.error('Failed to delete overlay:', err);
+      }
+    },
+    [cleanupConfigForRemovedOverlay],
+  );
 
   const saveCurrentOverlay = useCallback(async (): Promise<void> => {
     // Check if we're saving a theme tab
@@ -467,6 +526,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
     removeGameAssignment,
     getOverlayForGame,
     refreshOverlays,
+    cleanupConfigForRemovedOverlay,
     openThemeTab,
     openOverlayTab,
     closeTab,

@@ -46,6 +46,7 @@ export function Header() {
     getCurrentOverlay,
     ensureOverlayLoaded,
     refreshOverlays,
+    cleanupConfigForRemovedOverlay,
   } = useOmniState();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [gamesDialogOpen, setGamesDialogOpen] = useState(false);
@@ -110,7 +111,15 @@ export function Header() {
       });
       return;
     }
+    const wasSelected = state.selectedOverlayName === currentOverlay.name;
     await deleteOverlay(currentOverlay.name);
+    // Mirror the uninstall path: if the deleted overlay was the one the
+    // editor had selected, switch to Default and load its content so
+    // Monaco doesn't render blank against a now-deleted name.
+    if (wasSelected) {
+      dispatch({ type: 'SELECT_OVERLAY', payload: 'Default' });
+      void ensureOverlayLoaded('Default');
+    }
   };
 
   return (
@@ -366,13 +375,21 @@ export function Header() {
             // cache they hold refetches in lockstep.
             const removedName = uninstallTarget.name;
             void refreshOverlays();
+            // Drop dangling config references the uninstalled overlay
+            // leaves behind (active_overlay, per-game assignments). Same
+            // shape as deleteOverlay's cleanup; uninstall just doesn't go
+            // through the same code path, so the cleanup is wired here.
+            void cleanupConfigForRemovedOverlay(removedName);
             window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
             setUninstallTarget(null);
             // If the user had the just-removed overlay selected, switch
-            // to Default so the editor doesn't sit on a stale name. If
-            // the dropdown was already on something else, leave it alone.
+            // to Default and load its content into the editor. Without
+            // the ensureOverlayLoaded call, Default's `content` stays null
+            // and Monaco renders blank — Default isn't auto-loaded just
+            // because it sits in the workspace overlay list.
             if (state.selectedOverlayName === removedName) {
               dispatch({ type: 'SELECT_OVERLAY', payload: 'Default' });
+              void ensureOverlayLoaded('Default');
             }
           }}
         />

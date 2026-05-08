@@ -851,6 +851,13 @@ fn run_host() {
                 if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                     *overlay = host.current_overlay.clone();
                 }
+                // Trigger a full UL HTML reload so the new overlay's
+                // markup actually replaces the in-flight DOM. Without this
+                // the loop keeps mutating the old HTML's `__omni_update`
+                // surface while `host.omni_file` already points at the new
+                // overlay — values flow into widgets that no longer exist
+                // and the preview pane never sees the switch.
+                ul_needs_reload = true;
                 let (rw, rh) = recreate_dims(ul_viewport_w, ul_viewport_h);
                 maybe_recreate_for_scale_change(
                     &mut ul,
@@ -1053,6 +1060,12 @@ fn run_host() {
                         if let Ok(mut overlay) = ws_state.active_overlay.lock() {
                             *overlay = host.current_overlay.clone();
                         }
+                        // Trigger a full UL HTML reload — same rationale as
+                        // the game-scanner overlay switch above. Without
+                        // this the live render keeps the previous overlay's
+                        // DOM and the preview broadcast never reflects the
+                        // user's `setAsActive` / config-driven switch.
+                        ul_needs_reload = true;
                         let (rw, rh) = recreate_dims(ul_viewport_w, ul_viewport_h);
                         maybe_recreate_for_scale_change(
                             &mut ul,

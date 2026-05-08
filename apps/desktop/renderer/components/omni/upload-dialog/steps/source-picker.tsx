@@ -19,12 +19,21 @@
  * would just re-export the hook's shape verbatim.
  */
 
-import type { ComponentType, SVGProps } from 'react';
+import { useMemo, type ComponentType, type SVGProps } from 'react';
 import { Package, Palette } from 'lucide-react';
 import type { PublishablesEntry } from '@omni/shared-types';
 import { useWorkspaceList } from '../../../../hooks/use-workspace-list';
+import { useInstalledArtifacts } from '../../../../hooks/use-installed-artifact-ids';
 import { SourcePickerListRow } from './source-picker-list-row';
 import { LinkedArtifactBanner, PubkeyMismatchBanner } from './source-picker-banners';
+
+/** Cross-platform last-segment extractor — installed_path uses OS-native
+ *  separators (backslashes on Windows). Mirrors `useOverlayMeta`'s helper
+ *  so the same matching rule lives at every install-vs-fork checkpoint. */
+function pathBasename(p: string): string {
+  const parts = p.split(/[\\/]/).filter((s) => s.length > 0);
+  return parts[parts.length - 1] ?? p;
+}
 
 export type SelectedKind = 'overlay' | 'theme';
 
@@ -47,8 +56,50 @@ export interface SourcePickerProps {
 
 export function SourcePicker({ state, actions }: SourcePickerProps) {
   const { entries, loading } = useWorkspaceList();
+  const { entries: installedEntries } = useInstalledArtifacts();
   const selectedKind = state.selectedKind;
-  const filteredEntries = selectedKind ? entries.filter((e) => e.kind === selectedKind) : [];
+
+  // Ownership rule: the user can ONLY publish overlays they own. That's:
+  //   - User-created overlays (no install registry entry).
+  //   - Forks (forking copies an installed bundle into a new directory
+  //     with no registry entry — same shape as user-created).
+  //   - Self-author installs (registry row whose `author_pubkey` matches
+  //     the current identity — covers the round-trip case where a user
+  //     publishes, deletes locally, and re-downloads their own).
+  //
+  // Read-only installs (registry row with a different `author_pubkey`)
+  // are filtered out: republishing someone else's bundle as your own would
+  // shadow the original on the explorer and break the install-vs-fork
+  // model the explorer is built around. The fork-to-edit CTA in the
+  // editor is the only legal path to derive something publishable from
+  // an installed-not-by-me overlay.
+  //
+  // The Default overlay is also filtered out — it's a workspace built-in
+  // scaffold that ships with the app and isn't user-authored content.
+  // Publishing it would create a confusing duplicate of every install's
+  // starting state. Users who want to share a Default-derived overlay
+  // must duplicate it first to give it a distinct identity.
+  const lockedOverlayNames = useMemo(() => {
+    const result = new Set<string>();
+    for (const ie of installedEntries) {
+      if (ie.kind !== 'bundle') continue;
+      const ownedByMe =
+        state.currentPubkey != null && ie.author_pubkey === state.currentPubkey;
+      if (!ownedByMe) {
+        result.add(pathBasename(ie.installed_path));
+      }
+    }
+    return result;
+  }, [installedEntries, state.currentPubkey]);
+
+  const filteredEntries = selectedKind
+    ? entries.filter((e) => {
+        if (e.kind !== selectedKind) return false;
+        if (e.kind === 'overlay' && e.name === 'Default') return false;
+        if (e.kind === 'overlay' && lockedOverlayNames.has(e.name)) return false;
+        return true;
+      })
+    : [];
 
   const sidecar = state.selected?.sidecar ?? null;
   const showLinked = sidecar !== null && state.mode === 'update';

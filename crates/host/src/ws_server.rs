@@ -607,6 +607,23 @@ fn handle_message(
             };
             match fork::fork_to_local(req, &overlays_root, &lookup) {
                 Ok(res) => {
+                    // Render the `.omni-preview.png` thumbnail so the
+                    // upload-dialog source picker shows real artwork for
+                    // the new fork instead of the zinc gradient. fork only
+                    // copies the bundle's contents (a dotfile-filtered
+                    // tree), so the source overlay's preview — if it had
+                    // one — was excluded; the fork starts with no preview
+                    // on disk. Best-effort: render failures are logged and
+                    // dropped, fork has already succeeded.
+                    if let Err(e) =
+                        crate::share::save_preview::render_overlay_preview(&res.path)
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            overlay_dir = %res.path.display(),
+                            "post-fork preview render failed; source picker will show gradient placeholder"
+                        );
+                    }
                     // Reload the forked manifest so the renderer can echo it
                     // (the schema requires a `new_manifest` object). Best-effort
                     // — fork already succeeded, so a manifest read failure is

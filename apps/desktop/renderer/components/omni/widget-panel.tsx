@@ -41,6 +41,20 @@ export function WidgetPanel() {
   // start making changes.
   const isReadOnlyOverlay =
     overlayMeta.isInstalled && !overlayMeta.editable && currentOverlay?.name !== 'Default';
+  // The Default overlay is a workspace built-in scaffold — it ships with the
+  // app, isn't user-authored content, and publishing it would create a
+  // confusing duplicate of every install's starting state in the explorer.
+  // The Publish button is locked out unconditionally for this overlay; users
+  // who want to share a Default-derived overlay should duplicate it first.
+  const isDefaultOverlay = currentOverlay?.name === 'Default';
+  const isPublishDisabled = !currentOverlay || isReadOnlyOverlay || isDefaultOverlay;
+  const publishTitle = isDefaultOverlay
+    ? 'The Default overlay cannot be published — duplicate it first to share a customised version'
+    : isReadOnlyOverlay
+      ? 'This overlay is installed from the explorer — fork it to make changes'
+      : currentOverlay
+        ? 'Publish the current overlay'
+        : 'Open an overlay to publish';
 
   const widgets = useMemo(
     () => (currentOverlay?.content ? parseOmniContent(currentOverlay.content) : []),
@@ -161,15 +175,9 @@ export function WidgetPanel() {
         <button
           data-testid="components-publish-button"
           onClick={() => setUploadOpen(true)}
-          disabled={!currentOverlay || isReadOnlyOverlay}
-          className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#71717A] hover:text-[#FAFAFA] disabled:opacity-40 disabled:hover:text-[#71717A] transition-colors"
-          title={
-            isReadOnlyOverlay
-              ? 'This overlay is installed from the explorer — fork it to make changes'
-              : currentOverlay
-                ? 'Publish the current overlay'
-                : 'Open an overlay to publish'
-          }
+          disabled={isPublishDisabled}
+          className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#71717A] hover:text-[#FAFAFA] disabled:opacity-40 disabled:hover:text-[#71717A] disabled:cursor-not-allowed transition-colors"
+          title={publishTitle}
         >
           <UploadIcon className="h-3.5 w-3.5" aria-hidden />
           Publish

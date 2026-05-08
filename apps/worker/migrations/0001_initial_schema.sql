@@ -20,7 +20,7 @@ CREATE TABLE authors (
 CREATE TABLE artifacts (
   id                TEXT PRIMARY KEY,
   author_pubkey     BLOB NOT NULL REFERENCES authors(pubkey),
-  name              TEXT NOT NULL,
+  name              TEXT NOT NULL UNIQUE,
   kind              TEXT NOT NULL,
   content_hash      TEXT NOT NULL,
   thumbnail_hash    TEXT NOT NULL,

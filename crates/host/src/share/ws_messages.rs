@@ -1462,12 +1462,44 @@ where
                 &ctx.identity.load().public_key().to_hex(),
                 None,
             );
+            // Render the `.omni-preview.png` thumbnail so the upload-dialog
+            // source picker (and any other consumer of `has_preview`) shows
+            // real artwork instead of the zinc gradient. Bundles never ship
+            // their own `.omni-preview.png` — it's a dotfile excluded from
+            // packing — so a freshly-installed overlay has no preview on
+            // disk until something writes one. Save-on-edit re-renders it
+            // later, but for installs the user might never re-save before
+            // hitting Publish, so we generate at install time.
+            //
+            // Best-effort: render failures (live-preview thread unavailable,
+            // parser error, etc.) are logged at WARN and dropped — the
+            // install itself has already succeeded, refusing to surface
+            // that to the user because of a thumbnail hiccup is the wrong
+            // tradeoff. The picker silently falls back to its gradient
+            // placeholder, which is the same UX as before this hook.
+            render_post_install_preview(&outcome.installed_path);
             Some(install_outcome_to_result_frame(id, &outcome))
         }
         Err(e) => {
             let payload = handlers::map_install_error(&e);
             Some(handlers::error_frame(id, &payload))
         }
+    }
+}
+
+/// Best-effort wrapper around `save_preview::render_overlay_preview` for
+/// post-install / post-fork hot paths. Logs at WARN on failure and drops
+/// the error; the caller's primary operation (install / fork) has already
+/// succeeded and surfacing a thumbnail render failure as a hard error
+/// would be the wrong UX tradeoff. Returns nothing because callers never
+/// branch on success — they treat preview rendering as fire-and-forget.
+fn render_post_install_preview(overlay_dir: &std::path::Path) {
+    if let Err(e) = crate::share::save_preview::render_overlay_preview(overlay_dir) {
+        tracing::warn!(
+            error = %e,
+            overlay_dir = %overlay_dir.display(),
+            "post-install preview render failed; source picker will show gradient placeholder"
+        );
     }
 }
 

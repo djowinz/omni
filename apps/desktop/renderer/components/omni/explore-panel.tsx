@@ -40,7 +40,13 @@ import type { CachedArtifactDetail } from '../../lib/share-types';
 export function ExplorePanel() {
   const filters = useExploreFilters();
   const { send } = useShareWs();
-  const { refreshOverlays } = useOmniState();
+  const {
+    state: omniState,
+    dispatch: omniDispatch,
+    refreshOverlays,
+    cleanupConfigForRemovedOverlay,
+    ensureOverlayLoaded,
+  } = useOmniState();
   const installed = useInstalledArtifactIds();
 
   // (Cross-surface sync via `omni:artifact-installed` /
@@ -240,11 +246,24 @@ export function ExplorePanel() {
             // triggers refetch in *every* useInstalledArtifacts instance
             // (panel, header, editor) so all surfaces stay synced.
             const removedId = uninstallTarget.artifact_id;
+            const removedName = uninstallTarget.name;
             void refreshOverlays();
+            // Drop dangling config references (active_overlay,
+            // per-game assignments) pointing at the just-uninstalled
+            // overlay so the host stops trying to render it.
+            void cleanupConfigForRemovedOverlay(removedName);
             window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
             setUninstallTarget(null);
             if (filters.selectedId === removedId && filters.tab === 'installed') {
               filters.setSelectedId(null);
+            }
+            // If the editor (any other panel) was selecting the
+            // just-uninstalled overlay, switch it to Default and load
+            // Default's content so Monaco doesn't render blank against
+            // a now-removed name.
+            if (omniState.selectedOverlayName === removedName) {
+              omniDispatch({ type: 'SELECT_OVERLAY', payload: 'Default' });
+              void ensureOverlayLoaded('Default');
             }
           }}
         />
