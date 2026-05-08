@@ -40,7 +40,7 @@ import type { CachedArtifactDetail } from '../../lib/share-types';
 export function ExplorePanel() {
   const filters = useExploreFilters();
   const { send } = useShareWs();
-  const { refreshOverlays } = useOmniState();
+  const { refreshOverlays, cleanupConfigForRemovedOverlay } = useOmniState();
   const installed = useInstalledArtifactIds();
 
   // (Cross-surface sync via `omni:artifact-installed` /
@@ -240,7 +240,10 @@ export function ExplorePanel() {
             // triggers refetch in *every* useInstalledArtifacts instance
             // (panel, header, editor) so all surfaces stay synced.
             const removedId = uninstallTarget.artifact_id;
+            const removedName = uninstallTarget.name;
             void refreshOverlays();
+            // Clean up config + editor stream references — see header.tsx.
+            void cleanupConfigForRemovedOverlay(removedName);
             window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
             setUninstallTarget(null);
             if (filters.selectedId === removedId && filters.tab === 'installed') {

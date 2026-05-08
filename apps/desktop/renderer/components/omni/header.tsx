@@ -46,6 +46,7 @@ export function Header() {
     getCurrentOverlay,
     ensureOverlayLoaded,
     refreshOverlays,
+    cleanupConfigForRemovedOverlay,
   } = useOmniState();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [gamesDialogOpen, setGamesDialogOpen] = useState(false);
@@ -366,6 +367,13 @@ export function Header() {
             // cache they hold refetches in lockstep.
             const removedName = uninstallTarget.name;
             void refreshOverlays();
+            // Clean up config + editor stream references to the just-uninstalled
+            // overlay. Resets active_overlay to Default if needed, strips per-game
+            // assignments, and pushes Default to both the in-game render pipeline
+            // (via applyOverlay) and the editor preview stream (via setEditorOverlay)
+            // when applicable. The host has no file watcher for the editor stream,
+            // so this is the only path that updates it after an uninstall.
+            void cleanupConfigForRemovedOverlay(removedName);
             window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
             setUninstallTarget(null);
             // If the user had the just-removed overlay selected, switch
@@ -373,6 +381,7 @@ export function Header() {
             // the dropdown was already on something else, leave it alone.
             if (state.selectedOverlayName === removedName) {
               dispatch({ type: 'SELECT_OVERLAY', payload: 'Default' });
+              void ensureOverlayLoaded('Default');
             }
           }}
         />
