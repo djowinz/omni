@@ -60,6 +60,14 @@ pub struct WsSharedState {
     /// Tokio runtime used to drive async share-surface handlers from the sync WS loop.
     /// Created once on first share dispatch and reused.
     pub share_runtime: std::sync::OnceLock<tokio::runtime::Runtime>,
+    /// Parsed editor-preview overlay. `Some` once the renderer has pushed
+    /// a `preview.setEditorOverlay`; `None` triggers the mirror-by-default
+    /// path in the per-frame loop (editor channel echoes in-game stream).
+    pub editor_omni_file: Mutex<Option<crate::omni::types::OmniFile>>,
+    /// Built initial HTML for the editor preview. Cached so the per-frame
+    /// loop doesn't rebuild on every tick. Replaced on every
+    /// `preview.setEditorOverlay`.
+    pub editor_initial_html: Mutex<Option<crate::omni::html_builder::InitialHtml>>,
 }
 
 impl WsSharedState {
@@ -90,6 +98,8 @@ impl WsSharedState {
             latest_initial_html: Mutex::new(None),
             share_ctx: Mutex::new(None),
             share_runtime: std::sync::OnceLock::new(),
+            editor_omni_file: Mutex::new(None),
+            editor_initial_html: Mutex::new(None),
         }
     }
 
@@ -1009,5 +1019,19 @@ mod tests {
 
         // Shutdown
         state.running.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn shared_state_includes_editor_preview_slots() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let state = WsSharedState::new(tmp.path().to_path_buf());
+        assert!(
+            state.editor_omni_file.lock().unwrap().is_none(),
+            "editor_omni_file starts empty"
+        );
+        assert!(
+            state.editor_initial_html.lock().unwrap().is_none(),
+            "editor_initial_html starts empty"
+        );
     }
 }
