@@ -2,8 +2,23 @@ import type { AppState, AppAction } from '@/types/omni';
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case 'SET_OVERLAYS':
-      return { ...state, overlays: action.payload };
+    case 'SET_OVERLAYS': {
+      // loadOverlayList() always returns overlays with `content: null` — it
+      // only knows the names from the directory listing. If we naively
+      // replace the array, every overlay whose content was already loaded
+      // (including the one open in the editor) gets reset to null and the
+      // editor renders blank. Preserve loaded content for overlays whose
+      // names survive the refresh; new overlays land null and lazy-load
+      // on selection via ensureOverlayLoaded.
+      const existingContent = new Map(state.overlays.map((o) => [o.name, o.content]));
+      return {
+        ...state,
+        overlays: action.payload.map((o) => {
+          const prior = existingContent.get(o.name);
+          return prior !== undefined ? { ...o, content: prior } : o;
+        }),
+      };
+    }
 
     case 'ADD_OVERLAY':
       return { ...state, overlays: [...state.overlays, action.payload] };

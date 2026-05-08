@@ -121,6 +121,71 @@ describe('appReducer', () => {
         expect(next.overlays[1].content).toBe('b');
       });
     });
+
+    describe('given SET_OVERLAYS after a refresh (loadOverlayList)', () => {
+      // Regression: refreshOverlays() calls loadOverlayList() which always
+      // returns overlays with content: null (it only sees directory names).
+      // Replacing the array verbatim wiped the editor for any overlay with
+      // pre-loaded content — symptom: editor goes blank on every install /
+      // uninstall / delete. SET_OVERLAYS must merge by name and preserve
+      // already-loaded content for overlays that survive the refresh.
+      it('should preserve loaded content for overlays that still exist', () => {
+        const state = makeState({
+          overlays: [
+            { name: 'Default', content: '<widget id="default"/>' },
+            { name: 'Cyberpunk', content: '<widget id="cyber"/>' },
+          ],
+        });
+
+        const next = appReducer(state, {
+          type: 'SET_OVERLAYS',
+          payload: [
+            { name: 'Default', content: null },
+            { name: 'Cyberpunk', content: null },
+          ],
+        });
+
+        expect(next.overlays).toEqual([
+          { name: 'Default', content: '<widget id="default"/>' },
+          { name: 'Cyberpunk', content: '<widget id="cyber"/>' },
+        ]);
+      });
+
+      it('should leave new overlays at content: null for lazy-load', () => {
+        const state = makeState({
+          overlays: [{ name: 'Default', content: '<widget id="default"/>' }],
+        });
+
+        const next = appReducer(state, {
+          type: 'SET_OVERLAYS',
+          payload: [
+            { name: 'Default', content: null },
+            { name: 'NewlyInstalled', content: null },
+          ],
+        });
+
+        expect(next.overlays).toEqual([
+          { name: 'Default', content: '<widget id="default"/>' },
+          { name: 'NewlyInstalled', content: null },
+        ]);
+      });
+
+      it('should drop overlays no longer present in the payload', () => {
+        const state = makeState({
+          overlays: [
+            { name: 'Default', content: 'd' },
+            { name: 'Removed', content: 'r' },
+          ],
+        });
+
+        const next = appReducer(state, {
+          type: 'SET_OVERLAYS',
+          payload: [{ name: 'Default', content: null }],
+        });
+
+        expect(next.overlays).toEqual([{ name: 'Default', content: 'd' }]);
+      });
+    });
   });
 
   describe('tab management', () => {
