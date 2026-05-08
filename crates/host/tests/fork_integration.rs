@@ -214,6 +214,7 @@ fn fork_of_installed_bundle_writes_beautified_files() {
 }
 
 #[test]
+#[tracing_test::traced_test]
 fn fork_with_invalid_css_falls_back_to_raw_bytes() {
     use std::collections::HashMap;
     use std::fs;
@@ -258,6 +259,10 @@ fn fork_with_invalid_css_falls_back_to_raw_bytes() {
 
     let on_disk = fs::read(result.path.join("themes/dark.css")).unwrap();
     assert_eq!(on_disk, broken, "fork must fall back to raw bytes when beautify fails");
+    assert!(
+        logs_contain("fork beautify failed"),
+        "expected fall-back warning to be logged"
+    );
 }
 
 fn snapshot(p: &Path) -> Vec<(String, Vec<u8>)> {
