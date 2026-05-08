@@ -30,7 +30,7 @@ export function PreviewPanel() {
   }, [state.connected, backend]);
 
   // Handle preview.html — write full document into iframe
-  const handlePreviewHtml = useCallback((data: { html: string; css: string }) => {
+  const handlePreviewHtml = useCallback((data: { html: string; css: string; overlay_name?: string }) => {
     const doc = iframeRef.current?.contentDocument;
     if (!doc) return;
 
@@ -72,8 +72,8 @@ ${data.css}
 
   // Register IPC listeners
   useEffect(() => {
-    const cleanupHtml = window.omni?.onPreviewHtml?.(handlePreviewHtml);
-    const cleanupUpdate = window.omni?.onPreviewUpdate?.(handlePreviewUpdate);
+    const cleanupHtml = window.omni?.onPreviewHtmlEditor?.(handlePreviewHtml);
+    const cleanupUpdate = window.omni?.onPreviewUpdateEditor?.(handlePreviewUpdate);
 
     return () => {
       cleanupHtml?.();

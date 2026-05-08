@@ -259,6 +259,8 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
     'config.update': 'config.updated',
     'log.path': 'log.path',
     'preview.subscribe': 'preview.subscribed',
+    'preview.setEditorOverlay': 'preview.setEditorOverlay.ack',
+    'preview.clearEditorOverlay': 'preview.clearEditorOverlay.ack',
   };
   const expectedType = responseTypes[msg.type];
   if (!expectedType) {
@@ -452,19 +454,25 @@ app.on('ready', async () => {
     if (msg.type === 'hwinfo.sensors') {
       mainWindow?.webContents.send('hwinfo-sensors', msg);
     }
-    if (msg.type === 'preview.html') {
-      mainWindow?.webContents.send('preview-html', { html: msg.html, css: msg.css });
+    // Dual-stream preview events (host renames + new editor channel).
+    if (msg.type === 'preview.html.ingame') {
+      mainWindow?.webContents.send('preview-html-ingame', { html: msg.html, css: msg.css });
     }
-    if (msg.type === 'preview.update') {
-      // Forward BOTH `values` and `diff`. The host emits both in every
-      // preview.update frame: `values` is the raw sensor map (consumed by
-      // the renderer's data-sensor span updater — equivalent to Ultralight's
-      // bootstrap.js __omni_update); `diff` is the per-element class/text/attr
-      // diff for everything else. Stripping `values` here was the cause of
-      // the editor preview showing stale percentages while the live-stats
-      // panel updated correctly — only Ultralight had the bootstrap that
-      // updates data-sensor spans, the iframe never received the raw values.
-      mainWindow?.webContents.send('preview-update', {
+    if (msg.type === 'preview.update.ingame') {
+      mainWindow?.webContents.send('preview-update-ingame', {
+        diff: msg.diff,
+        values: msg.values,
+      });
+    }
+    if (msg.type === 'preview.html.editor') {
+      mainWindow?.webContents.send('preview-html-editor', {
+        html: msg.html,
+        css: msg.css,
+        overlay_name: msg.overlay_name,
+      });
+    }
+    if (msg.type === 'preview.update.editor') {
+      mainWindow?.webContents.send('preview-update-editor', {
         diff: msg.diff,
         values: msg.values,
       });

@@ -375,10 +375,12 @@ export function Header() {
             // cache they hold refetches in lockstep.
             const removedName = uninstallTarget.name;
             void refreshOverlays();
-            // Drop dangling config references the uninstalled overlay
-            // leaves behind (active_overlay, per-game assignments). Same
-            // shape as deleteOverlay's cleanup; uninstall just doesn't go
-            // through the same code path, so the cleanup is wired here.
+            // Clean up config + editor stream references the just-uninstalled
+            // overlay leaves behind: resets active_overlay → Default, strips
+            // per-game assignments, pushes Default to the in-game render
+            // pipeline, and clears the editor preview stream. The host has
+            // no file watcher for the editor stream — this is the only path
+            // that updates it after an uninstall.
             void cleanupConfigForRemovedOverlay(removedName);
             window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
             setUninstallTarget(null);

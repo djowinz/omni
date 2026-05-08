@@ -248,9 +248,10 @@ export function ExplorePanel() {
             const removedId = uninstallTarget.artifact_id;
             const removedName = uninstallTarget.name;
             void refreshOverlays();
-            // Drop dangling config references (active_overlay,
-            // per-game assignments) pointing at the just-uninstalled
-            // overlay so the host stops trying to render it.
+            // Clean up config + editor stream references the just-uninstalled
+            // overlay leaves behind: resets active_overlay → Default, strips
+            // per-game assignments, and (when applicable) pushes Default to
+            // both the in-game render pipeline and the editor preview stream.
             void cleanupConfigForRemovedOverlay(removedName);
             window.dispatchEvent(new CustomEvent('omni:artifact-uninstalled'));
             setUninstallTarget(null);

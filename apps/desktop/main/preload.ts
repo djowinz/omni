@@ -33,31 +33,53 @@ contextBridge.exposeInMainWorld('omni', {
     };
   },
 
-  // Preview HTML stream
-  onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => {
+  // In-game preview stream — initial HTML for the active overlay.
+  onPreviewHtmlIngame: (callback: (data: { html: string; css: string }) => void) => {
     const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('preview-html', handler);
+    ipcRenderer.on('preview-html-ingame', handler);
     return () => {
-      ipcRenderer.removeListener('preview-html', handler);
+      ipcRenderer.removeListener('preview-html-ingame', handler);
     };
   },
 
-  // Preview incremental updates. `values` is the raw sensor map (e.g.
-  // {"cpu.usage": 9, "ram.percent": 44}) consumed by the renderer's
-  // data-sensor span updater — mirrors Ultralight bootstrap's
-  // __omni_update(values). `diff` is the per-element class/text/attr diff
-  // for everything else. Both are optional in practice (host may emit only
-  // one or the other), so callers must treat each independently.
-  onPreviewUpdate: (
+  // In-game preview stream — incremental sensor/diff updates for the active overlay.
+  onPreviewUpdateIngame: (
     callback: (data: {
       diff?: Record<string, { c?: string; t?: string; a?: Record<string, string> }>;
       values?: Record<string, number>;
     }) => void,
   ) => {
     const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('preview-update', handler);
+    ipcRenderer.on('preview-update-ingame', handler);
     return () => {
-      ipcRenderer.removeListener('preview-update', handler);
+      ipcRenderer.removeListener('preview-update-ingame', handler);
+    };
+  },
+
+  // Editor preview stream — initial HTML for the editor-selected overlay.
+  // Payload includes `overlay_name` so the renderer can display/track which
+  // overlay the editor channel is currently showing.
+  onPreviewHtmlEditor: (
+    callback: (data: { html: string; css: string; overlay_name: string }) => void,
+  ) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-html-editor', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-html-editor', handler);
+    };
+  },
+
+  // Editor preview stream — incremental sensor/diff updates for the editor selection.
+  onPreviewUpdateEditor: (
+    callback: (data: {
+      diff?: Record<string, { c?: string; t?: string; a?: Record<string, string> }>;
+      values?: Record<string, number>;
+    }) => void,
+  ) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('preview-update-editor', handler);
+    return () => {
+      ipcRenderer.removeListener('preview-update-editor', handler);
     };
   },
 

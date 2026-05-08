@@ -160,19 +160,22 @@ export function EditorPanel() {
 
   const backend = useBackend();
 
-  // Debounced apply: send content to backend every 400ms for live preview + markers.
-  // Only apply for overlay tabs — theme tabs contain CSS which is not a valid
-  // .omni file and would cause the host to rebuild with an empty OmniFile,
-  // blanking the preview. Theme CSS reaches the preview via the overlay's
-  // <theme src="..."/> import (host reads the file from disk on apply).
+  // Debounced preview push: every 400ms, parse the overlay for Monaco markers
+  // and push the source to the editor preview stream. This intentionally does
+  // NOT call applyOverlay — the editor channel is decoupled from the in-game
+  // render. Only overlay tabs are pushed; theme tabs contain CSS which is not
+  // a valid .omni file and would not parse correctly.
   useEffect(() => {
     const content = displayContent ?? '';
     if (!content || !editorRef.current || !monacoRef.current) return;
     if (displayType !== 'overlay') return;
+    if (!currentOverlay?.name) return;
 
+    const overlayName = currentOverlay.name;
     const timer = setTimeout(async () => {
       try {
-        const { diagnostics } = await backend.applyOverlay(content);
+        // Diagnostics-only parse (no host-side state mutation) for Monaco markers.
+        const { diagnostics } = await backend.parseOverlay(content);
         const model = editorRef.current?.getModel();
         if (model && monacoRef.current) {
           const markers = diagnostics.map((d: ParseError) => ({
@@ -188,6 +191,10 @@ export function EditorPanel() {
           }));
           monacoRef.current.editor.setModelMarkers(model, 'omni', markers);
         }
+        // Push the source to the editor preview stream — does NOT touch the
+        // in-game render. The host's editor channel broadcasts back to the
+        // preview iframe within one tick.
+        await backend.setEditorOverlay({ source: content, overlay_name: overlayName });
       } catch {
         // Host not connected — clear markers silently
         const model = editorRef.current?.getModel();
@@ -198,7 +205,7 @@ export function EditorPanel() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [displayContent, displayType, backend]);
+  }, [displayContent, displayType, backend, currentOverlay?.name]);
 
   // Handle save — delegates to state hook which handles file write + auto-apply
   const handleSave = useCallback(async () => {
