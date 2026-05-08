@@ -20,8 +20,8 @@ fn payload_pins_top_level_shape() {
     let keys: std::collections::BTreeSet<&str> = obj.keys().map(|k| k.as_str()).collect();
     let expected: std::collections::BTreeSet<&str> =
         ["type", "values", "diff"].into_iter().collect();
-    assert_eq!(keys, expected, "preview.update payload shape drifted");
-    assert_eq!(payload["type"], "preview.update");
+    assert_eq!(keys, expected, "preview.update.ingame payload shape drifted");
+    assert_eq!(payload["type"], "preview.update.ingame");
 }
 
 #[test]
