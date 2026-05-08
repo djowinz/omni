@@ -49,16 +49,24 @@ export function kebabLabelsFor(tab: ExploreTab): string[] {
 }
 
 /**
- * Filesystem-safe install folder path. The host joins this onto
- * `<data_dir>/` to produce the install target. Strips path-traversal
- * characters and Windows-reserved punctuation from the bundle name; falls
- * back to the artifact id when the name has no usable characters left
- * (all-symbols, empty, or `.`/`..`).
+ * Filesystem-safe overlay folder name derived from the bundle's manifest
+ * name. Strips path-traversal characters and Windows-reserved punctuation;
+ * falls back to the artifact id when the cleaned name is empty (all-symbols,
+ * empty, or `.`/`..`). Callers that need the full host-side path should
+ * use `installFolderPath`.
  */
-export function installFolderPath(bundleName: string, artifactId: string): string {
+export function installFolderName(bundleName: string, artifactId: string): string {
   const safe = bundleName
     .replace(/[\\/:*?"<>|]/g, '')
     .replace(/^\.+/, '')
     .trim();
-  return `overlays/${safe.length > 0 ? safe : artifactId}`;
+  return safe.length > 0 ? safe : artifactId;
+}
+
+/**
+ * Filesystem-safe install folder path (workspace-relative). The host joins
+ * this onto `<data_dir>/` to produce the install target.
+ */
+export function installFolderPath(bundleName: string, artifactId: string): string {
+  return `overlays/${installFolderName(bundleName, artifactId)}`;
 }

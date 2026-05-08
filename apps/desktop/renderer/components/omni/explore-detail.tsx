@@ -35,6 +35,7 @@ import { toast } from '../../lib/toast';
 import { mapErrorToUserMessage, type OmniError } from '../../lib/map-error-to-user-message';
 import {
   actionLabelsFor,
+  installFolderName,
   installFolderPath,
   kebabLabelsFor,
   type ExploreTab,
@@ -76,7 +77,7 @@ export function ExploreDetail({
   const { setSelectedId } = useExploreFilters();
   const { setPreview } = usePreview();
   const { send } = useShareWs();
-  const { state: omniState, dispatch, refreshOverlays } = useOmniState();
+  const { state: omniState, dispatch, refreshOverlays, ensureOverlayLoaded } = useOmniState();
   const { identity } = useIdentity();
 
   const [installState, setInstallState] = useState<InstallState>({ kind: 'idle' });
@@ -217,6 +218,14 @@ export function ExploreDetail({
       // for so it refetches that set.
       await refreshOverlays();
       window.dispatchEvent(new CustomEvent('omni:artifact-installed'));
+      // Pre-select the just-installed overlay and jump to the editor view
+      // so the preview + editor are already pointed at it. Mirrors the
+      // post-fork behavior in `handleFork` below. Does NOT setAsActive —
+      // the in-game overlay only changes via the explicit Set Active action.
+      const installedName = installFolderName(name, artifact.artifact_id);
+      dispatch({ type: 'SELECT_OVERLAY', payload: installedName });
+      dispatch({ type: 'SET_ACTIVE_PANEL', payload: 'components' });
+      void ensureOverlayLoaded(installedName);
       toast.success(`Installed ${name}`);
     } catch (err) {
       setInstallState({ kind: 'error', message: mapErrorToUserMessage(err as OmniError).text });

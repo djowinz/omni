@@ -28,7 +28,7 @@ import { useMyUploads } from '../../hooks/use-my-uploads';
 import { useShareWs } from '../../hooks/use-share-ws';
 import { useOmniState } from '../../hooks/use-omni-state';
 import { useInstalledArtifactIds } from '../../hooks/use-installed-artifact-ids';
-import { installFolderPath } from '../../lib/artifact-actions';
+import { installFolderName, installFolderPath } from '../../lib/artifact-actions';
 import { useInstalledDetails } from '../../hooks/use-installed-details';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
@@ -159,7 +159,7 @@ export function ExplorePanel() {
         artifact_id: a.artifact_id,
         target_workspace: installFolderPath(a.name, a.artifact_id),
       });
-      // Re-scan the workspace so the new <data_dir>/overlays/<id>/ folder
+      // Re-scan the workspace so the new <data_dir>/overlays/<name>/ folder
       // shows up in the header dropdown. Without this the user has to
       // hard-refresh the app to see what they just installed.
       await refreshOverlays();
@@ -167,6 +167,12 @@ export function ExplorePanel() {
       // instances refetch — they listen for this window event. The panel's
       // own copy refetches via the same listener (in the hook) automatically.
       window.dispatchEvent(new CustomEvent('omni:artifact-installed'));
+      // Pre-select the just-installed overlay so the next time the user
+      // hits the Components panel the editor + preview already point at
+      // it. NOT setAsActive — that would change the in-game overlay.
+      const installedName = installFolderName(a.name, a.artifact_id);
+      omniDispatch({ type: 'SELECT_OVERLAY', payload: installedName });
+      void ensureOverlayLoaded(installedName);
       toast.success(`Installed ${a.name}`);
     } catch (err) {
       toast.error(err as Parameters<typeof toast.error>[0]);
