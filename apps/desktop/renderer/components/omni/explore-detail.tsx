@@ -35,6 +35,7 @@ import { toast } from '../../lib/toast';
 import { mapErrorToUserMessage, type OmniError } from '../../lib/map-error-to-user-message';
 import {
   actionLabelsFor,
+  installFolderPath,
   kebabLabelsFor,
   type ExploreTab,
 } from '../../lib/artifact-actions';
@@ -184,8 +185,13 @@ export function ExploreDetail({
   const handleInstall = async (trustNewPubkey = false) => {
     setInstallState({ kind: 'in-flight', phase: 'download', done: 0, total: 4 });
     try {
-      const params: { artifact_id: string; trust_new_pubkey?: boolean } = {
+      const params: {
+        artifact_id: string;
+        target_workspace: string;
+        trust_new_pubkey?: boolean;
+      } = {
         artifact_id: artifact.artifact_id,
+        target_workspace: installFolderPath(name, artifact.artifact_id),
       };
       if (trustNewPubkey) params.trust_new_pubkey = true;
       const result = (await send(

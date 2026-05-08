@@ -28,6 +28,7 @@ import { useMyUploads } from '../../hooks/use-my-uploads';
 import { useShareWs } from '../../hooks/use-share-ws';
 import { useOmniState } from '../../hooks/use-omni-state';
 import { useInstalledArtifactIds } from '../../hooks/use-installed-artifact-ids';
+import { installFolderPath } from '../../lib/artifact-actions';
 import { useInstalledDetails } from '../../hooks/use-installed-details';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
@@ -154,7 +155,10 @@ export function ExplorePanel() {
   const handleHoverInstall = async (a: CachedArtifactDetail) => {
     filters.setSelectedId(a.artifact_id);
     try {
-      await send('explorer.install', { artifact_id: a.artifact_id });
+      await send('explorer.install', {
+        artifact_id: a.artifact_id,
+        target_workspace: installFolderPath(a.name, a.artifact_id),
+      });
       // Re-scan the workspace so the new <data_dir>/overlays/<id>/ folder
       // shows up in the header dropdown. Without this the user has to
       // hard-refresh the app to see what they just installed.

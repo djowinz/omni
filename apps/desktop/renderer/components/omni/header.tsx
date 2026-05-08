@@ -23,6 +23,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -86,6 +87,37 @@ export function Header() {
     dispatch({ type: 'SELECT_OVERLAY', payload: name });
     await ensureOverlayLoaded(name);
   };
+
+  // Default is pinned to the top; everything else is alphabetical (case-insensitive).
+  const defaultOverlay = state.overlays.find((o) => o.name === 'Default');
+  const otherOverlays = state.overlays
+    .filter((o) => o.name !== 'Default')
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+  const renderOverlayItem = (overlay: { name: string }) => (
+    <SelectItem
+      key={overlay.name}
+      value={overlay.name}
+      className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#FAFAFA]"
+    >
+      <div className="flex items-center gap-2">
+        <span>{overlay.name}</span>
+        {overlay.name === 'Default' && (
+          <Badge
+            variant="outline"
+            className="text-[10px] px-1.5 py-0 border-[#71717A] text-[#71717A]"
+          >
+            Default
+          </Badge>
+        )}
+        {overlay.name === state.config?.active_overlay && (
+          <Badge className="text-[10px] px-1.5 py-0 bg-[#00D9FF] text-[#0D0D0F] hover:bg-[#00D9FF]">
+            Active
+          </Badge>
+        )}
+      </div>
+    </SelectItem>
+  );
 
   const handleSetActive = async () => {
     if (currentOverlay) {
@@ -169,30 +201,11 @@ export function Header() {
                 <SelectValue placeholder="Select overlay" />
               </SelectTrigger>
               <SelectContent className="bg-[#18181B] border-[#27272A]">
-                {state.overlays.map((overlay) => (
-                  <SelectItem
-                    key={overlay.name}
-                    value={overlay.name}
-                    className="text-[#FAFAFA] focus:bg-[#27272A] focus:text-[#FAFAFA]"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span>{overlay.name}</span>
-                      {overlay.name === 'Default' && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] px-1.5 py-0 border-[#71717A] text-[#71717A]"
-                        >
-                          Default
-                        </Badge>
-                      )}
-                      {overlay.name === state.config?.active_overlay && (
-                        <Badge className="text-[10px] px-1.5 py-0 bg-[#00D9FF] text-[#0D0D0F] hover:bg-[#00D9FF]">
-                          Active
-                        </Badge>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
+                {defaultOverlay && renderOverlayItem(defaultOverlay)}
+                {defaultOverlay && otherOverlays.length > 0 && (
+                  <SelectSeparator className="bg-[#27272A]" />
+                )}
+                {otherOverlays.map(renderOverlayItem)}
               </SelectContent>
             </Select>
 
