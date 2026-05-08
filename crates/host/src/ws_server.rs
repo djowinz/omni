@@ -456,6 +456,79 @@ fn handle_message(
             let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
             Some(crate::workspace::file_api::handle_delete(&state.data_dir, path).to_string())
         }
+        "preview.setEditorOverlay" => {
+            let source = msg.get("source").and_then(|v| v.as_str()).unwrap_or("");
+            let overlay_name = msg
+                .get("overlay_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Parse source. Errors surface as a renderer-facing error envelope
+            // (no state mutation on parse failure — keeps the editor stream
+            // showing the previous successful build until the user fixes it).
+            let hwinfo_connected = state
+                .hwinfo_state
+                .lock()
+                .map(|s| s.connected)
+                .unwrap_or(false);
+            let (file, diagnostics) =
+                crate::omni::parser::parse_omni_with_diagnostics_hwinfo(source, hwinfo_connected);
+            let has_errors = diagnostics
+                .iter()
+                .any(|d| d.severity == crate::omni::parser::Severity::Error);
+            if has_errors || file.as_ref().map_or(true, |f| f.widgets.is_empty()) {
+                return Some(
+                    serde_json::json!({
+                        "type": "error",
+                        "code": "EDITOR_OVERLAY_PARSE_FAILED",
+                        "message": "preview.setEditorOverlay: source did not parse to a non-empty OmniFile",
+                        "diagnostics": diagnostics
+                            .iter()
+                            .map(|d| serde_json::to_value(d).unwrap_or(serde_json::json!(null)))
+                            .collect::<Vec<_>>(),
+                    })
+                    .to_string(),
+                );
+            }
+            let parsed = file.expect("checked above — file is Some with non-empty widgets");
+
+            // Build initial HTML for the editor stream. Same builder Ultralight
+            // uses for the in-game stream; the iframe can render the output as-is.
+            // For sensor inputs, use the latest available snapshot or zeroed defaults
+            // — the per-frame loop (Task 3) will push live values within one tick.
+            let (hwinfo_values, hwinfo_units) = state.hwinfo_values_and_units();
+            let snapshot = state.latest_snapshot.lock().map(|s| *s).unwrap_or_default();
+            let history = crate::omni::history::SensorHistory::new();
+            // Use a sensible default viewport — the iframe will rebuild HTML
+            // on next setEditorOverlay if the renderer sends a new size signal.
+            // For now, mirror Ultralight's typical initial viewport.
+            let (vw, vh) = (1920u32, 1080u32);
+            let initial = crate::omni::html_builder::build_initial_html(
+                &parsed,
+                &snapshot,
+                vw,
+                vh,
+                &state.data_dir,
+                &overlay_name,
+                &hwinfo_values,
+                &hwinfo_units,
+                &history,
+                None, // editor preview uses logical scale = 1.0 by default
+                crate::omni::view_trust::ViewTrust::LocalAuthored,
+            );
+
+            // Store and broadcast the initial HTML on the editor channel.
+            if let Ok(mut slot) = state.editor_omni_file.lock() {
+                *slot = Some(parsed);
+            }
+            if let Ok(mut slot) = state.editor_initial_html.lock() {
+                *slot = Some(initial.clone());
+            }
+            broadcast_preview_html_editor(state, &initial.html, &initial.css, &overlay_name);
+
+            Some(serde_json::json!({"type": "preview.setEditorOverlay.ack"}).to_string())
+        }
         "widget.apply" => {
             let source = msg.get("source").and_then(|v| v.as_str()).unwrap_or("");
             let hwinfo_connected = state
@@ -751,6 +824,28 @@ pub fn broadcast_preview(state: &WsSharedState, message: &str) {
     subs.retain(|tx| tx.send(message.to_string()).is_ok());
 }
 
+/// Broadcast the editor-stream initial HTML on the `preview.html.editor` channel.
+///
+/// Called by the `preview.setEditorOverlay` handler after building the initial
+/// HTML. All current preview subscribers receive the editor envelope; the iframe
+/// in `preview-panel.tsx` listens on this channel exclusively (not the in-game
+/// channel) once the renderer has subscribed to the editor stream.
+pub fn broadcast_preview_html_editor(
+    state: &WsSharedState,
+    html: &str,
+    css: &str,
+    overlay_name: &str,
+) {
+    let msg = serde_json::json!({
+        "type": "preview.html.editor",
+        "html": html,
+        "css": css,
+        "overlay_name": overlay_name,
+    })
+    .to_string();
+    broadcast_preview(state, &msg);
+}
+
 /// Format f32 for JSON — NaN becomes null.
 fn format_f32(v: f32) -> Value {
     if v.is_nan() {
@@ -1032,6 +1127,57 @@ mod tests {
         assert!(
             state.editor_initial_html.lock().unwrap().is_none(),
             "editor_initial_html starts empty"
+        );
+    }
+
+    #[test]
+    fn preview_set_editor_overlay_parses_and_stores() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let state = Arc::new(WsSharedState::new(tmp.path().to_path_buf()));
+        let mut subscribed = false;
+
+        // Minimal valid `.omni` source — single widget, no theme, no fonts.
+        let source = r#"<widget id="hello" name="hello"><template><div>Hello</div></template></widget>"#;
+        let msg = serde_json::json!({
+            "type": "preview.setEditorOverlay",
+            "source": source,
+            "overlay_name": "test-overlay",
+        })
+        .to_string();
+
+        let reply = handle_message(&msg, &state, &mut subscribed).expect("handler returns reply");
+        let parsed: serde_json::Value = serde_json::from_str(&reply).expect("reply is JSON");
+        assert_eq!(parsed["type"], "preview.setEditorOverlay.ack", "reply: {parsed}");
+
+        assert!(
+            state.editor_omni_file.lock().unwrap().is_some(),
+            "editor_omni_file populated after setEditorOverlay"
+        );
+        assert!(
+            state.editor_initial_html.lock().unwrap().is_some(),
+            "editor_initial_html populated after setEditorOverlay"
+        );
+    }
+
+    #[test]
+    fn preview_set_editor_overlay_rejects_malformed_source() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let state = Arc::new(WsSharedState::new(tmp.path().to_path_buf()));
+        let mut subscribed = false;
+
+        let msg = serde_json::json!({
+            "type": "preview.setEditorOverlay",
+            "source": "<widget>oops missing template</widget>",
+            "overlay_name": "broken",
+        })
+        .to_string();
+
+        let reply = handle_message(&msg, &state, &mut subscribed).expect("handler returns reply");
+        let parsed: serde_json::Value = serde_json::from_str(&reply).expect("reply is JSON");
+        assert_eq!(parsed["type"], "error", "reply: {parsed}");
+        assert!(
+            state.editor_omni_file.lock().unwrap().is_none(),
+            "malformed source must not populate editor_omni_file"
         );
     }
 }
