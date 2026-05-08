@@ -9,9 +9,11 @@
 //!
 //! WASM-clean: no std::fs, no threading, no IO.
 
+pub mod beautify;
 mod error;
 mod handlers;
 mod magic;
+pub(crate) mod omni_parser;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;

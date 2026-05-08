@@ -669,6 +669,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "css_dataset"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25670139e591f1c2869eb8d0d977028f8d05e859132b4c874ecd02a00d3c9174"
+
+[[package]]
 name = "cssparser"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1859,6 +1865,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1986,7 +2001,7 @@ dependencies = [
  "data-encoding",
  "getrandom 0.3.4",
  "indexmap",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "lightningcss-derive",
  "parcel_selectors",
@@ -2071,6 +2086,19 @@ dependencies = [
  "log",
  "tendril",
  "web_atoms",
+]
+
+[[package]]
+name = "markup_fmt"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fae5f4b43394d348e9820533e86a500ea31cf39b74318d74dd9e58e73aa3186"
+dependencies = [
+ "aho-corasick",
+ "css_dataset",
+ "itertools 0.14.0",
+ "memchr",
+ "tiny_pretty",
 ]
 
 [[package]]
@@ -3356,6 +3384,7 @@ dependencies = [
  "image 0.24.9",
  "js-sys",
  "lightningcss",
+ "markup_fmt",
  "proptest",
  "quick-xml 0.31.0",
  "semver",
@@ -3903,6 +3932,15 @@ checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "tiny_pretty"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "650d82e943da333637be9f1567d33d605e76810a26464edfd7ae74f7ef181e95"
+dependencies = [
+ "unicode-width",
 ]
 
 [[package]]
