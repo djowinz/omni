@@ -259,6 +259,8 @@ ipcMain.handle('ws-message', async (_event, msg: any) => {
     'config.update': 'config.updated',
     'log.path': 'log.path',
     'preview.subscribe': 'preview.subscribed',
+    'preview.setEditorOverlay': 'preview.setEditorOverlay.ack',
+    'preview.clearEditorOverlay': 'preview.clearEditorOverlay.ack',
   };
   const expectedType = responseTypes[msg.type];
   if (!expectedType) {
