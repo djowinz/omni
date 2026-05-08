@@ -318,7 +318,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
    */
   const cleanupConfigForRemovedOverlay = useCallback(
     async (removedName: string): Promise<void> => {
-      // Step 1: Config update — reset active overlay + per-game assignments.
+      // Config update — reset active overlay + per-game assignments.
       try {
         const config = await backend.getConfig();
         let dirty = false;
@@ -338,7 +338,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
           await backend.updateConfig(config);
           dispatch({ type: 'SET_CONFIG', payload: config });
 
-          // Step 2: In-game stream — push Default if it was the active overlay.
+          // In-game stream — push Default if it was the active overlay.
           if (config.active_overlay === 'Default') {
             try {
               const defaultContent = await backend.readFile('overlays/Default/overlay.omni');
@@ -352,7 +352,7 @@ export function OmniProvider({ children }: { children: React.ReactNode }) {
         console.error('Failed to update config after overlay removal:', err);
       }
 
-      // Step 3: Editor stream cleanup — if the editor pane was showing the
+      // Editor stream cleanup — if the editor pane was showing the
       // just-removed overlay, push Default so the iframe doesn't keep
       // rendering content that no longer exists on disk. The host's editor
       // stream is renderer-driven (no file watcher), so this is the only

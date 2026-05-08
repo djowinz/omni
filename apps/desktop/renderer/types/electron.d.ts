@@ -10,10 +10,6 @@ interface OmniIpcBridge {
   sendMessage: (msg: object) => Promise<any>;
   sendShareMessage: (msg: { id: string; [k: string]: unknown }) => Promise<any>;
   onSensorData: (callback: (snapshot: any) => void) => () => void;
-  onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => () => void;
-  onPreviewUpdate: (
-    callback: (data: { diff: Record<string, { c?: string; t?: string }> }) => void,
-  ) => () => void;
   /** In-game preview stream — emitted when the host builds initial HTML for the active overlay. */
   onPreviewHtmlIngame: (callback: (data: { html: string; css: string }) => void) => () => void;
   /** In-game preview stream — incremental sensor/diff updates for the active overlay. */

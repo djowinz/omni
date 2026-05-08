@@ -33,34 +33,6 @@ contextBridge.exposeInMainWorld('omni', {
     };
   },
 
-  // Preview HTML stream
-  onPreviewHtml: (callback: (data: { html: string; css: string }) => void) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('preview-html', handler);
-    return () => {
-      ipcRenderer.removeListener('preview-html', handler);
-    };
-  },
-
-  // Preview incremental updates. `values` is the raw sensor map (e.g.
-  // {"cpu.usage": 9, "ram.percent": 44}) consumed by the renderer's
-  // data-sensor span updater — mirrors Ultralight bootstrap's
-  // __omni_update(values). `diff` is the per-element class/text/attr diff
-  // for everything else. Both are optional in practice (host may emit only
-  // one or the other), so callers must treat each independently.
-  onPreviewUpdate: (
-    callback: (data: {
-      diff?: Record<string, { c?: string; t?: string; a?: Record<string, string> }>;
-      values?: Record<string, number>;
-    }) => void,
-  ) => {
-    const handler = (_event: any, data: any) => callback(data);
-    ipcRenderer.on('preview-update', handler);
-    return () => {
-      ipcRenderer.removeListener('preview-update', handler);
-    };
-  },
-
   // In-game preview stream — initial HTML for the active overlay.
   onPreviewHtmlIngame: (callback: (data: { html: string; css: string }) => void) => {
     const handler = (_event: any, data: any) => callback(data);

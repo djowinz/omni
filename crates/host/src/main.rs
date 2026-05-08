@@ -229,10 +229,10 @@ fn store_and_broadcast_preview(
     }
 }
 
-/// Compute per-frame sensor values + diff for an OmniFile and broadcast on
-/// the named target channel ("ingame" or "editor"). Pulled out of the
-/// per-frame loop so the dual-stream logic can call it twice without
-/// duplicating string work.
+/// Computes per-frame sensor values + diff for an OmniFile, broadcasts the
+/// resulting payload on the named target channel, and returns the broadcast
+/// JSON so a same-overlay fast path can re-tag and re-emit without
+/// re-computing.
 fn compute_and_broadcast_for_overlay(
     target: &str,
     omni_file: &omni::OmniFile,
@@ -241,7 +241,7 @@ fn compute_and_broadcast_for_overlay(
     hwinfo_units: &std::collections::HashMap<String, String>,
     history: &omni::history::SensorHistory,
     ws_state: &ws_server::WsSharedState,
-) {
+) -> Option<String> {
     let values = html_builder::collect_sensor_values(omni_file, snapshot, hwinfo_values);
     let class_diff = html_builder::compute_update_diff(
         omni_file,
@@ -252,7 +252,9 @@ fn compute_and_broadcast_for_overlay(
     );
     let preview_msg =
         omni::preview::build_preview_payload_for_target(target, &values, class_diff.as_ref());
-    ws_server::broadcast_preview(ws_state, &preview_msg.to_string());
+    let payload_string = preview_msg.to_string();
+    ws_server::broadcast_preview(ws_state, &payload_string);
+    Some(payload_string)
 }
 
 /// Cheap equality check between two OmniFiles for the same-overlay
@@ -1311,8 +1313,8 @@ fn run_host() {
         if !subs.is_empty() {
             drop(subs);
 
-            // Always emit the in-game stream.
-            compute_and_broadcast_for_overlay(
+            // Always emit the in-game stream; capture the payload for the fast path.
+            let in_game_payload_json = compute_and_broadcast_for_overlay(
                 "ingame",
                 &host.omni_file,
                 &latest_snapshot,
@@ -1342,17 +1344,16 @@ fn run_host() {
                     );
                 }
                 Some(_) | None => {
-                    // Same overlay (fast path) OR mirror-by-default — re-broadcast
-                    // the in-game payload on the editor channel.
-                    compute_and_broadcast_for_overlay(
-                        "editor",
-                        &host.omni_file,
-                        &latest_snapshot,
-                        &hwinfo_values,
-                        &hwinfo_units,
-                        &host.sensor_history,
-                        &ws_state,
-                    );
+                    // Same overlay (fast path) OR mirror-by-default — re-tag the
+                    // in-game payload for the editor channel without re-computing.
+                    if let Some(payload_json) = &in_game_payload_json {
+                        let editor_payload = payload_json.replacen(
+                            r#""preview.update.ingame""#,
+                            r#""preview.update.editor""#,
+                            1,
+                        );
+                        ws_server::broadcast_preview(&ws_state, &editor_payload);
+                    }
                 }
             }
         }
