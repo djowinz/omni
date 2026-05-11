@@ -1,12 +1,14 @@
 # Build file ignores
 dist/
 target/
+target-*/
 apps/desktop/renderer/generated/
 node_modules/
 **/node_modules/
 packages/*/dist/
 .next/
 *.tsbuildinfo
+*.log
 
 # secrets ignore
 secrets/
