@@ -34,8 +34,8 @@ describe('artifact-actions', () => {
     expect(kebabLabelsFor('my-uploads')).toEqual([]);
   });
 
-  it('kebabLabelsFor Installed has Check for update only', () => {
-    expect(kebabLabelsFor('installed')).toEqual(['Check for update']);
+  it('installed tab has an empty kebab (Check for update item removed in OWI-132; OWI-109 repopulates)', () => {
+    expect(kebabLabelsFor('installed')).toEqual([]);
   });
 
   it('ExploreTab type covers the three sub-tab ids', () => {

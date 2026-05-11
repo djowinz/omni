@@ -946,6 +946,28 @@ export const WorkspaceListPublishablesResultSchema = z.object({
 });
 export type WorkspaceListPublishablesResult = z.infer<typeof WorkspaceListPublishablesResultSchema>;
 
+// ── publish.lookupWorkspace ───────────────────────────────────────────────
+// Resolve a my-uploads artifact_id back to its local workspace folder via
+// the publish-index. Used by ExploreDetail's author-side Update CTA to
+// pre-load UploadDialog with the matching workspace.
+//
+// Host handler: `crates/host/src/share/ws_messages.rs::handle_lookup_workspace`
+export const PublishLookupWorkspaceParamsSchema = z.object({
+  artifact_id: z.string().min(1),
+});
+export type PublishLookupWorkspaceParams = z.infer<typeof PublishLookupWorkspaceParamsSchema>;
+
+export const PublishLookupWorkspaceResultSchema = z.object({
+  id: z.string(),
+  type: z.literal('publish.lookupWorkspaceResult'),
+  artifact_id: z.string(),
+  status: z.enum(['ok', 'missing_index', 'missing_folder']),
+  workspace_path: z.string().nullable(),
+  kind: z.enum(['overlay', 'theme']).nullable(),
+  name: z.string().nullable(),
+});
+export type PublishLookupWorkspaceResult = z.infer<typeof PublishLookupWorkspaceResultSchema>;
+
 // ── workspace.listInstalled ──────────────────────────────────────────────────
 //
 // Shipped: crates/host/src/share/ws_messages.rs handle_list_installed()
@@ -1082,6 +1104,10 @@ export interface ShareRequestMap {
     params: UploadDeleteParams;
     result: UploadDeleteResult;
   };
+  'publish.lookupWorkspace': {
+    params: PublishLookupWorkspaceParams;
+    result: PublishLookupWorkspaceResult;
+  };
   'identity.show': {
     params: IdentityShowParams;
     result: IdentityShowResponse;
@@ -1177,6 +1203,7 @@ export const ShareResponseSchemas = {
   'upload.publishResult': UploadPublishResultSchema,
   'upload.updateResult': UploadUpdateResultSchema,
   'upload.deleteResult': UploadDeleteResultSchema,
+  'publish.lookupWorkspaceResult': PublishLookupWorkspaceResultSchema,
   'identity.showResult': IdentityShowResponseSchema,
   'identity.backupResult': IdentityBackupResultSchema,
   'identity.importResult': IdentityImportResultSchema,

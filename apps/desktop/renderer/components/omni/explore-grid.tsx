@@ -12,6 +12,7 @@ import { useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useInView } from 'react-intersection-observer';
 import type { CachedArtifactDetail } from '../../lib/share-types';
+import type { UpdateStatus } from '../../hooks/use-artifact-update-status';
 import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { ArtifactCard } from './artifact-card';
 import { SearchInput } from './search-input';
@@ -41,6 +42,12 @@ export interface ExploreGridProps {
    * sees rows in this state.
    */
   tombstonedIds?: Set<string>;
+  /**
+   * Per-artifact update availability (Installed tab only; other tabs pass
+   * undefined). When set, cards whose artifact_id is in the Map AND has
+   * `available: true` render a corner pill on the thumbnail.
+   */
+  updateStatus?: Map<string, UpdateStatus>;
   onSelect: (artifactId: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
@@ -55,6 +62,7 @@ export function ExploreGrid({
   selectedId,
   installedIds,
   tombstonedIds,
+  updateStatus,
   onSelect,
   onPreview,
   onInstall,
@@ -88,6 +96,7 @@ export function ExploreGrid({
           selectedId={selectedId}
           installedIds={installedIds}
           tombstonedIds={tombstonedIds}
+          updateStatus={updateStatus}
           onSelect={onSelect}
           onPreview={onPreview}
           onInstall={onInstall}
@@ -108,6 +117,7 @@ interface GridBodyProps {
   selectedId: string | null;
   installedIds?: Set<string>;
   tombstonedIds?: Set<string>;
+  updateStatus?: Map<string, UpdateStatus>;
   onSelect: (artifactId: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
@@ -124,6 +134,7 @@ function GridBody({
   selectedId,
   installedIds,
   tombstonedIds,
+  updateStatus,
   onSelect,
   onPreview,
   onInstall,
@@ -193,6 +204,7 @@ function GridBody({
                 artifact={item}
                 installed={installedIds?.has(item.artifact_id) ?? false}
                 tombstoned={tombstonedIds?.has(item.artifact_id) ?? false}
+                updateStatus={updateStatus?.get(item.artifact_id)}
                 onClick={() => onSelect(item.artifact_id)}
                 onPreview={handlers.onPreview}
                 onInstall={handlers.onInstall}
@@ -219,6 +231,7 @@ function GridBody({
       selectedId={selectedId}
       installedIds={installedIds}
       tombstonedIds={tombstonedIds}
+      updateStatus={updateStatus}
       onSelect={onSelect}
       onPreview={onPreview}
       onInstall={onInstall}
@@ -262,6 +275,7 @@ interface VirtualGridProps {
   selectedId: string | null;
   installedIds?: Set<string>;
   tombstonedIds?: Set<string>;
+  updateStatus?: Map<string, UpdateStatus>;
   onSelect: (id: string) => void;
   onPreview?: (artifact: CachedArtifactDetail) => void;
   onInstall?: (artifact: CachedArtifactDetail) => void;
@@ -275,6 +289,7 @@ function VirtualGrid({
   selectedId,
   installedIds,
   tombstonedIds,
+  updateStatus,
   onSelect,
   onPreview,
   onInstall,
@@ -323,6 +338,7 @@ function VirtualGrid({
                     artifact={item}
                     installed={installedIds?.has(item.artifact_id) ?? false}
                     tombstoned={tombstonedIds?.has(item.artifact_id) ?? false}
+                    updateStatus={updateStatus?.get(item.artifact_id)}
                     onClick={() => onSelect(item.artifact_id)}
                     onPreview={handlers.onPreview}
                     onInstall={handlers.onInstall}
