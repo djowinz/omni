@@ -226,7 +226,9 @@ mod tests {
             "body must start with newline+6sp indent: {body:?}"
         );
         // Each non-blank content line carries at least 6sp of leading whitespace.
-        for line in body.lines().filter(|l| !l.is_empty()) {
+        // Skip whitespace-only lines — the trailing parent-indent before `</style>`
+        // is verified separately by the `ends_with("\n    ")` check below.
+        for line in body.lines().filter(|l| !l.trim().is_empty()) {
             assert!(
                 line.starts_with("      "),
                 "every body line must inherit parent indent: {line:?}"
