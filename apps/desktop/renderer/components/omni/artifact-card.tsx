@@ -13,7 +13,9 @@
 import { AlertTriangle, Download, Layers, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CachedArtifactDetail, ArtifactDetail } from '../../lib/share-types';
+import type { UpdateStatus } from '@/hooks/use-artifact-update-status';
 import { CardHoverOverlay } from './card-hover-overlay';
+import { UpdateAvailablePill } from './update-available-pill';
 
 export interface ArtifactCardProps {
   artifact: CachedArtifactDetail | ArtifactDetail;
@@ -30,6 +32,10 @@ export interface ArtifactCardProps {
   onUninstall?: () => void;
   className?: string;
   'data-selected'?: 'true' | 'false';
+  /** Update-availability status for this artifact. When `available === true`,
+   *  the card renders a corner pill on the thumbnail. Pass only on the
+   *  Installed tab — Discover and my-uploads cards pass undefined. */
+  updateStatus?: UpdateStatus;
 }
 
 function manifestString(manifest: Record<string, unknown> | undefined, key: string): string | null {
@@ -68,7 +74,7 @@ function manifestTags(artifact: CachedArtifactDetail | ArtifactDetail): string[]
 }
 
 export function ArtifactCard(props: ArtifactCardProps) {
-  const { artifact, installed, tombstoned, onClick, onPreview, onInstall, onUninstall, className } = props;
+  const { artifact, installed, tombstoned, onClick, onPreview, onInstall, onUninstall, className, updateStatus } = props;
   const name = artifactName(artifact);
   const author = authorDisplay(artifact);
   const detail = artifact as ArtifactDetail;
@@ -123,6 +129,9 @@ export function ArtifactCard(props: ArtifactCardProps) {
     >
       {/* Thumbnail */}
       <div className="relative aspect-video w-full overflow-hidden bg-[#0F0F12]">
+        {updateStatus?.available && (
+          <UpdateAvailablePill status={updateStatus} variant="corner" />
+        )}
         {artifact.thumbnail_url ? (
           <img src={artifact.thumbnail_url} alt={name} className="h-full w-full object-cover" />
         ) : (
