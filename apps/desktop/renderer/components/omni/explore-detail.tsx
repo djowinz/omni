@@ -17,7 +17,6 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -25,6 +24,8 @@ import { InstallProgress, type InstallPhase } from './install-progress';
 import { TofuMismatchDialog, type TofuFingerprint } from './tofu-mismatch-dialog';
 import { ForkDialog } from './fork-dialog';
 import { InlineError } from './inline-error';
+import { UpdateAvailablePill } from './update-available-pill';
+import { UpdateConfirmDialog } from './update-confirm-dialog';
 import { useExploreDetail } from '../../hooks/use-explore-detail';
 import { useExploreFilters } from '../../hooks/use-explore-filters';
 import { usePreview } from '../../lib/preview-context';
@@ -40,6 +41,8 @@ import {
   kebabLabelsFor,
   type ExploreTab,
 } from '../../lib/artifact-actions';
+import type { UpdateStatus } from '../../hooks/use-artifact-update-status';
+import type { InstalledEntryRow } from '../../lib/share-types';
 
 export interface ExploreDetailProps {
   selectedId: string;
@@ -49,11 +52,23 @@ export interface ExploreDetailProps {
    *  (destructive variant) so the user doesn't see a no-op Install button
    *  on something they've already installed. */
   installed?: boolean;
+  /** Full installed-registry rows from the panel. Keyed lookup by
+   *  artifact_id supplies the `installed` argument to `<UpdateConfirmDialog>`
+   *  so it can render the version delta + author-key rotation warning. */
+  installedEntries?: InstalledEntryRow[];
+  /** Per-artifact update-detection result computed by the panel via
+   *  `useArtifactUpdateStatus(installed.entries, installedDetails.byId)`.
+   *  Drives the header pill + confirm dialog. */
+  updateStatus?: Map<string, UpdateStatus>;
   /** Opens the panel-level uninstall confirm dialog with the supplied
    *  display name. The panel owns the dialog mount + the post-success
    *  refetch / overlay refresh / pane-close logic so all uninstall
    *  surfaces (detail-pane button + grid hover button) share one flow. */
   onRequestUninstall?: (artifactId: string, name: string) => void;
+  /** Author-side Update CTA on the my-uploads tab. Detail-pane resolves the
+   *  workspace path via `publish.lookupWorkspace` and then asks the panel
+   *  to open <UploadDialog> pre-filled with it. */
+  onRequestUpload?: (workspace_path: string) => void;
 }
 
 type InstallState =
@@ -71,7 +86,10 @@ export function ExploreDetail({
   selectedId,
   tab,
   installed = false,
+  installedEntries,
+  updateStatus,
   onRequestUninstall,
+  onRequestUpload,
 }: ExploreDetailProps) {
   const { artifact, loading } = useExploreDetail(selectedId);
   const { setSelectedId } = useExploreFilters();
@@ -87,6 +105,12 @@ export function ExploreDetail({
     incoming: TofuFingerprint;
   } | null>(null);
   const [forkOpen, setForkOpen] = useState(false);
+  // Update-confirm dialog state. Opened from the header pill and from the
+  // (future) corner pill click bubble path. Closes silently on Apply success;
+  // the install pipeline fires `omni:artifact-installed` which the
+  // useInstalledArtifacts listener picks up — registry + grid + pill all
+  // refresh without us doing anything else here.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const existingNames = useMemo(
     () => omniState.overlays.map((o) => o.name),
@@ -255,8 +279,47 @@ export function ExploreDetail({
     }
   };
 
-  const stubSubSpec = (which: '#015' | '#016') => () => {
-    toast.info(`That action lands in sub-spec ${which}.`);
+  // My-uploads "Update" CTA: resolve the artifact_id back to its local
+  // workspace folder via the publish-index (host-side `publish.lookupWorkspace`),
+  // then ask the panel to open <UploadDialog> pre-filled. Three terminal
+  // statuses, each mapped to a user-facing toast:
+  //   ok            → open dialog pre-filled with workspace_path
+  //   missing_index → toast.info (artifact was published from a different
+  //                   install / machine — author can't update it from here)
+  //   missing_folder → toast.error (workspace folder was moved/deleted; user
+  //                   needs to recreate it under the named path)
+  const handleAuthorUpdate = async () => {
+    try {
+      const resp = await send('publish.lookupWorkspace', {
+        artifact_id: artifact.artifact_id,
+      });
+      if (resp.status === 'ok' && resp.workspace_path) {
+        onRequestUpload?.(resp.workspace_path);
+      } else if (resp.status === 'missing_index') {
+        toast.info(
+          "This artifact has no publish record on this machine — you can't update it from here.",
+        );
+      } else if (resp.status === 'missing_folder') {
+        toast.error(
+          `Workspace folder was moved or deleted. Recreate it under ${resp.kind}s/${resp.name}/ to publish an update.`,
+        );
+      }
+    } catch (err) {
+      toast.error(err as Parameters<typeof toast.error>[0]);
+    }
+  };
+
+  // My-uploads "Delete" CTA: removes the artifact from the share hub. The
+  // host handler invalidates caches + tombstones the row server-side so
+  // other surfaces refetch fresh. Local files are unaffected — only the
+  // upstream listing goes away.
+  const handleAuthorDelete = async () => {
+    try {
+      await send('upload.delete', { artifact_id: artifact.artifact_id });
+      toast.success(`Deleted ${name} from the share hub.`);
+    } catch (err) {
+      toast.error(err as Parameters<typeof toast.error>[0]);
+    }
   };
 
   const handleFork = async ({ target_name }: { target_name: string }) => {
@@ -278,6 +341,16 @@ export function ExploreDetail({
   };
 
   const kebabLabels = kebabLabelsFor(tab);
+
+  // Header pill + confirm-dialog wiring. Both require:
+  //   - an entry for this artifact in updateStatus with available === true
+  //   - the matching local registry row (for installed_version + author_pubkey
+  //     fields that <UpdateConfirmDialog> renders)
+  // Either being missing means we silently skip the pill. The corner pill on
+  // the card has the same gating in <ArtifactCard>; the two surfaces stay
+  // visually in sync because they read the same map.
+  const status = updateStatus?.get(artifact.artifact_id);
+  const installedRow = installedEntries?.find((e) => e.artifact_id === artifact.artifact_id);
 
   return (
     <>
@@ -304,6 +377,22 @@ export function ExploreDetail({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {/* Header-variant update pill. Surfaces only when there's an actual
+                version delta against the worker manifest AND we have the
+                installed registry row in hand (the confirm dialog needs both
+                installed_version and author_pubkey from it). Click opens the
+                <UpdateConfirmDialog> mounted at the bottom of this component. */}
+            {status?.available && installedRow && (
+              <UpdateAvailablePill
+                status={status}
+                variant="header"
+                onClick={() => setConfirmOpen(true)}
+              />
+            )}
+            {/* Kebab menu — currently empty (kebabLabelsFor returns [] for every
+                tab after OWI-132 T5). Block stays in place so OWI-109 can
+                repopulate Report / View-policy items without re-deriving the
+                trigger styling. */}
             {kebabLabels.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -315,13 +404,7 @@ export function ExploreDetail({
                     <MoreVertical className="h-4 w-4" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {kebabLabels.includes('Check for update') && (
-                    <DropdownMenuItem onSelect={stubSubSpec('#016')}>
-                      Check for update
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
+                <DropdownMenuContent align="end" />
               </DropdownMenu>
             )}
             <button
@@ -449,7 +532,15 @@ export function ExploreDetail({
               {labels.left}
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={stubSubSpec('#016')}>
+            // `Open` slot for Installed / My-Uploads — opens the on-disk
+            // workspace in the editor. The full Open flow lands in sub-spec
+            // #016 (OWI-15); for now we keep the slot visible with a toast so
+            // the layout stays stable and the user gets clear feedback.
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => toast.info('Open lands in sub-spec #016.')}
+            >
               {labels.left}
             </Button>
           )}
@@ -485,8 +576,9 @@ export function ExploreDetail({
               // Both Uninstall and Delete remove the artifact — render them
               // with the destructive variant so the visual weight matches the
               // action's gravity (red, not the default cyan primary).
-              // Uninstall opens the confirm dialog and runs `explorer.uninstall`;
-              // Delete stays stubbed (server-side artifact deletion lands later).
+              // Uninstall opens the panel-level confirm dialog and runs
+              // `explorer.uninstall`; Delete fires `upload.delete` on the
+              // share hub (local files untouched).
               <Button
                 className="w-full"
                 variant={
@@ -498,7 +590,9 @@ export function ExploreDetail({
                 onClick={
                   labels.middle === 'Uninstall'
                     ? () => onRequestUninstall?.(artifact.artifact_id, name)
-                    : stubSubSpec(labels.middle === 'Delete' ? '#015' : '#016')
+                    : labels.middle === 'Delete'
+                      ? () => void handleAuthorDelete()
+                      : () => void handleInstall(false)
                 }
               >
                 {labels.middle}
@@ -515,13 +609,15 @@ export function ExploreDetail({
               <ForkIcon />
             </Button>
           ) : (
-            // Update needs the upstream — PATCH on a tombstoned row would 404
-            // (worker rejects mutations on `is_removed = 1`). My-Uploads
-            // filters tombstones server-side, so this is defensive belt+suspenders.
+            // My-Uploads "Update" slot — resolves the artifact's workspace via
+            // `publish.lookupWorkspace` and opens <UploadDialog> pre-filled.
+            // Disabled when the upstream is tombstoned because PATCH-style
+            // updates would 404 on the worker (`is_removed = 1`). My-Uploads
+            // filters tombstones server-side; this is defensive belt+suspenders.
             <Button
               variant="outline"
               size="sm"
-              onClick={stubSubSpec(labels.right === 'Update' ? '#015' : '#016')}
+              onClick={() => void handleAuthorUpdate()}
               disabled={tombstoned && labels.right === 'Update'}
               title={
                 tombstoned && labels.right === 'Update'
@@ -560,6 +656,27 @@ export function ExploreDetail({
         onCancel={() => setForkOpen(false)}
         onFork={({ target_name }) => void handleFork({ target_name })}
       />
+      {/* Update-apply confirm dialog. Mounted conditionally because both
+          UpdateStatus and the matching installedRow must be in scope for the
+          dialog to render the version delta + pubkey-rotation warning. The
+          post-install `omni:artifact-installed` window event is fired by the
+          install pipeline itself (see explore-detail.tsx:handleInstall and
+          explore-panel.tsx:handleHoverInstall), so registry refresh +
+          indicator clear happen automatically. */}
+      {status?.available && installedRow && (
+        <UpdateConfirmDialog
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          artifact={artifact}
+          installed={installedRow}
+          onApplied={() => {
+            // No-op — the install pipeline dispatches
+            // `omni:artifact-installed` which every useInstalledArtifacts
+            // consumer listens for. Registry, grid badges, header pill, and
+            // detail pane all refresh from a single event.
+          }}
+        />
+      )}
     </>
   );
 }

@@ -30,6 +30,7 @@ import { useOmniState } from '../../hooks/use-omni-state';
 import { useInstalledArtifactIds } from '../../hooks/use-installed-artifact-ids';
 import { installFolderName, installFolderPath } from '../../lib/artifact-actions';
 import { useInstalledDetails } from '../../hooks/use-installed-details';
+import { useArtifactUpdateStatus } from '../../hooks/use-artifact-update-status';
 import { ExploreSidebar } from './explore-sidebar';
 import { ExploreGrid } from './explore-grid';
 import { ExploreDetail } from './explore-detail';
@@ -72,6 +73,13 @@ export function ExplorePanel() {
   // registry (works offline) and re-render with thumbnails + counts once
   // the batch returns. Network failure → cards stay with the placeholder.
   const installedDetails = useInstalledDetails(installed.entries);
+  // Per-installed-artifact update status (latest_version > installed_version).
+  // Pure derivation off the registry rows + the live batch fetch — no extra
+  // network. Threaded into <ExploreDetail> so the header pill + author Update
+  // CTA can read the same map. (Threading into <ArtifactCard> via
+  // <ExploreGrid> for the corner pill lives in a follow-up task whose file
+  // ownership covers explore-grid.tsx + artifact-card.tsx.)
+  const updateStatus = useArtifactUpdateStatus(installed.entries, installedDetails.byId);
   // Tombstoned-id set: artifacts whose upstream row has `is_removed = 1`.
   // Discover never sees these (server filters), so this is sourced solely
   // from the live batch fetch above. Used by the Installed grid to flip
@@ -124,7 +132,15 @@ export function ExplorePanel() {
         ? installedList
         : discoverList;
 
-  const [uploadOpen, setUploadOpen] = useState(false);
+  // Upload-dialog state lifted to the panel so the my-uploads "Update" CTA
+  // in <ExploreDetail> can request that the dialog open pre-filled with the
+  // workspace path it resolved via `publish.lookupWorkspace`. The dialog
+  // mounts unconditionally at the bottom of the panel and reads `prefilledPath`
+  // to decide whether to skip its picker step.
+  const [uploadState, setUploadState] = useState<{ open: boolean; prefilledPath: string | null }>({
+    open: false,
+    prefilledPath: null,
+  });
   // Uninstall flow lives at the panel level so all surfaces (detail-pane
   // middle button + grid hover button) share one dialog mount. The state
   // is `null` when no uninstall is in progress; setting it to a target
@@ -198,7 +214,7 @@ export function ExplorePanel() {
         <div className="flex-1" />
         <button
           data-testid="explore-upload-cta"
-          onClick={() => setUploadOpen(true)}
+          onClick={() => setUploadState({ open: true, prefilledPath: null })}
           className="flex h-full items-center gap-1.5 px-3 text-[10px] uppercase tracking-wider text-[#71717A] transition-colors hover:text-[#FAFAFA]"
           title="Publish a theme or bundle"
         >
@@ -230,9 +246,12 @@ export function ExplorePanel() {
               selectedId={filters.selectedId}
               tab={filters.tab}
               installed={installed.ids.has(filters.selectedId)}
+              installedEntries={installed.entries}
+              updateStatus={updateStatus}
               onRequestUninstall={(artifact_id, name) =>
                 setUninstallTarget({ artifact_id, name })
               }
+              onRequestUpload={(path) => setUploadState({ open: true, prefilledPath: path })}
             />
           </aside>
         )}
@@ -280,7 +299,13 @@ export function ExplorePanel() {
         />
       )}
 
-      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} prefilledPath={null} />
+      <UploadDialog
+        open={uploadState.open}
+        onOpenChange={(open) =>
+          setUploadState((prev) => (open ? prev : { open: false, prefilledPath: null }))
+        }
+        prefilledPath={uploadState.prefilledPath}
+      />
     </div>
   );
 }
