@@ -66,6 +66,16 @@ impl PublishIndex {
             .retain(|e| !(e.pubkey_hex == pubkey_hex && e.kind == kind && e.name == name));
         self.entries.len() != before
     }
+
+    /// Find an entry by `artifact_id`. Used by the `publish.lookupWorkspace`
+    /// WS handler to resolve a my-uploads card's artifact_id to its local
+    /// workspace folder for the Update CTA.
+    ///
+    /// Linear scan — index size is bounded by per-author publish count
+    /// (typically O(10s)), matching the comment on `PublishIndex` itself.
+    pub fn lookup_by_artifact_id(&self, artifact_id: &str) -> Option<&PublishIndexEntry> {
+        self.entries.iter().find(|e| e.artifact_id == artifact_id)
+    }
 }
 
 pub const INDEX_FILENAME: &str = "publish-index.json";
@@ -141,5 +151,49 @@ mod tests {
         idx.upsert(entry("marathon", "1.0.0"));
         assert!(idx.remove("ab", "overlay", "marathon"));
         assert!(idx.lookup("ab", "overlay", "marathon").is_none());
+    }
+
+    #[test]
+    fn lookup_by_artifact_id_returns_matching_entry() {
+        let mut idx = PublishIndex::default();
+        idx.upsert(PublishIndexEntry {
+            pubkey_hex: "ab".into(),
+            kind: "overlay".into(),
+            name: "marathon".into(),
+            artifact_id: "art-1".into(),
+            last_version: "1.0.0".into(),
+            last_published_at: "2026-04-18T00:00:00Z".into(),
+        });
+        assert_eq!(idx.lookup_by_artifact_id("art-1").unwrap().name, "marathon");
+    }
+
+    #[test]
+    fn lookup_by_artifact_id_returns_none_for_unknown() {
+        let idx = PublishIndex::default();
+        assert!(idx.lookup_by_artifact_id("art-missing").is_none());
+    }
+
+    #[test]
+    fn lookup_by_artifact_id_returns_first_match_when_duplicates() {
+        // Should not happen in practice (artifact_id is server-unique), but
+        // confirm the linear scan returns the first match deterministically.
+        let mut idx = PublishIndex::default();
+        idx.entries.push(PublishIndexEntry {
+            pubkey_hex: "ab".into(),
+            kind: "overlay".into(),
+            name: "first".into(),
+            artifact_id: "dup".into(),
+            last_version: "1.0.0".into(),
+            last_published_at: "2026-04-18T00:00:00Z".into(),
+        });
+        idx.entries.push(PublishIndexEntry {
+            pubkey_hex: "ab".into(),
+            kind: "overlay".into(),
+            name: "second".into(),
+            artifact_id: "dup".into(),
+            last_version: "1.0.0".into(),
+            last_published_at: "2026-04-18T00:00:00Z".into(),
+        });
+        assert_eq!(idx.lookup_by_artifact_id("dup").unwrap().name, "first");
     }
 }
