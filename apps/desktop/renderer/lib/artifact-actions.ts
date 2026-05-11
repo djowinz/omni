@@ -33,18 +33,13 @@ export function actionLabelsFor(tab: ExploreTab): ActionLabels {
 /**
  * Kebab menu item labels per tab.
  *
- * Discover + My-Uploads have no kebab items (the previous "Copy artifact ID"
- * + "Copy share link" entries were removed: artifact_id is an internal
- * identifier with no end-user use case, and the share link is an omni://
- * deep-link whose protocol handler isn't shipped yet — both were UI bloat).
- *
- * Installed keeps "Check for update" because it's a meaningful per-row
- * action that doesn't fit the three-slot footer.
+ * Discover + My-Uploads have no kebab items today. Installed's previous
+ * "Check for update" item was removed in OWI-132 — detection is automatic
+ * via explorer.batchGet on tab mount; the apply affordance is the
+ * corner/header pill on the card. OWI-109 will repopulate this menu with
+ * Report / View policy items.
  */
-export function kebabLabelsFor(tab: ExploreTab): string[] {
-  if (tab === 'installed') {
-    return ['Check for update'];
-  }
+export function kebabLabelsFor(_tab: ExploreTab): string[] {
   return [];
 }
 
