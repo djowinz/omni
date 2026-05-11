@@ -288,6 +288,7 @@ pub const SHARE_MESSAGE_TYPES: &[&str] = &[
     "explorer.list",
     "explorer.get",
     "explorer.batchGet",
+    "publish.lookupWorkspace",
     "workspace.listPublishables",
     "workspace.listInstalled",
     "share.moderationCheck",
@@ -343,6 +344,7 @@ where
         "explorer.list" => handle_list(&id, params, ctx).await,
         "explorer.get" => handle_get(&id, params, ctx).await,
         "explorer.batchGet" => handle_batch_get(&id, params, ctx).await,
+        "publish.lookupWorkspace" => handle_lookup_workspace(&id, params, ctx).await,
         "workspace.listPublishables" => handle_list_publishables(&id, params, ctx).await,
         "workspace.listInstalled" => handle_list_installed(&id, ctx).await,
         // Renderer-initiated single-image moderation gate (INV-7.7.2 site #1).
@@ -1990,6 +1992,92 @@ async fn handle_batch_get(id: &str, params: Value, ctx: &ShareContext) -> Option
         }
         Err(e) => Some(error_envelope(id, &e).to_string()),
     }
+}
+
+/// Resolve `artifact_id` → local workspace path via the publish-index, for
+/// the my-uploads "Update" CTA. Three terminal states:
+///   - `ok`           : index entry exists AND folder is present on disk
+///   - `missing_index`: not in publish-index (e.g. installed-on-this-machine
+///                      but originally uploaded from a different device)
+///   - `missing_folder`: index entry exists but the folder was moved/deleted
+///
+/// Contract: `apps/desktop/renderer/lib/share-types.ts` —
+/// `PublishLookupWorkspaceResultSchema` / `PublishLookupWorkspaceParams`.
+async fn handle_lookup_workspace(id: &str, params: Value, ctx: &ShareContext) -> Option<String> {
+    let artifact_id = match params.get("artifact_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Some(bad_input(id, "missing or empty artifact_id")),
+    };
+
+    let index_path = crate::share::publish_index::index_path();
+    let index = crate::share::publish_index::read(&index_path).unwrap_or_default();
+
+    let Some(entry) = index.lookup_by_artifact_id(&artifact_id) else {
+        return Some(
+            json!({
+                "id": id,
+                "type": "publish.lookupWorkspaceResult",
+                "artifact_id": artifact_id,
+                "status": "missing_index",
+                "workspace_path": Value::Null,
+                "kind": Value::Null,
+                "name": Value::Null,
+            })
+            .to_string(),
+        );
+    };
+
+    let folder_segment = match entry.kind.as_str() {
+        "overlay" => "overlays",
+        "theme" => "themes",
+        // Forward-compat: unknown `kind` from a future host write surfaces
+        // as `missing_index` rather than panicking, matching the existing
+        // tolerance in PublishIndex's serde layer.
+        _ => {
+            return Some(
+                json!({
+                    "id": id,
+                    "type": "publish.lookupWorkspaceResult",
+                    "artifact_id": artifact_id,
+                    "status": "missing_index",
+                    "workspace_path": Value::Null,
+                    "kind": Value::Null,
+                    "name": Value::Null,
+                })
+                .to_string(),
+            );
+        }
+    };
+
+    let abs_path = ctx.data_dir.join(folder_segment).join(&entry.name);
+    if !abs_path.exists() {
+        return Some(
+            json!({
+                "id": id,
+                "type": "publish.lookupWorkspaceResult",
+                "artifact_id": artifact_id,
+                "status": "missing_folder",
+                "workspace_path": Value::Null,
+                "kind": entry.kind.clone(),
+                "name": entry.name.clone(),
+            })
+            .to_string(),
+        );
+    }
+
+    let workspace_path = format!("{folder_segment}/{}", entry.name);
+    Some(
+        json!({
+            "id": id,
+            "type": "publish.lookupWorkspaceResult",
+            "artifact_id": artifact_id,
+            "status": "ok",
+            "workspace_path": workspace_path,
+            "kind": entry.kind.clone(),
+            "name": entry.name.clone(),
+        })
+        .to_string(),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3692,4 +3780,42 @@ mod tests {
         );
         assert_eq!(serde_json::to_value(StageStatus::Passed).unwrap(), "passed");
     }
+}
+
+#[cfg(test)]
+mod publish_lookup_workspace_tests {
+    use super::*;
+    use crate::share::publish_index::{self, PublishIndex, PublishIndexEntry};
+    use tempfile::TempDir;
+
+    #[allow(dead_code)]
+    fn write_index(dir: &TempDir, entries: Vec<PublishIndexEntry>) {
+        let path = dir.path().join("publish-index.json");
+        let idx = PublishIndex { entries };
+        publish_index::write(&path, &idx).unwrap();
+    }
+
+    #[allow(dead_code)]
+    fn entry(artifact_id: &str, kind: &str, name: &str) -> PublishIndexEntry {
+        PublishIndexEntry {
+            pubkey_hex: "abc".into(),
+            kind: kind.into(),
+            name: name.into(),
+            artifact_id: artifact_id.into(),
+            last_version: "1.0.0".into(),
+            last_published_at: "2026-05-11T00:00:00Z".into(),
+        }
+    }
+
+    // Real coverage of `handle_lookup_workspace`'s three terminal states
+    // (`ok` / `missing_index` / `missing_folder`) lives in Task 11's
+    // integration test at `crates/host/tests/publish_lookup_workspace.rs`,
+    // which exercises the handler through the WS dispatch boundary with
+    // a real on-disk `publish-index.json` and `data_dir` workspace.
+    //
+    // Inline unit tests here would require mocking `ShareContext`'s
+    // `data_dir` plus `config::data_dir()` (which `index_path()` reads),
+    // a setup the integration test gets for free via its test harness.
+    #[test]
+    fn placeholder_smoke() { /* see integration tests */ }
 }
