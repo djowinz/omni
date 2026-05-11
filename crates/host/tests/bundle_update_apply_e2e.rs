@@ -40,15 +40,10 @@ fn write_index(path: &Path, entries: Vec<PublishIndexEntry>) {
 #[tokio::test]
 async fn author_lookup_round_trips_through_publish_index_states() {
     let tmp = TempDir::new().unwrap();
-    // The handler reads the publish-index from `crate::config::data_dir()`
-    // which resolves to `$APPDATA/Omni/publish-index.json`, NOT from
-    // `ctx.data_dir`. Point APPDATA into the tempdir so the handler reads
-    // the same on-disk file the test seeds. The folder-existence probe on
-    // the other hand uses `ctx.data_dir` directly; we mkdir under both
-    // roots (which are the same path here) to keep the two consistent.
-    // Safe across tests in this binary: only one test, separate process.
-    std::env::set_var("APPDATA", tmp.path());
-    let index_path = tmp.path().join("Omni").join(publish_index::INDEX_FILENAME);
+    // The handler resolves both the publish-index path and the folder
+    // probe relative to `ctx.data_dir` — so we just seed under
+    // `tmp.path()` and the test stays free of env-var hackery.
+    let index_path = tmp.path().join(publish_index::INDEX_FILENAME);
     let entry = PublishIndexEntry {
         pubkey_hex: "abc".into(),
         kind: "overlay".into(),

@@ -2009,7 +2009,13 @@ async fn handle_lookup_workspace(id: &str, params: Value, ctx: &ShareContext) ->
         _ => return Some(bad_input(id, "missing or empty artifact_id")),
     };
 
-    let index_path = crate::share::publish_index::index_path();
+    // Read the publish-index from `ctx.data_dir` (matching how the folder
+    // probe below resolves) rather than the global `index_path()` which
+    // bakes in `$APPDATA` lookup. Production: `ctx.data_dir` IS the global
+    // data dir, so the resolved path is identical. Tests: this lets the
+    // test-harness ShareContext drive the handler end-to-end without
+    // mutating process-wide env vars to redirect `$APPDATA`.
+    let index_path = ctx.data_dir.join(crate::share::publish_index::INDEX_FILENAME);
     let index = crate::share::publish_index::read(&index_path).unwrap_or_default();
 
     let Some(entry) = index.lookup_by_artifact_id(&artifact_id) else {
