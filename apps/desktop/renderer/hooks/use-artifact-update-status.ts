@@ -44,7 +44,7 @@ interface ParsedSemver {
 const SEMVER_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-function parseSemver(input: string): ParsedSemver | null {
+function parseSemver(input: unknown): ParsedSemver | null {
   if (typeof input !== 'string') return null;
   const m = SEMVER_RE.exec(input);
   if (!m) return null;
@@ -92,7 +92,7 @@ function comparePrerelease(
 }
 
 /** Strict `>` comparison matching `semver.gt(latest, installed)`. */
-function semverGt(latest: string, installed: string): boolean {
+function semverGt(latest: unknown, installed: unknown): boolean {
   const l = parseSemver(latest);
   const i = parseSemver(installed);
   if (!l || !i) {
@@ -115,15 +115,19 @@ export function useArtifactUpdateStatus(
     for (const entry of entries) {
       const detail = byId.get(entry.artifact_id);
       if (!detail) continue;
-      const latest = detail.manifest.version;
+      // `manifest` is typed `Record<string, unknown>` — coerce the version
+      // field at the boundary. If it isn't a string at runtime, semverGt
+      // throws and we fall through to available=false.
+      const latestRaw = detail.manifest.version;
       const installed = entry.installed_version;
       let available = false;
       try {
-        available = semverGt(latest, installed);
+        available = semverGt(latestRaw, installed);
       } catch {
         // Malformed semver on either side — treat as "no update". Registry
         // corruption or worker payload drift should not crash the tab.
       }
+      const latest = typeof latestRaw === 'string' ? latestRaw : '';
       out.set(entry.artifact_id, { available, latest_version: latest, installed_version: installed });
     }
     return out;

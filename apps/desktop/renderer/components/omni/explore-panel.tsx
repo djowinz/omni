@@ -75,10 +75,9 @@ export function ExplorePanel() {
   const installedDetails = useInstalledDetails(installed.entries);
   // Per-installed-artifact update status (latest_version > installed_version).
   // Pure derivation off the registry rows + the live batch fetch — no extra
-  // network. Threaded into <ExploreDetail> so the header pill + author Update
-  // CTA can read the same map. (Threading into <ArtifactCard> via
-  // <ExploreGrid> for the corner pill lives in a follow-up task whose file
-  // ownership covers explore-grid.tsx + artifact-card.tsx.)
+  // network. Threaded into both <ExploreGrid> (corner pill on cards) and
+  // <ExploreDetail> (header pill + author Update CTA) so they read the same
+  // map.
   const updateStatus = useArtifactUpdateStatus(installed.entries, installedDetails.byId);
   // Tombstoned-id set: artifacts whose upstream row has `is_removed = 1`.
   // Discover never sees these (server filters), so this is sourced solely
@@ -233,6 +232,7 @@ export function ExplorePanel() {
             selectedId={filters.selectedId}
             installedIds={installed.ids}
             tombstonedIds={tombstonedIds}
+            updateStatus={updateStatus}
             onSelect={filters.setSelectedId}
             onPreview={handleHoverPreview}
             onInstall={handleHoverInstall}

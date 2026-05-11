@@ -42,19 +42,24 @@ export function UpdateConfirmDialog({
   const { send } = useShareWs();
   const [applying, setApplying] = useState(false);
   const keyRotated = installed.author_pubkey !== artifact.author_pubkey;
+  // `manifest` is typed `Record<string, unknown>` — narrow at the boundary.
+  const manifestName =
+    typeof artifact.manifest.name === 'string' ? artifact.manifest.name : artifact.artifact_id;
+  const manifestVersion =
+    typeof artifact.manifest.version === 'string' ? artifact.manifest.version : '';
 
   const handleApply = async () => {
     setApplying(true);
     try {
-      const installFolder = installFolderPath(artifact.manifest.name, artifact.artifact_id);
+      const installFolder = installFolderPath(manifestName, artifact.artifact_id);
       // Same wire shape as a fresh install — `overwrite: true` is the only
-      // delta. expected_pubkey pre-pins the locally-trusted key so the
+      // delta. expected_pubkey_hex pre-pins the locally-trusted key so the
       // install pipeline can detect rotation and surface TofuMismatchDialog.
       await send('explorer.install', {
         artifact_id: artifact.artifact_id,
-        target_workspace_path: installFolder,
+        target_workspace: installFolder,
         overwrite: true,
-        expected_pubkey: installed.author_pubkey,
+        expected_pubkey_hex: installed.author_pubkey,
       });
       onOpenChange(false);
       onApplied();
@@ -75,7 +80,7 @@ export function UpdateConfirmDialog({
         >
           <div className="flex items-start justify-between mb-3">
             <Dialog.Title className="text-base font-semibold">
-              Update {artifact.manifest.name}?
+              Update {manifestName}?
             </Dialog.Title>
             <Dialog.Close className="text-[#71717A] hover:text-[#FAFAFA]" aria-label="Close">
               <X className="h-4 w-4" />
@@ -92,12 +97,12 @@ export function UpdateConfirmDialog({
             <div className="text-[#34D399] text-lg">→</div>
             <div className="flex-1 rounded border border-[#34D399] bg-[#0a0a0c] p-3 text-center">
               <div className="text-[10px] uppercase text-[#34D399] tracking-wider">Latest</div>
-              <div className="text-sm font-mono mt-1 text-[#34D399]">v{artifact.manifest.version}</div>
+              <div className="text-sm font-mono mt-1 text-[#34D399]">v{manifestVersion}</div>
             </div>
           </div>
           <div className="text-xs text-[#71717A] mb-3">Published {relativeTime(artifact.updated_at)}</div>
           <div className="text-xs text-[#FCA5A5] bg-[rgba(127,29,29,0.15)] border border-[#7F1D1D] rounded p-2 mb-3">
-            ⚠ Updating will replace the installed files. Local edits to overlays/{artifact.manifest.name}/ will be overwritten.
+            ⚠ Updating will replace the installed files. Local edits to overlays/{manifestName}/ will be overwritten.
           </div>
           {keyRotated && (
             <div className="text-xs text-[#FCD34D] bg-[rgba(120,53,15,0.15)] border border-[#92400E] rounded p-2 mb-3">

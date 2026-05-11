@@ -3,19 +3,21 @@ import { describe, it, expect, vi } from 'vitest';
 import { UpdateConfirmDialog } from '../update-confirm-dialog';
 import type { InstalledEntryRow, ArtifactDetail } from '@/lib/share-types';
 
+// Fields per renderer-facing InstalledEntrySchema in share-types.ts.
 const installed: InstalledEntryRow = {
   artifact_id: 'A',
+  name: 'HWMon Compact',
+  kind: 'bundle',
   content_hash: 'h',
   author_pubkey: 'pk-original',
-  fingerprint_hex: 'fp',
-  source_url: 'u',
-  installed_at: 0,
+  author_fingerprint_hex: 'fp',
   installed_version: '1.0.0',
-  omni_min_version: '0.1.0',
   installed_path: '',
-  display_name: 'HWMon Compact',
+  installed_at: 0,
 };
 
+// Double-cast through unknown because ArtifactDetail's full shape carries fields
+// (e.g. manifest typing) that aren't worth replicating in a behavioural test.
 const artifact: ArtifactDetail = {
   artifact_id: 'A',
   author_pubkey: 'pk-original',
@@ -37,8 +39,8 @@ const artifact: ArtifactDetail = {
   r2_url: '',
   reports: 0,
   status: 'live',
-  thumbnail_url: null,
-} as ArtifactDetail;
+  thumbnail_url: '',
+} as unknown as ArtifactDetail;
 
 // `send` is the only external dependency we mock — the dialog component should
 // import it from useShareWs (or accept it as a prop for testability).

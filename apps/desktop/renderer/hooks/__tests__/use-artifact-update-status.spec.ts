@@ -3,21 +3,24 @@ import { describe, it, expect, vi } from 'vitest';
 import { useArtifactUpdateStatus } from '../use-artifact-update-status';
 import type { InstalledEntryRow, ArtifactDetail } from '../../lib/share-types';
 
+// Field names match the renderer-facing InstalledEntrySchema in share-types.ts,
+// which is the worker.listInstalledResult row shape (not the rust registry row).
 function entry(artifact_id: string, installed_version: string): InstalledEntryRow {
   return {
     artifact_id,
+    name: artifact_id,
+    kind: 'bundle',
     content_hash: 'h',
     author_pubkey: 'pk',
-    fingerprint_hex: 'fp',
-    source_url: 'u',
-    installed_at: 0,
+    author_fingerprint_hex: 'fp',
     installed_version,
-    omni_min_version: '0.1.0',
     installed_path: '',
-    display_name: artifact_id,
+    installed_at: 0,
   };
 }
 
+// ArtifactDetail has more fields than we exercise; double-cast through unknown
+// so the test fixture only carries the fields the hook reads.
 function detail(artifact_id: string, version: string): ArtifactDetail {
   return {
     artifact_id,
@@ -40,8 +43,8 @@ function detail(artifact_id: string, version: string): ArtifactDetail {
     r2_url: '',
     reports: 0,
     status: 'live',
-    thumbnail_url: null,
-  } as ArtifactDetail;
+    thumbnail_url: '',
+  } as unknown as ArtifactDetail;
 }
 
 describe('useArtifactUpdateStatus', () => {
